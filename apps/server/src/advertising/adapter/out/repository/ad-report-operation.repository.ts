@@ -69,9 +69,9 @@ export class AdReportOperationRepository implements AdReportOperationRepositoryP
           date: toDate(fact.date),
           campaignId: fact.campaignId,
           adGroupId: fact.adGroupId,
-          optionId: fact.optionId,
-          listingId: options.get(fact.optionId)?.listingId ?? null,
-          optionName: options.get(fact.optionId)?.optionName ?? null,
+          vendorItemId: fact.vendorItemId,
+          listingId: options.get(fact.vendorItemId)?.listingId ?? null,
+          optionName: options.get(fact.vendorItemId)?.optionName ?? null,
           impressions: fact.impressions,
           clicks: fact.clicks,
           spend: fact.spend,
@@ -90,7 +90,7 @@ export class AdReportOperationRepository implements AdReportOperationRepositoryP
           date: toDate(fact.date),
           campaignId: fact.campaignId,
           adGroupId: fact.adGroupId,
-          optionId: fact.optionId,
+          vendorItemId: fact.vendorItemId,
           keyword: fact.keyword,
           impressions: fact.impressions,
           clicks: fact.clicks,
@@ -187,13 +187,13 @@ export class AdReportOperationRepository implements AdReportOperationRepositoryP
       )`);
       await tx.$executeRaw`
         INSERT INTO channel_ad_campaign_ads (
-          id, organization_id, channel_account_id, ad_id, campaign_id, ad_group_id, option_id, is_active, status, last_seen_at,
+          id, organization_id, channel_account_id, ad_id, campaign_id, ad_group_id, vendor_item_id, is_active, status, last_seen_at,
           operation_id, created_at, updated_at
         ) VALUES ${Prisma.join(values)}
         ON CONFLICT (organization_id, channel_account_id, ad_id) DO UPDATE SET
           campaign_id = EXCLUDED.campaign_id,
           ad_group_id = EXCLUDED.ad_group_id,
-          option_id = EXCLUDED.option_id,
+          vendor_item_id = EXCLUDED.vendor_item_id,
           is_active = EXCLUDED.is_active,
           status = EXCLUDED.status,
           last_seen_at = EXCLUDED.last_seen_at,

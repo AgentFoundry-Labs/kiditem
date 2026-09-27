@@ -47,7 +47,7 @@ export type AdReportProductFact = Metrics & {
   date: string;
   campaignId: string;
   adGroupId: string;
-  optionId: string;
+  vendorItemId: string;
   billedSpend: number;
 };
 
@@ -55,7 +55,7 @@ export type AdReportKeywordFact = Metrics & {
   date: string;
   campaignId: string;
   adGroupId: string;
-  optionId: string;
+  vendorItemId: string;
   keyword: string;
 };
 
@@ -159,7 +159,7 @@ export function completeAdReport(
     const key = [row.date, row.campaignId, adGroupId, row.advertisedVendorItemId].join(':');
     const current = products.get(key);
     if (current) addMetrics(current, row);
-    else products.set(key, { date: row.date, campaignId: row.campaignId, adGroupId, optionId: row.advertisedVendorItemId, ...metricsOf(row) });
+    else products.set(key, { date: row.date, campaignId: row.campaignId, adGroupId, vendorItemId: row.advertisedVendorItemId, ...metricsOf(row) });
   }
   const productFacts = [...products.values()];
   const windowSettlements = settlementRows.filter((row) => inWindow(row.date));
@@ -172,7 +172,7 @@ export function completeAdReport(
     const key = [row.date, row.campaignId, adGroupId, row.advertisedVendorItemId, row.keyword].join(':');
     const current = keywords.get(key);
     if (current) addMetrics(current, row);
-    else keywords.set(key, { date: row.date, campaignId: row.campaignId, adGroupId, optionId: row.advertisedVendorItemId, keyword: row.keyword, ...metricsOf(row) });
+    else keywords.set(key, { date: row.date, campaignId: row.campaignId, adGroupId, vendorItemId: row.advertisedVendorItemId, keyword: row.keyword, ...metricsOf(row) });
   }
 
   const listed = new Set(campaigns.map((campaign) => campaign.campaignId));

@@ -332,7 +332,7 @@ erDiagram
     String adId
     String campaignId
     String adGroupId
-    String optionId
+    String vendorItemId
     Boolean isActive
     String status
     DateTime lastSeenAt
@@ -362,7 +362,7 @@ erDiagram
     DateTime date
     String campaignId
     String adGroupId
-    String optionId
+    String vendorItemId
     String keyword
     Int impressions
     Int clicks
@@ -398,7 +398,7 @@ erDiagram
     DateTime date
     String campaignId
     String adGroupId
-    String optionId
+    String vendorItemId
     String listingId
     String optionName
     Int impressions
