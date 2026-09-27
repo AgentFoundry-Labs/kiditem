@@ -146,6 +146,8 @@ type Capture = {
   campaigns?: AdReportCampaign[];
   ads?: AdReportAd[];
   vendorId?: string | null;
+  /** false면 기간 증거(`ad_period`)를 보내지 않는다 — 보고서를 만들었다는 증거가 없는 수집. */
+  period?: boolean;
 };
 
 describe('advertising.ad_report owner over the operation contract + disposable PG', () => {
@@ -246,7 +248,7 @@ describe('advertising.ad_report owner over the operation contract + disposable P
       campaignCount: campaigns.length,
       adCount: ads.length,
     };
-    await put(run, AD_REPORT_PERIOD_CHUNK_KIND, 1, [period]);
+    if (capture.period !== false) await put(run, AD_REPORT_PERIOD_CHUNK_KIND, 1, [period]);
   }
 
   it('plan locks the ad center of the account, defaults to the 15 days through yesterday and refuses a bad window', async () => {
@@ -452,9 +454,43 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     expect(keywords.map((row) => [row.keyword, row.adGroupId])).toEqual([['블록', '101']]);
   });
 
-  it('refuses a capture without report rows or under another vendor, and a failed run writes nothing', async () => {
+  it('an account with no ads in the window succeeds: both reports were made, zero rows is a measured zero and clears the old rows (KID-45)', async () => {
+    const first = await beginRun();
+    await collect(first, {
+      products: [productRow({ date: day(-1), spend: 500 })],
+      keywords: [keywordRow({ date: day(-1) })],
+      settlements: [settlementRow({ date: day(-1), deliveredSpend: 500, billedSpend: 500 })],
+    });
+    await finish(first).expect(200);
+
     const empty = await beginRun();
-    await collect(empty, {});
+    await collect(empty, { campaigns: [], ads: [] });
+    const finished = await finish(empty).expect(200);
+    expect(finished.body.operation).toMatchObject({
+      status: 'succeeded',
+      window: { start: day(-2), end: day(0) },
+      result: {
+        confirmedEndDate: day(0),
+        productRowCount: 0,
+        keywordRowCount: 0,
+        campaignCount: 0,
+        adCount: 0,
+        settlementRowCount: 0,
+        spendTotal: 0,
+        billedTotal: 0,
+        unsettledCampaignDays: 0,
+        accountAdjustmentRows: 0,
+        warnings: [],
+      },
+    });
+    await expect(prisma.channelAdProductDailySnapshot.count()).resolves.toBe(0);
+    await expect(prisma.channelAdKeywordDailySnapshot.count()).resolves.toBe(0);
+    await expect(prisma.channelAdDailyBilling.count()).resolves.toBe(0);
+  });
+
+  it('refuses a capture without the report evidence or under another vendor, and a failed run writes nothing', async () => {
+    const empty = await beginRun();
+    await collect(empty, { products: [productRow({ date: day(0) })], period: false });
     const refused = await finish(empty).expect(400);
     expect(refused.body).toMatchObject({ code: 'VALIDATION_FAILED', message: '보고서 행이 없습니다. 광고센터에서 다시 수집해 주세요.', details: { reason: 'ad_report_rows_missing' } });
     await finish(empty, { outcome: 'failed', errorCode: 'VALIDATION_FAILED' }).expect(200);

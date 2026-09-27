@@ -99,7 +99,7 @@ export function adReportPlanWindow(scope: AdReportScope, closedDay: string): { s
 
 /**
  * `advertising.ad_report` 완결 판정과 원장 행 만들기(KID-371). 기간 증거 `ad_period`가 정확히 하나이고 plan 창·업체코드와
- * 맞아야 하며, 상품·키워드 행이 하나도 없으면 거절한다(모두 VALIDATION_FAILED). 창 끝은 전날 보류 규칙으로 정하고
+ * 맞아야 한다(없으면 "보고서 행이 없습니다"). 증거가 있으면 행 0개도 측정한 0이다(KID-45) — 창의 옛 행을 지우고 성공한다. 창 끝은 전날 보류 규칙으로 정하고
  * (`confirmedAdReportEnd`), 확정 창 밖 행은 버린다. 상품 행은 (날짜, 캠페인, 광고그룹, 광고 옵션)으로, 키워드 행은
  * 거기에 키워드를 더해 합한다. 빈 광고그룹은 캠페인 목록과 상품 보고서의 (캠페인, 그룹 이름)으로 채우고, 그래도 없으면
  * 상품 행은 `''`, 키워드 행은 null로 둔다.
@@ -112,6 +112,10 @@ export function completeAdReport(
   const unknown = chunks.find((chunk) => !KNOWN_CHUNK_KINDS.has(chunk.chunkKind));
   if (unknown) throw invalid('unknown_chunk_kind', { chunkKind: unknown.chunkKind });
   const periods = chunkItems(chunks, AD_REPORT_PERIOD_CHUNK_KIND, AdReportPeriodSchema);
+  // 기간 증거가 보고서 2개를 만들었다는 증명이다. 없으면 받은 행이 있어도 창을 측정했다고 볼 수 없다.
+  if (periods.length === 0) {
+    throw invalid('ad_report_rows_missing', {}, '보고서 행이 없습니다. 광고센터에서 다시 수집해 주세요.');
+  }
   if (periods.length !== 1) throw invalid('ad_report_incomplete', { periods: periods.length });
   const period = periods[0]!;
   if (period.startDate !== plan.startDate || period.endDate !== plan.endDate) {
@@ -123,9 +127,6 @@ export function completeAdReport(
   }
   const productRows = chunkItems(chunks, AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, AdReportProductRowSchema);
   const keywordRows = chunkItems(chunks, AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, AdReportKeywordRowSchema);
-  if (productRows.length + keywordRows.length === 0) {
-    throw invalid('ad_report_rows_missing', {}, '보고서 행이 없습니다. 광고센터에서 다시 수집해 주세요.');
-  }
   const settlementRows = chunkItems(chunks, AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND, AdReportSettlementRowSchema);
   const campaigns = uniqueBy(chunkItems(chunks, AD_REPORT_CAMPAIGNS_CHUNK_KIND, AdReportCampaignSchema), (campaign) => campaign.campaignId);
   const ads = uniqueBy(chunkItems(chunks, AD_REPORT_ADS_CHUNK_KIND, AdReportAdSchema), (ad) => ad.adId);
