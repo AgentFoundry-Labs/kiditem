@@ -5,7 +5,7 @@ import { OPERATION_STATUSES } from '@kiditem/shared/operation';
 import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
 
 /** 쓰기 모듈이 있는 몰(KID-256). */
-const MALL_WRITE_SITES = ['11st', 'always', 'art09', 'boribori', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kakao', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall'];
+const MALL_WRITE_SITES = ['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kakao', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall'];
 
 // 커밋된 번들(서비스워커가 싣는 바로 그 파일)을 classic script 처럼 실행한다.
 // `extension:check` 가 이 파일이 src 의 새 빌드와 바이트까지 같은지 따로 본다.
@@ -93,8 +93,8 @@ describe('committed runtime bundle', () => {
     );
 
     expect(registered).toHaveLength(1);
-    // 알림 창 가드 짝의 "수집 탭인가" 물음(실기기 R1) · 팝업 COLLECT_CURRENT · keepalive 포트.
-    expect(runtimeListeners).toEqual(['onMessage', 'onMessage', 'onConnect']);
+    // 알림 창 가드 짝의 "수집 탭인가" 물음(실기기 R1) · 쓰기 탭의 실제 입력 부탁(KID-256) · 팝업 COLLECT_CURRENT · keepalive 포트.
+    expect(runtimeListeners).toEqual(['onMessage', 'onMessage', 'onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
     // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
     // operationLoginV1: operation.start의 credentials를 받는 빌드(KID-377) — 웹은 이 표시가 있을 때만 자격을 싣는다.

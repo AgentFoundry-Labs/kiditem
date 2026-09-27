@@ -110,8 +110,11 @@ registerMallWriter({
   dialogHosts: ['shop.kidsnote.com'],
   login: KIDSNOTE_LOGIN,
   custom: {
-    url: (form) => {
-      const raw = asRaw(form);
+    url: (input) => {
+      if (input.executionKind !== 'register') {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID, '키즈노트는 기존 상품 수정 화면 채우기를 지원하지 않습니다.', { mallKey: 'kidsnote', executionKind: input.executionKind });
+      }
+      const raw = asRaw(input.form);
       if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID, '키즈노트 상품등록 주소가 아닙니다.', { reason: 'register_url' });
       return String(raw.url).trim();
     },

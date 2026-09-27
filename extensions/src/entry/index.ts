@@ -81,6 +81,7 @@ import '../sites/thirtymall/listings';
 import '../sites/thirtymall/registration';
 import '../sites/tiktok-cc';
 import '../sites/wing';
+import '../sites/wing/registration';
 import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
@@ -89,7 +90,7 @@ import { ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/adve
 import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
-import { createTabPages, installDialogGuardAnswer, sweepDialogGuards } from '../sites/tab-page';
+import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
@@ -116,6 +117,8 @@ export function installEntry(): boolean {
   void sweepDialogGuards(chrome);
   // 가드 짝이 묻는 "이 탭이 수집 탭인가"에 답한다(실기기 R1).
   if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
+  // 쓰기 탭 처리기의 실제 입력 부탁(Wing 카테고리 검색칸, KID-256)에 답한다 — 이 런타임이 쥔 탭에서 온 것만.
+  if (chrome.runtime?.onMessage) installTrustedInputAnswer(chrome, site.tabs);
   const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({

@@ -27,8 +27,12 @@ export interface MallFill {
   dialogs: string[];
 }
 
-/** [등록]을 누른 뒤 몰이 보인 것. `accepted`: 받았다(true)·거절했다(false)·모른다(null). */
+/**
+ * [등록]을 누른 뒤 몰이 보인 것. `pressed`: 버튼을 실제로 눌렀는가(못 찾았으면 false — 제출이 아니다). `accepted`: 받았다(true)·
+ * 거절했다(false)·모른다(null).
+ */
 export interface MallSubmission {
+  pressed: boolean;
   accepted: boolean | null;
   externalListingId: string | null;
   observedUrl: string | null;
@@ -36,6 +40,9 @@ export interface MallSubmission {
 }
 
 export interface MallFillInput {
+  /** register는 새 상품 등록 화면, update·composition_change는 기존 리스팅의 수정 화면(`externalListingId`)이다. */
+  executionKind: 'register' | 'update' | 'composition_change';
+  externalListingId: string | null;
   form: Record<string, unknown>;
   /** 실행이 [등록]까지 부탁했는가(관문 조건 1). */
   submit: boolean;
@@ -63,8 +70,10 @@ export interface MallWriteContext extends MallWriteDeps {
 
 /** 폼 명세로 채우지 않는 몰(키즈노트·Wing)의 채우기. 열린 쓰기 탭에서 채우고, 누르기가 검증된 몰만 `submit`을 둔다. */
 export interface MallCustomRegistration {
-  /** 등록 화면 주소(폼 지시에서 읽는다). 몰의 주소가 아니면 던진다. */
-  url(form: Record<string, unknown>): string;
+  /** 채울 화면 주소(새 등록 화면, 또는 수정이면 그 리스팅의 수정 화면). 몰의 주소가 아니거나 열 수 없으면 던진다. */
+  url(input: MallFillInput): string;
+  /** 페이지 번들보다 먼저 돌아야 하는 보완 파일(Wing formV2 런타임 호환) — 쓰기 탭이 그 파일을 새 문서 스크립트로 걸고 옮긴다. */
+  bootstrapFile?: string;
   fill(context: MallWriteContext, page: TabPage, input: MallFillInput): Promise<{ fill: MallFill; providerAccountId: string | null }>;
   submit?(context: MallWriteContext, page: TabPage): Promise<MallSubmission>;
 }
@@ -119,11 +128,22 @@ export async function fillRegistration(definition: MallWriterDefinition, context
   if (!spec && !custom) {
     throw new RuntimeError(RUNTIME_PLAN_INVALID, `${definition.displayName}은 상품등록 폼 채우기를 지원하지 않습니다.`, { mallKey: definition.mallKey });
   }
+  // 몰 폼 명세는 새 상품 등록 화면만 안다(수정·복사 화면 주소는 거절한다) — 기존 리스팅 수정 화면을 채우는 몰(Wing)만 수정을 받는다.
+  if (spec && !custom && input.executionKind !== 'register') {
+    throw new RuntimeError(RUNTIME_PLAN_INVALID, `${definition.displayName}은 기존 상품 수정 화면 채우기를 지원하지 않습니다.`, {
+      mallKey: definition.mallKey,
+      executionKind: input.executionKind,
+    });
+  }
   // 폼 지시 검사와 사진 준비는 탭을 열기 전에 한다(옛 순서) — 몰 주소가 아니면 탭을 열지 않는다.
   const normalized = spec ? normalizeForm(spec, input.form) : null;
   const prepared = spec && normalized ? await prepareMallForm(context, spec, normalized) : null;
-  const url = normalized ? normalized.url : custom!.url(input.form);
-  const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: definition.dialogHosts });
+  const url = normalized ? normalized.url : custom!.url(input);
+  const tab = await openWriteTab(context, url, {
+    signIn: context.signIn,
+    dialogHosts: definition.dialogHosts,
+    ...(custom?.bootstrapFile ? { bootstrapFile: custom.bootstrapFile } : {}),
+  });
   try {
     const filled = await tab.run(async (page) => {
       if (spec && prepared) return { fill: await fillMallForm(context, page, spec, prepared), providerAccountId: null };

@@ -38,7 +38,7 @@ function site(session: Partial<RegistrationFillSession>, log: string[] = []): Re
             observedUrl: 'https://domeggook.com/sc/item/regFrm',
             async submit() {
               log.push('submit');
-              return { accepted: true, externalListingId: '123', observedUrl: null, mallMessage: null };
+              return { pressed: true, accepted: true, externalListingId: '123', observedUrl: null, mallMessage: null };
             },
             async done() {
               log.push('done');
@@ -91,7 +91,7 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
         providerAccountId: 'A00012345',
         async submit() {
           log.push('submit');
-          return { accepted: true, externalListingId: '15321', observedUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list', mallMessage: null };
+          return { pressed: true, accepted: true, externalListingId: '15321', observedUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list', mallMessage: null };
         },
       }, log),
     );
@@ -117,7 +117,7 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
     const unknown = await run(plan({ mallKey: 'wing' }), site({
       decision: { press: true },
       async submit() {
-        return { accepted: null, externalListingId: null, observedUrl: null, mallMessage: '확인 모달이 남았습니다' };
+        return { pressed: true, accepted: null, externalListingId: null, observedUrl: null, mallMessage: '확인 모달이 남았습니다' };
       },
     }));
     expect(unknown.finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'submitted', submitted: true, mallMessage: '확인 모달이 남았습니다' } });
@@ -125,11 +125,24 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
     const rejected = await run(plan({ mallKey: 'wing' }), site({
       decision: { press: true },
       async submit() {
-        return { accepted: false, externalListingId: null, observedUrl: null, mallMessage: '필수 항목 누락' };
+        return { pressed: true, accepted: false, externalListingId: null, observedUrl: null, mallMessage: '필수 항목 누락' };
       },
     }));
     expect(rejected.finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'uncertain', submitted: true } });
     expect(rejected.chunks[1]!.payload[0]).toMatchObject({ observedStatus: 'submission_rejected', message: '필수 항목 누락' });
+  });
+
+  it('등록 버튼을 못 찾아 누르지 못했으면 제출이 아니다 — 폼만 채운 것으로 끝나고 몰의 말을 남긴다', async () => {
+    const { chunks, finish } = await run(plan({ mallKey: 'wing' }), site({
+      decision: { press: true },
+      async submit() {
+        return { pressed: false, accepted: null, externalListingId: null, observedUrl: null, mallMessage: '상품등록 버튼을 찾지 못했습니다.' };
+      },
+    }));
+    expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['registration_fill']);
+    expect(finish).toEqual({
+      result: expect.objectContaining({ providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'submit_button_missing', mallMessage: '상품등록 버튼을 찾지 못했습니다.' }),
+    });
   });
 
   it('누르기가 실패해도 탭은 운영자에게 넘긴다', async () => {

@@ -17,8 +17,9 @@ import { RegistrationDocumentPayloadSchema } from './payload';
 /** 관문(`sites/mall-write/submit-gate.ts`)이 정한 것. 누르지 않으면 까닭(없으면 부탁받지 않았다). */
 export type RegistrationSubmitDecision = { press: true } | { press: false; skipped: string | null };
 
-/** 몰이 [등록] 뒤에 보인 것. `accepted`: 받았다·거절했다·모른다(null). */
+/** 몰이 [등록] 뒤에 보인 것. `pressed`: 버튼을 실제로 눌렀는가(못 찾았으면 제출이 아니다). `accepted`: 받았다·거절했다·모른다(null). */
 export interface RegistrationSubmission {
+  pressed: boolean;
   accepted: boolean | null;
   externalListingId: string | null;
   observedUrl: string | null;
@@ -36,7 +37,13 @@ export interface RegistrationFillSession {
 }
 
 export interface RegistrationWriter {
-  fill(input: { form: Record<string, unknown>; submit: boolean; expectedProviderAccountId: string | null }): Promise<RegistrationFillSession>;
+  fill(input: {
+    executionKind: 'register' | 'update' | 'composition_change';
+    externalListingId: string | null;
+    form: Record<string, unknown>;
+    submit: boolean;
+    expectedProviderAccountId: string | null;
+  }): Promise<RegistrationFillSession>;
 }
 
 /** 이 수집기가 쓰는 사이트: 몰 키 → 그 몰 쓰기 모듈(`sites/mall-write`가 쓰기 모듈이 있는 몰만 찾아 준다). */
@@ -96,7 +103,13 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
       if (!payload.success || !payload.data.form || !writer.fill) {
         throw invalid('등록 계획에 몰 폼 지시가 없습니다.', { mallKey: plan.mallKey, executionKind: plan.executionKind });
       }
-      const session = await writer.fill({ form: payload.data.form, submit: plan.submit, expectedProviderAccountId: plan.expectedProviderAccountId });
+      const session = await writer.fill({
+        executionKind: plan.executionKind,
+        externalListingId: plan.externalListingId,
+        form: payload.data.form,
+        submit: plan.submit,
+        expectedProviderAccountId: plan.expectedProviderAccountId,
+      });
       try {
         // 몰 화면의 판매자 계정을 읽는 몰(Wing)은 plan의 계정과 대조한다 — 다른 계정의 폼에 쓴 것을 남기지 않는다.
         if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
@@ -105,7 +118,9 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
           });
         }
         yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress, stage: 'filled' } };
-        const submission = session.decision.press ? await session.submit() : null;
+        const attempt = session.decision.press ? await session.submit() : null;
+        // 버튼을 못 찾아 누르지 못했으면 제출이 아니다 — 폼만 채운 것과 같다(까닭은 몰의 말로 남긴다).
+        const submission = attempt?.pressed ? attempt : null;
         const { outcome, observed } = mallOutcomeOf(submission, session.providerAccountId);
         let evidence: RegistrationEvidenceRow | null = null;
         if (submission) {
@@ -128,9 +143,9 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
             providerOutcome: providerOutcomeOf(outcome),
             mallOutcome: outcome,
             submitted: submission !== null,
-            submitSkipped: session.decision.press ? null : session.decision.skipped,
+            submitSkipped: session.decision.press ? (submission ? null : 'submit_button_missing') : session.decision.skipped,
             externalListingId: submission?.externalListingId ?? null,
-            mallMessage: submission?.mallMessage ?? null,
+            mallMessage: (submission ?? attempt)?.mallMessage ?? null,
             fill: session.fill,
             evidence,
           },

@@ -24,7 +24,7 @@ export interface WriteTab {
 export async function openWriteTab(
   deps: { tabs: TabPages; sleep(ms: number): Promise<void> },
   url: string,
-  options: { signIn?: SiteSignIn | null; dialogHosts: readonly string[]; navigationTimeoutMs?: number },
+  options: { signIn?: SiteSignIn | null; dialogHosts: readonly string[]; navigationTimeoutMs?: number; bootstrapFile?: string },
 ): Promise<WriteTab> {
   const signIn = options.signIn ?? null;
   const hosts = signIn?.hosts ?? options.dialogHosts;
@@ -44,7 +44,11 @@ export async function openWriteTab(
   try {
     page = await deps.tabs.open('about:blank');
     const stopAt = signIn ? (landed: string) => signIn.isLoginUrl(landed) : undefined;
-    await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...(stopAt ? { stopAt } : {}) });
+    await page.navigate(url, {
+      timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS,
+      ...(stopAt ? { stopAt } : {}),
+      ...(options.bootstrapFile ? { bootstrapFile: options.bootstrapFile } : {}),
+    });
     reached = true;
     await deps.sleep(SETTLE_MS);
   } catch (error) {

@@ -6457,7 +6457,13 @@ var KidItemRuntime = (() => {
         if (!payload.success || !payload.data.form || !writer.fill) {
           throw invalid("\uB4F1\uB85D \uACC4\uD68D\uC5D0 \uBAB0 \uD3FC \uC9C0\uC2DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
         }
-        const session = await writer.fill({ form: payload.data.form, submit: plan.submit, expectedProviderAccountId: plan.expectedProviderAccountId });
+        const session = await writer.fill({
+          executionKind: plan.executionKind,
+          externalListingId: plan.externalListingId,
+          form: payload.data.form,
+          submit: plan.submit,
+          expectedProviderAccountId: plan.expectedProviderAccountId
+        });
         try {
           if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
             throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uB4F1\uB85D\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", {
@@ -6465,7 +6471,8 @@ var KidItemRuntime = (() => {
             });
           }
           yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress4, stage: "filled" } };
-          const submission = session.decision.press ? await session.submit() : null;
+          const attempt = session.decision.press ? await session.submit() : null;
+          const submission = attempt?.pressed ? attempt : null;
           const { outcome, observed } = mallOutcomeOf(submission, session.providerAccountId);
           let evidence = null;
           if (submission) {
@@ -6488,9 +6495,9 @@ var KidItemRuntime = (() => {
               providerOutcome: providerOutcomeOf(outcome),
               mallOutcome: outcome,
               submitted: submission !== null,
-              submitSkipped: session.decision.press ? null : session.decision.skipped,
+              submitSkipped: session.decision.press ? submission ? null : "submit_button_missing" : session.decision.skipped,
               externalListingId: submission?.externalListingId ?? null,
-              mallMessage: submission?.mallMessage ?? null,
+              mallMessage: (submission ?? attempt)?.mallMessage ?? null,
               fill: session.fill,
               evidence
             }
@@ -9189,6 +9196,42 @@ var KidItemRuntime = (() => {
     if (cleared) await onAttention?.(null);
     return cleared;
   }
+  var TRUSTED_INPUT_ACTION = "kiditem.write.insertText";
+  function installTrustedInputAnswer(chromeApi, tabs) {
+    chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!message || typeof message !== "object" || message.action !== TRUSTED_INPUT_ACTION) return void 0;
+      const value = message.value;
+      const tabId = sender.tab?.id;
+      if (typeof tabId !== "number" || !tabs.isRunTab(tabId)) {
+        sendResponse({ ok: false, error: "\uC774 \uD655\uC7A5\uC774 \uC4F0\uB294 \uD0ED\uC774 \uC544\uB2D9\uB2C8\uB2E4." });
+        return void 0;
+      }
+      if (typeof value !== "string" || value.length === 0 || value.length > 100 || /[\r\n\0]/.test(value)) {
+        sendResponse({ ok: false, error: "\uB123\uC744 \uAE00\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
+        return void 0;
+      }
+      const api = chromeApi.debugger;
+      if (!api) {
+        sendResponse({ ok: false, error: "\uC2E4\uC81C \uC785\uB825\uC744 \uC4F8 \uC218 \uC5C6\uB294 \uD658\uACBD\uC785\uB2C8\uB2E4." });
+        return void 0;
+      }
+      const target = { tabId };
+      void (async () => {
+        let attached = false;
+        try {
+          await api.attach(target, "1.3");
+          attached = true;
+          await api.sendCommand(target, "Input.insertText", { text: value });
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error?.message ?? String(error) });
+        } finally {
+          if (attached) await api.detach(target).catch(() => void 0);
+        }
+      })();
+      return true;
+    });
+  }
   var POLL_MS = 250;
   var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
@@ -9223,12 +9266,36 @@ var KidItemRuntime = (() => {
           clearTimeout(timer);
         }
       }
+      async function navigateWithBootstrap(url, file) {
+        const api = deps.chrome.debugger;
+        const getURL = deps.chrome.runtime.getURL;
+        if (!api || !getURL) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC900\uBE44\uD560 \uC218 \uC5C6\uB294 \uD658\uACBD\uC785\uB2C8\uB2E4.", { url });
+        const response = await deps.fetch(getURL(file));
+        if (!response.ok) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0 \uC900\uBE44 \uD30C\uC77C\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url, file });
+        const source = await response.text();
+        const target = { tabId };
+        let attached = false;
+        try {
+          await api.attach(target, "1.3");
+          attached = true;
+          await api.sendCommand(target, "Page.enable");
+          const script = await api.sendCommand(target, "Page.addScriptToEvaluateOnNewDocument", { source });
+          if (typeof script?.identifier !== "string") throw new Error("\uC0C8 \uBB38\uC11C \uC2A4\uD06C\uB9BD\uD2B8\uB97C \uB4F1\uB85D\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+          const navigation = await api.sendCommand(target, "Page.navigate", { url });
+          if (navigation?.errorText) throw new Error(navigation.errorText);
+        } catch (error) {
+          throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uAC00 \uB728\uAE30 \uC804\uC5D0 \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url, reason: error?.message ?? String(error) });
+        } finally {
+          if (attached) await api.detach(target).catch(() => void 0);
+        }
+      }
       return {
         tabId,
-        async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+        async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false, bootstrapFile }) {
           const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
           if (owned && !closed) runTabs.add(tabId);
-          await deps.chrome.tabs.update(tabId, { url });
+          if (bootstrapFile) await navigateWithBootstrap(url, bootstrapFile);
+          else await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
           await deps.sleep(POLL_MS);
@@ -10332,7 +10399,11 @@ var KidItemRuntime = (() => {
     try {
       page = await deps.tabs.open("about:blank");
       const stopAt = signIn ? (landed) => signIn.isLoginUrl(landed) : void 0;
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS4, ...stopAt ? { stopAt } : {} });
+      await page.navigate(url, {
+        timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS4,
+        ...stopAt ? { stopAt } : {},
+        ...options.bootstrapFile ? { bootstrapFile: options.bootstrapFile } : {}
+      });
       reached = true;
       await deps.sleep(SETTLE_MS);
     } catch (error) {
@@ -10382,10 +10453,20 @@ var KidItemRuntime = (() => {
     if (!spec && !custom2) {
       throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
     }
+    if (spec && !custom2 && input.executionKind !== "register") {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, {
+        mallKey: definition.mallKey,
+        executionKind: input.executionKind
+      });
+    }
     const normalized = spec ? normalizeForm(spec, input.form) : null;
     const prepared = spec && normalized ? await prepareMallForm(context, spec, normalized) : null;
-    const url = normalized ? normalized.url : custom2.url(input.form);
-    const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: definition.dialogHosts });
+    const url = normalized ? normalized.url : custom2.url(input);
+    const tab = await openWriteTab(context, url, {
+      signIn: context.signIn,
+      dialogHosts: definition.dialogHosts,
+      ...custom2?.bootstrapFile ? { bootstrapFile: custom2.bootstrapFile } : {}
+    });
     try {
       const filled = await tab.run(async (page) => {
         if (spec && prepared) return { fill: await fillMallForm(context, page, spec, prepared), providerAccountId: null };
@@ -13419,8 +13500,11 @@ var KidItemRuntime = (() => {
     dialogHosts: ["shop.kidsnote.com"],
     login: KIDSNOTE_LOGIN,
     custom: {
-      url: (form) => {
-        const raw = asRaw(form);
+      url: (input) => {
+        if (input.executionKind !== "register") {
+          throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8\uB294 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", executionKind: input.executionKind });
+        }
+        const raw = asRaw(input.form);
         if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
         return String(raw.url).trim();
       },
@@ -15659,6 +15743,113 @@ var KidItemRuntime = (() => {
     create: (deps, lease) => createWingSite(wingCallerWithLogin(createSiteCaller(WING_SITE.caller, deps), deps, lease), { sleep: deps.sleep })
   });
 
+  // extensions/src/sites/wing/registration.ts
+  var WING_FORM_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
+  var WING_REGISTER_FILE = "content/page-call/wing-register.js";
+  var WING_COMPAT_FILE = "content/page-call/wing-form-compat.js";
+  var WING_IDENTITY_FILE = "shared/wing-account-identity.js";
+  var FILL_TIMEOUT_MS3 = 5 * 6e4;
+  var SUBMIT_TIMEOUT_MS = 9e4;
+  var COMPAT_TIMEOUT_MS = 15e3;
+  var VENDOR_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+  var STORAGE_ORIGINS = ["http://localhost:9000", "http://kiditem-office:9000"];
+  var WING_WRITE_GUARD = {
+    allows: (url) => hostWithin(url, ["wing.coupang.com"]),
+    isLogin: (url) => WING_LOGIN.isLoginUrl(url),
+    loginMessage: "\uCFE0\uD321 \uC719 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694."
+  };
+  function storageImageUrls(product) {
+    const urls = /* @__PURE__ */ new Set();
+    const add = (value) => {
+      if (typeof value !== "string") return;
+      try {
+        if (STORAGE_ORIGINS.includes(new URL(value).origin)) urls.add(value);
+      } catch {
+      }
+    };
+    for (const key of ["additionalImageUrls", "detailImageUrls"]) for (const url of Array.isArray(product[key]) ? product[key] : []) add(url);
+    for (const variant of Array.isArray(product.variants) ? product.variants : []) add(asRaw(variant).representativeImageUrl);
+    return [...urls];
+  }
+  function wingFormUrl(input) {
+    if (input.executionKind === "register") return WING_FORM_URL;
+    const id3 = input.externalListingId?.trim() ?? "";
+    if (!/^\d{6,}$/.test(id3)) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC218\uC815\uD560 \uCFE0\uD321 \uC719 \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC5B4 \uC218\uC815 \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", executionKind: input.executionKind });
+    }
+    return `${WING_FORM_URL}?vendorInventoryId=${id3}`;
+  }
+  function wingProductOf(form) {
+    const wrapped = asRaw(form.product);
+    return Object.keys(wrapped).length > 0 && !("categoryCell" in form) ? wrapped : form;
+  }
+  function fillFailure(error) {
+    if (error && /account identity|identity helper/i.test(error)) {
+      return new RuntimeError("REGISTRATION_ACCOUNT_MISMATCH", "\uCFE0\uD321 \uC719\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uAC70\uB098 \uB4F1\uB85D\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: "coupang" });
+    }
+    return new RuntimeError(REGISTRATION_FILL_FAILED, error ?? "\uCFE0\uD321 \uC719 \uC0C1\uD488\uB4F1\uB85D \uD3FC\uC744 \uCC44\uC6B0\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC9C1\uC811 \uC785\uB825\uD574 \uC8FC\uC138\uC694.", { mallKey: "coupang" });
+  }
+  async function fillWing(context, page, input) {
+    const product = wingProductOf(input.form);
+    const expected = input.expectedProviderAccountId?.trim() ?? "";
+    if (!VENDOR_ID.test(expected)) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC2B9\uC778\uB41C \uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC5B4 \uCC44\uC6B0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+    }
+    const compat = await callPage(page, "wing.compat", {}, {
+      timeoutMs: COMPAT_TIMEOUT_MS,
+      guard: context.guard,
+      main: [WING_COMPAT_FILE],
+      displayName: context.displayName
+    });
+    if (compat?.ok !== true) {
+      throw new RuntimeError(REGISTRATION_FILL_FAILED, `\uCFE0\uD321 \uC719 \uC0C1\uD488\uB4F1\uB85D \uD654\uBA74\uC744 \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. ${compat?.error ?? ""}`.trim(), { mallKey: "coupang", stage: "compat" });
+    }
+    const loaded = await toDataUrls(context.fetch, storageImageUrls(product).map((url) => ({ name: url, url })));
+    const imageData = Object.fromEntries(loaded.filter((image) => image.dataUrl).map((image) => [image.name, image.dataUrl]));
+    const outcome = await callPage(page, "wing.fill", { product, expectedVendorId: expected, imageData }, {
+      timeoutMs: FILL_TIMEOUT_MS3,
+      guard: context.guard,
+      isolated: [WING_IDENTITY_FILE, WING_REGISTER_FILE],
+      displayName: context.displayName
+    });
+    if (outcome?.ok !== true) throw fillFailure(outcome?.error);
+    const warnings = loaded.filter((image) => image.error).map((image) => `\uC0AC\uC9C4\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${image.error}`);
+    return {
+      fill: { steps: outcome.steps ?? [], warnings, manualSteps: [], dialogs: [] },
+      providerAccountId: outcome.evidence?.wingVendorId ?? null
+    };
+  }
+  async function submitWing(context, page) {
+    const answer = await callPage(page, "wing.submit", {}, {
+      timeoutMs: SUBMIT_TIMEOUT_MS,
+      guard: context.guard,
+      isolated: [WING_IDENTITY_FILE, WING_REGISTER_FILE],
+      displayName: context.displayName
+    });
+    const observed = await page.currentUrl().catch(() => null);
+    return {
+      pressed: answer?.clicked === true,
+      // 완료 안내를 봤으면 받았다, 못 봤으면 모른다 — 추측으로 성공을 보고하지 않는다.
+      accepted: answer?.status === "registered" ? true : null,
+      externalListingId: answer?.externalListingId ?? null,
+      observedUrl: observed ? observed.split(/[?#]/)[0] : null,
+      mallMessage: answer?.error ?? null
+    };
+  }
+  registerMallWriter({
+    mallKey: "coupang",
+    displayName: "\uCFE0\uD321 \uC719",
+    guard: WING_WRITE_GUARD,
+    dialogHosts: ["wing.coupang.com"],
+    login: WING_LOGIN,
+    custom: {
+      url: wingFormUrl,
+      bootstrapFile: WING_COMPAT_FILE,
+      fill: fillWing,
+      submit: submitWing
+    }
+  });
+
   // extensions/src/sites/wing/vendor-identity.ts
   var WING_VENDOR_IDENTITY_UNAVAILABLE = "WING_VENDOR_IDENTITY_UNAVAILABLE";
   var WING_VENDOR_IDENTITY_AMBIGUOUS = "WING_VENDOR_IDENTITY_AMBIGUOUS";
@@ -16788,6 +16979,7 @@ var KidItemRuntime = (() => {
     };
     void sweepDialogGuards(chrome);
     if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
+    if (chrome.runtime?.onMessage) installTrustedInputAnswer(chrome, site.tabs);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
