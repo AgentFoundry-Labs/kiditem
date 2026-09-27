@@ -32,12 +32,13 @@ type StartReply =
   | { success: true; operationId: string; reused: boolean }
   | { success: false; errorCode?: string; error?: string; details?: { existing?: { operationId?: unknown } | null } | null };
 
-async function extensionWithRuntime(capability: string): Promise<{ extensionId: string; acceptsLogin: boolean; acceptsLoginBlocked: boolean }> {
+async function extensionWithRuntime(capability: string | readonly string[]): Promise<{ extensionId: string; acceptsLogin: boolean; acceptsLoginBlocked: boolean }> {
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error(EXTENSION_MISSING);
   const ping = await sendToExtension<PingReply>(extensionId, { action: 'ping' });
+  const required = typeof capability === 'string' ? [capability] : capability;
   if (ping?.success !== true || ping.capabilities?.[OPERATION_RUNTIME_CAPABILITY] !== true
-    || ping.capabilities?.[capability] !== true) {
+    || required.some((name) => ping.capabilities?.[name] !== true)) {
     throw new Error(OPERATION_RUNTIME_UPDATE_REQUIRED);
   }
   await transferExtensionAuthTo(extensionId);
@@ -63,12 +64,13 @@ export async function requestOperationStart(
   kind: OperationKind,
   scope: Record<string, unknown>,
   /**
-   * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). `idempotencyKey`: 같은 시작을
+   * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). 여럿이면 모두 있어야 한다
+   * (등록 kind 표시 + 그 몰의 쓰기 사이트 `mallWriteSite.<key>`, KID-364). `idempotencyKey`: 같은 시작을
    * 다시 보내도 같은 실행을 돌려받는다(끊긴 답을 되풀이할 때). `credentials`: 사이트 자동 로그인에 쓸 그 몰의 저장 자격 —
    * 확장 메시지에만 싣고 확장은 그 실행 동안만 쥔다(KID-377, `operation-login`). `loginBlocked`: 그 몰의 자동 로그인 차단 때문에
    * 자격을 싣지 않았다(실기기 R7).
    */
-  options: { capability?: string; idempotencyKey?: string; credentials?: OperationLoginCredentials; loginBlocked?: boolean } = {},
+  options: { capability?: string | readonly string[]; idempotencyKey?: string; credentials?: OperationLoginCredentials; loginBlocked?: boolean } = {},
 ): Promise<OperationStartOutcome> {
   const { extensionId, acceptsLogin, acceptsLoginBlocked } = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
   const reply = await sendToExtension<StartReply>(

@@ -51,6 +51,25 @@ describe('requestOperationStart', () => {
     expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.mall_orders', scope: {} }, 60_000);
   });
 
+  it('표시를 여럿 요구하면 하나라도 없는 빌드에는 시작을 보내지 않는다(등록 kind + 몰 쓰기 사이트, KID-364)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await expect(requestOperationStart('channels.registration', {}, {
+      capability: ['channelsRegistrationOperationKindV1', 'mallWriteSite.art09'],
+    })).rejects.toThrow('확장 프로그램을 업데이트해 주세요.');
+    expect(sendToExtension).toHaveBeenCalledTimes(1);
+
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true, 'mallWriteSite.art09': true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await expect(requestOperationStart('channels.registration', {}, {
+      capability: ['channelsRegistrationOperationKindV1', 'mallWriteSite.art09'],
+    })).resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
+  });
+
   it('extensionAcceptsOperationLogin은 ping의 operationLoginV1을 본다', async () => {
     await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(true);
     vi.mocked(sendToExtension).mockResolvedValueOnce({ success: true, capabilities: { operationRuntime: true } });
