@@ -489,4 +489,3 @@ function performanceSums(row: {
     units: row.units,
   };
 }
-
