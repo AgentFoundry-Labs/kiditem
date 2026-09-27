@@ -66,7 +66,7 @@ describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () =
   });
 
   it('도매꾹: 주문목록으로 들어가 두 칸 / 아이스크림몰: main.do → loginForm.do(JS로 늦게 뜬다)', () => {
-    expect(DOMEGGOOK_LOGIN).toMatchObject({ loginUrl: 'https://domeggook.com/sc/order/lstAll', hosts: ['domeggook.com'], fields: ['loginId', 'password'] });
+    expect(DOMEGGOOK_LOGIN).toMatchObject({ loginUrl: 'https://www.domeggook.com/sc/order/lstAll', hosts: ['domeggook.com'], fields: ['loginId', 'password'] });
     expect(DOMEGGOOK_LOGIN.isLoginUrl(new URL('https://domeggook.com/ssl/member/mem_loginForm.php'))).toBe(true);
     expect(ICECREAM_LOGIN).toMatchObject({ loginUrl: ICECREAM_MALL_URL, hosts: ['i-screammall.co.kr'], fields: ['loginId', 'password'], settleMs: 8_000 });
     expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/loginForm.do'))).toBe(true);
@@ -126,10 +126,10 @@ describe('몰 주문 읽기의 자동 로그인(KID-377)', () => {
     expect(login.state.filled).toEqual([{ loginId: 'fake-mall-id', password: 'fake-mall-password' }]);
     expect(fake.log.filter((line) => /^(open|close|navigate)/.test(line))).toEqual([
       'open about:blank',
-      'navigate https://domeggook.com/sc/order/lstAll (continue on timeout)',
+      'navigate https://www.domeggook.com/sc/order/lstAll (continue on timeout)',
       'close 7',
       'open about:blank',
-      'navigate https://domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
+      'navigate https://www.domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
       'close 7',
     ]);
   });

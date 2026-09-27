@@ -7,9 +7,10 @@ import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
 import { createDomeggookListings } from './listings';
 
-export const DOMEGGOOK_ORDER_LIST_URL = 'https://domeggook.com/sc/order/lstAll';
+/** 도매꾹은 맨 호스트를 www로 넘긴다 — 서비스워커 fetch(`redirect: 'manual'`)가 그 리다이렉트를 로그아웃으로 읽으므로 www로 부른다(KID-380 D1). */
+export const DOMEGGOOK_ORDER_LIST_URL = 'https://www.domeggook.com/sc/order/lstAll';
 /** 엑셀 생성 목록(JSON). 로그아웃이면 200에 `{res:false}`, 로그인이면 `{dat:[…]}`(mall-session.js 실측 규칙). */
-export const DOMEGGOOK_ORDER_LIST_API = 'https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1';
+export const DOMEGGOOK_ORDER_LIST_API = 'https://www.domeggook.com/sc/excel/getOrderList?format=grid&pg=1';
 export const DOMEGGOOK_ORDERS_FILE = 'content/orders/domeggook-orders.js';
 /** CSV base64 한 조각의 글자 수 — 청크 1MiB 안에 들게. */
 export const DOMEGGOOK_PART_CHARS = 700_000;

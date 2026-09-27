@@ -8824,7 +8824,7 @@ var KidItemRuntime = (() => {
     const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
-    if (first === null && !isLogin(spec, await safeUrl(page))) {
+    if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
       await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
@@ -8977,11 +8977,15 @@ var KidItemRuntime = (() => {
       });
       return result;
     } catch (error) {
-      if (leftForOperator(error)) opened = null;
+      if (leftForOperator(error) && opened && !await isBlank(opened)) opened = null;
       throw error;
     } finally {
       await opened?.close();
     }
+  }
+  async function isBlank(page) {
+    const url = await safeUrl(page);
+    return url === "" || url.startsWith("about:");
   }
   function isLoginRequired(error) {
     return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
@@ -10025,8 +10029,8 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/domeggook/index.ts
-  var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
-  var DOMEGGOOK_ORDER_LIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
+  var DOMEGGOOK_ORDER_LIST_URL = "https://www.domeggook.com/sc/order/lstAll";
+  var DOMEGGOOK_ORDER_LIST_API = "https://www.domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
   var DOMEGGOOK_ORDERS_FILE = "content/orders/domeggook-orders.js";
   var DOMEGGOOK_PART_CHARS = 7e5;
   var LIST_RENDER_WAIT_MS = 1500;

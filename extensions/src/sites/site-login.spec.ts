@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError, isRuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../core/site-caller';
-import { LOGIN_DIALOGS_FILE, LOGIN_FILL_FILE, createSiteLoginGate, ensureLoggedIn, type LoginOutcome, type LoginSpec } from './site-login';
+import { LOGIN_DIALOGS_FILE, LOGIN_FILL_FILE, createSiteLoginGate, ensureLoggedIn, withLoginTab, type LoginOutcome, type LoginSpec } from './site-login';
 import type { PageAnswer, TabPage } from './tab-page';
 
 const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password', supplierLoginId: 'fake-supplier' };
@@ -29,6 +29,8 @@ function loginTab(options: {
   formAt?: (url: string) => boolean;
   fill?: 'submit' | 'incomplete';
   submit?: (values: Record<string, unknown>) => Submitted;
+  /** 이 주소에서는 프레임을 들여다보지 못한다(about:blank처럼 확장 권한 밖 — executeScript가 던진다). */
+  unreadableAt?: (url: string) => boolean;
 }) {
   const clock = { now: 0 };
   const state = { url: options.url, form: false, dialogs: [] as string[] };
@@ -79,6 +81,7 @@ function loginTab(options: {
     },
     async frames<T>(files: readonly string[]) {
       log.push(`frames ${files.join(',')}`);
+      if (options.unreadableAt?.(state.url)) throw new Error(`Cannot access contents of url "${state.url}"`);
       return [{ frameId: 0, result: { loginForm: state.form } as T }];
     },
     listen: () => () => undefined,
@@ -122,6 +125,18 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
       status: 'form_remains',
       mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
     });
+    expect(tab.filled).toHaveLength(1);
+  });
+
+  it('빈 탭(about:blank)처럼 화면을 들여다보지 못하면 로그인 입구로 옮긴 뒤 채운다(KID-380 D1 — 15초를 빈 탭에서 돌지 않는다)', async () => {
+    const tab = loginTab({
+      url: 'about:blank',
+      unreadableAt: (url) => url === 'about:blank',
+      landAt: () => 'https://auth.test/login',
+      submit: () => ({ url: 'https://mall.test/admin' }),
+    });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'ok' });
+    expect(tab.log).toContain('navigate https://mall.test/admin');
     expect(tab.filled).toHaveLength(1);
   });
 
@@ -241,5 +256,19 @@ describe('sites/site-login — createSiteLoginGate(로그인 화면이면 한 �
     }, login);
     await expect(Promise.all([read(1), read(2), read(3)])).resolves.toEqual([1, 2, 3]);
     expect(logins).toBe(1);
+  });
+});
+
+describe('sites/site-login — withLoginTab(로그인하러 연 탭)', () => {
+  it('문턱이 멈춰도 로그인 화면으로 가지 못한 빈 탭(about:blank)은 운영자에게 남기지 않고 닫는다(KID-380 D1)', async () => {
+    const blank = loginTab({ url: 'about:blank', unreadableAt: () => true });
+    const withLogin = createSiteLoginGate(CREDENTIALS);
+    const error = await failure(withLoginTab(withLogin, async () => { throw loginRequired(); }, async () => blank.page, async () => ({ status: 'unconfirmed' })));
+    expect(error.details).toMatchObject({ reason: 'login_unconfirmed' });
+    expect(blank.log).toContain('close');
+
+    const atLogin = loginTab({ url: 'https://auth.test/login' });
+    await failure(withLoginTab(createSiteLoginGate(CREDENTIALS), async () => { throw loginRequired(); }, async () => atLogin.page, async () => ({ status: 'form_remains' })));
+    expect(atLogin.log).not.toContain('close');
   });
 });

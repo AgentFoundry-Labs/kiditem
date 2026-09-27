@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isRuntimeError } from '../../core/errors';
 import { siteFactoryFor } from '../registry';
 import { fakeTabPages } from '../tab-page.fake';
-import { createDomeggookSite, DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_PART_CHARS } from './index';
+import { createDomeggookSite, DOMEGGOOK_LOGIN, DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_ORDER_LIST_URL, DOMEGGOOK_PAGE_GUARD, DOMEGGOOK_PART_CHARS } from './index';
 
 const INPUT = { collectionDate: '2026-09-26', selectionMode: 'manual' as const, seenRowKeys: [] };
 // 옛 수집기 테스트에는 생성 목록 응답 기록이 없다. 아래 행은 옛 파서(`pickDomeggookUrl`)가 읽던 칸 그대로다 —
@@ -50,6 +50,17 @@ describe('sites/domeggook — 도매꾹 몰 주문 읽기(엑셀 생성 → 완�
     expect(siteFactoryFor('domeggook')).not.toBeNull();
   });
 
+  it('주문 목록·엑셀 목록은 www 호스트로 부른다 — 맨 호스트는 www로 넘겨 manual 리다이렉트가 로그아웃으로 읽힌다(KID-380 D1)', () => {
+    expect(new URL(DOMEGGOOK_ORDER_LIST_API).hostname).toBe('www.domeggook.com');
+    expect(new URL(DOMEGGOOK_ORDER_LIST_URL).hostname).toBe('www.domeggook.com');
+    expect(new URL(DOMEGGOOK_LOGIN.loginUrl).hostname).toBe('www.domeggook.com');
+    for (const host of ['domeggook.com', 'www.domeggook.com']) {
+      expect(DOMEGGOOK_PAGE_GUARD.allows(new URL(`https://${host}/sc/order/lstAll`))).toBe(true);
+      expect(DOMEGGOOK_PAGE_GUARD.isLogin(new URL(`https://${host}/ssl/member/mem_loginForm.php`))).toBe(true);
+      expect(DOMEGGOOK_LOGIN.isLoginUrl(new URL(`https://${host}/ssl/member/mem_loginForm.php`))).toBe(true);
+    }
+  });
+
   it('그날로 맞춘 주문목록 탭에서 생성을 요청하고, 요청 뒤 새로 완료된 ORDER_ALL CSV를 받아 조각으로 돌려준 뒤 탭을 닫는다', async () => {
     const shop = fakeDomeggook([{ dat: [OLD] }, { dat: [PENDING, OLD] }, { dat: [NEW, OLD] }]);
     const tabs = fakeTabPages({ answer: (_message, injected) => (injected ? { ok: true, value: { status: 'requested' } } : { ok: false, error: 'content_script_missing' }) });
@@ -62,7 +73,7 @@ describe('sites/domeggook — 도매꾹 몰 주문 읽기(엑셀 생성 → 완�
     expect(shop.redirects).toEqual(['follow']);
     expect(tabs.log).toEqual([
       'open about:blank',
-      'navigate https://domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
+      'navigate https://www.domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
       'ask KIDITEM_PAGE_CALL',
       'inject content/page-call/bridge.js,content/page-call/runner.js,content/orders/domeggook-orders.js',
       'ask KIDITEM_PAGE_CALL',

@@ -79,9 +79,10 @@ export async function ensureLoggedIn(
   const guard = loginGuard(spec);
   const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
   if (isVerification(spec, await safeUrl(page))) return { status: 'verification_required' };
-  // 로그인 폼이 이미 보이거나 로그인 주소면 그 화면에서 채운다. 아니면 로그인 입구로 간다.
+  // 로그인 폼이 이미 보이거나 로그인 주소면 그 화면에서 채운다. 아니면 로그인 입구로 간다 — 화면을 들여다보지 못한
+  // 탭(새로 연 about:blank는 확장 권한 밖이라 살피기가 던진다)도 폼을 찾지 못한 것이다(KID-380 D1).
   const first = await loginFrame(page);
-  if (first === null && !isLogin(spec, await safeUrl(page))) {
+  if (typeof first !== 'number' && !isLogin(spec, await safeUrl(page))) {
     await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true });
   }
 
@@ -299,11 +300,17 @@ export async function withLoginTab<T>(
     });
     return result;
   } catch (error) {
-    if (leftForOperator(error)) opened = null;
+    // 로그인 화면에 닿지 못한 빈 탭은 운영자가 할 일이 없다 — 남기지 않는다(KID-380 D1).
+    if (leftForOperator(error) && opened && !(await isBlank(opened))) opened = null;
     throw error;
   } finally {
     await (opened as TabPage | null)?.close();
   }
+}
+
+async function isBlank(page: TabPage): Promise<boolean> {
+  const url = await safeUrl(page);
+  return url === '' || url.startsWith('about:');
 }
 
 function isLoginRequired(error: unknown): error is RuntimeError {
