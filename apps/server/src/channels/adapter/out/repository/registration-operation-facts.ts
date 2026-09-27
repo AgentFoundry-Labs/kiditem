@@ -62,6 +62,14 @@ function toFact(row: OperationByPlanRow): RegistrationOperationFact {
   };
 }
 
+/**
+ * 폼만 채우고 [등록]을 누르지 않은 문서 실행(빠른 등록, ADR-0019 관문이 거른 등록). 성공이어도 몰에 올린 사실이 아니라
+ * 등록 상태 · 중복 차단 · 재전송 기준에 들어가지 않는다.
+ */
+export function isFillOnly(operation: Pick<RegistrationOperationFact, 'status' | 'result'>): boolean {
+  return operation.status === 'succeeded' && operation.result.mallOutcome === 'not_submitted';
+}
+
 /** 등록 대상 문서 실행이 얼린 스냅샷(빠른 등록 · 품절 · 대표이미지는 null). */
 export function frozenSnapshot(plan: RegistrationPlan): Record<string, unknown> | null {
   return record(record(plan.payload)?.snapshot);

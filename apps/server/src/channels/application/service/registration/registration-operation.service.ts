@@ -274,13 +274,16 @@ export class RegistrationOperationService implements RegistrationOperationPort {
   }
 
   /**
-   * 성공 종료(확장 finish succeeded = 몰이 확정, 또는 운영자 확인). 등록 대상 문서면 증거를 확인하고 리스팅 · 옵션 ·
-   * 레시피를 같은 트랜잭션에 반영한다. 빠른 등록 · 품절 · 재개 · 대표이미지는 원장에 쓸 것이 없다 — 실행의 성공이 사실이다.
+   * 성공 종료(확장 finish succeeded, 또는 운영자 확인). 제출한 등록 대상 문서면 증거를 확인하고 리스팅 · 옵션 · 레시피를 같은
+   * 트랜잭션에 반영한다 — 제출했는데 몰 상품 id 가 없으면 거절(`PROVIDER_LISTING_MISSING`). 제출하지 않은 문서(`submitted: false`
+   * 또는 `mallOutcome: not_submitted`, 빠른 등록 포함)는 폼만 채운 것이라 원장에 쓰지 않는다. 품절 · 재개 · 대표이미지도 실행의
+   * 성공이 사실이다.
    */
   async finalize(chunks: OperationStagedChunk[], context: RegistrationFinalizeContext): Promise<Record<string, unknown>> {
     const plan = RegistrationPlanSchema.parse(context.plan);
     const reported = context.result ?? {};
-    const fill = readFill(chunks);
+    const reportedFill = RegistrationFillSchema.safeParse(reported.fill);
+    const fill = chunks.some((chunk) => chunk.chunkKind === REGISTRATION_FILL_CHUNK_KIND) || !reportedFill.success ? readFill(chunks) : reportedFill.data;
     const chunkEvidence = readEvidence(chunks, plan);
     const operator = readOperatorConfirmation(reported);
     const base = {
@@ -289,12 +292,25 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       mallMessage: typeof reported.mallMessage === 'string' ? reported.mallMessage : null,
       fill,
     };
-    if (!DOCUMENT_KINDS.has(plan.executionKind) || plan.registrationTargetId === null) {
-      const quick = plan.registrationTargetId === null && DOCUMENT_KINDS.has(plan.executionKind);
+    // 폼만 채움(빠른 등록, 또는 ADR-0019 관문이 [등록]을 거른 문서 실행): 증거도 리스팅 연결도 없고 대상은 미등록으로 남는다.
+    const fillOnly = DOCUMENT_KINDS.has(plan.executionKind) && operator === null
+      && (plan.registrationTargetId === null || reported.submitted === false || reported.mallOutcome === 'not_submitted');
+    if (fillOnly) {
       return registrationResult({
         ...base,
-        providerOutcome: quick ? 'not_attempted' : 'succeeded',
-        mallOutcome: quick ? 'not_submitted' : 'confirmed',
+        submitted: false,
+        providerOutcome: 'not_attempted',
+        mallOutcome: 'not_submitted',
+        externalListingId: null,
+        evidence: chunkEvidence,
+        channelListingId: null,
+      });
+    }
+    if (!DOCUMENT_KINDS.has(plan.executionKind)) {
+      return registrationResult({
+        ...base,
+        providerOutcome: 'succeeded',
+        mallOutcome: 'confirmed',
         externalListingId: plan.externalListingId,
         evidence: chunkEvidence,
         channelListingId: plan.channelListingId,

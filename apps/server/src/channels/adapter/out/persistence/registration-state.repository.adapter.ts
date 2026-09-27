@@ -6,7 +6,7 @@ import {
   LISTING_SHAPING_EXECUTION_KINDS,
   type FrozenRegistrationFacts,
 } from '../../../domain/registration/registration-account-state';
-import { frozenSnapshot, readRegistrationOperations, type RegistrationOperationFact } from '../repository/registration-operation-facts';
+import { frozenSnapshot, isFillOnly, readRegistrationOperations, type RegistrationOperationFact } from '../repository/registration-operation-facts';
 import type {
   RegistrationStateAccountFacts,
   RegistrationStateExecutionFact,
@@ -152,7 +152,7 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
       planContainsAny: targetIds.flatMap((registrationTargetId) =>
         LISTING_SHAPING_EXECUTION_KINDS.map((executionKind) => ({ registrationTargetId, executionKind }))),
     });
-    return latestPer(operations, (operation) => operation.plan.registrationTargetId).map((operation) => ({
+    return latestPer(operations.filter((operation) => !isFillOnly(operation)), (operation) => operation.plan.registrationTargetId).map((operation) => ({
       id: operation.id,
       registration_target_id: operation.plan.registrationTargetId!,
       execution_kind: operation.plan.executionKind,
@@ -172,7 +172,7 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
         DOCUMENT_BASELINE_EXECUTION_KINDS.map((executionKind) => ({ registrationTargetId, executionKind }))),
       statuses: ['succeeded'],
     });
-    return latestPer(operations, (operation) => operation.plan.registrationTargetId).map((operation) => {
+    return latestPer(operations.filter((operation) => !isFillOnly(operation)), (operation) => operation.plan.registrationTargetId).map((operation) => {
       const snapshot = frozenSnapshot(operation.plan) ?? {};
       return {
         registration_target_id: operation.plan.registrationTargetId!,

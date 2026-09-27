@@ -58,6 +58,7 @@ import { SalesProductUseCase } from '../application/service/sales-product/sales-
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import { channelAdapters } from './channel-adapters';
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { productTransactionalRead } from './product-transactional-read.fake';
 
 // 확장 몰 쓰기 모듈(KID-256)이 밟는 길을 서버에서 그대로: begin(channels.registration) → registration_fill · registration_evidence
@@ -78,6 +79,7 @@ describe('channels.registration owner over the operation contract + disposable P
   let app: INestApplication;
   let httpUrl: string;
   let targets: RegistrationTargetRepositoryAdapter;
+  const registrationStates = () => realRegistrationStates(prisma);
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -237,6 +239,33 @@ describe('channels.registration owner over the operation contract + disposable P
     }).expect(200);
     expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { mallOutcome: 'confirmed', externalListingId: 'provider-listing-9' } });
     expect(await prisma.channelListing.count({ where: { organizationId: ORG, externalId: 'provider-listing-9', salesProductId: fixture.productId } })).toBe(1);
+  });
+
+  it('ends a target register the gate did not submit as fill-only: succeeded, no evidence, no listing, still unregistered', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const begun = await beginOk(registerScope(fixture));
+    await put(begun.operation.id, begun.token, REGISTRATION_FILL_CHUNK_KIND, 1, [fill]).expect(200);
+    const filled = await finish(begun.operation.id, begun.token, {
+      outcome: 'succeeded',
+      result: { ...submittedResult, providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'no_verified_submit' },
+    }).expect(200);
+    expect(filled.body.operation).toMatchObject({
+      status: 'succeeded', lockKeys: [],
+      result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'no_verified_submit', fill, channelListingId: null },
+    });
+    expect(await prisma.channelListing.count({ where: { organizationId: ORG } })).toBe(0);
+    const [state] = (await registrationStates().readForSalesProducts(ORG, [fixture.productId])).get(fixture.productId)!.accounts;
+    expect(state).toMatchObject({ channelAccountId: fixture.accountId, state: 'unregistered' });
+    await beginOk(registerScope(fixture));
+  });
+
+  it('refuses a submitted and confirmed register without the mall listing id', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const begun = await beginOk(registerScope(fixture));
+    const refused = await finish(begun.operation.id, begun.token, {
+      outcome: 'succeeded', result: { ...submittedResult, providerOutcome: 'succeeded', mallOutcome: 'confirmed' },
+    }).expect(409);
+    expect(refused.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'PROVIDER_LISTING_MISSING' } });
   });
 
   it('refuses evidence frozen for another payload and evidence without the mall account, leaving the operation running', async () => {
