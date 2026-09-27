@@ -1,3 +1,4 @@
+import { adConversions, performanceAdSpend } from './ad-spend-rule';
 import type {
   AdAggregateRow,
   HydratedListing,
@@ -90,17 +91,16 @@ export function toAdAggregateRows(
     revenue: number;
     clicks: number;
     impressions: number;
-    conversions: number;
-    conversionsObserved: boolean;
+    orders: number;
   }>,
 ): AdAggregateRow[] {
   return rows.map((r) => ({
     listingId: r.listingId,
-    spend: r.spend,
+    spend: performanceAdSpend(r.spend),
     revenue: r.revenue,
     clicks: r.clicks,
     impressions: r.impressions,
-    conversions: r.conversionsObserved ? r.conversions : null,
+    conversions: adConversions(r),
   }));
 }
 

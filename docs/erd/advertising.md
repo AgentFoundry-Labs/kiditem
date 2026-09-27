@@ -9,7 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
-| AdAction | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask 파이프라인. 실행 상태는 최신 ExecutionTask에서 파생한다. |
+| AdAction | `ad_actions` | 광고 자동 실행 큐. 광고 보고서 원장(캠페인·키워드)→AdAction→ExecutionTask 파이프라인. 근거(캠페인·광고그룹·옵션·키워드·측정일)는 payload.adTarget, 실행 상태는 최신 ExecutionTask에서 파생한다. |
 | ChannelAdCampaign | `channel_ad_campaigns` | ChannelAdCampaign canonical state owned by advertising. |
 | ChannelAdCampaignAd | `channel_ad_campaign_ads` | ChannelAdCampaignAd canonical state owned by advertising. |
 | ChannelAdDailyBilling | `channel_ad_daily_billings` | ChannelAdDailyBilling canonical state owned by advertising. |
@@ -34,8 +34,6 @@ erDiagram
     String id PK
     String organizationId FK
     String listingId
-    String listingOptionId
-    String adTargetDailyId FK
     String actionType
     String targetType
     String externalId
@@ -327,7 +325,6 @@ erDiagram
     DateTime createdAt
   }
   AdAction ||--o{ ExecutionTask : "action"
-  ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
 ```
 

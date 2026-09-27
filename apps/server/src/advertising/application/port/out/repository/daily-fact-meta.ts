@@ -1,7 +1,6 @@
-// Shared metaJson namespacing input for the three daily-fact ports
-// (channel-listing-daily, channel-option-daily, channel-target-daily).
-// Each port accepts the same `MetaJsonInput` so concurrent payloads
-// preserve each other's audit data via the adapter's atomic jsonb merge.
+// Shared metaJson namespacing input of the daily-fact writers
+// (`daily-fact-helpers`, the old target-day row shape). Concurrent payloads
+// preserve each other's audit data via the writer's atomic jsonb merge.
 //
 // - `undefined` (or omitted) → leave column untouched on update; write
 //   `Prisma.DbNull` on create.

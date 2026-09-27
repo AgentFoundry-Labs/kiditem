@@ -408,11 +408,10 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
       spend: 30,
       impressions: 10,
       status: 'ACCEPTED',
-      currentBid: 40,
       externalOptionId: null,
       listingId: null,
       listingOptionId: null,
-      metaJson: { data: { origin: 'registered', windowDays: 7, adId: '1' } },
+      metaJson: { data: { windowDays: 7, adId: '1' } },
     });
     expect(
       (
@@ -560,9 +559,8 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
       spend: 30,
       impressions: 10,
       status: 'ACCEPTED',
-      currentBid: 40,
       externalOptionId: null,
-      metaJson: { data: { origin: 'registered', adId: '1' } },
+      metaJson: { data: { adId: '1' } },
     });
   });
   it('preserves the previous complete during staging, then an explicit empty COMPLETE hides it before period filtering', async () => {

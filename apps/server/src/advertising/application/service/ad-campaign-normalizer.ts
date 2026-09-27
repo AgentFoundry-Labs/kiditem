@@ -65,7 +65,6 @@ export function normalizeAdCampaignTarget(
   const rowConversions = readProviderMetric(row.conversions, observedMetrics.conversions, 'conversions');
   const rowOrders = readProviderMetric(row.orders, observedMetrics.orders, 'orders');
   const rowDailyBudget = toNumberOrNull(row.dailyBudget);
-  const rowCurrentBid = toNumberOrNull(row.currentBid);
   // Provider ratios are audit evidence only; an absent ratio stays null.
   const providerRoas = parseProviderNumber(row.roas) ?? parseProviderNumber(row.adEfficiencyTarget);
   const providerCtr = parseProviderNumber(row.ctr);
@@ -105,7 +104,6 @@ export function normalizeAdCampaignTarget(
     placement: cleanString(row.placement),
     status: rowStatus,
     onOff: rowOnOff ?? cleanString(payload.dashboardOnOff),
-    currentBid: rowCurrentBid,
     dailyBudget: rowDailyBudget,
     rawSnapshotId: snapshotId,
     metaJson: {
@@ -136,7 +134,6 @@ export function normalizeAdCampaignTarget(
         pageType: rowPageType,
         productName: cleanString(row.productName),
         imageUrl: cleanString(row.imageUrl),
-        productUrl: cleanString(row.productUrl),
         saleType: cleanString(row.saleType),
       },
     },
@@ -245,7 +242,6 @@ const COLLAPSIBLE_TARGET_DESCRIPTORS = [
   'placement',
   'status',
   'onOff',
-  'currentBid',
   'dailyBudget',
 ] as const satisfies ReadonlyArray<keyof UpsertAdTargetDailyInput>;
 

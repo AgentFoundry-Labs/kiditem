@@ -1,12 +1,6 @@
-// Outgoing port for `ChannelListingOptionDailySnapshot` upserts. Split
-// from the channel-daily-fact aggregate so option-day winner state has
-// its own contract.
-
-import type { MetaJsonInput } from './daily-fact-meta';
-
-export const CHANNEL_OPTION_DAILY_REPOSITORY_PORT = Symbol(
-  'ChannelOptionDailyRepositoryPort',
-);
+// Option-day winner state a scraped option row carries
+// (`ChannelListingOptionDailySnapshot` columns). The repository port and
+// adapter are gone (KID-372); the scrape row normalizer still reads this shape.
 
 export interface ListingOptionDailyState {
   optionName?: string | null;
@@ -18,21 +12,4 @@ export interface ListingOptionDailyState {
   myPrice?: number | null;
   winnerPrice?: number | null;
   winnerGapPrice?: number | null;
-}
-
-export interface ListingOptionDailyUpsertInput extends ListingOptionDailyState {
-  organizationId: string;
-  listingId: string;
-  listingOptionId: string;
-  channel: string;
-  externalId: string;
-  externalOptionId: string;
-  businessDate: Date;
-  observedAt?: Date;
-  rawSnapshotId?: string | null;
-  metaJson?: MetaJsonInput;
-}
-
-export interface ChannelOptionDailyRepositoryPort {
-  upsert(input: ListingOptionDailyUpsertInput): Promise<{ id: string }>;
 }

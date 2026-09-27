@@ -44,7 +44,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 
 | Model | Domain | Table | Description |
 |---|---:|---|---|
-| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask 파이프라인. 실행 상태는 최신 ExecutionTask에서 파생한다. |
+| AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. 광고 보고서 원장(캠페인·키워드)→AdAction→ExecutionTask 파이프라인. 근거(캠페인·광고그룹·옵션·키워드·측정일)는 payload.adTarget, 실행 상태는 최신 ExecutionTask에서 파생한다. |
 | ChannelAdCampaign | Advertising | `channel_ad_campaigns` | ChannelAdCampaign canonical state owned by advertising. |
 | ChannelAdCampaignAd | Advertising | `channel_ad_campaign_ads` | ChannelAdCampaignAd canonical state owned by advertising. |
 | ChannelAdDailyBilling | Advertising | `channel_ad_daily_billings` | ChannelAdDailyBilling canonical state owned by advertising. |
@@ -185,8 +185,6 @@ erDiagram
     String id PK
     String organizationId FK
     String listingId
-    String listingOptionId
-    String adTargetDailyId FK
     String actionType
     String targetType
     String externalId
@@ -2487,7 +2485,6 @@ erDiagram
   ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
   ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RegistrationTarget : "channelAccount"
-  ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"

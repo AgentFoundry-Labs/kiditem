@@ -39,7 +39,6 @@
       "prismaModel": "channelAdTargetDailySnapshot",
       "prismaType": "ChannelAdTargetDailySnapshot",
       "relationNames": [
-        "adTargetDaily",
         "adTargetDailySnapshots",
         "channelAdTargetDailySnapshots"
       ],
@@ -55,10 +54,6 @@
         {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
           "reason": "Counts keyword rows immediately after inserting them in the source owner's terminal publication."
-        },
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/channel-target-daily.repository.adapter.ts",
-          "reason": "Locks and replaces target rows inside the source owner's publication transaction."
         },
         {
           "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",

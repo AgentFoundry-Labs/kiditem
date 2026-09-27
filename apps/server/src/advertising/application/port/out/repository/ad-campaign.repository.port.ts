@@ -1,123 +1,25 @@
-// Outgoing port for campaign / product target / trend reads over the
-// advertising target-day ledger's reader. Returns additive sums and
-// observation facts so the domain layer recomputes ratios.
+// Outgoing port for the ad-ops campaign / product / keyword / trend tabs over
+// the ad report ledger (KID-372). Returns additive sums of measured days so the
+// domain layer recomputes ratios; spend is the delivered spend ("집행 광고비").
 
 import type { AdPeriod } from '../../../../domain/ad-metrics';
+import type {
+  AdCampaignSelector,
+  AdCampaignWindowRollup,
+  AdKeywordWindowRollup,
+  AdProductWindowRollup,
+} from './ad-ledger-read.repository.port';
 
 export const AD_CAMPAIGN_REPOSITORY_PORT = Symbol('AdCampaignRepositoryPort');
 
-export interface CampaignRollup {
-  targetKey: string;
-  channelAccountId: string;
-  campaignIdentity: string;
-  campaignId: string | null;
-  campaignName: string | null;
-  listingId: string | null;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  orders: number;
-  /**
-   * Whether any contributing row actually observed a conversion-count column.
-   *
-   * The Coupang campaign dashboard grid has no conversion-count column at all
-   * — its headers are `집행 광고비 / 중요 결과 광고 전환 매출 / 노출수 /
-   * 클릭수 / 클릭률 / 전환율 / 광고수익률`. Only the per-campaign product
-   * detail grid carries `광고 전환 판매수`. The scraper still emits a numeric
-   * zero for absent columns, so a campaign-grain `conversions = 0` means "not
-   * collected", not "zero conversions". Callers must render that as unknown
-   * instead of a hard 0.
-   */
-  conversionsObserved: boolean;
-}
-
-export interface CampaignCurrentState {
-  channelAccountId: string;
-  campaignIdentity: string;
-  campaignId: string | null;
-  campaignName: string | null;
-  status: string | null;
-  onOff: string | null;
-}
-
-/** Published account roster. Identity-incomplete raw descriptors are not current-state evidence. */
-export interface CampaignCurrentSweep {
-  channelAccountId: string;
-  rosterComplete: boolean;
-  campaigns: CampaignCurrentState[];
-}
-
-export interface ProductTargetRollup {
-  targetKey: string;
-  channelAccountId: string;
-  campaignIdentity: string | null;
-  campaignId: string | null;
-  campaignName: string | null;
-  listingId: string | null;
-  listingOptionId: string | null;
-  externalId: string | null;
-  externalOptionId: string | null;
-  keyword: string | null;
-  status: string | null;
-  onOff: string | null;
-  metaJson: unknown | null;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  orders: number;
-}
-
-/**
- * Keyword-grain observation from the latest complete owner snapshot within the
- * requested seven-day window. Status, bid, and metrics all come from that one
- * observed row; these non-additive facts are never summed across days.
- */
-export interface KeywordTargetRollup {
-  targetKey: string;
-  channelAccountId: string;
-  campaignIdentity: string | null;
-  campaignId: string | null;
-  campaignName: string | null;
-  adGroup: string | null;
-  keyword: string;
-  listingId: string | null;
-  listingOptionId: string | null;
-  externalOptionId: string | null;
-  status: string | null;
-  onOff: string | null;
-  currentBid: number | null;
-  metaJson: unknown | null;
-  lastObservedAt: Date;
-  /** End date of this non-additive trailing observation window. */
-  businessDate: Date;
-  /** Source-declared width; currently the Coupang keyword table is seven days. */
-  windowDays: 7;
-  spend: number;
-  revenue: number;
-  impressions: number;
-  clicks: number;
-  /** Stored count; a measurement only when `conversionsObserved`. */
-  conversions: number;
-  orders: number;
-  /** Whether the keyword table carried the conversion column. */
-  conversionsObserved: boolean;
-}
-
-/** One business date the campaign sweep measured, with the account totals. */
+/** One measured business date of the organization's ad totals. */
 export interface AdTrendWindowDay {
   businessDate: string;
   spend: number;
   revenue: number;
   impressions: number;
   clicks: number;
-  conversions: number;
   orders: number;
-  /** False when a summed row's provider grid had no conversion columns. */
-  conversionsObserved: boolean;
 }
 
 export interface AdTrendWindow {
@@ -126,40 +28,31 @@ export interface AdTrendWindow {
   observedAt: Date | null;
 }
 
+/** Rows of one period plus how many of its days were measured. */
+export interface AdPeriodRows<Row> {
+  measuredDayCount: number;
+  observedAt: Date | null;
+  rows: readonly Row[];
+}
+
 export interface AdCampaignRepositoryPort {
-  /** Campaign metrics and current roster share one published account snapshot. */
-  findCampaignSnapshot(
+  /** Current campaigns (`ChannelAdCampaign`) with the period's measured sums. */
+  findCampaignRollups(organizationId: string, period: AdPeriod): Promise<AdPeriodRows<AdCampaignWindowRollup>>;
+
+  /** Advertised products (campaign × ad group × option), optionally of one campaign. */
+  findProductRollups(
     organizationId: string,
     period: AdPeriod,
-  ): Promise<{ rollups: CampaignRollup[]; currentSweeps: CampaignCurrentSweep[] }>;
+    campaign?: AdCampaignSelector,
+  ): Promise<AdPeriodRows<AdProductWindowRollup>>;
 
-  /**
-   * Product-grain rollup. `targetType='product'` with product identity.
-   * The composite campaign selector narrows to one campaign's member products;
-   * campaign rollup rows never leak in.
-   */
-  findProductTargetRollups(
+  /** Keyword rows summed over the period's measured days, optionally of one campaign. */
+  findKeywordRollups(
     organizationId: string,
     period: AdPeriod,
-    campaign?: {
-      channelAccountId: string;
-      campaignIdentity: string;
-    },
-  ): Promise<ProductTargetRollup[]>;
+    campaign?: AdCampaignSelector,
+  ): Promise<AdPeriodRows<AdKeywordWindowRollup>>;
 
-  /** Keyword-grain rollups for the period, newest observation first. */
-  findKeywordTargetRollups(
-    organizationId: string,
-    period: AdPeriod,
-    campaign?: {
-      channelAccountId: string;
-      campaignIdentity: string;
-    },
-  ): Promise<KeywordTargetRollup[]>;
-
-  /** Measured account days for an inclusive business-date range. */
-  findAdWindowDays(
-    organizationId: string,
-    dateRange: { from: Date; to: Date },
-  ): Promise<AdTrendWindow>;
+  /** Measured organization days for an inclusive business-date range. */
+  findAdWindowDays(organizationId: string, dateRange: { from: Date; to: Date }): Promise<AdTrendWindow>;
 }

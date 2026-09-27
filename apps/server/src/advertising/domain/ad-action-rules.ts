@@ -1,20 +1,22 @@
 import { recomputeRoas } from './util/ratio-recompute';
-import { channelAccountSalesCosts } from '../../channels/domain/account/channel-account-sales-costs';
+import { adConversions, performanceAdSpend } from './ad-spend-rule';
 import type { AdActionTargetType } from './model/strategy-types';
-import type { LatestTargetRow } from '../application/port/out/repository/ad-action.repository.port';
+import type { AdRuleTarget } from '../application/port/out/repository/ad-action.repository.port';
 
 /**
- * Pure 5-rule selector for `AdAction` candidates.
+ * Pure rule selector for `AdAction` candidates over the ad report ledger
+ * (KID-372). A target is one campaign — its current `ChannelAdCampaign` state
+ * (active, budget) and the product sums of the recent measured window — or one
+ * search keyword with its window sums. The ledger has no bid, so there is no
+ * bid rule. `budget` is the ad center's number as reported; the rules assume
+ * KRW per day (unit not yet confirmed, KID-371). Performance is the delivered
+ * spend and the report's orders.
  *
- * The 5 rules over `ChannelAdTargetDailySnapshot` are documented in
- * `apps/server/src/advertising/CLAUDE.md` ("AdAction 규칙"). This module
- * holds the pure decision logic only — it does not touch Prisma or any
- * tenant-scoped service. `AdActionService` orchestrates the read of latest
- * target-daily rows + option-daily stock map and feeds rows in here.
+ * `AdActionService` reads the targets and the ChannelSku capacity of the
+ * advertised options and feeds them here.
  */
 
 export type ActionCandidate = {
-  adTargetDailyId: string;
   listingId: string | null;
   actionType: string;
   targetType: AdActionTargetType;
@@ -27,157 +29,110 @@ export type ActionCandidate = {
   payload: Record<string, unknown>;
 };
 
+/** Canonical component-derived capacity of one advertised option; `null` when unknown. */
 export type ChannelSkuAdEvidence = {
   sellableStock: number | null;
-  purchaseCost: number | null;
-  salePrice: number | null;
 };
 
 /**
- * Derive a candidate from one latest target-daily row. Implements the 5
- * rules over the target-daily column shape.
+ * Derive at most one candidate from a rule target.
  *
- * `channelSkuCapacityMap` provides canonical component-derived capacity per
- * `listingOptionId`. `null` means mapping/stock evidence is unknown.
+ * `channelSkuEvidenceMap` is keyed by advertised option (`vendorItemId`).
  */
 export function createActionCandidate(
-  row: LatestTargetRow,
+  target: AdRuleTarget,
   channelSkuEvidenceMap: Map<string, ChannelSkuAdEvidence>,
 ): ActionCandidate | null {
-  const grade = row.abcGrade;
-  // Per-row ROAS for rule decisions — daily target row holds today's revenue
-  // and spend for the (campaign|keyword|product) at this grain. Recompute
-  // from the row's own numerator/denominator (do not trust any provider
-  // ratio that may live in metaJson).
-  const roas = recomputeRoas(row.revenue, row.spend) ?? 0;
-  const profitRateNum = calcProfitRate({
-    costPrice: row.listingOptionId
-      ? channelSkuEvidenceMap.get(row.listingOptionId)?.purchaseCost ?? null
-      : null,
-    sellPrice: row.listingOptionId
-      ? channelSkuEvidenceMap.get(row.listingOptionId)?.salePrice ?? null
-      : null,
-    channel: row.listingChannel,
-  });
+  if (target.isActive === false) return null;
+  const grade = target.abcGrade;
+  const spend = performanceAdSpend(target.spend);
+  // Recompute from the target's own sums; provider ratios are not trusted.
+  const roas = recomputeRoas(target.revenue, spend) ?? 0;
   const targetLabel =
-    row.keyword ||
-    row.campaignName ||
-    row.productName ||
-    row.externalId ||
-    '미식별 대상';
-  const statusText = (row.status || '').toLowerCase();
+    target.keyword ||
+    target.campaignName ||
+    target.productName ||
+    target.campaignId;
 
-  // Rule 1: zero stock → budget cut (option-stock not observable → skip)
-  if (
-    row.targetType === 'campaign' &&
-    row.dailyBudget != null &&
-    row.dailyBudget > 0 &&
-    row.listingOptionId !== null
-  ) {
-    const sellableStock = channelSkuEvidenceMap.get(row.listingOptionId)?.sellableStock;
-    if (sellableStock === 0) {
-      return {
-        adTargetDailyId: row.id,
-        listingId: row.listingId,
-        actionType: 'change_daily_budget',
-        targetType: 'campaign',
-        externalId: row.externalId,
-        targetLabel,
-        reason: `재고 0개인데 광고 예산 ${formatNumber(row.dailyBudget)}원이 유지 중입니다. 즉시 축소가 필요합니다.`,
-        priority: 'urgent',
-        currentValue: row.dailyBudget,
-        proposedValue: 3000,
-        payload: basePayload(row, { pageType: 'campaign' }),
-      };
-    }
-  }
-
-  // Rule 2 & 3: keyword pause / bid change
-  if (row.targetType === 'keyword') {
-    // `null` conversions were not observed; only an observed zero is zero.
-    const zeroConversionSpend = row.conversions === 0 && row.spend >= 5000;
+  if (target.targetType === 'keyword') {
+    // The non-search row is not a keyword the operator can pause.
+    if (!target.keyword) return null;
+    const zeroConversionSpend = adConversions(target) === 0 && spend >= 5000;
     const poorRoas = roas > 0 && roas < 100;
+    if (!zeroConversionSpend && !poorRoas) return null;
+    return {
+      listingId: target.listingId,
+      actionType: 'pause_keyword',
+      targetType: 'keyword',
+      externalId: target.vendorItemId,
+      targetLabel,
+      reason: zeroConversionSpend
+        ? `전환 0건인데 광고비 ${formatNumber(spend)}원이 누적되었습니다. 즉시 OFF 권장.`
+        : `ROAS ${Math.round(roas)}%로 기준 미달입니다. 키워드 OFF 후 재검토가 필요합니다.`,
+      priority: grade === 'A' ? 'high' : 'urgent',
+      currentValue: null,
+      proposedValue: null,
+      payload: basePayload(target, targetLabel),
+    };
+  }
 
-    if (!isPaused(statusText) && (zeroConversionSpend || poorRoas)) {
-      return {
-        adTargetDailyId: row.id,
-        listingId: row.listingId,
-        actionType: 'pause_keyword',
-        targetType: 'keyword',
-        externalId: row.externalId,
-        targetLabel,
-        reason: zeroConversionSpend
-          ? `전환 0건인데 광고비 ${formatNumber(row.spend)}원이 누적되었습니다. 즉시 OFF 권장.`
-          : `ROAS ${Math.round(roas)}%로 기준 미달입니다. 키워드 OFF 후 재검토가 필요합니다.`,
-        priority: grade === 'A' ? 'high' : 'urgent',
-        currentValue: null,
-        proposedValue: null,
-        payload: basePayload(row, { pageType: 'keyword' }),
-      };
-    }
+  const budget = target.budget;
+  if (budget == null || budget <= 0) return null;
+  const campaignCandidate = (
+    priority: ActionCandidate['priority'],
+    proposedValue: number,
+    reason: string,
+  ): ActionCandidate => ({
+    listingId: target.listingId,
+    actionType: 'change_daily_budget',
+    targetType: 'campaign',
+    externalId: target.campaignId,
+    targetLabel,
+    reason,
+    priority,
+    currentValue: budget,
+    proposedValue,
+    payload: basePayload(target, targetLabel),
+  });
 
-    if (row.currentBid && row.currentBid > 0 && roas >= 100 && roas < 200) {
-      const nextBid = roundBid(row.currentBid * 0.85);
-      if (nextBid < row.currentBid) {
-        return {
-          adTargetDailyId: row.id,
-          listingId: row.listingId,
-          actionType: 'change_bid',
-          targetType: 'keyword',
-          externalId: row.externalId,
-          targetLabel,
-          reason: `ROAS ${Math.round(roas)}%로 입찰가 하향 구간입니다. 현재 ${formatNumber(row.currentBid)}원 → ${formatNumber(nextBid)}원.`,
-          priority: profitRateNum !== null && profitRateNum < 0 ? 'high' : 'medium',
-          currentValue: row.currentBid,
-          proposedValue: nextBid,
-          payload: basePayload(row, { pageType: 'keyword' }),
-        };
-      }
+  // Rule 1: every advertised option is sold out, yet the budget keeps running.
+  // An option whose capacity is unknown never counts as sold out.
+  if (
+    target.vendorItemIds.length > 0 &&
+    target.vendorItemIds.every((id) => channelSkuEvidenceMap.get(id)?.sellableStock === 0)
+  ) {
+    return campaignCandidate(
+      'urgent',
+      3000,
+      `재고 0개인데 광고 예산 ${formatNumber(budget)}원이 유지 중입니다. 즉시 축소가 필요합니다.`,
+    );
+  }
+
+  // A campaign that spent nothing in the window has no performance to judge
+  // its budget on (a ROAS of 0 there is no evidence of a poor campaign).
+  if (spend === 0) return null;
+
+  // Rule 3: A-grade campaign with strong ROAS → budget expansion.
+  if (grade === 'A' && roas >= 480) {
+    const nextBudget = roundBudget(budget * 1.2);
+    if (nextBudget > budget) {
+      return campaignCandidate(
+        'high',
+        nextBudget,
+        `A등급 / ROAS ${Math.round(roas)}%로 예산 확대 구간입니다. 현재 ${formatNumber(budget)}원 → ${formatNumber(nextBudget)}원.`,
+      );
     }
   }
 
-  // Rule 4 & 5: campaign budget increase / decrease
-  if (
-    row.targetType === 'campaign' &&
-    row.dailyBudget != null &&
-    row.dailyBudget > 0
-  ) {
-    if (grade === 'A' && roas >= 480) {
-      const nextBudget = roundBudget(row.dailyBudget * 1.2);
-      if (nextBudget > row.dailyBudget) {
-        return {
-          adTargetDailyId: row.id,
-          listingId: row.listingId,
-          actionType: 'change_daily_budget',
-          targetType: 'campaign',
-          externalId: row.externalId,
-          targetLabel,
-          reason: `A등급 / ROAS ${Math.round(roas)}%로 예산 확대 구간입니다. 현재 ${formatNumber(row.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
-          priority: 'high',
-          currentValue: row.dailyBudget,
-          proposedValue: nextBudget,
-          payload: basePayload(row, { pageType: 'campaign' }),
-        };
-      }
-    }
-
-    if ((grade === 'C' || roas < 100) && row.dailyBudget > 3000) {
-      const nextBudget = Math.max(3000, roundBudget(row.dailyBudget * 0.5));
-      if (nextBudget < row.dailyBudget) {
-        return {
-          adTargetDailyId: row.id,
-          listingId: row.listingId,
-          actionType: 'change_daily_budget',
-          targetType: 'campaign',
-          externalId: row.externalId,
-          targetLabel,
-        reason: `${grade ? `${grade}등급 / ` : ''}ROAS ${Math.round(roas)}%로 예산 축소 구간입니다. 현재 ${formatNumber(row.dailyBudget)}원 → ${formatNumber(nextBudget)}원.`,
-          priority: grade === 'C' ? 'high' : 'medium',
-          currentValue: row.dailyBudget,
-          proposedValue: nextBudget,
-          payload: basePayload(row, { pageType: 'campaign' }),
-        };
-      }
+  // Rule 4: C grade or low ROAS → budget shrink.
+  if ((grade === 'C' || roas < 100) && budget > 3000) {
+    const nextBudget = Math.max(3000, roundBudget(budget * 0.5));
+    if (nextBudget < budget) {
+      return campaignCandidate(
+        grade === 'C' ? 'high' : 'medium',
+        nextBudget,
+        `${grade ? `${grade}등급 / ` : ''}ROAS ${Math.round(roas)}%로 예산 축소 구간입니다. 현재 ${formatNumber(budget)}원 → ${formatNumber(nextBudget)}원.`,
+      );
     }
   }
 
@@ -185,42 +140,25 @@ export function createActionCandidate(
 }
 
 /**
- * Option margin as a percentage of the sale price, or `null` when it is not
- * measurable (KID-114). Purchase cost is the confirmed recipe priced at the
- * Sellpia purchase price; an unknown cost is never counted as 0. Whether a
- * sales commission and an other per-sale cost apply is the listing channel
- * account's rule: Rocket direct purchase applies neither, and an account that
- * carries them has no measured value yet, so its margin is unknown. A rule
- * that escalates on a negative margin therefore stays neutral.
+ * The proposal's display fields plus the ad report evidence it was judged on
+ * (`adTarget`): the campaign, ad group, advertised option and keyword, and the
+ * last measured day of the window.
  */
-export function calcProfitRate(option: {
-  costPrice: number | null;
-  sellPrice: number | null;
-  channel: string | null;
-}): number | null {
-  const sell = option.sellPrice;
-  if (sell === null || sell <= 0) return null;
-  if (option.costPrice === null || option.channel === null) return null;
-  const costs = channelAccountSalesCosts({ channel: option.channel });
-  if (costs.salesCommissionApplies || costs.otherCostApplies) return null;
-  return Math.round(((sell - option.costPrice) / sell) * 10000) / 100;
-}
-
-function basePayload(
-  row: Pick<
-    LatestTargetRow,
-    'targetType' | 'campaignName' | 'keyword' | 'productName' | 'externalId' | 'status'
-  >,
-  extras: Record<string, unknown>,
-) {
+function basePayload(target: AdRuleTarget, targetLabel: string): Record<string, unknown> {
   return {
-    pageType: row.targetType,
-    campaignName: row.campaignName,
-    keyword: row.keyword,
-    productName: row.productName,
-    externalId: row.externalId,
-    status: row.status,
-    ...extras,
+    pageType: target.targetType,
+    campaignName: target.campaignName,
+    keyword: target.keyword,
+    productName: target.productName,
+    targetLabel,
+    adTarget: {
+      campaignId: target.campaignId,
+      adGroupId: target.adGroupId,
+      vendorItemId: target.vendorItemId,
+      ...(target.keyword ? { keyword: target.keyword } : {}),
+      businessDate: target.businessDate,
+      source: 'ad_report',
+    },
   };
 }
 
@@ -228,14 +166,6 @@ function roundBudget(value: number) {
   return Math.max(3000, Math.round(value / 100) * 100);
 }
 
-function roundBid(value: number) {
-  return Math.max(100, Math.round(value / 10) * 10);
-}
-
 function formatNumber(value: number) {
   return new Intl.NumberFormat('ko-KR').format(Math.round(value));
-}
-
-function isPaused(statusText: string) {
-  return ['off', '중지', '일시중지', '비활성', 'pause'].some((token) => statusText.includes(token));
 }

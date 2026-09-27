@@ -12,7 +12,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, type KstQueryWindow } from '../../../../common/kst';
-import { readListingAdWindowFacts } from '../persistence/read/ad-target-facts';
+import { activeAdAccountIds, AD_SWEEP_CHANNEL } from '../../../domain/ad-sweep-coverage';
+import {
+  AD_LEDGER_READ_REPOSITORY_PORT,
+  type AdLedgerReadRepositoryPort,
+} from '../../../application/port/out/repository/ad-ledger-read.repository.port';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import {
@@ -51,6 +55,7 @@ export class AdStrategyContextRepositoryAdapter
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
+    @Inject(AD_LEDGER_READ_REPOSITORY_PORT) private readonly ledger: AdLedgerReadRepositoryPort,
   ) {}
 
   async loadStrategyContext(
@@ -81,13 +86,19 @@ export class AdStrategyContextRepositoryAdapter
     const range = periodBounds(period);
 
     // The period's `to` is an inclusive business date; both readers take a
-    // half-open window, so the bound is the day after.
+    // half-open window, so the bound is the day after. Per-listing ad sums
+    // come from the ad report ledger's measured days (KID-372).
     const windowEnd = addDays(range.to, 1);
-    const adAgg = await readListingAdWindowFacts(tx, {
+    const identities = await this.channelAccounts.readProviderIdentities(ownerTransaction(tx), {
       organizationId,
-      from: range.from,
-      to: windowEnd,
-    }, this.channelAccounts);
+      channel: AD_SWEEP_CHANNEL,
+    });
+    const adAgg = await this.ledger.readListingAdWindowFacts(ownerTransaction(tx), {
+      organizationId,
+      activeAccountIds: activeAdAccountIds(identities),
+      from: businessDateKey(range.from),
+      to: businessDateKey(windowEnd),
+    });
 
     const listingIds = uniqueIds([
       ...adAgg.map((a) => a.listingId),

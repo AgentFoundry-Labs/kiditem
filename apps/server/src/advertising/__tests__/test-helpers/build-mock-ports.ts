@@ -16,8 +16,6 @@ import type { AdCampaignRepositoryPort } from '../../application/port/out/reposi
 import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
 import type { AdStrategyContextRepositoryPort } from '../../application/port/out/repository/ad-strategy-context.repository.port';
 import type { ChannelScrapeRepositoryPort } from '../../application/port/out/repository/channel-scrape.repository.port';
-import type { ChannelOptionDailyRepositoryPort } from '../../application/port/out/repository/channel-option-daily.repository.port';
-import type { ChannelTargetDailyRepositoryPort } from '../../application/port/out/repository/channel-target-daily.repository.port';
 import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
 
 /** Vitest mock variant of every method on `AdBenchmarkRepositoryPort`. */
@@ -64,9 +62,9 @@ export type MockAdCampaignRepo = {
 
 export function buildMockAdCampaignRepo(): MockAdCampaignRepo {
   return {
-    findCampaignSnapshot: vi.fn(),
-    findProductTargetRollups: vi.fn(),
-    findKeywordTargetRollups: vi.fn(),
+    findCampaignRollups: vi.fn(),
+    findProductRollups: vi.fn(),
+    findKeywordRollups: vi.fn(),
     findAdWindowDays: vi.fn(),
   };
 }
@@ -78,7 +76,8 @@ export type MockAdActionRepo = {
 export function buildMockAdActionRepo(): MockAdActionRepo {
   return {
     findAdActionsForReview: vi.fn(),
-    findLatestTargetRows: vi.fn(),
+    findRuleTargets: vi.fn(),
+    findAppliedKeywordPauses: vi.fn(),
     findExistingInflightActions: vi.fn(),
     findKeywordPauseProposals: vi.fn().mockResolvedValue([]),
     createAdActionsFromCandidates: vi.fn(),
@@ -107,27 +106,6 @@ export type MockChannelScrapeRepo = {
 export function buildMockChannelScrapeRepo(): MockChannelScrapeRepo {
   return {
     findExtensionStatusSnapshot: vi.fn(),
-  };
-}
-
-export type MockChannelOptionDailyRepo = {
-  [K in keyof ChannelOptionDailyRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockChannelOptionDailyRepo(): MockChannelOptionDailyRepo {
-  return {
-    upsert: vi.fn(),
-  };
-}
-
-export type MockChannelTargetDailyRepo = {
-  [K in keyof ChannelTargetDailyRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockChannelTargetDailyRepo(): MockChannelTargetDailyRepo {
-  return {
-    upsert: vi.fn(),
-    replaceCampaignDay: vi.fn(),
   };
 }
 

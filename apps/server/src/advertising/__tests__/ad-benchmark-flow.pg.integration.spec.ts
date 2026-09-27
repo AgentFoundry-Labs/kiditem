@@ -12,7 +12,7 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { seedAd as seedAdTargetDay } from '../../test-helpers/finance-seeds';
+import { seedAdListingDay } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
 
 describe('AdBenchmark flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -47,7 +47,7 @@ describe('AdBenchmark flow (PG integration)', () => {
     return { listing };
   }
 
-  /** A measured listing-day ad fact in the advertising target-day ledger. */
+  /** A measured listing-day ad fact in the ad report ledger (conversions are the report's orders). */
   async function seedAd(params: {
     organizationId: string;
     listingId: string;
@@ -62,7 +62,7 @@ describe('AdBenchmark flow (PG integration)', () => {
     const date = new Date();
     date.setDate(date.getDate() - (params.daysAgo ?? 0));
     date.setHours(0, 0, 0, 0);
-    await seedAdTargetDay(prisma, {
+    await seedAdListingDay(prisma, {
       organizationId: params.organizationId,
       listingId: params.listingId,
       date: date.toISOString().slice(0, 10),
@@ -70,7 +70,7 @@ describe('AdBenchmark flow (PG integration)', () => {
       revenue: params.revenue,
       impressions: params.impressions ?? 0,
       clicks: params.clicks ?? 0,
-      conversions: params.conversions ?? 0,
+      orders: params.conversions ?? 0,
     });
   }
 

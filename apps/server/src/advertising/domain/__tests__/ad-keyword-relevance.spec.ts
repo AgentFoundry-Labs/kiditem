@@ -11,18 +11,20 @@ function source(
   overrides: Partial<KeywordJudgementSource> = {},
 ): KeywordJudgementSource {
   return {
-    adTargetDailyId: 'target-1',
+    campaignId: '104640375',
+    adGroupId: 'G1',
     keyword: '콩순이 비눗방울',
     productName: '캐릭터 문어발 비눗방울 1p',
     campaignName: '쿠팡윙 집중광고',
     externalOptionId: '95514044205',
     listingId: 'listing-1',
-    origin: 'smart_targeting',
     impressions: 10,
     clicks: 1,
     spend: 500,
     revenue: 0,
     conversions: 0,
+    measuredDays: 14,
+    businessDate: '2026-09-20',
     ...overrides,
   };
 }
@@ -68,8 +70,8 @@ describe('buildKeywordProductBatches', () => {
       source({ keyword: '공유 키워드', externalOptionId: null }),
       // Already converted; it has proven itself however it reads.
       source({ keyword: '전환됨', conversions: 2 }),
-      // The conversion column was not observed, so it may have converted.
-      source({ keyword: '전환 미관측', conversions: null }),
+      // No measured day in the window, so it may have converted.
+      source({ keyword: '측정 안 됨', measuredDays: 0 }),
       source({ keyword: '판정 대상' }),
     ]);
 
@@ -138,12 +140,17 @@ describe('toKeywordPauseCandidates', () => {
       targetType: 'keyword',
       targetLabel: '콩순이 비눗방울',
       priority: 'high',
-      adTargetDailyId: 'target-1',
+      externalId: '95514044205',
     });
+    expect(candidates[0]).not.toHaveProperty('adTargetDailyId');
     expect(candidates[0].reason).toContain('콩순이는 다른 완구 브랜드명');
     expect(candidates[0].payload).toMatchObject({
       relevance: 'irrelevant',
       externalOptionId: '95514044205',
+      adTarget: {
+        campaignId: '104640375', adGroupId: 'G1', vendorItemId: '95514044205',
+        keyword: '콩순이 비눗방울', businessDate: '2026-09-20', source: 'ad_report',
+      },
     });
   });
 
@@ -198,10 +205,10 @@ describe('toKeywordPauseCandidates', () => {
     expect(rejected).toEqual([{ ref, reason: 'converted_keyword' }]);
   });
 
-  it('refuses to pause a keyword whose conversion column was not observed', () => {
+  it('refuses to pause a keyword whose window has no measured day', () => {
     const { batches, sourceByRef } = buildKeywordProductBatches([source()]);
     const ref = batches[0].items[0].ref;
-    sourceByRef.get(ref)!.conversions = null;
+    sourceByRef.get(ref)!.measuredDays = 0;
 
     const { candidates, rejected } = toKeywordPauseCandidates(
       [{ ref, verdict: 'irrelevant', reason: '무관해 보임' }],
@@ -209,7 +216,7 @@ describe('toKeywordPauseCandidates', () => {
     );
 
     expect(candidates).toEqual([]);
-    expect(rejected).toEqual([{ ref, reason: 'conversions_unobserved' }]);
+    expect(rejected).toEqual([{ ref, reason: 'not_measured' }]);
   });
 
   it('keeps the first verdict when the model repeats a ref', () => {
@@ -260,7 +267,7 @@ describe('toKeywordPauseCandidates', () => {
   it('ranks an impression-only keyword below one that is spending', () => {
     const { batches, sourceByRef } = buildKeywordProductBatches([
       source({ keyword: '돈 쓰는 키워드', spend: 900 }),
-      source({ keyword: '노출만 하는 키워드', spend: 0, adTargetDailyId: 'target-2' }),
+      source({ keyword: '노출만 하는 키워드', spend: 0 }),
     ]);
     const { candidates } = toKeywordPauseCandidates(
       batches[0].items.map((item) => ({

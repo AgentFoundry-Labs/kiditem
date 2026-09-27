@@ -15,6 +15,13 @@ export function adSweepCoversChannelAccount(
   return account.channel === AD_SWEEP_CHANNEL && account.status === AD_SWEEP_ACCOUNT_STATUS;
 }
 
+/** The accounts the ad report measures: active Coupang accounts among one channel's identities. */
+export function activeAdAccountIds(
+  identities: ReadonlyArray<Readonly<{ id: string; status: string }>>,
+): string[] {
+  return identities.filter((account) => account.status === AD_SWEEP_ACCOUNT_STATUS).map((account) => account.id);
+}
+
 /**
  * Whether advertising is an input to one sale key's profit — a listing, or a
  * channel grouping of listings. Measured spend for the key always applies,

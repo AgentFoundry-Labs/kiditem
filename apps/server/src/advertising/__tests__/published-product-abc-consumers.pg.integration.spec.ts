@@ -1,3 +1,5 @@
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { seedAdCampaign, seedAdProductDays, seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
@@ -13,7 +15,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdStrategyContextRepositoryAdapter } from '../adapter/out/repository/ad-strategy-context.repository.adapter';
 import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
@@ -151,49 +152,26 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       },
     });
 
-    const campaignSweep = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: account.id,
-        sourceType: 'coupang_ad_campaign',
-        parserVersion: 'ad-campaign-v1',
-        status: 'completed',
-        freshnessGeneration: 1n,
-        plan: { captureMode: 'campaign_sweep' },
-        coverageStartDate: new Date('2026-08-31T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-08-31T00:00:00.000Z'),
-      },
+    const adReport = await seedAdReportRun(prisma, {
+      organizationId: ORG, channelAccountId: account.id, start: '2026-08-31', end: '2026-08-31',
     });
-    await prisma.channelAdTargetDailySnapshot.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: account.id,
-        channel: 'coupang',
-        businessDate: new Date('2026-08-31T00:00:00.000Z'),
-        listingId: listing.id,
-        listingOptionId: option.id,
-        externalId: listing.externalId,
-        externalOptionId: option.externalOptionId,
-        targetType: 'product',
-        targetKey: 'product:SELLER-PRODUCT-1',
-        campaignId: 'campaign-1',
-        campaignName: 'Campaign',
-        spend: 1_000,
-        sourceImportRunId: campaignSweep.id,
-        metaJson: { data: { productName: 'Published A product' } },
-      },
+    await seedAdCampaign(prisma, {
+      organizationId: ORG, channelAccountId: account.id, operationId: adReport.id, campaignId: 'campaign-1', name: 'Campaign', budget: 10_000,
     });
+    await seedAdProductDays(prisma, [{
+      organizationId: ORG, channelAccountId: account.id, operationId: adReport.id, date: '2026-08-31',
+      campaignId: 'campaign-1', vendorItemId: option.externalOptionId, listingId: listing.id, spend: 1_000,
+    }]);
 
     const listingReader = new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts);
     const keywordReader = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts);
+    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter());
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');
@@ -208,9 +186,10 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       productName: 'Wing product',
       abcGrade: 'A',
     });
-    expect((await actionReader.findLatestTargetRows(ORG))[0]).toMatchObject({
+    expect((await actionReader.findRuleTargets(ORG))[0]).toMatchObject({
+      targetType: 'campaign',
       listingId: listing.id,
-      listingOptionId: option.id,
+      vendorItemIds: [option.externalOptionId],
       abcGrade: 'A',
     });
   });

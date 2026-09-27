@@ -58,7 +58,7 @@ describe('ad-keyword-normalizer', () => {
       impressions: 3,
       listingOptionId: 'listing-option-1',
       metaJson: {
-        data: { origin: 'smart_targeting', adId: '541920849', windowDays: 7 },
+        data: { adId: '541920849', windowDays: 7 },
       },
     });
   });

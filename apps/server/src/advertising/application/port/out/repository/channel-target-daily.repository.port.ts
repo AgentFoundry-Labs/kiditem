@@ -1,13 +1,9 @@
-// Outgoing port for `ChannelAdTargetDailySnapshot` upserts. Split from
-// the channel-daily-fact aggregate so campaign/keyword/product-target grain
-// facts have their own contract; adapter still preserves overwrite-on-replay
-// metric semantics inside a single $transaction.
+// Row shape the old campaign sweep and keyword source attempts stage into
+// `ChannelAdTargetDailySnapshot` (their own repositories write it). The
+// repository port and adapter are gone (KID-372); the writers and this shape
+// go with the table in KID-373.
 
 import type { MetaJsonInput } from './daily-fact-meta';
-
-export const CHANNEL_TARGET_DAILY_REPOSITORY_PORT = Symbol(
-  'ChannelTargetDailyRepositoryPort',
-);
 
 export type AdTargetType = 'campaign' | 'keyword' | 'product';
 
@@ -45,61 +41,9 @@ export interface UpsertAdTargetDailyInput extends AdTargetDailyMetrics {
   placement?: string | null;
   status?: string | null;
   onOff?: string | null;
-  currentBid?: number | null;
   dailyBudget?: number | null;
 
   observedAt?: Date;
   rawSnapshotId?: string | null;
   metaJson?: MetaJsonInput;
-}
-
-/**
- * One complete, single-day campaign report. The repository treats `targets`
- * as the authoritative set for this account/campaign/date and removes prior
- * targets absent from the replacement set in the same transaction.
- */
-export interface ReplaceAdCampaignDayInput {
-  organizationId: string;
-  channelAccountId: string;
-  channel: string;
-  businessDate: Date;
-  campaignId?: string | null;
-  /** Canonical provider identity (`campaign:<providerId>`). A trusted Coupang
-   * detail href is normalized to this form before replacement. */
-  campaignIdentity?: string | null;
-  campaignName: string;
-  targets: UpsertAdTargetDailyInput[];
-  /**
-   * Grains this replacement is authoritative for. Rows of any other
-   * `targetType` on the same account/campaign/date are left untouched.
-   *
-   * Campaign/product facts and keyword facts come from different provider
-   * surfaces (the report grid vs. the per-ad keyword table) and are collected
-   * by different producers, so neither producer may treat the other's rows as
-   * stale. Omitting the scope keeps the legacy all-grain behaviour.
-   */
-  replaceScope?: AdTargetType[];
-}
-
-export type ReplaceAdCampaignDayResult =
-  | {
-      kind: 'replaced';
-      upsertedCount: number;
-      deletedCount: number;
-    }
-  | {
-      kind: 'rejected';
-      code: 'dependent_action_conflict';
-    };
-
-export type ReplaceAdCampaignDayRejectionCode = Extract<
-  ReplaceAdCampaignDayResult,
-  { kind: 'rejected' }
->['code'];
-
-export interface ChannelTargetDailyRepositoryPort {
-  upsert(input: UpsertAdTargetDailyInput): Promise<{ id: string }>;
-  replaceCampaignDay(
-    input: ReplaceAdCampaignDayInput,
-  ): Promise<ReplaceAdCampaignDayResult>;
 }
