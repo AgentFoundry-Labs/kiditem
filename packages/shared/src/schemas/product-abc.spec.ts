@@ -328,7 +328,6 @@ describe('absolute product profitability ABC contracts', () => {
         cutoffDate: '2026-07-31',
         sourceCutoffDate: '2026-07-31',
         sellpiaOperationId: UUID,
-        advertisingSourceImportRunId: UUID_2,
       },
       totals: {
         revenue: 1_000,
