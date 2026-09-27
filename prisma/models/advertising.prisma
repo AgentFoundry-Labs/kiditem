@@ -394,3 +394,165 @@ model CoupangWingSalesRankDailySnapshot {
   @@index([operationId])
   @@map("coupang_wing_sales_rank_daily_snapshots")
 }
+
+/// @namespace Advertising
+/// @describe ChannelAdProductDailySnapshot canonical state owned by advertising.
+/// @namespace Channels
+/// @describe 광고센터 상품 보고서(advertising.ad_report, KID-371)의 광고 옵션×광고그룹×일 사실. 검색/비검색 행을 더하고 전환은 14일 direct+halo. `billedSpend`는 정산 청구액을 원 단위까지 배분한 값. 실행이 창 안 날짜를 지우고 다시 쓴다.
+model ChannelAdProductDailySnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  channelAccountId String   @map("channel_account_id") @db.Uuid
+  date             DateTime @db.Date
+  campaignId       String   @map("campaign_id")
+  adGroupId        String   @map("ad_group_id")
+  /// 광고한 옵션(`advertisedVendorItemId`).
+  optionId         String   @map("option_id")
+  /// Channels 카탈로그로 맞춘 리스팅(다른 owner id, FK 없음). 못 맞추면 null.
+  listingId        String?  @map("listing_id") @db.Uuid
+  optionName       String?  @map("option_name")
+
+  impressions Int
+  clicks      Int
+  spend       Int
+  orders      Int
+  units       Int
+  revenue     Int
+  billedSpend Int @map("billed_spend")
+
+  /// 이 행을 쓴 실행(`advertising.ad_report`, ADR-0025).
+  operationId String   @map("operation_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, date, campaignId, adGroupId, optionId], map: "channel_ad_product_daily_snapshots_key")
+  @@index([organizationId, date])
+  @@index([organizationId, listingId, date])
+  @@index([operationId])
+  @@map("channel_ad_product_daily_snapshots")
+}
+
+/// @namespace Advertising
+/// @describe ChannelAdKeywordDailySnapshot canonical state owned by advertising.
+/// @namespace Channels
+/// @describe 광고센터 키워드 보고서(advertising.ad_report, KID-371)의 키워드×광고 옵션×일 사실. 클릭 발생분만 들어오고 상품 합계에 더하지 않는다. 비검색은 keyword ''.
+model ChannelAdKeywordDailySnapshot {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  channelAccountId String   @map("channel_account_id") @db.Uuid
+  date             DateTime @db.Date
+  campaignId       String   @map("campaign_id")
+  /// 키워드 보고서에 없으면 상품 보고서에서 (캠페인, 그룹 이름)으로 채운다. 그래도 없으면 null.
+  adGroupId        String?  @map("ad_group_id")
+  optionId         String   @map("option_id")
+  keyword          String
+
+  impressions Int
+  clicks      Int
+  spend       Int
+  orders      Int
+  units       Int
+  revenue     Int
+
+  operationId String   @map("operation_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, date, campaignId, adGroupId, optionId, keyword], map: "channel_ad_keyword_daily_snapshots_key")
+  @@index([organizationId, date])
+  @@index([operationId])
+  @@map("channel_ad_keyword_daily_snapshots")
+}
+
+/// @namespace Advertising
+/// @describe ChannelAdCampaign canonical state owned by advertising.
+/// @namespace Channels
+/// @describe 광고 캠페인의 현재 상태(advertising.ad_report, KID-371). 보고서에만 있는 캠페인은 삭제로 보고 `deletedAt`을 찍고 이름은 보고서에서 채운다.
+model ChannelAdCampaign {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  channelAccountId String    @map("channel_account_id") @db.Uuid
+  campaignId       String    @map("campaign_id")
+  name             String
+  isActive         Boolean   @map("is_active")
+  status           String?
+  servingStatus    String?   @map("serving_status")
+  budget           Int?
+  budgetType       String?   @map("budget_type")
+  roasTarget       Decimal?  @map("roas_target") @db.Decimal(12, 4)
+  adSelectionType  String?   @map("ad_selection_type")
+  totalAdCount     Int?      @map("total_ad_count")
+  lastSeenAt       DateTime  @map("last_seen_at") @db.Timestamptz
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
+
+  operationId String   @map("operation_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, campaignId], map: "channel_ad_campaigns_key")
+  @@index([operationId])
+  @@map("channel_ad_campaigns")
+}
+
+/// @namespace Advertising
+/// @describe ChannelAdCampaignAd canonical state owned by advertising.
+/// @namespace Channels
+/// @describe 광고(상품)의 현재 상태(advertising.ad_report, KID-371).
+model ChannelAdCampaignAd {
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  channelAccountId String   @map("channel_account_id") @db.Uuid
+  adId             String   @map("ad_id")
+  campaignId       String   @map("campaign_id")
+  adGroupId        String   @map("ad_group_id")
+  optionId         String?  @map("option_id")
+  isActive         Boolean? @map("is_active")
+  status           String?
+  lastSeenAt       DateTime @map("last_seen_at") @db.Timestamptz
+
+  operationId String   @map("operation_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, adId], map: "channel_ad_campaign_ads_key")
+  @@index([organizationId, channelAccountId, campaignId])
+  @@index([operationId])
+  @@map("channel_ad_campaign_ads")
+}
+
+/// @namespace Advertising
+/// @describe ChannelAdDailyBilling canonical state owned by advertising.
+/// @namespace Channels
+/// @describe 광고 정산 캠페인×일(advertising.ad_report, KID-368·371). 캠페인 없는 조정이나 보고서에 짝이 없는 청구액은 `campaignKey ''`(계정 광고비 조정) 행에 모은다.
+model ChannelAdDailyBilling {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  channelAccountId    String   @map("channel_account_id") @db.Uuid
+  date                DateTime @db.Date
+  settlementDomain    String   @map("settlement_domain")
+  /// 캠페인 id, 계정 조정 행은 ''.
+  campaignKey         String   @map("campaign_key")
+  deliveredSpend      Int      @map("delivered_spend")
+  billedSpend         Int      @map("billed_spend")
+  promotionAdjustment Int      @map("promotion_adjustment")
+  billableAdjustment  Int      @map("billable_adjustment")
+
+  operationId String   @map("operation_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelAccountId, date, settlementDomain, campaignKey], map: "channel_ad_daily_billings_key")
+  @@index([organizationId, date])
+  @@index([operationId])
+  @@map("channel_ad_daily_billings")
+}
