@@ -33,6 +33,8 @@ vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
   // 확인 필요 실행의 확인 카드(KID-218)가 쓴다. 이 표의 관심사는 카드가 서는지뿐이다.
   useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  // 3단계의 저장된 몰별 값 읽기 — 이 표의 관심사가 아니라 비워 둔다.
+  useQueries: ({ queries }: { queries: unknown[] }) => queries.map(() => ({ data: undefined })),
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey.includes('targets')) {
       return { data: publishTargets, isLoading: false, isSuccess: true, isError: false, error: null };
@@ -130,10 +132,12 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('@/lib/registration-target-api', () => ({
-  registrationTargetApi: { resolve: resolveTargetMock },
+  registrationTargetApi: { resolve: resolveTargetMock, list: vi.fn() },
+  registrationTargetKeys: { list: (id: string) => ['registration-targets', 'list', id] },
 }));
 
-vi.mock('../_shared/target-registration-execution', () => ({
+vi.mock('../_shared/target-registration-execution', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../_shared/target-registration-execution')>()),
   executeTargetRegistration: executeTargetMock,
 }));
 

@@ -131,13 +131,15 @@ export async function extensionMallWriteSites(): Promise<string[]> {
 
 /**
  * 화면이 쓰는 등록 실행 상태. `needs_confirmation`은 `reconciling` — 몰에 제출됐지만 등록상품ID를 못 읽었다. 실패가
- * 아니고 성공도 아니다: 운영자가 몰에서 읽은 ID로 확인하거나 "등록되지 않음"으로 닫는다.
+ * 아니고 성공도 아니다: 운영자가 몰에서 읽은 ID로 확인하거나 "등록되지 않음"으로 닫는다. `filled`는 제출하지 않고 끝난
+ * 성공(`submitted: false`) — 폼만 채웠고 [등록]은 사람이 누른다. `confirmed`는 몰이 확인한 것뿐이다.
  */
-export type RegistrationOperationState = 'running' | 'needs_confirmation' | 'confirmed' | 'failed' | 'cancelled';
+export type RegistrationOperationState = 'running' | 'needs_confirmation' | 'filled' | 'confirmed' | 'failed' | 'cancelled';
 
 export const REGISTRATION_OPERATION_STATE_LABEL: Record<RegistrationOperationState, string> = {
   running: '진행 중',
   needs_confirmation: '확인 필요',
+  filled: '폼만 채움',
   confirmed: '확인 완료',
   failed: '실패',
   cancelled: '멈춤',
@@ -156,7 +158,8 @@ export interface RegistrationOperationRead {
 export function registrationOperationState(operation: OperationView): RegistrationOperationState {
   switch (operation.status) {
     case 'reconciling': return 'needs_confirmation';
-    case 'succeeded': return 'confirmed';
+    // 제출하지 않고 끝난 성공은 폼만 채운 것이다 — 확인이 아니다(QA D4). 판단은 `submitted`만 본다(submitSkipped는 null일 수 있다).
+    case 'succeeded': return operation.result?.submitted === false ? 'filled' : 'confirmed';
     case 'failed': return 'failed';
     case 'cancelled': return 'cancelled';
     default: return 'running';
@@ -190,16 +193,15 @@ export function registrationSendOutcome(read: RegistrationOperationRead): MallSe
   const warnings = result?.fill.warnings ?? [];
   const productNo = result?.externalListingId ?? result?.evidence?.externalListingId ?? null;
   switch (read.state) {
+    case 'filled':
+      return {
+        ok: true,
+        confirmed: false,
+        submitted: false,
+        manualSteps: [...(result?.submitSkipped ? [result.submitSkipped] : []), ...(result?.fill.manualSteps ?? [])],
+        warnings,
+      };
     case 'confirmed':
-      if (result && !result.submitted) {
-        return {
-          ok: true,
-          confirmed: false,
-          submitted: false,
-          manualSteps: [...(result.submitSkipped ? [result.submitSkipped] : []), ...result.fill.manualSteps],
-          warnings,
-        };
-      }
       return { ok: true, confirmed: true, submitted: true, accepted: true, productNo, manualSteps: [], warnings };
     case 'needs_confirmation':
       return {

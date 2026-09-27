@@ -26,7 +26,28 @@ describe('registrationTaskRow — 등록 실행 한 줄', () => {
     const row = registrationTaskRow(operation({
       result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: '이 몰은 사람이 [등록]을 누릅니다.', externalListingId: null, mallMessage: null, fill, evidence: null },
     }));
+    expect(row.stateLabel).toBe('폼만 채움');
+    expect(row.state).toBe('filled');
     expect(row.summary).toBe('폼만 채움 — 이 몰은 사람이 [등록]을 누릅니다.');
+  });
+
+  it('⭐ 제출하지 않은 성공은 submitSkipped가 null이어도 "폼만 채움"이다 — "확인 완료"가 아니다(QA D4)', () => {
+    const row = registrationTaskRow(operation({
+      result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: null, externalListingId: null, mallMessage: null, fill, evidence: null },
+    }));
+    expect(row).toMatchObject({ state: 'filled', stateLabel: '폼만 채움', summary: '폼만 채움' });
+  });
+
+  it('대상 열은 판매상품 이름, 없으면 몰 상품번호, 그것도 없으면 id 앞자리', () => {
+    const named = registrationTaskRow(operation({ plan: {
+      executionKind: 'register', mallKey: 'onch', registrationTargetId: '1ff29c3c-1111-4111-8111-111111111111',
+      payload: { snapshot: { product: { name: '곰돌이 우산' } }, form: {} },
+    } }));
+    expect(named.target).toBe('곰돌이 우산');
+    const listing = registrationTaskRow(operation({ plan: { executionKind: 'update', mallKey: 'kakao', externalListingId: 'MALL-7', registrationTargetId: '1ff29c3c-1111-4111-8111-111111111111' } }));
+    expect(listing.target).toBe('몰 상품 MALL-7');
+    const bare = registrationTaskRow(operation({ plan: { executionKind: 'register', mallKey: 'onch', registrationTargetId: '1ff29c3c-1111-4111-8111-111111111111' } }));
+    expect(bare.target).toBe('1ff29c3c');
   });
 
   it('reconciling은 확인 필요이고, 실패는 운영자 문장이다(코드 원문 금지)', () => {

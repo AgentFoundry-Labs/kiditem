@@ -19,6 +19,7 @@ import {
 import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
 import { extensionMallWriteSites } from '../../_shared/registration-operation';
 import { useMallPublishRun } from '../../_shared/use-mall-publish-run';
+import { useSavedMallValues } from '../hooks/use-saved-mall-values';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
 import { StepValues } from './StepValues';
@@ -166,16 +167,23 @@ export function RegistrationWizard() {
     [selectedMalls],
   );
 
+  const channelAccountIds = useMemo<Record<string, string>>(
+    () => Object.fromEntries((targetsQuery.data ?? []).flatMap((target) => (
+      target.channelAccountId ? [[target.manifest.key, target.channelAccountId]] : []
+    ))),
+    [targetsQuery.data],
+  );
+  const selectedMallKeys = useMemo(() => adapters.map((adapter) => adapter.mallKey), [adapters]);
+  // 3단계 미리보기가 저장된 몰별 값(등록 설정 · 판매상품)을 보이도록 — 실행이 얼리는 값과 같게(QA D5).
+  const savedValues = useSavedMallValues(step === 3 ? items : [], selectedMallKeys, channelAccountIds);
+
   const plan = useMemo(
     () => buildPublishPlan({
       items,
       adapters,
       valuesByMall,
       editedValuesByMall,
-      channelAccountIds: Object.fromEntries((targetsQuery.data ?? []).map((target) => [
-        target.manifest.key,
-        target.channelAccountId,
-      ])),
+      channelAccountIds,
       registrationAccountsByItem: selectedRegistration,
     }),
     [
@@ -184,7 +192,7 @@ export function RegistrationWizard() {
       adapters,
       valuesByMall,
       editedValuesByMall,
-      targetsQuery.data,
+      channelAccountIds,
     ],
   );
 
@@ -308,6 +316,8 @@ export function RegistrationWizard() {
           items={items}
           activeMallKey={activeMallKey || adapters[0]?.mallKey || ''}
           valuesByMall={valuesByMall}
+          editedValuesByMall={editedValuesByMall}
+          savedValues={savedValues}
           blocks={plan.blocks}
           onSelectMall={setActiveMallKey}
           onChangeValue={changeValue}
