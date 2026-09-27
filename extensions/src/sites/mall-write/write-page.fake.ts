@@ -73,24 +73,30 @@ export function loadWritePage(html: string, sources: readonly string[], options:
   return { calls: window.__kiditemPageCalls as Record<string, PageCall>, saves };
 }
 
-/** 페이지 호출 하나를 가짜 시계로 끝까지 돌린다(처리기의 기다림·재시도가 바로 지나간다). */
-export async function runPageCall(page: WritePage, call: string, args: unknown, options: { onFakeClock?(): void } = {}): Promise<Record<string, any>> {
+/** 일 하나를 가짜 시계로 끝까지 돌린다(처리기의 기다림·재시도가 바로 지나간다). `onFakeClock`은 가짜 시계 위에서 먼저 부른다. */
+export async function withFakeClock<T>(work: () => Promise<T>, onFakeClock?: () => void): Promise<T> {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   try {
     // 화면이 늦게 하는 일(AJAX로 채우는 목록)은 가짜 시계 위에서 건다.
-    options.onFakeClock?.();
-    const handler = page.calls[call];
-    if (!handler) throw new Error(`no page call ${call}`);
-    const running = handler(structuredClone(args));
+    onFakeClock?.();
+    const running = work();
     let settled = false;
     void running.finally(() => {
       settled = true;
     }).catch(() => undefined);
     for (let round = 0; round < 2_000 && !settled; round += 1) await vi.advanceTimersByTimeAsync(1_000);
-    return JSON.parse(JSON.stringify(await running)) as Record<string, any>;
+    return await running;
   } finally {
     vi.useRealTimers();
   }
+}
+
+/** 페이지 호출 하나를 가짜 시계로 끝까지 돌린다. */
+export async function runPageCall(page: WritePage, call: string, args: unknown, options: { onFakeClock?(): void } = {}): Promise<Record<string, any>> {
+  const handler = page.calls[call];
+  if (!handler) throw new Error(`no page call ${call}`);
+  const answer = await withFakeClock(() => handler(structuredClone(args)), options.onFakeClock);
+  return JSON.parse(JSON.stringify(answer)) as Record<string, any>;
 }
 
 /** 명세와 폼 지시로 페이지 처리기 인자를 만든다(사진·상세 없이 — 서비스워커 준비는 `form-register.spec.ts`가 본다). */
@@ -98,4 +104,18 @@ export function payloadFor(spec: MallFormSpec, form: Record<string, unknown>): {
   const normalized = normalizeForm(spec, form);
   const { call, payload } = fillPayload(spec, { form: normalized, images: [], imageGroups: {}, repImage: null, detailImage: null, detailHtml: '', warnings: [] });
   return { call, payload };
+}
+
+/**
+ * jsdom 대신 가짜 창(`window`·`document`를 스펙이 만든 것)에서 페이지 파일들을 돌린다 — 몰 화면의 프레임워크(Vue·dhtmlx·
+ * WebSquare) 반응을 흉내 내야 하는 전용 처리기 몰(옛 node 스펙의 가짜 화면을 그대로 옮긴 것). 가드가 쓰는 창 함수
+ * (`addEventListener`)가 없으면 채운다. 처리기 표를 돌려준다.
+ */
+export function scopedPageCalls(sources: readonly string[], scope: Record<string, any>): Record<string, PageCall> {
+  const window = scope.window;
+  window.addEventListener ??= () => undefined;
+  window.location ??= scope.location ?? { origin: 'https://mall.test', href: 'https://mall.test/' };
+  const names = Object.keys(scope);
+  for (const source of sources) new Function(...names, source)(...names.map((name) => scope[name]));
+  return window.__kiditemPageCalls as Record<string, PageCall>;
 }

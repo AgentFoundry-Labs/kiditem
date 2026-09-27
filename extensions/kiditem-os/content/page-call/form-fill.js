@@ -21,7 +21,15 @@
     const all = Array.isArray(window.__kiditemDialogs) ? window.__kiditemDialogs : [];
     return all.slice(mark || 0).map((message) => String(message));
   }
-  window.__kiditemWriteDialogs = { begin: beginWriteDialogs, since: writeDialogsSince };
+  /**
+   * 전용 처리기(신세계·스마트스토어·GS샵·롯데ON·카카오)가 몰 말을 나오는 즉시 듣는다 — 옛 `said` 배열에 넣던 것과 같다.
+   * 쓰기 탭으로 돌리고 떼는 함수를 돌려준다. 옛 코드처럼 `window.alert`·`confirm`을 갈아끼웠다 되돌리지 않는다.
+   */
+  function listenWriteDialogs(sink) {
+    beginWriteDialogs();
+    return typeof window.__kiditemDialogSink === "function" ? window.__kiditemDialogSink(sink) : () => undefined;
+  }
+  window.__kiditemWriteDialogs = { begin: beginWriteDialogs, since: writeDialogsSince, listen: listenWriteDialogs };
 
   /**
    * 페이지 안에서 도는 채움 함수. 인자로 받은 명세·값만 쓴다.

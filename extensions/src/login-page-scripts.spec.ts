@@ -215,6 +215,20 @@ describe('content/page-call/dialog-guard.js — 몰 쓰기 탭은 confirm을 거
     expect(page.window.__kiditemDialogs).toEqual(['임시저장 하시겠습니까?', '필수 항목을 입력하세요.']);
   });
 
+  it('쓰기 처리기는 몰 말을 나오는 즉시 듣는다(sink) — 모은 문장 상한(20)과 상관없이, 떼면 더 듣지 않는다', () => {
+    const page = guardedWindow();
+    (page.window.__kiditemWriteTab as () => void)();
+    const heard: string[] = [];
+    const release = (page.window.__kiditemDialogSink as (sink: (message: string) => void) => () => void)((message) => heard.push(message));
+    for (let i = 0; i < 25; i += 1) page.alert(`안내 ${i}`);
+    expect(page.confirm('저장할까요?')).toBe(false);
+    release();
+    page.alert('뗀 뒤');
+    expect(heard).toHaveLength(26);
+    expect(heard.at(-1)).toBe('저장할까요?');
+    expect(page.window.__kiditemDialogs).toHaveLength(20);
+  });
+
   it('수집 탭 표시가 뒤늦게 와도 쓰기 탭은 그대로이고, 운영자에게 넘기면(operator-tab) 진짜 창으로 돌아간다', () => {
     const shown: string[] = [];
     const page = guardedWindow({ confirm: (message) => { shown.push(message); return true; } });

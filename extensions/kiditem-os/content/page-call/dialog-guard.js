@@ -41,10 +41,24 @@
       // 저장소를 못 쓰는 화면 — 이 문서 안에서만 모은다.
     }
   };
+  // 몰 쓰기 처리기가 몰 말을 나오는 즉시 듣는 곳(KID-256 — 옛 채우기의 `said` 배열). 모은 문장 상한과 상관없이 모두 받는다.
+  const sinks = new Set();
+  window.__kiditemDialogSink = function (sink) {
+    sinks.add(sink);
+    return () => sinks.delete(sink);
+  };
   function record(message) {
+    const text = String(message === undefined ? "" : message);
     const messages = window.__kiditemDialogs;
-    if (messages.length < MAX_MESSAGES) messages.push(String(message === undefined ? "" : message));
+    if (messages.length < MAX_MESSAGES) messages.push(text);
     window.__kiditemSaveDialogs();
+    for (const sink of sinks) {
+      try {
+        sink(text);
+      } catch {
+        // 듣는 쪽 오류가 몰 화면을 멈추지 않게.
+      }
+    }
   }
   const nativeAlert = window.alert;
   const nativeConfirm = window.confirm;

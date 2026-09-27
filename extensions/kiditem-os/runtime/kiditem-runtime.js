@@ -8169,9 +8169,9 @@ var KidItemRuntime = (() => {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
   function requiredText4(value, field) {
-    const text5 = norm(value);
-    if (!text5) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-    return text5;
+    const text6 = norm(value);
+    if (!text6) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text6;
   }
   function requiredInteger(value, field) {
     if (typeof value === "number") {
@@ -9229,9 +9229,9 @@ var KidItemRuntime = (() => {
     "password does not match"
   ];
   function mallRejectedCredentials(message) {
-    const text5 = (message ?? "").toLowerCase();
-    if (!text5) return false;
-    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text5.includes(phrase.toLowerCase()));
+    const text6 = (message ?? "").toLowerCase();
+    if (!text6) return false;
+    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text6.includes(phrase.toLowerCase()));
   }
 
   // extensions/src/sites/site-login.ts
@@ -9445,8 +9445,8 @@ var KidItemRuntime = (() => {
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
-    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
+    const text6 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text6}`, {
       ...error.details ?? {},
       reason,
       ...mallMessage ? { mallMessage } : {}
@@ -10798,10 +10798,10 @@ var KidItemRuntime = (() => {
         providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
       }
     }
-    const text5 = autocomplete?.text.trim() ?? "";
-    if (text5 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text5))) {
+    const text6 = autocomplete?.text.trim() ?? "";
+    if (text6 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text6))) {
       try {
-        const parsed2 = JSON.parse(text5);
+        const parsed2 = JSON.parse(text6);
         if (parsed2 && typeof parsed2 === "object") {
           if (isErrorEnvelope(parsed2)) {
             const message = errorEnvelopeMessage(parsed2);
@@ -10816,7 +10816,7 @@ var KidItemRuntime = (() => {
       } catch {
         warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
       }
-    } else if (text5) {
+    } else if (text6) {
       warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
     }
     const beforeDom = candidates.length;
@@ -11350,13 +11350,13 @@ var KidItemRuntime = (() => {
   }
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
-    const text5 = fetched.text;
+    const text6 = fetched.text;
     const failed6 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text5.trim().charAt(0) === "<") throw failed6();
+    if (fetched.status < 200 || fetched.status >= 300 || text6.trim().charAt(0) === "<") throw failed6();
     let parsed2;
     try {
-      parsed2 = JSON.parse(text5);
+      parsed2 = JSON.parse(text6);
     } catch {
       throw failed6();
     }
@@ -11565,10 +11565,10 @@ var KidItemRuntime = (() => {
     fields: ["loginId", "password"]
   };
   async function orderList(caller) {
-    const text5 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    const text6 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = text5.trim().startsWith("{") ? JSON.parse(text5) : null;
+      body = text6.trim().startsWith("{") ? JSON.parse(text6) : null;
     } catch {
       body = null;
     }
@@ -12950,10 +12950,10 @@ var KidItemRuntime = (() => {
     const blocks = [];
     const seen = /* @__PURE__ */ new Set();
     for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text5 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text5.length < 5 || text5.length > 2e3 || seen.has(text5)) continue;
-      seen.add(text5);
-      blocks.push(text5);
+      const text6 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text6.length < 5 || text6.length > 2e3 || seen.has(text6)) continue;
+      seen.add(text6);
+      blocks.push(text6);
     }
     if (images.length === 0 && blocks.length === 0) return null;
     return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
@@ -13463,6 +13463,130 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
+
+  // extensions/src/sites/mall-write/raw.ts
+  var asRaw = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+  function requireRaw(value, message) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) throw planInvalid(message);
+    return value;
+  }
+  function planInvalid(message) {
+    return new RuntimeError(RUNTIME_PLAN_INVALID16, message, { reason: "form_values" });
+  }
+  var text4 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
+  var digits2 = (entry) => /^\d+$/.test(String(entry ?? "")) ? String(entry) : "";
+  var amount = (entry) => {
+    const parsed2 = Number(entry);
+    return Number.isFinite(parsed2) && parsed2 >= 0 ? Math.round(parsed2) : 0;
+  };
+  var entriesOf = (value) => Object.entries(asRaw(value));
+
+  // extensions/src/sites/ssg/index.ts
+  var SSG_ENTRY_URL = "https://po.ssgadm.com/";
+  var HOSTS4 = ["po.ssgadm.com"];
+  var isSsgLogin = (url) => hostWithin(url, HOSTS4) && /authentication\/login|\/login(?:[/?#.]|$)/i.test(url.pathname);
+  var SSG_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS4),
+    isLogin: isSsgLogin,
+    loginMessage: "\uC2E0\uC138\uACC4 \uD30C\uD2B8\uB108\uC624\uD53C\uC2A4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC2E0\uC138\uACC4 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."
+  };
+  var SSG_LOGIN = {
+    displayName: "\uC2E0\uC138\uACC4",
+    loginUrl: SSG_ENTRY_URL,
+    hosts: HOSTS4,
+    isLoginUrl: isSsgLogin,
+    fields: ["loginId", "password"]
+  };
+
+  // extensions/src/sites/ssg/registration.ts
+  var SSG_REGISTER_FILE = "content/page-call/ssg-register.js";
+  function normalizeSsgForm(value) {
+    const raw = requireRaw(value, "\uC2E0\uC138\uACC4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const category = (entry, label) => {
+      const box = asRaw(entry);
+      const id = digits2(box.id);
+      const keyword2 = text4(box.keyword, 60).trim();
+      if (!id || !keyword2) throw planInvalid(`\uC2E0\uC138\uACC4 ${label}(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      return { id, keyword: keyword2 };
+    };
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [propId, entry] of entriesOf(notice.values)) {
+      if (digits2(propId) && entry !== null && entry !== void 0) noticeValues[propId] = text4(entry, 1e3);
+    }
+    const itemName = text4(raw.itemName, 300).trim();
+    if (!itemName) throw planInvalid("\uC2E0\uC138\uACC4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uC2E0\uC138\uACC4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const shipping = asRaw(raw.shipping);
+    return {
+      itemName,
+      brandName: text4(raw.brandName, 60).trim(),
+      siteNo: digits2(raw.siteNo),
+      displayCategory: category(raw.displayCategory, "\uC804\uC2DC\uCE74\uD14C\uACE0\uB9AC"),
+      standardCategory: category(raw.standardCategory, "\uD45C\uC900\uBD84\uB958"),
+      salePrice,
+      marginRate: amount(raw.marginRate),
+      stock: amount(raw.stock),
+      modelName: text4(raw.modelName, 100).trim(),
+      searchKeywords: text4(raw.searchKeywords, 500).trim(),
+      adultTypeCode: digits2(raw.adultTypeCode) || "90",
+      returnExchangeButton: raw.returnExchangeButton === "N" ? "N" : "Y",
+      notice: {
+        classId: digits2(notice.classId),
+        values: noticeValues,
+        importPropId: digits2(notice.importPropId),
+        importYn: notice.importYn === "N" ? "N" : "Y"
+      },
+      manufacturer: text4(raw.manufacturer, 100).trim(),
+      originCountry: text4(raw.originCountry, 40).trim(),
+      shipping: {
+        leadDays: amount(shipping.leadDays),
+        outboundAddrId: digits2(shipping.outboundAddrId),
+        returnAddrId: digits2(shipping.returnAddrId),
+        fees: (Array.isArray(shipping.fees) ? shipping.fees : []).map((entry) => {
+          const fee = asRaw(entry);
+          return { divCd: digits2(fee.divCd), typeCd: digits2(fee.typeCd), prepayCd: digits2(fee.prepayCd), unitCd: digits2(fee.unitCd), feeId: digits2(fee.feeId) };
+        }).filter((fee) => fee.feeId)
+      }
+    };
+  }
+  var SSG_REGISTRATION_FORM = {
+    label: "\uC2E0\uC138\uACC4",
+    origin: "https://po.ssgadm.com",
+    pathPrefix: "/cp/item/item/itemNew.ssg",
+    // ⚠️ 같은 주소에 `?srcItemId=`·`?itemId=`가 붙으면 기존 상품 수정 화면이다 — 쿼리는 받지 않는다.
+    noQuery: true,
+    formSelector: "#content",
+    imageSlots: [],
+    dedicated: {
+      file: SSG_REGISTER_FILE,
+      call: "ssg.fill",
+      imageGroupKey: "ssg",
+      formKey: "ssg",
+      normalize: normalizeSsgForm,
+      options: {
+        maxImages: 10,
+        // 채운 시각 + 이만큼 뒤 정각을 전시 시작으로 넣는다. 사람이 그 전에 저장해야 한다.
+        displayStartDelayHours: 3,
+        formWaitMs: 3e4,
+        // 칸 하나가 화면에 반응(서제스트 목록·다음 셀렉트·업로드)할 때까지 기다리는 시간.
+        stepWaitMs: 8e3,
+        // 에디터 이미지 업로드. 응답 `{uploadPath}`가 이미지 주소다(Synap 규약).
+        detailUpload: { endpoint: "/upload/0/synapEditorUpload.ssg", field: "file" }
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 몰 업로드에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "ssg",
+    displayName: "\uC2E0\uC138\uACC4",
+    guard: registrationGuard(SSG_PAGE_GUARD, "\uC2E0\uC138\uACC4"),
+    dialogHosts: ["po.ssgadm.com"],
+    login: SSG_LOGIN,
+    form: SSG_REGISTRATION_FORM
+  });
 
   // extensions/src/sites/teacher-mall/listings.ts
   var TEACHER_LISTINGS_URL = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
@@ -14131,10 +14255,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text5 = `${field}\0${stableStringify(value)}`;
+    const text6 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text5.length; index += 1) {
-      hash ^= text5.charCodeAt(index);
+    for (let index = 0; index < text6.length; index += 1) {
+      hash ^= text6.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -14157,19 +14281,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text5 = typeof value === "string" ? value.trim() : "";
-    if (!text5) return null;
-    if (text5.startsWith("//")) return `https:${text5}`;
-    if (/^https?:\/\//i.test(text5)) return text5;
-    return `https://image1.coupangcdn.com/image/${text5.replace(/^\/+/, "")}`;
+    const text6 = typeof value === "string" ? value.trim() : "";
+    if (!text6) return null;
+    if (text6.startsWith("//")) return `https:${text6}`;
+    if (/^https?:\/\//i.test(text6)) return text6;
+    return `https://image1.coupangcdn.com/image/${text6.replace(/^\/+/, "")}`;
   }
   function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text5 = String(value).trim();
-    return text5 || null;
+    const text6 = String(value).trim();
+    return text6 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -14208,9 +14332,9 @@ var KidItemRuntime = (() => {
     return Number.isInteger(number2) && number2 >= 0 ? number2 : null;
   }
   function requiredText5(value, name) {
-    const text5 = typeof value === "string" ? value.trim() : "";
-    if (!text5) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text5;
+    const text6 = typeof value === "string" ? value.trim() : "";
+    if (!text6) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text6;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -14453,8 +14577,8 @@ var KidItemRuntime = (() => {
     for (const script of html.matchAll(INLINE_SCRIPT)) {
       for (const match of (script[1] ?? "").matchAll(SCRIPT_VENDOR_ID)) found.add(match[1]);
     }
-    const text5 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
-    for (const match of text5.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
+    const text6 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+    for (const match of text6.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
     for (const match of html.matchAll(DATA_VENDOR_ID)) found.add(match[1]);
     return [...found];
   }
@@ -14554,8 +14678,8 @@ var KidItemRuntime = (() => {
     };
   }
   function positiveId(value) {
-    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^\d+$/.test(text5) && BigInt(text5) > 0n ? text5 : null;
+    const text6 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^\d+$/.test(text6) && BigInt(text6) > 0n ? text6 : null;
   }
   function integer(value) {
     const number2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
@@ -14766,11 +14890,11 @@ var KidItemRuntime = (() => {
       externalReviewId: String(raw.reviewId),
       externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
       externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
-      itemName: text4(raw.itemName),
+      itemName: text5(raw.itemName),
       rating: Math.round(rating),
-      title: text4(raw.reviewTitle),
-      content: text4(raw.reviewContent),
-      reviewerName: text4(raw.memberName),
+      title: text5(raw.reviewTitle),
+      content: text5(raw.reviewContent),
+      reviewerName: text5(raw.memberName),
       reviewedAt: Math.trunc(reviewedAt),
       imageCount: attachment.images,
       videoCount: attachment.videos,
@@ -14790,7 +14914,7 @@ var KidItemRuntime = (() => {
       return { images: 0, videos: 0 };
     }
   }
-  function text4(value) {
+  function text5(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed || null;
@@ -14918,8 +15042,8 @@ var KidItemRuntime = (() => {
     return new Date(timestamp + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   function positiveId2(value) {
-    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^[1-9]\d*$/.test(text5) ? text5 : null;
+    const text6 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text6) ? text6 : null;
   }
   function number(value) {
     const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
@@ -15105,8 +15229,8 @@ var KidItemRuntime = (() => {
     }
     return parsed2.data;
   }
-  async function sha256Hex(text5) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text5));
+  async function sha256Hex(text6) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text6));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
