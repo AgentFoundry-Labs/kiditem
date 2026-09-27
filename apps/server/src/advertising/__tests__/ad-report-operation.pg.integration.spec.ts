@@ -326,12 +326,12 @@ describe('advertising.ad_report owner over the operation contract + disposable P
 
     const products = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: [{ date: 'asc' }, { campaignId: 'asc' }] });
     expect(products.map((row) => ({
-      date: businessDateKey(row.date), campaignId: row.campaignId, optionId: row.optionId, listingId: row.listingId, optionName: row.optionName,
+      date: businessDateKey(row.date), campaignId: row.campaignId, vendorItemId: row.vendorItemId, listingId: row.listingId, optionName: row.optionName,
       spend: row.spend, billedSpend: row.billedSpend, impressions: row.impressions, operationId: row.operationId,
     }))).toEqual([
-      { date: day(-2), campaignId: '11', optionId: '1001', listingId, optionName: '빨강', spend: 1_000, billedSpend: 901, impressions: 100, operationId: run.operation.id },
-      { date: day(-1), campaignId: '77', optionId: '5555', listingId: null, optionName: null, spend: 300, billedSpend: 300, impressions: 100, operationId: run.operation.id },
-      { date: day(0), campaignId: '11', optionId: '1001', listingId, optionName: '빨강', spend: 1_000, billedSpend: 1_000, impressions: 100, operationId: run.operation.id },
+      { date: day(-2), campaignId: '11', vendorItemId: '1001', listingId, optionName: '빨강', spend: 1_000, billedSpend: 901, impressions: 100, operationId: run.operation.id },
+      { date: day(-1), campaignId: '77', vendorItemId: '5555', listingId: null, optionName: null, spend: 300, billedSpend: 300, impressions: 100, operationId: run.operation.id },
+      { date: day(0), campaignId: '11', vendorItemId: '1001', listingId, optionName: '빨강', spend: 1_000, billedSpend: 1_000, impressions: 100, operationId: run.operation.id },
     ]);
     const keywords = await prisma.channelAdKeywordDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: { keyword: 'asc' } });
     // 키워드 보고서가 빈 광고그룹을 준 행은 상품 보고서의 (캠페인, 그룹 이름)으로 채운다.
@@ -353,8 +353,8 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     expect(Number(campaigns[0]!.roasTarget)).toBe(350);
     const ads = await prisma.channelAdCampaignAd.findMany({ where: { organizationId: ORG }, orderBy: { adId: 'asc' } });
     expect(ads).toMatchObject([
-      { adId: '9001', campaignId: '11', adGroupId: '101', optionId: '1001', isActive: true, status: 'ON', operationId: run.operation.id },
-      { adId: '9002', optionId: null, isActive: null, status: null },
+      { adId: '9001', campaignId: '11', adGroupId: '101', vendorItemId: '1001', isActive: true, status: 'ON', operationId: run.operation.id },
+      { adId: '9002', vendorItemId: null, isActive: null, status: null },
     ]);
   });
 
@@ -406,8 +406,8 @@ describe('advertising.ad_report owner over the operation contract + disposable P
       unsettledCampaignDays: 1,
       warnings: [{ date: day(0), campaignId: '11', reportSpend: 20_000, settlementSpend: 21_500 }],
     });
-    const rows = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: [{ date: 'asc' }, { optionId: 'asc' }] });
-    expect(rows.map((row) => [businessDateKey(row.date), row.optionId, row.spend, row.billedSpend])).toEqual([
+    const rows = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: [{ date: 'asc' }, { vendorItemId: 'asc' }] });
+    expect(rows.map((row) => [businessDateKey(row.date), row.vendorItemId, row.spend, row.billedSpend])).toEqual([
       [day(-2), '1001', 3, 429],
       [day(-2), '1002', 1, 142],
       [day(-2), '1003', 3, 429],
@@ -519,7 +519,7 @@ describe('advertising.ad_report owner over the operation contract + disposable P
       data: { organizationId: ORG, channel: 'coupang', name: 'Second Wing', isPrimary: false, vendorId: 'VENDOR-S' },
     });
     const foreign = (organizationId: string, channelAccountId: string) => ({
-      organizationId, channelAccountId, date: new Date(`${day(-1)}T00:00:00.000Z`), campaignId: '11', adGroupId: '101', optionId: '1001',
+      organizationId, channelAccountId, date: new Date(`${day(-1)}T00:00:00.000Z`), campaignId: '11', adGroupId: '101', vendorItemId: '1001',
       impressions: 1, clicks: 1, spend: 1, orders: 0, units: 0, revenue: 0, operationId: randomUUID(),
     });
     await prisma.channelAdProductDailySnapshot.createMany({
