@@ -187,3 +187,66 @@ export const RegistrationResultSchema = z.object({
   evidence: RegistrationEvidenceSchema.nullable(),
 }).strict();
 export type RegistrationResult = z.infer<typeof RegistrationResultSchema>;
+
+/**
+ * 등록 실행이 `reconciling`(몰에 제출됐지만 외부 결과를 못 읽음)일 때 운영자가 몰에서 읽은 등록상품ID로 닫는 요청
+ * (`POST /api/channels/registration-operations/:id/confirm`, KID-218). 같은 조직의 운영자면 누구나 닫을 수 있다
+ * (리더 가정 = KID-329 (a), 사장님 확인 대기). 등록되지 않았다고 닫을 때는 `close`.
+ */
+export const RegistrationConfirmRequestSchema = z.object({
+  externalListingId: z.string().trim().min(1).max(64),
+  observedUrl: z.string().url().optional(),
+  options: z.array(z.object({
+    salesProductOptionId: z.string().uuid(),
+    externalOptionId: z.string().trim().min(1),
+    sellerSku: z.string().nullable().optional(),
+  }).strict()).max(1000).optional(),
+}).strict();
+export type RegistrationConfirmRequest = z.infer<typeof RegistrationConfirmRequestSchema>;
+
+export const RegistrationCloseRequestSchema = z.object({
+  /** 운영자가 몰에서 확인한 사실: 등록되지 않았다(failed). */
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+export type RegistrationCloseRequest = z.infer<typeof RegistrationCloseRequestSchema>;
+
+// M — 몰 판매 상태 읽기 kind(옛 `readMallAvailability`, 품절 후보 미리보기·자동 실시간 확인). 쓰기가 아니라 읽기라 등록
+// kind와 나눈다. finalize는 원장을 쓰지 않고 `result`에 행만 남긴다(KID-369가 일별 스냅샷 칸을 정리하기 전까지).
+
+export const MALL_AVAILABILITY_READ_KIND = 'channels.mall_availability_read' as const;
+export const MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
+
+export const MallAvailabilityReadScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  mallKey: z.string().min(1).max(64),
+  externalListingIds: z.array(z.string().trim().min(1).max(64)).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS),
+}).strict();
+export type MallAvailabilityReadScope = z.infer<typeof MallAvailabilityReadScopeSchema>;
+
+export const MallAvailabilityReadPlanSchema = MallAvailabilityReadScopeSchema.extend({
+  expectedProviderAccountId: z.string().min(1).nullable(),
+  startedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type MallAvailabilityReadPlan = z.infer<typeof MallAvailabilityReadPlanSchema>;
+
+export const MALL_AVAILABILITY_ROWS_CHUNK_KIND = 'availability_rows' as const;
+
+export const MallAvailabilityRowSchema = z.object({
+  externalListingId: z.string().min(1),
+  externalOptionId: z.string().min(1).nullable(),
+  /** 몰이 지금 팔고 있다고 보이는가(품절·판매중지는 false). */
+  available: z.boolean(),
+  stock: z.number().int().nonnegative().nullable(),
+  /** 몰 화면의 상태 원문. */
+  observedStatus: z.string().nullable(),
+  observedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type MallAvailabilityRow = z.infer<typeof MallAvailabilityRowSchema>;
+
+export const MallAvailabilityReadResultSchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  /** 요청했지만 몰에서 못 찾은 리스팅. */
+  missingExternalListingIds: z.array(z.string()),
+  rows: z.array(MallAvailabilityRowSchema),
+}).strict();
+export type MallAvailabilityReadResult = z.infer<typeof MallAvailabilityReadResultSchema>;

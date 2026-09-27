@@ -5704,6 +5704,45 @@ var KidItemRuntime = (() => {
     fill: RegistrationFillSchema,
     evidence: RegistrationEvidenceSchema.nullable()
   }).strict();
+  var RegistrationConfirmRequestSchema = external_exports.object({
+    externalListingId: external_exports.string().trim().min(1).max(64),
+    observedUrl: external_exports.string().url().optional(),
+    options: external_exports.array(external_exports.object({
+      salesProductOptionId: external_exports.string().uuid(),
+      externalOptionId: external_exports.string().trim().min(1),
+      sellerSku: external_exports.string().nullable().optional()
+    }).strict()).max(1e3).optional()
+  }).strict();
+  var RegistrationCloseRequestSchema = external_exports.object({
+    /** 운영자가 몰에서 확인한 사실: 등록되지 않았다(failed). */
+    reason: external_exports.string().trim().min(1).max(500)
+  }).strict();
+  var MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
+  var MallAvailabilityReadScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string().min(1).max(64),
+    externalListingIds: external_exports.array(external_exports.string().trim().min(1).max(64)).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS)
+  }).strict();
+  var MallAvailabilityReadPlanSchema = MallAvailabilityReadScopeSchema.extend({
+    expectedProviderAccountId: external_exports.string().min(1).nullable(),
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var MallAvailabilityRowSchema = external_exports.object({
+    externalListingId: external_exports.string().min(1),
+    externalOptionId: external_exports.string().min(1).nullable(),
+    /** 몰이 지금 팔고 있다고 보이는가(품절·판매중지는 false). */
+    available: external_exports.boolean(),
+    stock: external_exports.number().int().nonnegative().nullable(),
+    /** 몰 화면의 상태 원문. */
+    observedStatus: external_exports.string().nullable(),
+    observedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var MallAvailabilityReadResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative(),
+    /** 요청했지만 몰에서 못 찾은 리스팅. */
+    missingExternalListingIds: external_exports.array(external_exports.string()),
+    rows: external_exports.array(MallAvailabilityRowSchema)
+  }).strict();
 
   // packages/shared/src/schemas/mall-admin-listings.ts
   var MALL_ADMIN_LISTINGS_SOURCE_TYPE = "mall_admin_listings";
