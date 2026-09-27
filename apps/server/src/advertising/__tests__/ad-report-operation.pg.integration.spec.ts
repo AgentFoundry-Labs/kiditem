@@ -25,6 +25,7 @@ import {
 } from '@kiditem/shared/advertising-operations';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
@@ -478,6 +479,81 @@ describe('advertising.ad_report owner over the operation contract + disposable P
       details: { reason: 'account_changed' },
     });
     await expect(prisma.channelAdProductDailySnapshot.count()).resolves.toBe(0);
+  });
+
+  it('restores a campaign that reappears in the list and keeps the first deletedAt across later deletion observations', async () => {
+    const deletedOnly = { products: [productRow({ date: day(0), campaignId: '77', campaignName: '지난 캠페인' })] };
+    const first = await beginRun();
+    await collect(first, deletedOnly);
+    await finish(first).expect(200);
+    const firstDeletedAt = (await prisma.channelAdCampaign.findFirstOrThrow({ where: { campaignId: '77' } })).deletedAt;
+    expect(firstDeletedAt).toBeInstanceOf(Date);
+
+    const second = await beginRun();
+    await collect(second, deletedOnly);
+    await finish(second).expect(200);
+    const stillDeleted = await prisma.channelAdCampaign.findFirstOrThrow({ where: { campaignId: '77' } });
+    expect(stillDeleted).toMatchObject({ deletedAt: firstDeletedAt, isActive: false, operationId: second.operation.id });
+
+    const third = await beginRun();
+    await collect(third, { ...deletedOnly, campaigns: [campaign(), campaign({ campaignId: '77', name: '돌아온 캠페인' })] });
+    await finish(third).expect(200);
+    await expect(prisma.channelAdCampaign.findFirstOrThrow({ where: { campaignId: '77' } })).resolves.toMatchObject({
+      name: '돌아온 캠페인',
+      isActive: true,
+      deletedAt: null,
+      operationId: third.operation.id,
+    });
+  });
+
+  it('rewrites only its own account and organization: other accounts and organizations keep their window rows', async () => {
+    const otherAccount = await prisma.channelAccount.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, channel: 'coupang', name: 'Other Wing', isPrimary: true, vendorId: 'VENDOR-O' },
+    });
+    const sameOrgAccount = await prisma.channelAccount.create({
+      data: { organizationId: ORG, channel: 'coupang', name: 'Second Wing', isPrimary: false, vendorId: 'VENDOR-S' },
+    });
+    const foreign = (organizationId: string, channelAccountId: string) => ({
+      organizationId, channelAccountId, date: new Date(`${day(-1)}T00:00:00.000Z`), campaignId: '11', adGroupId: '101', optionId: '1001',
+      impressions: 1, clicks: 1, spend: 1, orders: 0, units: 0, revenue: 0, operationId: randomUUID(),
+    });
+    await prisma.channelAdProductDailySnapshot.createMany({
+      data: [{ ...foreign(OTHER_ORGANIZATION_ID, otherAccount.id), billedSpend: 1 }, { ...foreign(ORG, sameOrgAccount.id), billedSpend: 1 }],
+    });
+    await prisma.channelAdKeywordDailySnapshot.create({ data: { ...foreign(OTHER_ORGANIZATION_ID, otherAccount.id), keyword: '남의 키워드' } });
+    await prisma.channelAdDailyBilling.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID, channelAccountId: otherAccount.id, date: new Date(`${day(-1)}T00:00:00.000Z`), settlementDomain: 'SELLER',
+        campaignKey: '', deliveredSpend: 0, billedSpend: 5, promotionAdjustment: 0, billableAdjustment: 0, operationId: randomUUID(),
+      },
+    });
+
+    const run = await beginRun();
+    await collect(run, { products: [productRow({ date: day(-1) }), productRow({ date: day(0) })] });
+    await finish(run).expect(200);
+
+    await expect(prisma.channelAdProductDailySnapshot.count({ where: { channelAccountId: { in: [otherAccount.id, sameOrgAccount.id] } } })).resolves.toBe(2);
+    await expect(prisma.channelAdKeywordDailySnapshot.count({ where: { organizationId: OTHER_ORGANIZATION_ID } })).resolves.toBe(1);
+    await expect(prisma.channelAdDailyBilling.count({ where: { organizationId: OTHER_ORGANIZATION_ID } })).resolves.toBe(1);
+    await expect(prisma.channelAdProductDailySnapshot.count({ where: { channelAccountId: accountId } })).resolves.toBe(2);
+  });
+
+  it('keeps the rows an earlier run published for a day this run holds back', async () => {
+    const earlier = await beginRun({ channelAccountId: accountId, startDate: day(-1), endDate: day(0) });
+    await collect(earlier, { products: [productRow({ date: day(-1), spend: 700 }), productRow({ date: day(0), spend: 900 })] });
+    await finish(earlier).expect(200);
+
+    const held = await beginRun();
+    await collect(held, { products: [productRow({ date: day(-2), spend: 500 }), productRow({ date: day(-1), spend: 800 })] });
+    const finished = await finish(held).expect(200);
+    expect(finished.body.operation.result).toMatchObject({ confirmedEndDate: day(-1) });
+
+    const rows = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: { date: 'asc' } });
+    expect(rows.map((row) => [businessDateKey(row.date), row.spend, row.operationId])).toEqual([
+      [day(-2), 500, held.operation.id],
+      [day(-1), 800, held.operation.id],
+      [day(0), 900, earlier.operation.id],
+    ]);
   });
 
   it('an account with no ads in the window succeeds: both reports were made, zero rows is a measured zero and clears the old rows (KID-45)', async () => {
