@@ -10475,6 +10475,62 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/art09/registration.ts
+  var isArt09LoginPage = (url) => hostWithin(url, ["eclogin.cafe24.com"]) || hostWithin(url, ["cafe24.com"]) && /login/i.test(url.pathname);
+  var ART09_REGISTRATION_FORM = {
+    label: "\uC544\uD2B8\uACF5\uAD6C",
+    origin: "https://zzogzzog1.cafe24.com",
+    pathPrefix: "/disp/admin/shop1/product/ProductRegister",
+    formSelector: "#eProductRegisterForm",
+    /**
+     * 대표이미지는 **파일로 올린다.**
+     *
+     * 주소로 넣는 길(`이미지 URL등록`)도 있지만 그러면 Cafe24 서버가 그 주소를
+     * 가지러 와야 한다. 우리 산출물은 로컬 MinIO 라 못 읽고, 남의 호스팅을 거치면
+     * 핫링크 차단에 걸린다(라이브 실측 2026-09-10: 카카오 CDN 은 리퍼러가 있으면
+     * Cafe24 관리자에서 BLOCKED). 파일을 올리면 Cafe24 가 자기 서버에 네 크기를
+     * 만들어 준다 — 주소 문제가 통째로 사라진다.
+     *
+     * 이 칸은 폼 **밖에** 있어서 이름으로는 못 닿는다.
+     */
+    imageSlots: [],
+    imageFileInput: { selector: "#imageFiles", label: "\uB300\uD45C\uC774\uBBF8\uC9C0", waitMs: 4500 },
+    /**
+     * 상세설명도 Cafe24 가 자기 서버에 받아 준다.
+     *
+     * 편집기의 파일매니저 업로드에 올리면 `/web/upload/NNEditor/...` 주소가 나온다
+     * (라이브 확인 2026-09-10). 그 주소를 Froala 에 넣는다 — 남의 호스팅이 필요 없다.
+     *
+     * 주소는 화면이 알고 있으므로(`$Editor[이름].opts`) 업로드도 화면에서 한다.
+     * 서비스워커는 우리 이미지를 읽어 data URL 로 건네주기만 한다.
+     */
+    detailSelfUpload: {
+      editors: ["product_description", "product_description_mobile"],
+      /**
+       * 상세설명 칸은 탭 두 개다 — `에디봇 작성`(기본) / `직접 작성`.
+       * 기본 탭에서는 편집기가 숨어 있어 값을 넣어도 사람 눈에는 빈 칸으로 보인다.
+       * 넣기 전에 `직접 작성` 으로 넘긴다(라이브 확인 2026-09-10).
+       */
+      tabSelector: "a#nnedit"
+    },
+    dynamic: null,
+    categoryPicker: {
+      tableId: "selectCategoryTable",
+      itemSelector: "li.category-item",
+      applyText: "\uC801\uC6A9",
+      stepWaitMs: 1200,
+      applyWaitMs: 1500
+    }
+  };
+  registerMallWriter({
+    mallKey: "art09",
+    displayName: "\uC544\uD2B8\uACF5\uAD6C",
+    guard: registrationGuard(ART09_PAGE_GUARD, "\uC544\uD2B8\uACF5\uAD6C", isArt09LoginPage),
+    dialogHosts: ["zzogzzog1.cafe24.com", "eclogin.cafe24.com"],
+    login: { ...ART09_LOGIN, isLoginUrl: isArt09LoginPage },
+    form: ART09_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/gmarket/listings.ts
   var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
   var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";

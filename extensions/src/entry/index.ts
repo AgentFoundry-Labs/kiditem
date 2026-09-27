@@ -34,6 +34,7 @@ import '../sites/1688';
 import '../sites/always';
 import '../sites/always/registration';
 import '../sites/art09';
+import '../sites/art09/registration';
 import '../sites/auction/listings';
 import '../sites/boribori';
 import '../sites/boribori/registration';
