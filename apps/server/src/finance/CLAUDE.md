@@ -28,8 +28,8 @@ in Supply, but the backend capability owner is finance.
 - Shipping is allocated by line-item revenue share and rounded per line, so
   the rows can miss an order's shipping by up to a won.
 - Window totals publish what no product row carries by cause, each rounded
-  once from exact values: listing-grain spend on listings that sold nothing,
-  the campaign-grain account spend minus listing-grain spend, and shipping no
+  once from exact values: ad cost on listings that sold nothing, ad cost on
+  report rows matched to no listing, the account adjustment, and shipping no
   mapped line's revenue weighs. Rounding residue is never published as a part.
   `Order.shippingPrice` defaults to 0, so a collector that never fills it reads
   as measured zero shipping; a nullable column or collector provenance belongs
@@ -43,8 +43,10 @@ in Supply, but the backend capability owner is finance.
   the lines nobody measured.
 - Advertising applies by Advertising's rule (`advertisingAppliesToSale`):
   measured spend for a listing or channel always applies; otherwise it applies
-  to a listing sold on an account the Coupang target-day sweep covers.
-  Elsewhere it is Not applied (0), never unmeasured.
+  to a listing sold on an account the Coupang ad report covers. Elsewhere it
+  is Not applied (0), never unmeasured. Profit ad cost is Advertising's profit
+  rule: (billed spend + account adjustment) × 1.1, rounded once
+  (`profitAdCost`, KID-368); the adjustment is its own totals line.
 - Returns have no owner publication, so return counts, rates, and orphan
   counts publish `null` here until a return source declares coverage.
 - Profit and return rates derive from raw values, not persisted rates.
@@ -59,7 +61,11 @@ in Supply, but the backend capability owner is finance.
   Profit is not reconciled against order facts; reconciliation waits for a
   settlement source.
 - Product profitability evidence is assembled here from Analytics' exact-period
-  Sellpia facts and Advertising's listing-daily spend facts for identical dates.
+  Sellpia facts. Contribution advertising is Advertising's monthly allocation,
+  computed on read (`readMonthlyAdAllocation`): the measured days' listing
+  billed spend split by the current confirmed recipe, × 1.1; every basis day
+  must be measured, and account adjustments, rows without a listing and
+  listings without a recipe are not allocated.
   Keep partial-period totals intact rather than allocating monthly sums to days.
   Orders, order-line
   links, and Wing collection are not ABC inputs. Finance never calculates a

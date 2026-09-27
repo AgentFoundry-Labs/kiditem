@@ -77,11 +77,13 @@ code sits in each analytics lane's `dashboard/` subfolder
 (`adapter/in/http/dashboard/`, `application/service/dashboard/`,
 `domain/dashboard/`, …) beside the root `dashboard.module.ts` and
 `dashboard-capability.module.ts`. It hydrates report KPIs from order rows, listing-day traffic
-facts, and the advertising target-day ledger through the Orders, Channels,
-Advertising, Inventory, and Products canonical readers. Cross-owner values are
-composed inside one dashboard adapter-owned Repeatable Read transaction. It
-falls back to Wing/Drive replay revenue when complete Order revenue is absent. Advertising has one
-ledger, the campaign sweep's target-day rows. Keep this as a read-only reporting
+facts, and the advertising ad-report ledger through the Orders, Channels,
+Advertising (`ADVERTISING_LEDGER_READ_PORT`), Inventory, and Products canonical
+readers. Cross-owner values are composed inside one dashboard adapter-owned
+Repeatable Read transaction. It falls back to Wing/Drive replay revenue when
+complete Order revenue is absent. Profit values (profit card, trend, Top-N,
+Sellpia profit) charge ad cost as (billed spend + account adjustment) × 1.1;
+ad performance cards use delivered spend (KID-368). Keep this as a read-only reporting
 boundary with HTTP and persistence adapters around Prisma-free orchestration.
 
 ### Period Resolution
@@ -121,8 +123,8 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   is invalid.
 - Read `ProfitSourceCoverage.hasAdAccount`, not `adDates.length`: with no
   Coupang channel account the basis names orders alone. `adDates` are the
-  dates the campaign sweep measured (its declared window), not dates that
-  happen to carry rows.
+  dates the ad report measured for every active account (Advertising's
+  coverage), not dates that happen to carry rows.
 - `unverified` means a required read failed. Evidence read and refused is
   `invalidDates`; nothing collected is simply absent from `includedDates`.
 - A published basis describes the value actually published. A source this
