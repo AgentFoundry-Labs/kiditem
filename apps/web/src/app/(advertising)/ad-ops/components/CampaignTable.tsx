@@ -68,7 +68,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
           <thead>
             <tr>
               <th>캠페인명</th>
-              <th className="text-right">광고비</th>
+              <th className="text-right">집행 광고비</th>
               <th className="text-right">광고매출</th>
               <th className="text-right">ROAS</th>
               <th className="text-right">노출</th>

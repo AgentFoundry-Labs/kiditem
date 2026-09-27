@@ -56,6 +56,7 @@ import { DashboardReadFailures, type DashboardReadFailure } from './components/D
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
+import { PERFORMANCE_AD_SPEND_LABEL } from '@/lib/ad-spend-labels';
 import {
   DashboardBasisDisclosure,
   DashboardDataBasis,
@@ -858,7 +859,7 @@ export default function Dashboard() {
     },
     {
       key: 'adSpend',
-      label: '광고비',
+      label: PERFORMANCE_AD_SPEND_LABEL,
       value: headlineAdSpend === null ? null : formatKRW(headlineAdSpend),
       unit: '원',
       note: prevNote(headlinePrevAdSpend, (value) => `${formatKRW(value)}원`),

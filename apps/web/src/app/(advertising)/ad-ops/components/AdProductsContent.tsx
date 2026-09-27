@@ -124,7 +124,7 @@ export default function AdProductsContent({ period }: Props) {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {[
           { label: '광고 상품', value: `${formatNumber(filtered.length)}개`, sub: `ON ${totals.onCount}` },
-          { label: '광고비', value: `${formatKRW(totals.spend)}원` },
+          { label: '집행 광고비', value: `${formatKRW(totals.spend)}원` },
           { label: '광고매출', value: `${formatKRW(totals.revenue)}원` },
           totals.roas !== null
             ? { label: 'ROAS', value: `${totals.roas}%`, colorClass: roasColor(totals.roas, roasT) }
@@ -183,7 +183,7 @@ export default function AdProductsContent({ period }: Props) {
           </div>
 
           <div className="flex gap-0.5 rounded-lg p-0.5" style={{ background: 'var(--surface-sunken)' }}>
-            {([['revenue', '매출순'], ['spend', '광고비순'], ['roas', 'ROAS순']] as const).map(([k, l]) => (
+            {([['revenue', '매출순'], ['spend', '집행 광고비순'], ['roas', 'ROAS순']] as const).map(([k, l]) => (
               <button
                 key={k}
                 onClick={() => setSortBy(k)}
@@ -229,7 +229,7 @@ export default function AdProductsContent({ period }: Props) {
                     <Th>상품</Th>
                     <Th>캠페인</Th>
                     <Th>키워드</Th>
-                    <Th align="right">광고비</Th>
+                    <Th align="right">집행 광고비</Th>
                     <Th align="right">광고매출</Th>
                     <Th align="right">노출</Th>
                     <Th align="right">클릭</Th>

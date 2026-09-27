@@ -41,8 +41,8 @@ export default function CampaignContent({
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${period}`)
         .then(toCampaignsResponse),
   });
-  // Trends carries the campaign sweep's account totals over the measured days
-  // of the page period, beside the per-campaign rollups.
+  // Trends carries the ad report's account totals over the measured days of
+  // the page period, beside the per-campaign rollups.
   const trendsQuery = useQuery({
     queryKey: queryKeys.ads.trends(period),
     queryFn: () => apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
@@ -145,7 +145,7 @@ export default function CampaignContent({
           </div>
           <TotalsGrid
             items={[
-              { label: "총 광고비", value: `${formatKRW(campaignKpi.adSpend)}원` },
+              { label: "집행 광고비", value: `${formatKRW(campaignKpi.adSpend)}원` },
               { label: "광고 매출", value: `${formatKRW(campaignKpi.adRevenue)}원` },
               roasItem(campaignKpi.roas, roasT),
               { label: "CTR", value: percentText(campaignKpi.ctr) },
@@ -154,12 +154,12 @@ export default function CampaignContent({
         </div>
       )}
 
-      {/* 계정 합산 KPI — 광고 동기화 캠페인 순회가 측정한 날만 합산한 계정 값. */}
+      {/* 계정 합산 KPI — 광고 보고서가 측정한 날의 상품 행을 합산한 계정 값. */}
       {sweepSummary && accountMetrics && (
         <div data-testid="account-totals">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              계정 합산 (광고 동기화 캠페인 순회)
+              계정 합산 (광고 보고서)
             </span>
             <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
               {`측정 ${formatNumber(sweepSummary.periodDayCount)}일 · ${adTrendsSourceLabel(sweepSummary)}`}
@@ -167,7 +167,7 @@ export default function CampaignContent({
           </div>
           <TotalsGrid
             items={[
-              { label: "총 광고비", value: `${formatKRW(accountMetrics.spend)}원` },
+              { label: "집행 광고비", value: `${formatKRW(accountMetrics.spend)}원` },
               { label: "광고 매출", value: `${formatKRW(accountMetrics.revenue)}원` },
               roasItem(accountMetrics.roas, roasT),
               { label: "CTR", value: percentText(accountMetrics.ctr) },
@@ -191,7 +191,7 @@ export default function CampaignContent({
             이 기간에 수집된 캠페인 목록이 없습니다.
           </p>
           <p className="mt-1 text-xs">
-            광고 동기화가 캠페인 목록 수집을 완료하면 여기에 표시됩니다.
+            현황 탭의 광고 보고서 수집이 이 기간을 받으면 여기에 표시됩니다.
           </p>
         </div>
       )}

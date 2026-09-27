@@ -587,6 +587,8 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     // 명시적인 0 은 0 이다. 세 칸 모두 지우지 않는다.
     expect(screen.getByTestId('headline-adConvRevenue')).toHaveTextContent('0원');
     expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('0원');
+    // 광고 성과 줄은 집행 광고비다. 이익 줄의 청구·VAT 포함 광고비와 다른 값이다.
+    expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('집행 광고비');
     expect(screen.getByTestId('headline-roas')).toHaveTextContent('0%');
   });
 

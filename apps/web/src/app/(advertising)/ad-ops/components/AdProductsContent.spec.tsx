@@ -148,4 +148,14 @@ describe("AdProductsContent", () => {
     expect(screen.queryByRole("link", { name: "미매칭 상품" })).not.toBeInTheDocument();
     expect(screen.getByText("미매칭 상품")).toBeInTheDocument();
   });
+
+  it("names the ad report's spend 집행 광고비 on the card, the column and the sort", () => {
+    mockProducts([productRow({})]);
+
+    render(<AdProductsContent period="14d" />);
+
+    expect(screen.getByRole("columnheader", { name: /집행 광고비/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "집행 광고비순" })).toBeInTheDocument();
+    expect(screen.getAllByText("집행 광고비").length).toBeGreaterThanOrEqual(2);
+  });
 });

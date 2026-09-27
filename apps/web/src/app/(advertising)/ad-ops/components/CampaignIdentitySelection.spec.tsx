@@ -79,6 +79,7 @@ describe('campaign account + identity selection', () => {
       />,
     ));
 
+    expect(screen.getByRole('columnheader', { name: '집행 광고비' })).toBeInTheDocument();
     const row = screen.getByRole('row', { name: /동일 캠페인명/ });
     const cells = within(row).getAllByRole('cell');
     expect(cells[cells.length - 2]).toHaveTextContent('4');

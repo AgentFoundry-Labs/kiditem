@@ -48,7 +48,7 @@ describe('KpiDashboard', () => {
     expect(screen.getByText('2.5%')).toBeInTheDocument();
     expect(screen.getByText('8.3%')).toBeInTheDocument();
     expect(
-      screen.getAllByText('이번달 중 측정 23일 · 쿠팡 광고 캠페인 합산 · 2026-07-23까지'),
+      screen.getAllByText('이번달 중 측정 23일 · 쿠팡 광고 보고서 · 2026-07-23까지'),
     ).toHaveLength(2);
   });
 

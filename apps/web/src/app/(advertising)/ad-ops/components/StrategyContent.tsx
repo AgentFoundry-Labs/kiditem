@@ -561,14 +561,14 @@ export default function StrategyContent({
         >
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--text-tertiary)" }}>
-              계정 광고 합계 (광고 동기화 캠페인 순회)
+              계정 광고 합계 (광고 보고서)
             </span>
             <span className="text-[10px]" style={{ color: "var(--text-tertiary)" }}>
               {`측정 ${formatNumber(sweepSummary.periodDayCount)}일 · ${adTrendsSourceLabel(sweepSummary)}`}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-            <SummaryStat label="광고비" value={`${formatNumber(accountMetrics.spend)}원`} />
+            <SummaryStat label="집행 광고비" value={`${formatNumber(accountMetrics.spend)}원`} />
             <SummaryStat label="광고매출" value={`${formatNumber(accountMetrics.revenue)}원`} />
             <SummaryStat label="ROAS" value={accountMetrics.roas !== null ? `${accountMetrics.roas}%` : "-"} accent />
             <SummaryStat label="노출/클릭" value={`${formatNumber(accountMetrics.impressions)} / ${formatNumber(accountMetrics.clicks)}`} />
@@ -678,7 +678,7 @@ export default function StrategyContent({
           <div className="px-5 py-3 flex items-center justify-between border-b" style={{ borderColor: "var(--border-subtle)" }}>
             <div>
               <h3 className="text-[14px] font-bold" style={{ color: "var(--text-primary)" }}>
-                Top 20 상품 (광고비 → 광고매출 → Wing 매출 → Wing 주문 순)
+                Top 20 상품 (집행 광고비 → 광고매출 → Wing 매출 → Wing 주문 순)
               </h3>
               <p className="text-[11px]" style={{ color: "var(--text-tertiary)" }}>
                 각 listing 의 실제 ad metrics 와 Wing traffic 을 그대로 노출합니다. 0 은 0 — 다른 출처로 대체하지 않습니다.
@@ -691,7 +691,7 @@ export default function StrategyContent({
                 <tr>
                   <th className="text-left">#</th>
                   <th className="text-left">상품</th>
-                  <th className="text-right">광고비</th>
+                  <th className="text-right">집행 광고비</th>
                   <th className="text-right">광고매출</th>
                   <th className="text-right">ROAS</th>
                   <th className="text-right">Wing 매출</th>
