@@ -4,7 +4,7 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, createSiteCaller, type SiteCa
 import { registerSite, type SiteDeps, type SiteLease } from '../registry';
 import { createSiteLoginGate, ensureLoggedIn, withLoginTab, type LoginOutcome } from '../site-login';
 import type { TabPage } from '../tab-page';
-import { AD_CENTER_LOGIN } from './login';
+import { AD_CENTER_LOGIN, chooseWingAccount } from './login';
 
 /**
  * 쿠팡 광고센터(KID-371) — `advertising.ad_report`가 쓰는 읽기와 허용된 쓰기 하나(보고서 생성 `requestReport`). 서비스워커
@@ -196,8 +196,12 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
 function adCenterCall(deps: SiteDeps, lease: SiteLease, page: TabPage | null) {
   const credentials = lease.credentials;
   const withLogin = createSiteLoginGate(credentials);
-  const login = (target: TabPage): Promise<LoginOutcome> =>
-    credentials ? ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps) : Promise.resolve({ status: 'unconfirmed' });
+  const login = async (target: TabPage): Promise<LoginOutcome> => {
+    if (!credentials) return { status: 'unconfirmed' };
+    // 계정 유형 선택 화면이면 "쿠팡 wing 로그인"을 한 번 눌러 xauth 폼으로 넘긴다(자격증명은 싣지 않는다).
+    await chooseWingAccount(target, deps);
+    return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
+  };
   let warmed = false;
   const warm = async <T>(request: () => Promise<T>): Promise<T> => {
     try {

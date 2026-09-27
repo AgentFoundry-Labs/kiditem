@@ -204,6 +204,8 @@ describe('sites/ad-center — 광고센터 읽기(서비스워커, 보고서 생
     expect(AD_CENTER_LOGIN).toMatchObject({ loginUrl: AD_CENTER_HOME_URL, hosts: ['advertising.coupang.com', 'xauth.coupang.com'], fields: ['loginId', 'password'] });
     expect(AD_CENTER_LOGIN.isLoginUrl(new URL(XAUTH))).toBe(true);
     expect(AD_CENTER_LOGIN.isLoginUrl(new URL(SELECTOR))).toBe(true);
+    // 옛 `startsWith('/user/login')`처럼 넓게.
+    expect(AD_CENTER_LOGIN.isLoginUrl(new URL('https://advertising.coupang.com/user/login/sso?returnUrl=%2Fmarketing'))).toBe(true);
     expect(AD_CENTER_LOGIN.isLoginUrl(new URL('https://advertising.coupang.com/marketing/dashboard'))).toBe(false);
   });
 
@@ -222,11 +224,33 @@ describe('sites/ad-center — 광고센터 읽기(서비스워커, 보고서 생
     await expect(site.listReports()).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED, details: { reason: 'no_credentials' } });
   });
 
-  it('계정 유형 선택 화면처럼 채울 폼이 없으면 탭을 운영자에게 남기고 SITE_LOGIN_REQUIRED{login_unconfirmed}', async () => {
+  it('계정 유형 선택 화면(/user/login, 폼 없음)이면 "쿠팡 wing 로그인"을 한 번 눌러 xauth 폼을 기다렸다 실행 자격으로 채운다', async () => {
+    const login = fakeLoginScreen({ loginAt: XAUTH });
+    const chosen: string[] = [];
+    const tabs = fakeTabPages({
+      landAt: (url) => (login.state.signedIn ? url : SELECTOR),
+      // 누르기 전에는 폼이 없다(계정 유형 카드뿐), 누른 뒤에는 xauth 폼이 보인다.
+      frames: () => [{ frameId: 0, result: { loginForm: chosen.length > 0 && !login.state.signedIn } }],
+      answer: (message) => {
+        if (message.call === 'adCenter.chooseWingAccount') {
+          chosen.push(String(message.call));
+          return { ok: true, value: { state: 'clicked' } };
+        }
+        return login.answer(message) ?? { ok: false };
+      },
+    });
+    const { site, sent } = adCenter({ tabs, respond: () => (login.state.signedIn ? Response.json({ data: { reportList: { reports: [] } } }) : redirected()) });
+    await expect(site.listReports()).resolves.toEqual([]);
+    expect(chosen).toEqual(['adCenter.chooseWingAccount']);
+    expect(login.state.filled).toEqual([{ loginId: 'fake-ad-id', password: 'fake-ad-password' }]);
+    expect(sent).toHaveLength(2);
+  });
+
+  it('누를 계정 버튼이 없으면 탭을 운영자에게 남기고 SITE_LOGIN_REQUIRED{login_unconfirmed}', async () => {
     const tabs = fakeTabPages({
       landAt: () => SELECTOR,
       frames: () => [{ frameId: 0, result: { loginForm: false } }],
-      answer: () => ({ ok: false }),
+      answer: (message) => (message.call === 'adCenter.chooseWingAccount' ? { ok: true, value: { state: 'not_found' } } : { ok: false }),
     });
     const { site, sent } = adCenter({ tabs, respond: () => redirected() });
     await expect(site.listReports()).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED, details: { reason: 'login_unconfirmed' } });

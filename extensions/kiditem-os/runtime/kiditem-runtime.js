@@ -4846,8 +4846,8 @@ var KidItemRuntime = (() => {
     cause;
   };
   function parseErrorEnvelope(body) {
-    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
-    return parsed2.success ? parsed2.data : null;
+    const parsed3 = ErrorEnvelopeSchema.safeParse(body);
+    return parsed3.success ? parsed3.data : null;
   }
   function isRuntimeError(value) {
     return value instanceof RuntimeError;
@@ -4982,10 +4982,10 @@ var KidItemRuntime = (() => {
     kind: AD_REPORT_KIND,
     site: "ad-center",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = AdReportPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uBCF4\uACE0\uC11C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      const parsed3 = AdReportPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uBCF4\uACE0\uC11C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       const range = { startDate: plan.startDate, endDate: plan.endDate };
       if (signal.aborted) return;
       const reportCampaignIds = (await site.listReportCampaigns(range)).map((campaign) => campaign.id);
@@ -5154,9 +5154,9 @@ var KidItemRuntime = (() => {
   }
   function metrics(record4, report, index) {
     const value = (field) => {
-      const parsed2 = number(record4[field]);
-      if (parsed2 === null) throw rowInvalid(report, index, field);
-      return Math.round(parsed2);
+      const parsed3 = number(record4[field]);
+      if (parsed3 === null) throw rowInvalid(report, index, field);
+      return Math.round(parsed3);
     };
     const sum = (kind) => value(`direct_${kind}`) + value(`halo_${kind}`);
     return {
@@ -5210,9 +5210,9 @@ var KidItemRuntime = (() => {
     const item = record(value);
     const date = settlementDate(item?.date);
     const money = (field) => {
-      const parsed2 = number(item?.[field]);
-      if (parsed2 === null) throw rowInvalid("settlement", index, field);
-      return Math.round(parsed2);
+      const parsed3 = number(item?.[field]);
+      if (parsed3 === null) throw rowInvalid("settlement", index, field);
+      return Math.round(parsed3);
     };
     if (!item || !date) throw rowInvalid("settlement", index, "date");
     const campaignId = blank(item.campaignId) ? null : id(item.campaignId);
@@ -5246,8 +5246,8 @@ var KidItemRuntime = (() => {
     return reportDate(value);
   }
   function calendarDate2(value) {
-    const parsed2 = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
-    return Number.isNaN(parsed2.getTime()) || parsed2.toISOString().slice(0, 10) !== value ? null : value;
+    const parsed3 = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+    return Number.isNaN(parsed3.getTime()) || parsed3.toISOString().slice(0, 10) !== value ? null : value;
   }
   function id(value) {
     const textValue = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
@@ -5262,16 +5262,16 @@ var KidItemRuntime = (() => {
     return null;
   }
   function number(value) {
-    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.replace(/,/g, "")) : Number.NaN;
-    return Number.isFinite(parsed2) ? parsed2 : null;
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.replace(/,/g, "")) : Number.NaN;
+    return Number.isFinite(parsed3) ? parsed3 : null;
   }
   function integerOrNull(value) {
-    const parsed2 = number(value);
-    return parsed2 === null ? null : Math.round(parsed2);
+    const parsed3 = number(value);
+    return parsed3 === null ? null : Math.round(parsed3);
   }
   function count(value) {
-    const parsed2 = number(value);
-    return parsed2 !== null && Number.isSafeInteger(parsed2) && parsed2 >= 0 ? parsed2 : null;
+    const parsed3 = number(value);
+    return parsed3 !== null && Number.isSafeInteger(parsed3) && parsed3 >= 0 ? parsed3 : null;
   }
   function record(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -5395,16 +5395,16 @@ var KidItemRuntime = (() => {
     kind: WING_ITEMWINNER_KIND,
     site: "wing-itemwinner",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = WingItemwinnerPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) {
+      const parsed3 = WingItemwinnerPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) {
         throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       }
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
-      if (vendorId2 !== parsed2.data.vendorId) {
+      if (vendorId2 !== parsed3.data.vendorId) {
         throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
-          plannedVendorId: parsed2.data.vendorId,
+          plannedVendorId: parsed3.data.vendorId,
           observedVendorId: vendorId2
         });
       }
@@ -5549,10 +5549,10 @@ var KidItemRuntime = (() => {
     kind: WING_TRAFFIC_KIND,
     site: "wing-traffic",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = WingTrafficPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      const parsed3 = WingTrafficPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
       if (vendorId2 !== plan.vendorId) {
@@ -5799,12 +5799,12 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_PRODUCT_PROFITABILITY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      const parsed3 = PlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
-      const periods = purchasePeriods(parsed2.data);
+      const periods = purchasePeriods(parsed3.data);
       const read = await site.productProfit(
-        { start: parsed2.data.from, end: parsed2.data.to, periods, signal },
+        { start: parsed3.data.from, end: parsed3.data.to, periods, signal },
         async (done, total) => {
           await report?.({ months: total, monthsRead: done });
         }
@@ -5834,10 +5834,10 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_SALES_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema2.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      const parsed3 = PlanSchema2.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
-      const { rows, sellers } = await site.sales({ startDate: parsed2.data.range.from, endDate: parsed2.data.range.to });
+      const { rows, sellers } = await site.sales({ startDate: parsed3.data.range.from, endDate: parsed3.data.range.to });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, sellers };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC140\uD53C\uC544 \uD310\uB9E4\uCC98\xB7\uC77C \uD55C \uC904" });
@@ -6349,15 +6349,15 @@ var KidItemRuntime = (() => {
     kind: MALL_ADMIN_LISTINGS_KIND,
     site: "mall-admin-listings",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = MallAdminListingsPlanSchema.safeParse(rawPlan);
-      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
-      if (!parsed2.success || !reader?.readListings) {
+      const parsed3 = MallAdminListingsPlanSchema.safeParse(rawPlan);
+      const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
+      if (!parsed3.success || !reader?.readListings) {
         throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ADMIN_LISTINGS_KIND,
-          mallKey: parsed2.success ? parsed2.data.mallKey : null
+          mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
       }
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       const snapshot = await reader.readListings(plan);
       if (signal.aborted) return;
       const scan = MallAdminListingsScanSchema.safeParse({ collection: snapshot.collection, proof: snapshot.proof });
@@ -6509,8 +6509,8 @@ var KidItemRuntime = (() => {
   }
   function price(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const parsed2 = Number(value);
-    return Number.isSafeInteger(parsed2) && parsed2 >= 0 && parsed2 <= 1e9 ? parsed2 : null;
+    const parsed3 = Number(value);
+    return Number.isSafeInteger(parsed3) && parsed3 >= 0 && parsed3 <= 1e9 ? parsed3 : null;
   }
   function sentAt(value) {
     const normalized = text2(value, 20);
@@ -6520,10 +6520,10 @@ var KidItemRuntime = (() => {
     kind: SABANGNET_MALL_LISTINGS_KIND,
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      const parsed3 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uD55C \uC904" });
@@ -6688,10 +6688,10 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_MANUAL_MATCH_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      const parsed3 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      const { targetCodes } = parsed2.data;
+      const { targetCodes } = parsed3.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
         const received = [];
@@ -7941,9 +7941,9 @@ var KidItemRuntime = (() => {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const parsed2 = Date.parse(raw);
-    if (Number.isNaN(parsed2)) return raw.slice(0, 10);
-    return new Date(parsed2 + KST_OFFSET_MS).toISOString().slice(0, 10);
+    const parsed3 = Date.parse(raw);
+    if (Number.isNaN(parsed3)) return raw.slice(0, 10);
+    return new Date(parsed3 + KST_OFFSET_MS).toISOString().slice(0, 10);
   }
   function isUrgent(row) {
     const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
@@ -8150,10 +8150,10 @@ var KidItemRuntime = (() => {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const parsed3 = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
@@ -8202,10 +8202,10 @@ var KidItemRuntime = (() => {
     kind: COUPANG_ROCKET_PO_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const parsed3 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
         const listed = [];
@@ -8398,9 +8398,9 @@ var KidItemRuntime = (() => {
     if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     const raw = value.trim();
     if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    const parsed2 = Number(raw.replace(/,/g, ""));
-    if (!Number.isSafeInteger(parsed2) || parsed2 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
-    return parsed2;
+    const parsed3 = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed3) || parsed3 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed3;
   }
   function isCalendarDate(year, month, day) {
     if (month < 1 || month > 12 || day < 1) return false;
@@ -8415,9 +8415,9 @@ var KidItemRuntime = (() => {
       return raw;
     }
     const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
-    const parsed2 = iso ? Date.parse(raw) : Number.NaN;
-    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed2)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    return new Date(parsed2 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+    const parsed3 = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed3)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed3 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   registerCollector(coupangRocketPoCollector);
 
@@ -8429,10 +8429,10 @@ var KidItemRuntime = (() => {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const parsed3 = PlanSchema3.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      const { maxPages } = parsed2.data;
+      const { maxPages } = parsed3.data;
       try {
         const seen = /* @__PURE__ */ new Set();
         const byDate = /* @__PURE__ */ new Map();
@@ -8516,15 +8516,15 @@ var KidItemRuntime = (() => {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema4.safeParse(rawPlan);
-      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
-      if (!parsed2.success || !reader) {
+      const parsed3 = PlanSchema4.safeParse(rawPlan);
+      const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
+      if (!parsed3.success || !reader) {
         throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
-          mallKey: parsed2.success ? parsed2.data.mallKey : null
+          mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
       }
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       try {
         const { rows, continuation } = await reader.readOrders({
           collectionDate: plan.collectionDate,
@@ -8561,10 +8561,10 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema5.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const parsed3 = PlanSchema5.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed3.data.startDate, endDate: parsed3.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS6, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
@@ -8590,8 +8590,8 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema6.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      const parsed3 = PlanSchema6.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
@@ -9784,9 +9784,55 @@ var KidItemRuntime = (() => {
     displayName: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130",
     loginUrl: "https://advertising.coupang.com/marketing",
     hosts: ["advertising.coupang.com", "xauth.coupang.com"],
-    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || url.hostname.toLowerCase() === "advertising.coupang.com" && /^\/user\/login\/?$/.test(url.pathname),
+    // 광고센터 쪽은 옛 `startsWith('/user/login')`처럼 넓게 본다.
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || isAccountChoiceUrl(url),
     fields: WING_LOGIN.fields
   };
+  var AD_CENTER_ACCOUNT_CHOICE_FILE = "content/ad-center/account-choice.js";
+  var NAVIGATION_TIMEOUT_MS5 = 3e4;
+  var CALL_TIMEOUT_MS2 = 5e3;
+  var FORM_WAIT_MS = 15e3;
+  var FORM_POLL_MS = 500;
+  function isAccountChoiceUrl(url) {
+    return url.hostname.toLowerCase() === "advertising.coupang.com" && url.pathname.startsWith("/user/login");
+  }
+  function parsed2(value) {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  }
+  var GUARD = {
+    allows: (url) => hostWithin(url, AD_CENTER_LOGIN.hosts),
+    isLogin: () => false,
+    loginMessage: `${AD_CENTER_LOGIN.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
+  };
+  async function chooseWingAccount(page, deps) {
+    const loginUrl = (value) => {
+      const url2 = parsed2(value);
+      return url2 !== null && AD_CENTER_LOGIN.isLoginUrl(url2);
+    };
+    let current = await page.currentUrl().catch(() => "");
+    if (!loginUrl(current)) {
+      current = await page.navigate(AD_CENTER_LOGIN.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, continueOnTimeout: true, stopAt: loginUrl }).catch(() => "");
+    }
+    const url = parsed2(current);
+    if (!url || !isAccountChoiceUrl(url)) return;
+    const answer = await callPage(page, "adCenter.chooseWingAccount", {}, {
+      timeoutMs: CALL_TIMEOUT_MS2,
+      guard: GUARD,
+      displayName: AD_CENTER_LOGIN.displayName,
+      isolated: [AD_CENTER_ACCOUNT_CHOICE_FILE]
+    }).catch(() => null);
+    if (answer?.state !== "clicked") return;
+    const deadline = deps.now() + FORM_WAIT_MS;
+    while (deps.now() < deadline) {
+      const frames = await page.frames([LOGIN_FILL_FILE]).catch(() => []);
+      if (frames.some((frame) => frame.result?.loginForm === true)) return;
+      await deps.sleep(FORM_POLL_MS);
+    }
+  }
 
   // extensions/src/sites/ad-center/index.ts
   var AD_CENTER_ORIGIN = "https://advertising.coupang.com";
@@ -9798,7 +9844,7 @@ var KidItemRuntime = (() => {
   var AD_CENTER_VENDOR_FILE = "content/ad-center/vendor-code.js";
   var AD_CENTER_PAGE_SIZE2 = 500;
   var AD_CENTER_CALLER = { minIntervalMs: 1500, timeoutMs: 12e4, displayName: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130" };
-  var NAVIGATION_TIMEOUT_MS5 = 3e4;
+  var NAVIGATION_TIMEOUT_MS6 = 3e4;
   var VENDOR_READS = 10;
   var VENDOR_READ_GAP_MS = 1e3;
   var JSON_HEADERS = { Accept: "application/json", "Content-Type": "application/json" };
@@ -9845,7 +9891,7 @@ var KidItemRuntime = (() => {
       async readVendorId() {
         if (!page) throw failed2("tab_missing", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD0ED\uC774 \uC5C6\uC5B4 \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
         if (!(await page.currentUrl().catch(() => "")).startsWith(AD_CENTER_HOME_URL)) {
-          await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5, continueOnTimeout: true, stopAt: isLoginUrl });
+          await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true, stopAt: isLoginUrl });
         }
         for (let read = 0; read < VENDOR_READS; read += 1) {
           if (read > 0) await deps.sleep(VENDOR_READ_GAP_MS);
@@ -9938,7 +9984,11 @@ var KidItemRuntime = (() => {
   function adCenterCall(deps, lease, page) {
     const credentials = lease.credentials;
     const withLogin = createSiteLoginGate(credentials);
-    const login = (target) => credentials ? ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
+    const login = async (target) => {
+      if (!credentials) return { status: "unconfirmed" };
+      await chooseWingAccount(target, deps);
+      return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
+    };
     let warmed = false;
     const warm = async (request) => {
       try {
@@ -9946,7 +9996,7 @@ var KidItemRuntime = (() => {
       } catch (error) {
         if (warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
         warmed = true;
-        await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5, continueOnTimeout: true, stopAt: isLoginUrl });
+        await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true, stopAt: isLoginUrl });
         return request();
       }
     };
@@ -9957,13 +10007,13 @@ var KidItemRuntime = (() => {
     for (const [index, raw] of body.split(/\r?\n/).entries()) {
       const line = raw.trim();
       if (!line) continue;
-      let parsed2;
+      let parsed3;
       try {
-        parsed2 = JSON.parse(line);
+        parsed3 = JSON.parse(line);
       } catch {
-        parsed2 = null;
+        parsed3 = null;
       }
-      const row = record2(parsed2);
+      const row = record2(parsed3);
       if (!row) throw failed2("report_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uD30C\uC77C \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { line: index + 1 });
       rows.push(row);
     }
@@ -10020,8 +10070,8 @@ var KidItemRuntime = (() => {
     return null;
   }
   function count2(value) {
-    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isSafeInteger(parsed2) && parsed2 >= 0 ? parsed2 : null;
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(parsed3) && parsed3 >= 0 ? parsed3 : null;
   }
   function record2(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -10401,14 +10451,14 @@ var KidItemRuntime = (() => {
     const text7 = autocomplete?.text.trim() ?? "";
     if (text7 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text7))) {
       try {
-        const parsed2 = JSON.parse(text7);
-        if (parsed2 && typeof parsed2 === "object") {
-          if (isErrorEnvelope(parsed2)) {
-            const message = errorEnvelopeMessage(parsed2);
+        const parsed3 = JSON.parse(text7);
+        if (parsed3 && typeof parsed3 === "object") {
+          if (isErrorEnvelope(parsed3)) {
+            const message = errorEnvelopeMessage(parsed3);
             providerError ??= { reason: "provider_denied", message };
           } else {
-            walk(parsed2);
-            structuredResponse = hasSuggestionCollection(parsed2);
+            walk(parsed3);
+            structuredResponse = hasSuggestionCollection(parsed3);
           }
         } else {
           warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
@@ -10423,8 +10473,8 @@ var KidItemRuntime = (() => {
     for (const link of evidence.links) {
       add(link.text, "coupang-search-dom");
       try {
-        const parsed2 = new URL(link.href, origin);
-        add(parsed2.searchParams.get("q") || parsed2.searchParams.get("keyword") || "", "coupang-search-dom");
+        const parsed3 = new URL(link.href, origin);
+        add(parsed3.searchParams.get("q") || parsed3.searchParams.get("keyword") || "", "coupang-search-dom");
       } catch {
       }
     }
@@ -10702,15 +10752,15 @@ var KidItemRuntime = (() => {
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
-          if (!parsed2.ok) {
+          const parsed3 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
+          if (!parsed3.ok) {
             throw new RuntimeError(
-              parsed2.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed2.message,
-              { status: parsed2.reason === "rate_limited" ? 429 : null, url, reason: parsed2.reason, warnings: parsed2.warnings }
+              parsed3.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed3.message,
+              { status: parsed3.reason === "rate_limited" ? 429 : null, url, reason: parsed3.reason, warnings: parsed3.warnings }
             );
           }
-          return { items: parsed2.items, productNameTokens: parsed2.productNameTokens, warnings: parsed2.warnings };
+          return { items: parsed3.items, productNameTokens: parsed3.productNameTokens, warnings: parsed3.warnings };
         } finally {
           await page.close();
         }
@@ -10922,7 +10972,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS6 = 3e4;
+  var NAVIGATION_TIMEOUT_MS7 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -10934,7 +10984,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -10954,13 +11004,13 @@ var KidItemRuntime = (() => {
     const failed8 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
     if (fetched.status < 200 || fetched.status >= 300 || text7.trim().charAt(0) === "<") throw failed8();
-    let parsed2;
+    let parsed3;
     try {
-      parsed2 = JSON.parse(text7);
+      parsed3 = JSON.parse(text7);
     } catch {
       throw failed8();
     }
-    const body = parsed2?.body;
+    const body = parsed3?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return { rows: body.body, lastPageNumber: body.lastPageNumber };
   }
@@ -10978,7 +11028,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -11043,7 +11093,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var NAVIGATION_TIMEOUT_MS8 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -11075,7 +11125,7 @@ var KidItemRuntime = (() => {
       shipmentPage ??= (async () => {
         const tab = shipmentTab ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
@@ -11254,7 +11304,7 @@ var KidItemRuntime = (() => {
   var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
   var READ_TIMEOUT_MS5 = 14e4;
   var WALL_TIMEOUT_MS = 1e4;
-  var NAVIGATION_TIMEOUT_MS8 = 3e4;
+  var NAVIGATION_TIMEOUT_MS9 = 3e4;
   var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
   var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
@@ -11307,7 +11357,7 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
         }
         waited = true;
-        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
+        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
       };
       for (; ; ) {
         let answer;
@@ -11767,7 +11817,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS9 = 35e3;
+  var NAVIGATION_TIMEOUT_MS10 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -11807,14 +11857,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -12046,8 +12096,8 @@ var KidItemRuntime = (() => {
         depth -= 1;
         if (depth === 0) {
           try {
-            const parsed2 = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed2.content === "string" ? parsed2.content : null;
+            const parsed3 = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed3.content === "string" ? parsed3.content : null;
           } catch {
             return null;
           }
@@ -12058,13 +12108,13 @@ var KidItemRuntime = (() => {
   }
   function allowedSupplierUrl(value) {
     try {
-      const parsed2 = new URL(String(value ?? "").trim());
-      const host = parsed2.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed2.protocol !== "https:" || parsed2.username || parsed2.password || parsed2.port && parsed2.port !== "443") return null;
+      const parsed3 = new URL(String(value ?? "").trim());
+      const host = parsed3.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed3.protocol !== "https:" || parsed3.username || parsed3.password || parsed3.port && parsed3.port !== "443") return null;
       if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed2.hostname = host;
-      parsed2.hash = "";
-      return parsed2.toString();
+      parsed3.hostname = host;
+      parsed3.hash = "";
+      return parsed3.toString();
     } catch {
       return null;
     }
@@ -12166,7 +12216,7 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS10 = 45e3;
+  var NAVIGATION_TIMEOUT_MS11 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
   var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
@@ -12185,7 +12235,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS11 });
         return next;
       })();
       return tab;
@@ -12292,13 +12342,13 @@ var KidItemRuntime = (() => {
   var REQUEST_TIMEOUT_MS2 = 45e3;
   var MAX_ROWS = 2e4;
   var MAX_BYTES = 10 * 1024 * 1024;
-  var CALL_TIMEOUT_MS2 = REQUEST_TIMEOUT_MS2 + 1e3;
+  var CALL_TIMEOUT_MS3 = REQUEST_TIMEOUT_MS2 + 1e3;
   function createSellpiaInventory(tabs) {
     return {
       inventory() {
         return withFreshTab(tabs, SELLPIA_INVENTORY_URL, async (page) => {
           const answer = await callPage(page, "sellpia.inventory", { timeoutMs: REQUEST_TIMEOUT_MS2, maxRows: MAX_ROWS, maxBytes: MAX_BYTES }, {
-            timeoutMs: CALL_TIMEOUT_MS2,
+            timeoutMs: CALL_TIMEOUT_MS3,
             guard: SELLPIA_PAGE_GUARD,
             main: [SELLPIA_INVENTORY_FILE],
             displayName: "\uC140\uD53C\uC544"
@@ -12411,7 +12461,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS11 = 45e3;
+  var NAVIGATION_TIMEOUT_MS12 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
   var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
@@ -12424,7 +12474,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS11 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
         return next;
       })();
       return tab;
@@ -12605,7 +12655,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS12 = 35e3;
+  var NAVIGATION_TIMEOUT_MS13 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -12676,14 +12726,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS12, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS13, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS12, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS13, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -13687,10 +13737,10 @@ var KidItemRuntime = (() => {
   function attachmentCounts(value) {
     if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
     try {
-      const parsed2 = JSON.parse(value);
+      const parsed3 = JSON.parse(value);
       return {
-        images: Array.isArray(parsed2?.imageAttachments) ? parsed2.imageAttachments.length : 0,
-        videos: Array.isArray(parsed2?.videoAttachments) ? parsed2.videoAttachments.length : 0
+        images: Array.isArray(parsed3?.imageAttachments) ? parsed3.imageAttachments.length : 0,
+        videos: Array.isArray(parsed3?.videoAttachments) ? parsed3.videoAttachments.length : 0
       };
     } catch {
       return { images: 0, videos: 0 };
@@ -13828,12 +13878,12 @@ var KidItemRuntime = (() => {
     return /^[1-9]\d*$/.test(text7) ? text7 : null;
   }
   function number2(value) {
-    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isFinite(parsed2) ? parsed2 : null;
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed3) ? parsed3 : null;
   }
   function integer2(value) {
-    const parsed2 = number2(value);
-    return parsed2 !== null && Number.isSafeInteger(parsed2) ? parsed2 : null;
+    const parsed3 = number2(value);
+    return parsed3 !== null && Number.isSafeInteger(parsed3) ? parsed3 : null;
   }
   function record3(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -14005,11 +14055,11 @@ var KidItemRuntime = (() => {
       }
       throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
     }
-    const parsed2 = schema.safeParse(body);
-    if (!parsed2.success) {
+    const parsed3 = schema.safeParse(body);
+    if (!parsed3.success) {
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
     }
-    return parsed2.data;
+    return parsed3.data;
   }
   async function sha256Hex(text7) {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text7));
@@ -14235,8 +14285,8 @@ var KidItemRuntime = (() => {
   function nextOperationFrom(result) {
     const next = result?.next;
     if (next === void 0 || next === null) return null;
-    const parsed2 = OperationNextSchema.safeParse(next);
-    return parsed2.success ? parsed2.data : null;
+    const parsed3 = OperationNextSchema.safeParse(next);
+    return parsed3.success ? parsed3.data : null;
   }
 
   // extensions/src/entry/actions.ts
@@ -14359,15 +14409,15 @@ var KidItemRuntime = (() => {
     return { success: false, errorCode: "RUNTIME_API_UNREACHABLE", error: error instanceof Error ? error.message : String(error) };
   }
   function validateWith(schema, message) {
-    const parsed2 = schema.safeParse(message);
-    if (parsed2.success) return { ok: true, message: parsed2.data };
+    const parsed3 = schema.safeParse(message);
+    if (parsed3.success) return { ok: true, message: parsed3.data };
     return {
       ok: false,
       response: {
         success: false,
         errorCode: "VALIDATION_FAILED",
         error: LOCAL_TEXT.VALIDATION_FAILED,
-        details: { errors: parsed2.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
+        details: { errors: parsed3.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
       }
     };
   }
@@ -14378,11 +14428,11 @@ var KidItemRuntime = (() => {
   function productExtensionScope(url) {
     if (!url) return null;
     try {
-      const parsed2 = new URL(url);
-      if (parsed2.protocol !== "https:") return null;
-      const host = parsed2.hostname.toLowerCase();
-      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed2.toString() };
-      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed2.toString() };
+      const parsed3 = new URL(url);
+      if (parsed3.protocol !== "https:") return null;
+      const host = parsed3.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed3.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed3.toString() };
       return null;
     } catch {
       return null;

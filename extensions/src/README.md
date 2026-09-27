@@ -62,9 +62,11 @@ visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDi
 잠금 키 `resource:ad-center:<id>`가 사이트 이름 `ad-center`의 탭(`/marketing`)을 연다 — 로그인 직후 그 화면을 한 번 열어야
 `cmg-api`·`tetris-api`가 답하므로 탭을 여는 것이 곧 워밍업이고, 그래도 처음 500이 오면 탭을 다시 열고 한 번만 다시 묻는다.
 호출은 서비스워커 fetch(쿠키, 리다이렉트 안 따라감)이고 GraphQL은 HTTP 200에 `errors[]`로 실패하므로 사이트가 `SITE_REQUEST_FAILED`
-(`graphql_error`)로 바꾼다. 로그인 화면은 광고센터 `/user/login`과 판매자 로그인(`xauth.coupang.com`)이다: 리다이렉트면 잠금
-탭에서 실행 자격으로 Wing과 같은 아이디·비밀번호 폼을 채우고 한 번 다시 묻는다. 계정 유형 선택 화면처럼 채울 폼이 없으면
-누르지 않고 `SITE_LOGIN_REQUIRED`(`login_unconfirmed`)로 멈춰 탭을 운영자에게 남긴다. 업체코드는 탭 화면의 "업체코드" 항목을
+(`graphql_error`)로 바꾼다. 로그인 화면은 광고센터 `/user/login…`(계정 유형 선택)과 판매자 로그인(`xauth.coupang.com`)이다:
+리다이렉트면 잠금 탭에서, 계정 유형 선택 화면이면 "쿠팡 wing 로그인"을 한 번 누르고(페이지 호출 `content/ad-center/account-choice.js`,
+자격증명 없음 — 옛 `ads-report.js`가 하던 이동 클릭) xauth의 Wing과 같은 아이디·비밀번호 폼을 실행 자격으로 채운 뒤 한 번
+다시 묻는다. 누를 버튼이 없거나 폼이 오지 않으면 `SITE_LOGIN_REQUIRED`(`login_unconfirmed`)로 멈춰 탭을 운영자에게 남긴다.
+업체코드는 탭 화면의 "업체코드" 항목을
 파일 주입(`content/ad-center/vendor-code.js`, 읽기만)으로 읽는다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
