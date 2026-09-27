@@ -46,7 +46,19 @@ export interface RegistrationAvailabilityRun {
   observedUrl: string | null;
 }
 
+/** 가격을 보낸 몰의 답(`sites/mall-write`, 옛 `sendPrice` 결과). 로그인은 사이트가 던진다. */
+export interface RegistrationPriceAnswer {
+  sent?: number;
+  failed?: number;
+  confirmed?: number;
+  warnings?: string[];
+  notes?: string[];
+  submissionAttempted?: boolean;
+  results?: Array<{ code: string; before: number | null; after: number | null; confirmed: boolean; observedUrl?: string }>;
+}
+
 export interface RegistrationWriter {
+  price(input: { externalListingId: string; price: number }): Promise<RegistrationPriceAnswer>;
   availability(input: {
     resume: boolean;
     /** 옵션 단위로 바꾸는 몰(쿠팡 윙 — 채널 레지스트리 `soldOutScope`)인가. 아니면 리스팅 단위다. */
@@ -55,7 +67,7 @@ export interface RegistrationWriter {
     expectedProviderAccountId: string | null;
   }): Promise<RegistrationAvailabilityRun>;
   fill(input: {
-    executionKind: 'register' | 'update' | 'composition_change';
+    executionKind: 'register' | 'composition_change';
     externalListingId: string | null;
     form: Record<string, unknown>;
     submit: boolean;
@@ -138,7 +150,69 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
     if (!writer) throw invalid(`이 확장에 ${plan.mallKey} 몰 쓰기 모듈이 없습니다.`, { mallKey: plan.mallKey });
     const progress = { mallKey: plan.mallKey, executionKind: plan.executionKind };
 
-    if (plan.executionKind === 'register' || plan.executionKind === 'update' || plan.executionKind === 'composition_change') {
+    // 가격 수정(update는 판매가 하나만 — M1 plan 규칙): 얼린 판매 옵션의 판매가를 그 리스팅에 보내고 다시 읽는다. 등록 관문은 없다.
+    if (plan.executionKind === 'update') {
+      const payload = RegistrationDocumentPayloadSchema.safeParse(plan.payload);
+      const snapshot = payload.success ? payload.data.snapshot : null;
+      const options = (snapshot?.product as { options?: Array<{ salePrice?: unknown }> } | undefined)?.options;
+      const price = options?.length === 1 ? options[0]!.salePrice : null;
+      if (!writer.price || !plan.externalListingId || typeof price !== 'number' || !Number.isInteger(price)) {
+        throw invalid('가격 수정 계획에 몰 상품 번호나 판매가가 없습니다.', { mallKey: plan.mallKey, executionKind: plan.executionKind });
+      }
+      const empty: RegistrationFill = { steps: [], warnings: [], manualSteps: [], dialogs: [] };
+      if (!plan.submit) {
+        return {
+          result: {
+            providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'not_requested',
+            externalListingId: null, mallMessage: null, fill: empty, evidence: null,
+          },
+        };
+      }
+      const answer = await writer.price({ externalListingId: plan.externalListingId, price });
+      const warnings = [...(answer.warnings ?? []), ...(answer.notes ?? [])];
+      if (!answer.submissionAttempted || (answer.sent ?? 0) === 0) {
+        throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(' ') : '몰이 가격 변경을 받지 않았습니다.', { mallKey: plan.mallKey });
+      }
+      const observed = answer.results?.find((item) => item.code === plan.externalListingId) ?? null;
+      const won = (value: number) => `${value.toLocaleString('ko-KR')}원`;
+      const fill: RegistrationFill = {
+        ...empty,
+        steps: [`판매가 ${won(price)}을 보냈습니다${observed?.before != null && observed.after != null ? `(${won(observed.before)} → ${won(observed.after)})` : ''}.`],
+        warnings,
+      };
+      yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [fill], progress: { ...progress, stage: 'sent' } };
+      const confirmed = observed?.confirmed === true;
+      let evidence: RegistrationEvidenceRow | null = null;
+      if (confirmed) {
+        evidence = {
+          payloadHash: plan.payloadHash,
+          channelAccountId: plan.channelAccountId,
+          externalListingId: plan.externalListingId,
+          observedUrl: observed?.observedUrl ?? null,
+          providerAccountId: null,
+          observedStatus: null,
+          message: null,
+          options: [],
+        };
+        yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress, stage: 'reread' } };
+      }
+      const outcome: RegistrationMallOutcome = confirmed ? 'confirmed' : 'submitted';
+      return {
+        ...(confirmed ? {} : { outcome: 'reconciling' as const }),
+        result: {
+          providerOutcome: providerOutcomeOf(outcome),
+          mallOutcome: outcome,
+          submitted: true,
+          submitSkipped: null,
+          externalListingId: plan.externalListingId,
+          mallMessage: warnings.length > 0 ? warnings.join(' ') : null,
+          fill,
+          evidence,
+        },
+      };
+    }
+
+    if (plan.executionKind === 'register' || plan.executionKind === 'composition_change') {
       const payload = RegistrationDocumentPayloadSchema.safeParse(plan.payload);
       if (!payload.success || !payload.data.form || !writer.fill) {
         throw invalid('등록 계획에 몰 폼 지시가 없습니다.', { mallKey: plan.mallKey, executionKind: plan.executionKind });

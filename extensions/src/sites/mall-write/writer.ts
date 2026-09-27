@@ -40,8 +40,8 @@ export interface MallSubmission {
 }
 
 export interface MallFillInput {
-  /** register는 새 상품 등록 화면, update·composition_change는 기존 리스팅의 수정 화면(`externalListingId`)이다. */
-  executionKind: 'register' | 'update' | 'composition_change';
+  /** register는 새 상품 등록 화면, composition_change는 기존 리스팅의 수정 화면(`externalListingId`)이다. 가격 수정(update)은 폼이 아니라 `availability.ts` 가격 보내기다. */
+  executionKind: 'register' | 'composition_change';
   externalListingId: string | null;
   form: Record<string, unknown>;
   /** 실행이 [등록]까지 부탁했는가(관문 조건 1). */
@@ -119,7 +119,7 @@ export function mallWriteContext(definition: MallWriterDefinition, deps: MallWri
 }
 
 /**
- * 등록 폼 채우기 하나(register·update·composition_change). 쓰기 탭을 열어 채우고, 관문(`shouldPressRegister`)이 누를지를
+ * 등록 폼 채우기 하나(register·composition_change). 쓰기 탭을 열어 채우고, 관문(`shouldPressRegister`)이 누를지를
  * 정해 둔다. 채우다 실패하면 탭을 운영자에게 넘기고 던진다. 성공이면 탭은 `done`까지 이 실행 것이다(누르기 뒤 넘긴다).
  */
 export async function fillRegistration(definition: MallWriterDefinition, context: MallWriteContext, input: MallFillInput): Promise<MallFillSession> {

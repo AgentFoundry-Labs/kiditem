@@ -79,7 +79,7 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
       return { ok: false, error: 'unexpected' };
     });
 
-    const session = await writer.fill({ form: domeggookForm(), submit: true, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await writer.fill!({ form: domeggookForm(), submit: true, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
     await session.done();
 
     expect(session.fill).toEqual({
@@ -125,7 +125,7 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
   it('도매꾹 등록 주소가 아니면 탭을 열지 않고 RUNTIME_PLAN_INVALID', async () => {
     const { fake, writer } = writerFor('domeggook', () => ({ ok: false, error: 'unexpected' }));
     for (const url of ['https://www.domeggook.com/sc/order/lstAll', 'https://evil.test/sc/item/regFrm']) {
-      await expect(writer.fill({ form: domeggookForm({ url }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null })).rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
+      await expect(writer.fill!({ form: domeggookForm({ url }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null })).rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
     }
     expect(fake.log.filter((line) => line.startsWith('open'))).toEqual([]);
   });
@@ -135,7 +135,7 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
       ? { ok: true, value: { ok: true, steps: ['상품명'], warnings: [] } }
       : { ok: false, error: 'content_script_missing' }), { kidsnoteLoggedOut: true });
 
-    const session = await writer.fill({ form: domeggookForm(), submit: true, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await writer.fill!({ form: domeggookForm(), submit: true, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
 
     expect(session.fill.warnings).toEqual(['상세 이미지를 올리지 못했습니다 — 키즈노트 관리자에 로그인되어 있지 않습니다. 키즈노트 관리자에 로그인한 뒤 다시 채우세요.']);
     expect(session.fill.steps).toEqual(['상품명']);
@@ -150,7 +150,7 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
       return { ok: true, value: { ok: true, steps: ['상품명'], warnings: [] } };
     }, { loginAt: 'https://domeggook.com/ssl/member/mem_loginForm.php' });
 
-    const session = await writer.fill({ form: domeggookForm({ detailUploads: [] }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await writer.fill!({ form: domeggookForm({ detailUploads: [] }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
     await session.done();
 
     expect(login!.state.filled).toEqual([CREDENTIALS]);
@@ -164,7 +164,7 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
       ? { ok: true, value: { ok: false, error: '분류를 고르지 못했습니다.', steps: ['상품명'] } }
       : { ok: false, error: 'content_script_missing' }));
 
-    await expect(writer.fill({ form: domeggookForm({ detailUploads: [] }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null }))
+    await expect(writer.fill!({ form: domeggookForm({ detailUploads: [] }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null }))
       .rejects.toMatchObject({ code: 'REGISTRATION_FILL_FAILED', message: '분류를 고르지 못했습니다.' });
     expect(fake.log).toContain('leave 7');
     expect(fake.log.filter((line) => line.startsWith('navigate'))).toHaveLength(1);
@@ -175,7 +175,7 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
       ? { ok: true, value: { ok: false, noForm: true, error: '몰에 로그인되어 있지 않습니다. 열린 탭에서 직접 로그인한 뒤 다시 누르세요.' } }
       : { ok: false, error: 'content_script_missing' }));
 
-    await expect(writer.fill({ form: { url: 'https://alwayzseller.ilevit.com/items/registrations', manualSteps: [] }, submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null }))
+    await expect(writer.fill!({ form: { url: 'https://alwayzseller.ilevit.com/items/registrations', manualSteps: [] }, submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null }))
       .rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
     expect(fake.log).toContain('leave 7');
   });
@@ -194,7 +194,7 @@ describe('몰 쓰기 — 폼이 iframe에 있는 몰(11번가, KID-256)', () => 
       frames: [{ frameId: 3, result: { href: 'https://soffice.11st.co.kr/pages/product-reg/index.html', doc: 2 } }, { frameId: 0, result: { href: 'https://soffice.11st.co.kr/view/123124025', doc: 1 } }],
     });
 
-    const session = await writer.fill({ form: { url: 'https://soffice.11st.co.kr/view/123124025', manualSteps: [] }, submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await writer.fill!({ form: { url: 'https://soffice.11st.co.kr/view/123124025', manualSteps: [] }, submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
 
     expect(session.fill.steps).toEqual(['상품명']);
     expect(asked).toEqual([0, 3]);
@@ -219,7 +219,7 @@ describe('몰 쓰기 — 폼이 다른 도메인 iframe에 있는 몰(떠리몰,
       frames: [{ frameId: 0, result: { href: 'https://partner.shopby.co.kr/product/add', doc: 1 } }, { frameId: 5, result: { href: 'https://partner-remote.shopby.co.kr/product/management/single/add', doc: 7 } }],
     });
 
-    const session = await writer.fill({ form: { url: 'https://partner.shopby.co.kr/product/add', manualSteps: [] }, submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await writer.fill!({ form: { url: 'https://partner.shopby.co.kr/product/add', manualSteps: [] }, submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
 
     expect(session.fill.steps).toEqual(['상품명']);
     expect(calls).toEqual(['mallForm.state@5', 'mallForm.state@5', 'mallForm.state@5', 'mallForm.fill@5']);

@@ -74,8 +74,11 @@ export interface PriceSendAnswer {
   failed?: number;
   confirmed?: number;
   warnings?: string[];
-  /** 가격 반영을 다시 읽어 확인한 상품번호. */
-  confirmedCodes?: string[];
+  /** 상품마다 보낸 뒤 다시 읽은 가격. `observedUrl`은 다시 읽은 판매자센터 화면(그 몰 주소일 때만). */
+  results?: Array<{ code: string; before: number | null; after: number | null; confirmed: boolean; observedUrl?: string }>;
+  /** 몰에 가격 요청을 실제로 보냈는가(사전 조건에서 멈춘 것과 보낸 뒤 실패를 가른다). */
+  submissionAttempted?: boolean;
+  notes?: string[];
 }
 
 export interface AvailabilityDeps extends LoginDeps {
@@ -378,4 +381,26 @@ export async function readAvailabilityOrThrow(module: MallAvailabilityModule, co
   const read = await readMallAvailability(module, context, codes);
   if (!read.success) throw answerError(module, read.error);
   return { products: read.products, missing: read.missing };
+}
+
+/** 탭의 지금 주소가 그 몰의 것이면 돌려준다(가격 다시 읽기 증거). 다른 곳이면 null — 남의 주소를 결과에 싣지 않는다. */
+export async function observedUrlOf(page: TabPage, origin: string): Promise<string | null> {
+  const raw = await page.currentUrl().catch(() => '');
+  try {
+    return new URL(raw).origin === origin ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 몰 화면의 가격 글자를 숫자로(`2,220원` → 2220). 못 읽으면 NaN. */
+export function priceNumber(value: unknown): number {
+  return Number(String(value ?? '').replace(/[,\s원]/g, ''));
+}
+
+/** 가격 수정 실행(`channels.registration` update) 하나 — 리스팅 하나에 판매가 하나. 몰 답이 실패면(로그인 포함) 던진다. */
+export async function sendPriceOrThrow(module: MallAvailabilityModule, context: AvailabilityContext, input: { externalListingId: string; price: number }) {
+  const answer = await sendMallPrice(module, context, [{ code: input.externalListingId, price: input.price }]);
+  if (!answer.success) throw answerError(module, answer.error);
+  return answer;
 }

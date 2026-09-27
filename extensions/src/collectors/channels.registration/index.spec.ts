@@ -302,3 +302,67 @@ describe('channels.registration — 품절·재개 묶음(KID-256)', () => {
     expect(finish).toMatchObject({ result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'not_requested' } });
   });
 });
+
+const LISTING = '77777777-7777-4777-8777-777777777777';
+
+function pricePlan(overrides: Partial<RegistrationPlan> = {}): RegistrationPlan {
+  return plan({
+    executionKind: 'update',
+    mallKey: 'kakao',
+    channelListingId: LISTING,
+    externalListingId: '779522307',
+    payload: { snapshot: { updateFields: ['salePrice'], product: { options: [{ salePrice: 2500 }] } }, form: null },
+    ...overrides,
+  });
+}
+
+function priceSite(answer: Record<string, unknown>, log: Array<Record<string, unknown>> = []): RegistrationSite {
+  return {
+    writer: () => ({
+      async price(input: { externalListingId: string; price: number }) {
+        log.push(input);
+        return { success: true, sent: 1, failed: 0, confirmed: 1, warnings: [], submissionAttempted: true, ...answer };
+      },
+    }),
+  } as RegistrationSite;
+}
+
+describe('channels.registration — 가격 수정(update·salePrice, KID-256)', () => {
+  it('얼린 판매가를 그 리스팅에 보내고, 다시 읽어 바뀌었으면 증거와 함께 succeeded(confirmed)', async () => {
+    const log: Array<Record<string, unknown>> = [];
+    const { chunks, finish } = await run(pricePlan(), priceSite({
+      results: [{ code: '779522307', before: 2220, after: 2500, confirmed: true, observedUrl: 'https://shopping-seller.kakao.com/product/store-seller/list' }],
+    }, log));
+    expect(log).toEqual([{ externalListingId: '779522307', price: 2500 }]);
+    expect(chunks).toEqual([
+      { chunkKind: 'registration_fill', payload: [{ steps: ['판매가 2,500원을 보냈습니다(2,220원 → 2,500원).'], warnings: [], manualSteps: [], dialogs: [] }] },
+      { chunkKind: 'registration_evidence', payload: [{
+        payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '779522307',
+        observedUrl: 'https://shopping-seller.kakao.com/product/store-seller/list', providerAccountId: null, observedStatus: null, message: null, options: [],
+      }] },
+    ]);
+    expect(finish).toMatchObject({ result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, externalListingId: '779522307' } });
+    expect(finish).not.toHaveProperty('outcome');
+  });
+
+  it('보냈지만 다시 읽은 가격이 다르면 reconciling(submitted)', async () => {
+    const { finish } = await run(pricePlan(), priceSite({ confirmed: 0, results: [{ code: '779522307', before: 2220, after: 2220, confirmed: false }] }));
+    expect(finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'submitted', submitted: true } });
+  });
+
+  it('보내기 전에 멈췄거나(옵션 상품) 몰이 거절하면 실패로 끝난다', async () => {
+    await expect(run(pricePlan(), priceSite({ sent: 0, failed: 1, confirmed: 0, submissionAttempted: false, warnings: ['옵션이 있는 상품 1개는 옵션마다 가격이라 보내지 않았습니다.'] })))
+      .rejects.toMatchObject({ code: 'MALL_WRITE_FAILED', message: expect.stringContaining('옵션이 있는 상품') });
+    await expect(run(pricePlan(), priceSite({ sent: 0, failed: 1, confirmed: 0, warnings: ['카카오 톡스토어이 가격 변경을 받지 않았습니다(HTTP 500).'] })))
+      .rejects.toMatchObject({ code: 'MALL_WRITE_FAILED' });
+  });
+
+  it('보내기를 부탁받지 않았으면 몰에 가지 않는다 · 판매가나 몰 상품 번호가 없으면 계획 오류다', async () => {
+    const log: Array<Record<string, unknown>> = [];
+    const { finish } = await run(pricePlan({ submit: false }), priceSite({}, log));
+    expect(log).toEqual([]);
+    expect(finish).toMatchObject({ result: { mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'not_requested' } });
+    await expect(run(pricePlan({ externalListingId: null }), priceSite({}))).rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
+    await expect(run(pricePlan({ payload: { snapshot: { updateFields: ['salePrice'], product: { options: [] } }, form: null } }), priceSite({}))).rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
+  });
+});

@@ -3,10 +3,12 @@ import {
   availabilityContext,
   mallAvailabilityFor,
   readAvailabilityOrThrow,
+  sendPriceOrThrow,
   runAvailability,
   type AvailabilityObserved,
   type AvailabilityRunInput,
   type AvailabilitySendAnswer,
+  type PriceSendAnswer,
 } from './availability';
 import { fillRegistration, mallWriteContext, mallWriterFor, type MallFillInput, type MallFillSession } from './writer';
 
@@ -26,6 +28,7 @@ export interface MallWriterHandle {
     providerAccountId: string | null;
     observedUrl: string | null;
   }>;
+  price?(input: { externalListingId: string; price: number }): Promise<PriceSendAnswer>;
 }
 
 registerSite({
@@ -44,6 +47,7 @@ registerSite({
       if (availability) {
         const context = availabilityContext(availability, deps, lease);
         handle.availability = (input) => runAvailability(availability, context, input);
+        if (availability.sendPrice) handle.price = (input) => sendPriceOrThrow(availability, context, input);
       }
       return handle;
     },

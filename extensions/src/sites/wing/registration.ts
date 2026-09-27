@@ -55,7 +55,7 @@ function storageImageUrls(product: Record<string, unknown>): string[] {
 }
 
 /**
- * 채울 화면: 새 등록은 formV2, 수정(update·composition_change)은 그 리스팅의 수정 화면(`formV2?vendorInventoryId=`, 등록 완료
+ * 채울 화면: 새 등록은 formV2, 구성 전환(composition_change)은 그 리스팅의 수정 화면(`formV2?vendorInventoryId=`, 등록 완료
  * 화면이 같은 주소 규칙을 쓴다 — `wing-register.js` `extractRegisteredProductId`). 새 상품 등록 폼으로 구성을 바꾸지 않는다.
  */
 function wingFormUrl(input: MallFillInput): string {
