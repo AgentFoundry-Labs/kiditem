@@ -398,6 +398,17 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: fixture.listingId! } })).toMatchObject({ status: '품절' });
   });
 
+  it('lets the operator confirm a reconciling sold-out without reread evidence and marks the listing sold out', async () => {
+    const onch = await createFixture(prisma, targets, { listing: true, channel: 'onch' });
+    const begun = await beginOk({ executionKind: 'sold_out', channelAccountId: onch.accountId, idempotencyKey: 'onch-so', submit: true, items: [{ channelListingId: onch.listingId }] });
+    // 온채널은 품절이 관리자 승인 요청이라 확장이 확인 증거를 낼 수 없다.
+    await finish(begun.operation.id, begun.token, { outcome: 'reconciling', result: { ...submittedResult, mallOutcome: 'awaiting_approval' } }).expect(200);
+    const confirmed = await request(httpUrl).post(`/api/channels/registration-operations/${begun.operation.id}/confirm`)
+      .send({ externalListingId: 'provider-listing-1' }).expect(201);
+    expect(confirmed.body.operation).toMatchObject({ status: 'succeeded', lockKeys: [], result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed' } });
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: onch.listingId! } })).toMatchObject({ status: '품절' });
+  });
+
   it('confirms an option-level sold-out only with a reread of every frozen option from the same seller', async () => {
     const wing = await createFixture(prisma, targets, { listing: true, channel: 'coupang' });
     const begun = await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-so', submit: true, items: [{ channelListingId: wing.listingId }] });

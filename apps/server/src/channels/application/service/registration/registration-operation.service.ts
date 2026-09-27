@@ -52,9 +52,14 @@ import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } fro
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { observedOptionConfirms } from '../../../domain/registration/availability-confirmation';
 import { registrationSubmitAllowed } from '../../../domain/registration/registration-submit-gate';
+import { MALL_ADMIN_LISTING_STATUS } from '../../../domain/collection/mall-admin-listings';
 
 /** 운영자가 몰에 없다고 닫은 등록 실행의 오류 코드(KID-218). */
 export const REGISTRATION_NOT_FOUND_ON_MALL_CODE = 'CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL' as const;
+
+/** 운영자 확인으로 적는 리스팅 상태 — 몰 관리자 목록이 접는 글자와 같다. */
+const OPERATOR_SOLD_OUT_STATUS = MALL_ADMIN_LISTING_STATUS.soldOut;
+const OPERATOR_RESUMED_STATUS = MALL_ADMIN_LISTING_STATUS.selling;
 
 const DOCUMENT_KINDS = new Set(['register', 'update', 'composition_change']);
 const EMPTY_FILL: RegistrationFill = { steps: [], warnings: [], manualSteps: [], dialogs: [] };
@@ -319,7 +324,8 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       throw evidenceRejected('SUBMITTED_NOT_CONFIRMED');
     }
     if (availability) {
-      await this.confirmAvailability(context, plan, evidences);
+      if (operator) await this.confirmAvailabilityByOperator(context, plan);
+      else await this.confirmAvailability(context, plan, evidences);
       return registrationResult({
         ...base,
         providerOutcome: 'succeeded',
@@ -365,6 +371,25 @@ export class RegistrationOperationService implements RegistrationOperationPort {
    * 옵션 단위 몰은 얼린 옵션마다 다시 읽은 값이 지시와 맞아야 하고, 리스팅 단위 몰은 다시 읽은 리스팅 상태가 있어야 하며 그 상태를
    * 리스팅에 적는다(몰이 보고한 사실).
    */
+  /**
+   * 운영자가 몰에서 본 것으로 `reconciling` 품절 · 재개를 닫는다(온채널 승인 대기처럼 확장이 재읽기 증거를 낼 수 없던 실행).
+   * 운영자 확인이 곧 증거다 — 리스팅 단위 몰은 지시대로 리스팅 상태를 적는다(옵션 단위 몰은 옵션 상태를 적는 칸이 없어 실행 성공이 사실).
+   */
+  private async confirmAvailabilityByOperator(context: RegistrationFinalizeContext, plan: RegistrationPlan): Promise<void> {
+    const action = plan.executionKind as 'sold_out' | 'resume';
+    if (getListingAvailabilityCapability(plan.mallKey, action)?.axis === 'option') return;
+    const payload = parseRegistrationPayload(action, plan.payload);
+    await this.repository.recordListingStatuses(context.tx, {
+      organizationId: context.organizationId,
+      channelAccountId: plan.channelAccountId,
+      listings: payload.listings.map((listing) => ({
+        channelListingId: listing.channelListingId,
+        externalListingId: listing.externalListingId,
+        status: action === 'sold_out' ? OPERATOR_SOLD_OUT_STATUS : OPERATOR_RESUMED_STATUS,
+      })),
+    });
+  }
+
   private async confirmAvailability(context: RegistrationFinalizeContext, plan: RegistrationPlan, evidences: RegistrationEvidence[]): Promise<void> {
     const action = plan.executionKind as 'sold_out' | 'resume';
     const payload = parseRegistrationPayload(action, plan.payload);
