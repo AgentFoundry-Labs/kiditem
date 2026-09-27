@@ -334,7 +334,8 @@ function isLoginRequired(error: unknown): error is RuntimeError {
 const REASON_TEXT: Record<LoginFailureReason, string> = {
   no_credentials: '',
   credentials_rejected: ' 저장된 아이디·비밀번호로 로그인하지 못했습니다',
-  verification_required: ' 본인 인증이 필요합니다. 열린 탭에서 인증한 뒤 다시 수집해 주세요.',
+  // 주문 수집·목록 가져오기가 함께 쓰는 문장이라 동작 말은 중립으로 둔다(KID-381).
+  verification_required: ' 본인 인증이 필요합니다. 열린 탭에서 인증한 뒤 다시 시도해 주세요.',
   login_unconfirmed: ' 저장된 계정으로 로그인했는지 확인하지 못했습니다. 열린 탭을 확인해 주세요.',
 };
 

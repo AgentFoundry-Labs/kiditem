@@ -52,10 +52,12 @@ export function readMallListings(
   signIn?: SiteSignIn,
 ): Promise<{ collection: Record<string, unknown>; rows: unknown[]; proof: Record<string, unknown> }> {
   const login = `${spec.displayName} 로그인이 필요합니다. 열린 ${spec.displayName} 화면에서 로그인한 뒤 다시 가져와 주세요.`;
+  // 몰 guard는 주문 읽기와 같이 쓴다 — 로그인 화면에서 멈출 때의 문장만 목록 가져오기 말로 바꾼다(KID-381).
+  const guard: PageGuard = { ...spec.guard, loginMessage: login };
   return withFreshTab(tabs, spec.startUrl, async (page) => {
     const answer = await callPage<ListingsAnswer>(page, spec.call, { plan }, {
       timeoutMs: READ_TIMEOUT_MS,
-      guard: spec.guard,
+      guard,
       ...(spec.world === 'main' ? { main: [spec.file] } : { isolated: [spec.file] }),
       displayName: spec.displayName,
     });

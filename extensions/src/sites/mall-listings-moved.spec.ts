@@ -186,9 +186,13 @@ describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
     expect(fake.log.at(-1)).toBe('keep 42');
   });
 
-  it.each(MALLS)('$mallKey: 로그아웃이면 SITE_LOGIN_REQUIRED로 멈추고 로그인할 탭을 남긴다', async (row) => {
+  it.each(MALLS)('$mallKey: 로그아웃이면 SITE_LOGIN_REQUIRED로 멈추고 로그인할 탭을 남긴다 — 문장은 목록 가져오기 말(KID-381)', async (row) => {
     const fake = fakeTabPages({ landAt: () => row.loginAt, answer: () => ({ ok: false, error: 'content_script_missing' }) });
-    await expect(routerFor(fake.tabs, null).reader(row.mallKey)!.readListings(planOf(row.mallKey))).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    const error = await routerFor(fake.tabs, null).reader(row.mallKey)!.readListings(planOf(row.mallKey)).then(() => null, (caught: unknown) => caught as Error);
+    expect(error).toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    // 주문 수집 문장("다시 수집해 주세요")이 아니라 목록 화면의 말이다(롯데ON·티쳐몰 QA).
+    expect(error!.message).toContain('다시 가져와 주세요');
+    expect(error!.message).not.toContain('수집');
     expect(fake.log).not.toContain('close 7');
   });
 
