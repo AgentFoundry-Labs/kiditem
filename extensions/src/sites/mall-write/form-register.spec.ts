@@ -69,6 +69,13 @@ function writerFor(mallKey: string, answer: (message: Answer, injected: boolean,
 const pageCalls = (fake: ReturnType<typeof fakeTabPages>) => fake.log.filter((line) => /^(open|navigate|ask|inject|leave|close|guard|unguard)/.test(line));
 
 describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
+  it('몰 폼 명세는 새 상품 등록 화면만 안다 — 구성 전환(기존 리스팅 수정)은 탭을 열지 않고 RUNTIME_PLAN_INVALID', async () => {
+    const { fake, writer } = writerFor('domeggook', () => ({ ok: false, error: 'unexpected' }));
+    await expect(writer.fill!({ form: domeggookForm(), submit: false, expectedProviderAccountId: null, executionKind: 'composition_change', externalListingId: '68010748' }))
+      .rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
+    expect(fake.log.filter((line) => line.startsWith('open'))).toEqual([]);
+  });
+
   it('사진을 data URL로, 상세를 첨부 저장소에 올린 뒤 쓰기 탭에서 채우고 상세는 작성하기 에디터로 넣는다 — 누르지 않고 탭은 운영자에게 넘긴다', async () => {
     const asked: Answer[] = [];
     const { fake, storage, writer } = writerFor('domeggook', (message, injected) => {
