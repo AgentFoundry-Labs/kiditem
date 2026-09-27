@@ -352,6 +352,9 @@ export class OperationService implements OperationPort {
         return { ok: { operation: toOperationView(closed) } };
       }
       if (request.outcome === 'reconciling') {
+        if (!this.owners.find(operation.kind)?.reconciles) {
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'reconciling_not_supported' } });
+        }
         // KID-364: 몰에 제출했지만 외부 결과를 못 읽었다. 잠금·청크를 쥔 채 owner 확인을 기다린다(finalize 없음).
         const held = await tx.hold(input.organizationId, operation.id, { result: request.result ?? {}, heldAt: now });
         return { ok: { operation: toOperationView(held) } };

@@ -24,6 +24,8 @@ import {
 @Injectable()
 export class RegistrationOperationOwner implements OperationOwnerPort {
   readonly kind = REGISTRATION_KIND;
+  /** 몰에 제출했지만 결과를 못 읽은 실행은 `reconciling` 으로 멈춰 운영자 확인 · 닫기를 기다린다. */
+  readonly reconciles = true as const;
   constructor(@Inject(REGISTRATION_OPERATION_PORT) private readonly registrations: RegistrationOperationPort) {}
 
   plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {

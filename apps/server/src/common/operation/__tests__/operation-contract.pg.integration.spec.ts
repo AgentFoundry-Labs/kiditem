@@ -82,6 +82,14 @@ class TestOtherOwner extends EchoOwner {
   readonly kind = 'test.other';
 }
 
+/** 몰 제출처럼 외부 결과를 나중에 확인하는 kind(`reconciles`, KID-364). */
+@Injectable()
+@OperationOwner()
+class TestHeldOwner extends EchoOwner {
+  readonly kind = 'test.held';
+  readonly reconciles = true as const;
+}
+
 /** 트랜잭션 `size`개가 도착하거나 `timeoutMs`가 지나면 한꺼번에 푸는 장벽. 처음 한 번만 붙잡는다. */
 function barrier(size: number, timeoutMs = 500) {
   let arrived = 0;
@@ -136,6 +144,7 @@ describe('operation contract HTTP + disposable PG', () => {
         { provide: OPERATION_REPOSITORY, useValue: new OperationRepositoryAdapter(prisma as never) },
         TestEchoOwner,
         TestOtherOwner,
+        TestHeldOwner,
       ],
     }).compile();
     app = module.createNestApplication({ logger: false });
@@ -451,7 +460,7 @@ describe('operation contract HTTP + disposable PG', () => {
   describe('reconciling (KID-364): submitted to the mall but the external result was not read', () => {
     const port = () => app.get<OperationService>(OPERATION_PORT);
     const holdOk = async (lockKeys: string[] = ['resource:test:1']) => {
-      const begun = await beginOk({ kind: 'test.echo', scope: { lockKeys } });
+      const begun = await beginOk({ kind: 'test.held', scope: { lockKeys } });
       await put(begun.operation.id, begun.token, 'evidence', 1, [{ seen: 'submitted' }]).expect(200);
       const held = await finish(begun.operation.id, begun.token, { outcome: 'reconciling', result: { mallOutcome: 'submitted' } }).expect(200);
       return { ...begun, held: held.body.operation };
@@ -470,12 +479,12 @@ describe('operation contract HTTP + disposable PG', () => {
       expect(again.body.details).toEqual({ operationId: operation.id, reason: 'terminal' });
 
       await prisma.operation.update({ where: { id: operation.id }, data: { expiresAt: new Date(Date.now() - 60 * 60_000) } });
-      const [view] = await list('kinds=test.echo');
+      const [view] = await list('kinds=test.held');
       expect(view).toMatchObject({ id: operation.id, status: 'reconciling', lockKeys: ['resource:test:1'] });
       const refused = await begin({ kind: 'test.other', scope: { lockKeys: ['resource:test:1'] } }).expect(409);
       expect(refused.body).toMatchObject({ code: 'OPERATION_IN_PROGRESS', details: { operationId: operation.id } });
       expect(await port().findLive(ORG, 'resource:test:1')).toMatchObject({ id: operation.id, status: 'reconciling' });
-      await finish((await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:test:2'] } })).operation.id, token, { outcome: 'reconciling' }).expect(400);
+      await finish((await beginOk({ kind: 'test.held', scope: { lockKeys: ['resource:test:2'] } })).operation.id, token, { outcome: 'reconciling' }).expect(400);
     });
 
     it('16. resolve(succeeded) runs finalize over the kept chunks with the merged result, then clears locks and chunks', async () => {
@@ -513,7 +522,7 @@ describe('operation contract HTTP + disposable PG', () => {
     });
 
     it('19. resolve refuses an operation that is not reconciling (terminal) and an unknown or foreign id (not found)', async () => {
-      const running = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:test:9'] } });
+      const running = await beginOk({ kind: 'test.held', scope: { lockKeys: ['resource:test:9'] } });
       await expect(port().resolve({ organizationId: ORG, operationId: running.operation.id, outcome: 'succeeded' }))
         .rejects.toMatchObject({ code: 'OPERATION_FENCE_LOST', details: { operationId: running.operation.id, reason: 'terminal' } });
       const { operation } = await holdOk();
@@ -526,9 +535,17 @@ describe('operation contract HTTP + disposable PG', () => {
         .rejects.toMatchObject({ code: 'OPERATION_FENCE_LOST', details: { reason: 'terminal' } });
     });
 
+    it('21. a kind that does not reconcile refuses finish(reconciling) as a validation error and keeps running', async () => {
+      const { operation, token } = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:test:7'] } });
+      const refused = await finish(operation.id, token, { outcome: 'reconciling', result: {} }).expect(400);
+      expect(refused.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'reconciling_not_supported' } });
+      const [view] = await list('kinds=test.echo');
+      expect(view).toMatchObject({ id: operation.id, status: 'executing' });
+    });
+
     it('20. the latest-outcome reader does not count a reconciling operation as a failure', async () => {
       await holdOk();
-      const outcomes = await readLatestOperationOutcomes(prisma as never, { organizationId: ORG, kinds: ['test.echo'] });
+      const outcomes = await readLatestOperationOutcomes(prisma as never, { organizationId: ORG, kinds: ['test.held'] });
       expect(outcomes).toEqual([]);
     });
   });
