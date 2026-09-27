@@ -61,4 +61,12 @@ describe('gs-shop SMS 벽 판정(KID-380 D2)', () => {
     await expect(load(SMS_WALL.replace('<button type="button">인증번호 받기</button>', '<button type="button" disabled>인증번호 받기</button>')
       .replace('name="authNo" placeholder="인증번호 6자리"', 'name="q" style="display:none"')).smsWall()).resolves.toEqual({ sms: false });
   });
+
+  it('협력사 로그인 화면 안에 인증번호 칸이 함께 뜨면(아이디·비밀번호 칸이 있어도) SMS 벽이다(리뷰 SHOULD 2)', async () => {
+    const page = load(`<main><form><input type="text" name="userId"><input type="password" name="password">
+      <input type="text" name="authNo" placeholder="인증번호 6자리"><button type="button">인증번호 받기</button>
+      <button type="submit">로그인</button></form></main>`);
+    await expect(page.smsWall()).resolves.toEqual({ sms: true });
+    await expect(page.orders()).resolves.toMatchObject({ pendingAuth: true, errorCode: 'operator_action_required' });
+  });
 });

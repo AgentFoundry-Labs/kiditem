@@ -8,7 +8,8 @@
   "use strict";
   const calls = window.__kiditemPageCalls || (window.__kiditemPageCalls = {});
   // SMS 벽은 벽에만 있는 요소로 본다(KID-380 D2): 켜진 [인증번호 받기/요청/발송] 버튼이나 보이는 인증번호 칸. 로그인
-  // 화면(`/sign-in`)의 고정 안내문("SMS 인증 불가로 정보 변경 필요 시")은 글자만 같다 — 아이디·비밀번호 폼이 보이면 벽이 아니다.
+  // 화면(`/sign-in`)의 고정 안내문("SMS 인증 불가로 정보 변경 필요 시")은 글자만 같아 보지 않는다. SMS 단계는 협력사 로그인
+  // 화면 안에 함께 뜨기도 하므로 아이디·비밀번호 칸이 있어도 이 요소가 보이면 벽이다(리뷰 SHOULD 2).
   const SMS_BUTTON = /^인증\s*번호\s*(?:받기|요청|발송|전송|재전송)$/;
   const SMS_INPUT = /인증\s*번호|auth_?no|cert_?no|otp/i;
 
@@ -18,15 +19,7 @@
     return !style || (style.display !== "none" && style.visibility !== "hidden");
   }
 
-  function hasLoginForm() {
-    const password = Array.from(document.querySelectorAll('input[type="password"]')).find(shown);
-    if (!password) return false;
-    return Array.from(document.querySelectorAll("input")).some((input) =>
-      input !== password && ["", "text", "email", "tel"].includes(String(input.type || "text").toLowerCase()) && shown(input));
-  }
-
   function smsWallShown() {
-    if (hasLoginForm()) return false;
     const button = Array.from(document.querySelectorAll("button, a, input[type='button'], [role='button']")).find((element) =>
       shown(element) && SMS_BUTTON.test(String(element.textContent || element.value || "").replace(/\s+/g, " ").trim()));
     if (button) return true;
