@@ -38,6 +38,7 @@ import '../sites/always';
 import '../sites/always/availability';
 import '../sites/always/registration';
 import '../sites/art09';
+import '../sites/art09/availability';
 import '../sites/art09/registration';
 import '../sites/auction/listings';
 import '../sites/boribori';

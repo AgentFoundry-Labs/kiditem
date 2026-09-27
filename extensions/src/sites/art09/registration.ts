@@ -9,7 +9,7 @@ import { ART09_LOGIN, ART09_PAGE_GUARD } from './index';
  * 쓰면 상품등록 화면도 로그인으로 보고 채우지 못하며, 로그인 문턱이 등록 화면의 비밀번호 칸에 자격을 넣을 수 있다 — 등록은
  * 로그인 화면을 주소로만 가린다.
  */
-const isArt09LoginPage = (url: URL) => hostWithin(url, ['eclogin.cafe24.com'])
+export const isArt09LoginPage = (url: URL) => hostWithin(url, ['eclogin.cafe24.com'])
   || (hostWithin(url, ['cafe24.com']) && /login/i.test(url.pathname));
 
 /** 아트공구 상품등록 폼 명세(옛 `mall-form-register.js` SPECS 줄 그대로, KID-256). */
