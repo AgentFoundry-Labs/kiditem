@@ -5039,7 +5039,7 @@ var KidItemRuntime = (() => {
         const row = productRow(record4, index, campaignGroups);
         if (!row) continue;
         productRows2.push(row);
-        reportGroups.set(groupKey(row.campaignId, row.adGroupName), row.adGroupId);
+        if (row.adGroupId) reportGroups.set(groupKey(row.campaignId, row.adGroupName), row.adGroupId);
       }
       yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows2, "\uC0C1\uD488 \uBCF4\uACE0\uC11C \uD589", { phase: "product_rows" });
       if (signal.aborted) return;
@@ -5123,9 +5123,6 @@ var KidItemRuntime = (() => {
     const placementGroup = text(record4.placement_group);
     if (!date || !campaignId || !advertisedVendorItemId || !vendorItemId || campaignName === null || adGroupName === null || placementGroup === null) {
       throw rowInvalid("product", index);
-    }
-    if (!adGroupId) {
-      throw failed("ad_group_unresolved", "\uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uD589\uC758 \uAD11\uACE0\uADF8\uB8F9\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { campaignId, adGroupName, row: index + 1 });
     }
     return { date, campaignId, campaignName, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, placementGroup, ...metrics(record4, "product", index) };
   }

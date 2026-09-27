@@ -260,6 +260,20 @@ describe('collectors/advertising.ad_report — 광고센터 보고서 2개 + 캠
     expect(payloadOf(chunks, 'ad_period')[0]).toMatchObject({ reports: [{ granularity: 'vendorItem', isLargeReport: true }, { granularity: 'keyword', isLargeReport: false }] });
   });
 
+  it('큰 보고서의 삭제 캠페인 행은 그룹 ID를 풀지 못하면 adGroupId null로 보내고 실행은 성공한다', async () => {
+    const large = REPORT_LIST_SEQUENCE.map((step) => ({ reportList: { reports: step.reportList.reports.map((report) => ({ ...report, isLargeReport: report.id === '15116068' })) } }));
+    const { ad_group_id: _group, ...template } = PRODUCT_REPORT_ROWS[0]!;
+    // 캠페인 103은 캠페인 목록 API에 없다(삭제 캠페인).
+    const deleted = { ...template, campaign_id: 103, campaign_name: '지난 캠페인', ad_group_name: '옛 그룹', advertised_vendor_item_id: 9201, vendor_item_id: 9201 };
+    const { site } = fakeAdCenter({ reportList: large, productRows: [template, deleted] });
+    const { chunks } = await collectAll(PLAN, site);
+    const products = payloadOf(chunks, 'ad_product_rows');
+    for (const row of products) AdReportProductRowSchema.parse(row);
+    expect(products.map((row) => [row.campaignId, row.adGroupId])).toEqual([['101', '201'], ['103', null]]);
+    // 풀지 못한 그룹은 키워드 행 채우기에도 쓰지 않는다 — 키워드의 캠페인 103 행은 그대로 null.
+    expect(payloadOf(chunks, 'ad_keyword_rows').find((row) => row.campaignId === '103')).toMatchObject({ adGroupId: null });
+  });
+
   it('보고서가 5분 안에 끝나지 않으면 SITE_REQUEST_FAILED(report_timeout)', async () => {
     const pending = [{ reportList: { reports: [{ id: '15116068', status: 'inprogress', isLargeReport: false }, { id: '15116069', status: 'inprogress', isLargeReport: false }] } }];
     const { site, calls } = fakeAdCenter({ reportList: pending });

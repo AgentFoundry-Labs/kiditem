@@ -140,7 +140,7 @@ export const adReportCollector: Collector<AdReportPlan, Record<string, unknown>,
       const row = productRow(record, index, campaignGroups);
       if (!row) continue;
       productRows.push(row);
-      reportGroups.set(groupKey(row.campaignId, row.adGroupName), row.adGroupId);
+      if (row.adGroupId) reportGroups.set(groupKey(row.campaignId, row.adGroupName), row.adGroupId);
     }
     yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows, '상품 보고서 행', { phase: 'product_rows' });
 
@@ -240,9 +240,7 @@ function productRow(record: Record<string, unknown>, index: number, campaignGrou
   if (!date || !campaignId || !advertisedVendorItemId || !vendorItemId || campaignName === null || adGroupName === null || placementGroup === null) {
     throw rowInvalid('product', index);
   }
-  if (!adGroupId) {
-    throw failed('ad_group_unresolved', '광고센터 보고서 행의 광고그룹을 찾지 못했습니다.', { campaignId, adGroupName, row: index + 1 });
-  }
+  // 큰 보고서(TSV)의 삭제 캠페인은 캠페인 목록 API에 없어 그룹 ID를 풀지 못한다 — null로 보낸다(owner는 키에 '').
   return { date, campaignId, campaignName, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, placementGroup, ...metrics(record, 'product', index) };
 }
 
