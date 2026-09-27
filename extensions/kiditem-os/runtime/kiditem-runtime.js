@@ -5632,6 +5632,7 @@ var KidItemRuntime = (() => {
   var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var CHANNELS_OPERATION_CAPABILITY = "channelsOperationKindsV1";
+  var MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
   var REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, THUMBNAIL_UPDATE_EXECUTION_KIND];
   var RegistrationExecutionKindSchema = external_exports.enum(REGISTRATION_EXECUTION_KINDS);
   var RegistrationScopeSchema = external_exports.object({
@@ -5652,10 +5653,36 @@ var KidItemRuntime = (() => {
       salesProductOptionId: external_exports.string().uuid()
     }).strict()).max(1e3).optional(),
     /** thumbnail_update만: 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
-    assetId: external_exports.string().uuid().optional()
+    assetId: external_exports.string().uuid().optional(),
+    /**
+     * 몰별 폼 지시(웹 `*-registration-form.ts` 빌더 18개가 draft·values로 만든 것 — url·카테고리 경로·공급가·수량·상세 호스팅·
+     * manualSteps). 서버 plan이 `payload.form`에 얼려 `payloadHash`에 넣는다(2026-09-27 리더 결정 A: 빌더는 이 파동에서 웹에
+     * 남기고, 서버 채널 어댑터 freeze로 옮기는 일은 KID-364 파생). 서버는 모양만 검사한다.
+     */
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+    /** 빠른 등록(등록 대상 없이 수집 상품 → 폼만 채우기)의 출처. 그때 `registrationTargetId`는 없고 `submit`은 false여야 한다. */
+    sourceProductId: external_exports.string().uuid().optional(),
+    /**
+     * sold_out·resume만: 몰 계정 하나의 리스팅 묶음(옛 일괄 품절과 같이 실행 하나 = 계정 묶음 하나, 2026-09-27 리더 결정).
+     * 항목은 리스팅 id나 옵션 id로 가리키고(후보 화면은 옵션 id만 안다) 서버 plan이 외부 id·옵션으로 푼다. 잠금 = `account:<id>` + 리스팅마다 하나.
+     */
+    channelAccountId: external_exports.string().uuid().optional(),
+    items: external_exports.array(external_exports.object({
+      channelListingId: external_exports.string().uuid().optional(),
+      channelListingOptionIds: external_exports.array(external_exports.string().uuid()).min(1).max(200).optional()
+    }).strict().refine((item) => item.channelListingId !== void 0 || item.channelListingOptionIds !== void 0, {
+      message: "\uB9AC\uC2A4\uD305 id\uB098 \uC635\uC158 id\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4"
+    })).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS).optional()
   }).strict().refine(
-    (scope) => scope.executionKind === "thumbnail_update" ? scope.salesProductId !== void 0 : scope.registrationTargetId !== void 0,
-    { message: "\uB4F1\uB85D \uB300\uC0C1(\uB610\uB294 \uC378\uB124\uC77C\uC740 \uD310\uB9E4 \uC0C1\uD488)\uC774 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["registrationTargetId"] }
+    (scope) => {
+      if (scope.executionKind === "thumbnail_update") return scope.salesProductId !== void 0;
+      if (scope.executionKind === "sold_out" || scope.executionKind === "resume") {
+        return scope.channelAccountId !== void 0 && scope.items !== void 0;
+      }
+      if (scope.registrationTargetId !== void 0) return true;
+      return scope.executionKind === "register" && scope.submit === false && scope.form !== void 0;
+    },
+    { message: "\uB4F1\uB85D \uB300\uC0C1\uC774 \uD544\uC694\uD569\uB2C8\uB2E4(\uC378\uB124\uC77C\uC740 \uD310\uB9E4 \uC0C1\uD488, \uD488\uC808\xB7\uC7AC\uAC1C\uB294 \uACC4\uC815 + \uB9AC\uC2A4\uD305 \uBB36\uC74C, \uBE60\uB978 \uB4F1\uB85D\uC740 \uD3FC\uB9CC \uCC44\uC6B0\uAE30 + submit false)", path: ["registrationTargetId"] }
   );
   var RegistrationPlanSchema = external_exports.object({
     executionKind: RegistrationExecutionKindSchema,
@@ -5717,7 +5744,6 @@ var KidItemRuntime = (() => {
     /** 운영자가 몰에서 확인한 사실: 등록되지 않았다(failed). */
     reason: external_exports.string().trim().min(1).max(500)
   }).strict();
-  var MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
   var MallAvailabilityReadScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64),
