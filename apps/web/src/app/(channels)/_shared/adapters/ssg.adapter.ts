@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   SSG_BRAND_NAME,
   SSG_DEFAULT_DISPLAY_CATEGORY,
@@ -10,13 +10,13 @@ import {
   ssgSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/ssg-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -158,15 +158,11 @@ export const ssgAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const display = categoryFrom(values.ssgDisplayCategory, SSG_DEFAULT_DISPLAY_CATEGORY);
     const standard = categoryFrom(values.ssgStandardCategory, SSG_DEFAULT_STANDARD_CATEGORY);
     if (!display || !standard) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '신세계 카테고리 형식이 틀렸습니다.' };
+      throw new Error('신세계 카테고리 형식이 틀렸습니다.');
     }
     const { draft } = await prepareRegistration(item, 'ssg');
     const certNumber = values.certNumber?.trim();
@@ -176,7 +172,6 @@ export const ssgAdapter: MallPublishAdapter = {
       standardCategory: standard,
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('ssg', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

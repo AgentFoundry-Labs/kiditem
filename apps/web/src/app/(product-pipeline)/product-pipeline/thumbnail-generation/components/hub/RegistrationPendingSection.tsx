@@ -9,7 +9,6 @@ import { AlertCircle, Check, ChevronLeft, ChevronRight, Copy, Loader2, Store, X 
 import { thumbnailJobTitle, useThumbnailJobs, type ThumbnailJobListItem } from '../../../_shared/hooks/useThumbnailJobs';
 import {
   useBatchWingRegister,
-  useClearRegistrationError,
   useConfirmRegistrationApplied,
   useMarkRegistrationNotApplied,
   useResendWingRegistration,
@@ -81,7 +80,6 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   const router = useRouter();
   const { data = [] } = useThumbnailJobs();
   const batch = useBatchWingRegister();
-  const clearError = useClearRegistrationError();
   const resend = useResendWingRegistration();
   const markNotApplied = useMarkRegistrationNotApplied();
   const confirmApplied = useConfirmRegistrationApplied();
@@ -113,13 +111,6 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
   const selectAll = () => setSelectedIds(new Set(items.map((g) => g.id)));
   const clearAll = () => setSelectedIds(new Set());
 
-  const handleClearError = (salesProductId: string) => {
-    clearError.mutate(salesProductId, {
-      onSuccess: () => toast.success('에러 초기화 완료 — 다시 등록을 시도할 수 있습니다'),
-      onError: (err) => toast.error(friendlyError(err, '에러 초기화 실패')),
-    });
-  };
-
   const handleResend = (executionId: string) => {
     resend.mutate(executionId, {
       onSuccess: () => toast.success(representativeImageUploadedMessage({ resent: true })),
@@ -139,15 +130,6 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
     });
   };
   const checkingBusy = resend.isPending || markNotApplied.isPending || confirmApplied.isPending;
-
-  const failedSalesProductIds = [...new Set(items
-    .filter((g) => g.registrationStatus === 'failed')
-    .flatMap((g) => (g.workspace?.salesProductId ? [g.workspace.salesProductId] : [])))];
-  const handleClearAllErrors = () => {
-    if (failedSalesProductIds.length === 0) return;
-    failedSalesProductIds.forEach((salesProductId) => clearError.mutate(salesProductId));
-    toast.success(`실패 ${failedSalesProductIds.length}개 초기화 완료`);
-  };
 
   const startBatch = async () => {
     const targets = Array.from(selectedIds).flatMap((id) => {
@@ -204,17 +186,6 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
             )}
           </div>
           <div className="flex gap-1.5 items-center">
-            {failedCount > 0 && (
-              <button
-                type="button"
-                onClick={handleClearAllErrors}
-                disabled={clearError.isPending}
-                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-700 border border-rose-100 hover:bg-rose-100 disabled:opacity-50"
-                title="실패 상태를 모두 초기화하고 재시도 가능하게 만듭니다"
-              >
-                실패 {failedCount}개 초기화
-              </button>
-            )}
             <button
               type="button"
               onClick={allSelected ? clearAll : selectAll}
@@ -279,10 +250,6 @@ export function RegistrationPendingSection({ returnTo = null }: { returnTo?: str
                       }),
                     );
                   }}
-                  onClearError={() => {
-                    const salesProductId = group.representative.workspace?.salesProductId;
-                    if (salesProductId) handleClearError(salesProductId);
-                  }}
                   onResend={handleResend}
                   onMarkNotApplied={handleMarkNotApplied}
                   onConfirmApplied={handleConfirmApplied}
@@ -339,7 +306,6 @@ function RegistrationPendingCard({
   selectedCount,
   onToggle,
   onEdit,
-  onClearError,
   onResend,
   onMarkNotApplied,
   onConfirmApplied,
@@ -349,7 +315,6 @@ function RegistrationPendingCard({
   selectedCount: number;
   onToggle: () => void;
   onEdit: () => void;
-  onClearError: () => void;
   onResend: (executionId: string) => void;
   onMarkNotApplied: (executionId: string) => void;
   onConfirmApplied: (executionId: string) => void;
@@ -421,24 +386,13 @@ function RegistrationPendingCard({
         ))}
         {anyFailed && (
           <div className="flex items-start gap-1 mt-0.5">
+            {/* 실패한 실행은 송신 내역(/mall-tasks)에 남는다 — 여기서 따로 지우지 않고, 다시 올리면 새 실행이다. */}
             <p className="text-[10px] font-bold text-rose-600 truncate flex-1" title={firstError ?? undefined}>
               등록 실패
               {multi && group.items.filter((i) => i.registrationStatus === 'failed').length > 1
                 ? ` ${group.items.filter((i) => i.registrationStatus === 'failed').length}건`
                 : ''}
             </p>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onClearError();
-              }}
-              className="flex-shrink-0 p-0.5 rounded text-rose-500 hover:bg-rose-100"
-              title="에러 지우고 재시도 가능 상태로"
-              aria-label="에러 지우기"
-            >
-              <X size={10} strokeWidth={3} />
-            </button>
           </div>
         )}
       </div>

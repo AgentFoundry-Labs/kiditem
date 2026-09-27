@@ -20,7 +20,7 @@ function adapter(overrides: Partial<MallPublishAdapter> = {}): MallPublishAdapte
     fields: [],
     preview: () => [],
     validate: () => [],
-    send: vi.fn(async () => ({ ok: true, confirmed: false, manualSteps: [], warnings: [] })),
+    buildForm: vi.fn(async () => ({ url: 'https://mall.example/new', manualSteps: [] })),
     ...overrides,
   };
 }

@@ -185,15 +185,3 @@ export function useMarkRegistrationNotApplied() {
     onSettled: () => invalidateExecutions(queryClient),
   });
 }
-
-/** 운영자가 치운 판매상품의 실패는 최근 실행 목록에서 빠진다(행은 Channels 에 남는다). */
-export function useClearRegistrationError() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (salesProductId: string) =>
-      apiClient.delete<{ dismissed: boolean }>(
-        `/api/channels/thumbnail-executions/failed/${encodeURIComponent(salesProductId)}`,
-      ),
-    onSettled: () => invalidateExecutions(queryClient),
-  });
-}

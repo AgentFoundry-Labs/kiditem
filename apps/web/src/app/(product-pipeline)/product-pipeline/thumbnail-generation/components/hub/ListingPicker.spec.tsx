@@ -9,12 +9,45 @@ import { ListingPicker } from './ListingPicker';
 // 서버 API 와 확장은 웹의 외부 경계라 그 둘만 바꾼다.
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 
 const SP1 = '00000000-0000-4000-8000-0000000000c1';
 const A1 = '00000000-0000-4000-8000-0000000000b1';
 const L1 = '00000000-0000-4000-8000-0000000000a1';
 const L2 = '00000000-0000-4000-8000-0000000000a2';
 const EXECUTION = '00000000-0000-4000-8000-0000000000e1';
+const CHOICES = {
+  items: [
+    { channelListingId: L1, channelName: '곰돌이 우산 A', channelAccountName: 'Wing 본점', externalId: '1001' },
+    { channelListingId: L2, channelName: null, channelAccountName: 'Wing 본점', externalId: '1002' },
+  ],
+};
+
+/** 대표이미지 반영 = 등록 실행 thumbnail_update(KID-364). 확장 operation.start와 실행 읽기만 흉내 낸다. */
+function extensionOperation(status: 'reconciling' | 'failed') {
+  const starts: Array<Record<string, unknown>> = [];
+  vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
+  vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+    const body = message as Record<string, unknown>;
+    if (body.action === 'ping') {
+      return { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true, 'mallWriteSite.coupang': true } } as never;
+    }
+    starts.push(body);
+    return { success: true, operationId: EXECUTION, reused: false } as never;
+  });
+  vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+    if (href.startsWith('/api/operations/')) {
+      return { operation: {
+        id: EXECUTION, kind: 'channels.registration', status, lockKeys: [], plan: { executionKind: 'thumbnail_update' },
+        progress: null, result: null, window: null, errorCode: status === 'failed' ? 'SITE_LOGIN_REQUIRED' : null, errorMessage: null,
+        startedAt: '2026-09-27T09:00:00.000Z', finishedAt: null, expiresAt: '2026-09-27T09:30:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null,
+      } };
+    }
+    if (href.includes('/password')) return { loginId: null, password: null };
+    return CHOICES;
+  });
+  return starts;
+}
 
 function renderPicker(onDone = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
@@ -25,12 +58,7 @@ function renderPicker(onDone = vi.fn()) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(apiClient.get).mockResolvedValue({
-    items: [
-      { channelListingId: L1, channelName: '곰돌이 우산 A', channelAccountName: 'Wing 본점', externalId: '1001' },
-      { channelListingId: L2, channelName: null, channelAccountName: 'Wing 본점', externalId: '1002' },
-    ],
-  });
+  vi.mocked(apiClient.get).mockResolvedValue(CHOICES);
 });
 afterEach(cleanup);
 
@@ -43,11 +71,7 @@ it('names no mall in its own copy — the mall comes from each listing row', asy
 
 describe('ListingPicker', () => {
   it('shows the product listings on channels that take representative images and uploads again with the chosen one', async () => {
-    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
-    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
-    vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
-      ? { executionId: EXECUTION, salesProductId: SP1, assetId: A1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { salesProductId: SP1, assetId: A1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null }));
+    const starts = extensionOperation('reconciling');
     const onDone = renderPicker();
 
     const select = await screen.findByRole('combobox', { name: '올릴 리스팅' });
@@ -56,23 +80,23 @@ describe('ListingPicker', () => {
     fireEvent.change(select, { target: { value: L2 } });
     fireEvent.click(screen.getByRole('button', { name: '이 리스팅으로 올리기' }));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions', { salesProductId: SP1, assetId: A1, channelListingId: L2 }));
+    await waitFor(() => expect(starts).toHaveLength(1));
+    expect(starts[0]).toMatchObject({
+      action: 'operation.start',
+      kind: 'channels.registration',
+      scope: { executionKind: 'thumbnail_update', salesProductId: SP1, assetId: A1, channelListingId: L2 },
+    });
     await waitFor(() => expect(onDone).toHaveBeenCalled());
     expect(apiClient.get).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/listing-choices?salesProductId=${SP1}`);
   });
 
   it('keeps the picker open when the upload with the chosen listing did not reach the mall', async () => {
-    vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
-    // 확장은 올렸다고 답했지만 서버는 그 보고를 받아들이지 않은 경우(도달 안 함).
-    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
-    vi.mocked(apiClient.post).mockImplementation(async (href: string) => (href === '/api/channels/thumbnail-executions'
-      ? { executionId: EXECUTION, salesProductId: SP1, assetId: A1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } }
-      : { salesProductId: SP1, assetId: A1, executionId: EXECUTION, success: false, status: 'failed', screenshotPath: null, error: '로그인 필요' }));
+    const starts = extensionOperation('failed');
     const onDone = renderPicker();
 
     fireEvent.click(await screen.findByRole('button', { name: '이 리스팅으로 올리기' }));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION}/report`, expect.anything()));
+    await waitFor(() => expect(starts).toHaveLength(1));
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(onDone).not.toHaveBeenCalled();
   });

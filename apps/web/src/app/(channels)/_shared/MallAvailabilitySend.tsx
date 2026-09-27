@@ -7,25 +7,25 @@ import { Loader2, PackageX } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { mallPublishingApi } from './mall-publishing-api';
-import { ListingAvailabilityConfirmationForm } from './ListingAvailabilityExecutionHistory';
-import { executeListingAvailability } from './listing-availability-execution';
 import {
+  MALL_AVAILABILITY_BATCH_MAX,
   MALL_AVAILABILITY_NO_ROUTE,
   MALL_AVAILABILITY_PENDING,
   canSendMallAvailability,
   sendMallAvailability,
   translateMallAvailabilityWarning,
+  type MallAvailabilityRun,
 } from './mall-availability-send';
+import { RegistrationOperationResolution } from './RegistrationOperationResolution';
 import type { MallAvailabilityCandidate } from '@kiditem/shared/mall-publishing';
-import type { ListingAvailabilityExecution } from '@kiditem/shared/sales-product';
 import { friendlyError } from '@/lib/api-error';
 
 /**
  * 품절 송신 컨트롤. 상품등록과 품절 관리 두 화면에 같은 것이 선다.
  *
- * 후보는 몰 계정과 외부 상품 단위로 묶는다. 전송 전에 서버 원장에 의도를 고정하고,
- * 새 lease를 받은 경우에만 확장 전송을 시작한다. 전송 결과만으로 몰 반영을 단정하지 않고,
- * 결과가 불명확한 실행은 실제 몰 상태를 확인해 기록할 수 있게 남긴다.
+ * 후보는 몰 계정 단위로 묶고, 계정 하나 = 품절 실행 하나다(`channels.registration` sold_out, 리스팅 500개씩).
+ * 서버 plan이 옵션 id를 리스팅·외부 id로 풀고 잠그며, 확장 몰 쓰기 모듈이 보낸다. 보낸 결과만으로 몰 반영을
+ * 단정하지 않는다 — 몰에서 확인하지 못한 실행은 확인 필요로 남아 그 자리에서 결과를 기록한다.
  */
 
 /**
@@ -37,13 +37,23 @@ import { friendlyError } from '@/lib/api-error';
  */
 const PREVIEW_LIMIT = 3_000;
 
+/** 계약 상한 — 묶음 항목 하나에 담는 몰 옵션 id 수(`RegistrationScopeSchema.items[].channelListingOptionIds`). */
+const OPTION_IDS_PER_ITEM = 200;
+
+function chunk<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let start = 0; start < values.length; start += size) chunks.push(values.slice(start, start + size));
+  return chunks;
+}
+
 /** 경고는 앞의 몇 개만 띄운다. 나머지는 개수로 말한다 — 상품마다 한 장씩 띄우면 화면이 덮인다. */
 const WARNING_TOASTS = 3;
 
 interface AvailabilityListing {
   externalListingId: string;
   productNames: string[];
-  optionCodes: string[];
+  /** 이 몰 상품에서 품절로 보낼 우리 몰 옵션 행(`ChannelListingOption.id`). */
+  channelListingOptionIds: string[];
 }
 
 interface AvailabilityGroup {
@@ -59,9 +69,8 @@ interface AvailabilityGroup {
 interface AvailabilityRunItem {
   key: string;
   groupLabel: string;
-  productNames: string[];
-  externalListingId: string;
-  execution: ListingAvailabilityExecution | null;
+  listingCount: number;
+  run: MallAvailabilityRun | null;
   message: string;
 }
 
@@ -86,11 +95,11 @@ function buildGroups(candidates: readonly MallAvailabilityCandidate[]): Availabi
     const listing = group.listings.get(candidate.mallProductCode) ?? {
       externalListingId: candidate.mallProductCode,
       productNames: [],
-      optionCodes: [],
+      channelListingOptionIds: [],
     };
     if (!listing.productNames.includes(candidate.productName)) listing.productNames.push(candidate.productName);
-    if (candidate.mallOptionCode && !listing.optionCodes.includes(candidate.mallOptionCode)) {
-      listing.optionCodes.push(candidate.mallOptionCode);
+    if (candidate.channelListingOptionId && !listing.channelListingOptionIds.includes(candidate.channelListingOptionId)) {
+      listing.channelListingOptionIds.push(candidate.channelListingOptionId);
     }
     group.listings.set(candidate.mallProductCode, listing);
     byAccount.set(key, group);
@@ -109,15 +118,6 @@ function buildGroups(candidates: readonly MallAvailabilityCandidate[]): Availabi
       ? `${group.channelAccountName} · ${group.channelAccountId.slice(0, 8)}`
       : group.channelAccountName,
   }));
-}
-
-function executionLabel(execution: ListingAvailabilityExecution): string {
-  if (execution.status === 'prepared') return '전송 대기';
-  if (execution.status === 'executing') return '전송 시도 중 · 결과 확인 필요';
-  if (execution.status === 'reconciling') return '몰 결과 확인 필요';
-  if (execution.status === 'succeeded') return '확인 완료';
-  if (execution.status === 'failed') return '실패';
-  return '취소됨';
 }
 
 export function showAvailabilityWarnings(warnings: readonly string[]) {
@@ -154,67 +154,45 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
     setRunning(group.key);
     setProgress(null);
     setRunItems([]);
-    const warnings: string[] = [];
-    let sent = 0;
-    let failed = 0;
+    const groupLabel = `${group.mallName} · ${group.channelAccountLabel}`;
     try {
-      for (let index = 0; index < group.listings.length; index += 1) {
-        const listing = group.listings[index]!;
-        const key = `${group.channelAccountId}:${listing.externalListingId}`;
-        setProgress({ done: index, total: group.listings.length });
+      const listings = group.listings.filter((listing) => listing.channelListingOptionIds.length > 0);
+      // 계약 상한: 항목 하나는 옵션 id 200개까지, 실행 하나는 항목 500개까지.
+      const items = listings.flatMap((listing) => chunk(listing.channelListingOptionIds, OPTION_IDS_PER_ITEM)
+        .map((channelListingOptionIds) => ({ channelListingOptionIds })));
+      for (let start = 0; start < items.length; start += MALL_AVAILABILITY_BATCH_MAX) {
+        const batch = items.slice(start, start + MALL_AVAILABILITY_BATCH_MAX);
+        const key = `${group.key}:${start}`;
+        setProgress({ done: start, total: items.length });
         try {
-          const run = await executeListingAvailability({
-            channelAccountId: group.channelAccountId,
-            externalListingId: listing.externalListingId,
+          const result = await sendMallAvailability({
             mallKey: group.mallKey,
-            kind: 'sold_out',
-            optionCodes: listing.optionCodes,
-            send: (snapshot, executionContext) => {
-              if (!canSendMallAvailability(snapshot.mallKey)) {
-                throw new Error(`${group.mallName}의 품절 전송 경로가 없습니다.`);
-              }
-              return sendMallAvailability(snapshot.mallKey, [snapshot.externalListingId], {
-                resume: snapshot.kind === 'resume',
-                ...(snapshot.optionCodes.length > 0
-                  ? { optionCodes: { [snapshot.externalListingId]: snapshot.optionCodes } }
-                  : {}),
-                executionContext,
-              });
-            },
+            channelAccountId: group.channelAccountId,
+            action: 'sold_out',
+            items: batch,
           });
-          if (run.transportResult) {
-            sent += run.transportResult.sent;
-            failed += run.transportResult.failed;
-            warnings.push(...run.transportResult.warnings);
-          }
-          const message = run.transportError
-            ? `전송 응답 확인 필요 · ${run.transportError}`
-            : run.adapterCalled
-              ? `전송 시도 ${run.transportResult?.sent ?? 0} · 몰에서 실제 결과 확인 필요`
-              : '진행 중인 실행을 확인했습니다 · 다시 보내지 않음';
+          const warnings = result.operation.result?.fill.warnings ?? [];
+          showAvailabilityWarnings(warnings);
           setRunItems((current) => [...current, {
             key,
-            groupLabel: `${group.mallName} · ${group.channelAccountLabel}`,
-            productNames: listing.productNames,
-            externalListingId: listing.externalListingId,
-            execution: run.execution,
-            message,
+            groupLabel,
+            listingCount: batch.length,
+            run: result,
+            message: result.operation.message ?? result.operation.label,
           }]);
         } catch (error) {
           setRunItems((current) => [...current, {
             key,
-            groupLabel: `${group.mallName} · ${group.channelAccountLabel}`,
-            productNames: listing.productNames,
-            externalListingId: listing.externalListingId,
-            execution: null,
-            message: error instanceof Error ? error.message : '품절 실행을 기록하지 못했습니다.',
+            groupLabel,
+            listingCount: batch.length,
+            run: null,
+            message: friendlyError(error, '품절 실행을 시작하지 못했습니다.') ?? '품절 실행을 시작하지 못했습니다.',
           }]);
         }
-        setProgress({ done: index + 1, total: group.listings.length });
+        setProgress({ done: Math.min(start + batch.length, items.length), total: items.length });
       }
-      showAvailabilityWarnings(warnings);
-      toast.warning(`${group.mallName} · ${group.channelAccountLabel} ${formatNumber(group.listings.length)}개 상품을 처리했습니다.`, {
-        description: `전송 시도 ${formatNumber(sent)} · 실패 ${formatNumber(failed)}. 몰 계정과 실제 상태를 확인해야 완료로 기록됩니다.`,
+      toast.warning(`${groupLabel} ${formatNumber(listings.length)}개 상품의 품절 실행을 마쳤습니다.`, {
+        description: '몰에서 확인한 것만 완료로 기록됩니다. 확인 필요로 남은 실행은 아래에서 결과를 기록하세요.',
         duration: 10_000,
       });
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
@@ -273,22 +251,20 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
         </ul>
       ) : null}
       {runItems.length > 0 && (
-        <section className="mt-3 border-t border-slate-100 pt-3" aria-label="상품별 품절 실행 결과">
-          <h3 className="text-xs font-semibold text-slate-600">상품별 실행 결과</h3>
+        <section className="mt-3 border-t border-slate-100 pt-3" aria-label="품절 실행 결과">
+          <h3 className="text-xs font-semibold text-slate-600">품절 실행 결과</h3>
           <ul className="mt-2 max-h-[32rem] space-y-2 overflow-y-auto">
             {runItems.map((item) => (
               <li key={item.key} className="rounded-lg border border-slate-200 p-2.5">
-                <p className="text-[11px] font-medium text-slate-800">{item.groupLabel} · {item.productNames.join(', ')}</p>
-                <p className="mt-0.5 text-[10px] text-slate-500">몰 상품번호 {item.externalListingId} · {item.message}</p>
-                {item.execution && (
-                  <>
-                    <p className="mt-1 text-[10px] text-slate-500">원장 상태: {executionLabel(item.execution)}</p>
-                    {(item.execution.status === 'executing' || item.execution.status === 'reconciling') && (
-                      <ListingAvailabilityConfirmationForm execution={item.execution} />
-                    )}
-                  </>
+                <p className="text-[11px] font-medium text-slate-800">
+                  {item.groupLabel} · 상품 {formatNumber(item.listingCount)}개
+                </p>
+                <p className="mt-0.5 text-[10px] text-slate-500">{item.message}</p>
+                {item.run?.operation ? (
+                  <RegistrationOperationResolution className="mt-1.5" read={item.run.operation} />
+                ) : (
+                  <p role="alert" className="mt-1 text-[10px] text-red-700">{item.message}</p>
                 )}
-                {!item.execution && <p role="alert" className="mt-1 text-[10px] text-red-700">{item.message}</p>}
               </li>
             ))}
           </ul>

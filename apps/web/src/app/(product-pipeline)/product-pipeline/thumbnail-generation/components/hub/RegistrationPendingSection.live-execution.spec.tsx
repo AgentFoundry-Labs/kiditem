@@ -10,6 +10,7 @@ import { RegistrationPendingSection } from './RegistrationPendingSection';
 // 서버 API 와 확장은 웹의 외부 경계라 그 둘만 바꾼다. 서버 상태는 아래 두 변수가 흉내 낸다.
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
 
@@ -38,22 +39,31 @@ beforeEach(() => {
   server.execution = null;
   vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
     if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
+    // 등록 실행 하나 읽기(KID-364): 확장이 대표이미지를 올리고 저장 확인을 기다린다.
+    if (href.startsWith('/api/operations/')) {
+      server.execution = { status: 'reconciling' };
+      return { operation: {
+        id: EXECUTION, kind: 'channels.registration', status: 'reconciling', lockKeys: [], plan: { executionKind: 'thumbnail_update' },
+        progress: null, result: null, window: null, errorCode: null, errorMessage: null, startedAt: '2026-09-27T09:00:00.000Z',
+        finishedAt: null, expiresAt: '2026-09-27T09:30:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null,
+      } };
+    }
+    if (href.includes('/password')) return { loginId: null, password: null };
     return { items: server.execution ? [{ salesProductId: SP1, assetId: A1, executionId: EXECUTION, status: server.execution.status, providerOutcome: 'uncertain', checkedAt: null, error: null, screenshotPath: null }] : [] };
   });
   vi.mocked(apiClient.patch).mockImplementation(async (href: string) => {
     if (href === '/api/ai/content-workspaces/w/current-thumbnail') server.adopted = true;
     return {};
   });
-  vi.mocked(apiClient.post).mockImplementation(async (href: string) => {
-    if (href === '/api/channels/thumbnail-executions') {
-      server.execution = { status: 'executing' };
-      return { executionId: EXECUTION, salesProductId: SP1, assetId: A1, productName: '곰돌이 우산', image: { dataUrl: 'data:image/png;base64,AA==', filename: 'a.png', mimeType: 'image/png' } };
-    }
-    server.execution = { status: 'reconciling' };
-    return { salesProductId: SP1, assetId: A1, executionId: EXECUTION, success: false, status: 'reconciling', screenshotPath: null };
-  });
   vi.mocked(detectExtensionId).mockResolvedValue('extension-1');
-  vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+  vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+    const body = message as Record<string, unknown>;
+    if (body.action === 'ping') {
+      return { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true, 'mallWriteSite.coupang': true } } as never;
+    }
+    server.execution = { status: 'executing' };
+    return { success: true, operationId: EXECUTION, reused: false } as never;
+  });
 });
 afterEach(cleanup);
 
@@ -64,7 +74,10 @@ describe('a live Wing thumbnail execution always has a screen', () => {
 
     await act(async () => { await upload.result.current.mutateAsync({ contentWorkspaceId: 'w', salesProductId: SP1, assetId: A1 }); });
     expect(apiClient.patch).toHaveBeenCalledWith('/api/ai/content-workspaces/w/current-thumbnail', { assetId: A1 });
-    expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions', { salesProductId: SP1, assetId: A1 });
+    expect(sendToExtension).toHaveBeenCalledWith('extension-1', expect.objectContaining({
+      action: 'operation.start',
+      scope: expect.objectContaining({ executionKind: 'thumbnail_update', salesProductId: SP1, assetId: A1 }),
+    }), expect.any(Number));
 
     render(<RegistrationPendingSection />, { wrapper: wrapperWith(client) });
     expect(await screen.findByRole('button', { name: '반영됨으로 표시' })).toBeTruthy();

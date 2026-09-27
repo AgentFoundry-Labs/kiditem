@@ -4,6 +4,13 @@ import {
   type MallRegisterValues,
 } from '@/app/(channels)/_shared/mall-register-values';
 import type { MallPublishItem, MallSendChannelAccount } from '@/app/(channels)/_shared/mall-publish-adapter';
+import {
+  newRegistrationIdempotencyKey,
+  RegistrationOperationInProgress,
+  registrationSendOutcome,
+  startRegistrationOperation,
+  waitForRegistrationOperation,
+} from '@/app/(channels)/_shared/registration-operation';
 import { isApiError } from '@/lib/api-error';
 
 /**
@@ -19,8 +26,8 @@ import { isApiError } from '@/lib/api-error';
  *  2. **막힌 몰에서 멈추지 않는다.** 한 몰이 실패해도 나머지를 계속 채운다. 하나
  *     때문에 전부 못 하면 '한번에 등록하기' 는 쓸모가 없다.
  *
- * 제출은 하지 않는다(`mallFormExecutionOptions` → `submit: false`, KID-322). 폼을 채운 것은 등록이 아니고,
- * 결과도 등록됐다고 말하지 않는다. [등록]은 등록 실행(`useMallPublishRun`) 안에서만 누른다.
+ * 제출은 하지 않는다 — 빠른 등록은 등록 대상 없이 폼만 채우는 등록 실행(`register`, `submit: false`, KID-364)이다.
+ * 폼을 채운 것은 등록이 아니고, 결과도 등록됐다고 말하지 않는다. [등록]은 등록 대상 실행(`useMallPublishRun`)만 부탁한다.
  */
 
 /**
@@ -50,6 +57,8 @@ interface RunOptions {
   mallKeys: readonly string[];
   item: MallPublishItem | null;
   values: MallRegisterValues;
+  /** 몰 키 → 그 몰의 계정 행 id. 없으면 그 몰은 "계정 정보 필요"로 막는다. */
+  channelAccountIds: Readonly<Record<string, string>>;
   /** 몰 하나를 시작할 때. 화면이 어느 몰이 도는지 표시한다. */
   onStart?: (mallKey: string) => void;
   /** 몰 하나가 끝날 때. 다음 몰이 시작되기 전에 부른다. */
@@ -67,6 +76,7 @@ export async function runOneMallRegistration(
   mallKey: string,
   item: MallPublishItem | null,
   values: MallRegisterValues,
+  channelAccountId: string | null,
   confirmed: ConfirmedMallInput | null = null,
 ): Promise<MallRunOutcome> {
   const adapter = getFormMallAdapter(mallKey);
@@ -100,17 +110,36 @@ export async function runOneMallRegistration(
     return { ...base, status: 'blocked', message: blocked.join(' '), manualSteps: [] };
   }
 
+  const accountId = confirmed?.channelAccount.id ?? channelAccountId;
+  if (!accountId) {
+    return { ...base, status: 'blocked', message: `${adapter.mallName} 계정 정보가 필요합니다. 쇼핑몰 계정에서 먼저 연결해 주세요.`, manualSteps: [] };
+  }
+
   try {
-    const outcome = await adapter.send({
-      items: [item],
+    const form = await adapter.buildForm({
+      item,
       values: merged,
       ...(confirmed ? { channelAccount: confirmed.channelAccount } : {}),
     });
+    const salesProductId = item.source === 'sales_product' ? item.candidateId : item.salesProductId ?? null;
+    const { operationId } = await startRegistrationOperation({
+      mallKey,
+      idempotencyKey: newRegistrationIdempotencyKey('quick'),
+      scope: {
+        executionKind: 'register',
+        submit: false,
+        channelAccountId: accountId,
+        ...(item.source === 'candidate' ? { sourceProductId: item.candidateId } : {}),
+        ...(salesProductId ? { salesProductId } : {}),
+        form: { ...form },
+      },
+    });
+    const outcome = registrationSendOutcome(await waitForRegistrationOperation(operationId));
     if (!outcome.ok) {
       return {
         ...base,
         status: 'failed',
-        message: outcome.error ?? `${adapter.mallName} 폼을 채우지 못했습니다.`,
+        message: outcome.error ?? outcome.warnings[0] ?? `${adapter.mallName} 폼을 채우지 못했습니다.`,
         manualSteps: [],
       };
     }
@@ -124,7 +153,9 @@ export async function runOneMallRegistration(
     return {
       ...base,
       status: 'failed',
-      message: mallRunErrorMessage(error, `${adapter.mallName} 상품등록에 실패했습니다.`),
+      message: error instanceof RegistrationOperationInProgress
+        ? error.message
+        : mallRunErrorMessage(error, `${adapter.mallName} 상품등록에 실패했습니다.`),
       manualSteps: [],
     };
   }
@@ -141,6 +172,7 @@ export async function runMallRegistrations({
   mallKeys,
   item,
   values,
+  channelAccountIds,
   onStart,
   onOutcome,
 }: RunOptions): Promise<MallRunOutcome[]> {
@@ -160,7 +192,7 @@ export async function runMallRegistrations({
       if (mallKey === undefined) return;
       onStart?.(mallKey);
       // eslint-disable-next-line no-await-in-loop -- 이 일꾼은 제 몫을 차례로 처리한다.
-      const outcome = await runOneMallRegistration(mallKey, item, values);
+      const outcome = await runOneMallRegistration(mallKey, item, values, channelAccountIds[mallKey] ?? null);
       outcomes.push(outcome);
       onOutcome?.(outcome);
     }

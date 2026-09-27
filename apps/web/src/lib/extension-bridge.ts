@@ -4,34 +4,11 @@ import { safeStorageGet, safeStorageSet } from './browser-storage';
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
 export const KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY = 'kiditem-order-ext-id';
-export const KIDITEM_WING_FORM_PORT_NAME = 'kiditem-wing-form-v1';
 
 type ChromeRuntime = {
   runtime?: {
     sendMessage?: (id: string, msg: unknown, cb: (resp: unknown) => void) => void;
-    connect?: (id: string, options: { name: string }) => ChromeRuntimePort;
     lastError?: { message?: string };
-  };
-};
-
-type ChromeRuntimePort = {
-  postMessage: (message: unknown) => void;
-  disconnect: () => void;
-  onMessage: {
-    addListener: (listener: (message: unknown) => void) => void;
-    removeListener: (listener: (message: unknown) => void) => void;
-  };
-  onDisconnect: {
-    addListener: (listener: () => void) => void;
-    removeListener: (listener: () => void) => void;
-  };
-};
-
-type ExtensionPortCommandOptions = {
-  timeoutMs?: number | null;
-  keepAlive?: {
-    intervalMs: number;
-    message: unknown;
   };
 };
 
@@ -127,89 +104,6 @@ function sendToExtensionOnce<TResponse = unknown>(
       });
     } catch (error) {
       settle(() => reject(error instanceof Error ? error : new Error(String(error))));
-    }
-  });
-}
-
-/**
- * Keep an MV3 service worker alive for commands whose browser work can exceed
- * the one-shot message channel lifetime (for example, a full WING form fill).
- */
-export function sendToExtensionViaPort<TResponse = unknown>(
-  id: string,
-  portName: string,
-  message: unknown,
-  timeoutOrOptions: number | null | ExtensionPortCommandOptions = 15000,
-): Promise<TResponse> {
-  return new Promise((resolve, reject) => {
-    const options: ExtensionPortCommandOptions =
-      typeof timeoutOrOptions === 'object' && timeoutOrOptions !== null
-      ? timeoutOrOptions
-      : { timeoutMs: timeoutOrOptions };
-    const timeoutMs = options.timeoutMs === undefined ? 15000 : options.timeoutMs;
-    const keepAlive = options.keepAlive;
-    const chrome = getChrome();
-    if (!chrome?.runtime?.connect) {
-      reject(new Error('Chrome 익스텐션 포트 API 미지원'));
-      return;
-    }
-    let settled = false;
-    let port: ChromeRuntimePort | null = null;
-    let timeout: number | null = null;
-    let keepAliveTimer: number | null = null;
-    const finish = (operation: () => void) => {
-      if (settled) return;
-      settled = true;
-      if (timeout !== null) window.clearTimeout(timeout);
-      if (keepAliveTimer !== null) window.clearTimeout(keepAliveTimer);
-      if (port) {
-        port.onMessage.removeListener(onMessage);
-        port.onDisconnect.removeListener(onDisconnect);
-      }
-      operation();
-      try {
-        port?.disconnect();
-      } catch {
-        // A terminal response may race the extension closing its side.
-      }
-    };
-    const onMessage = (response: unknown) => {
-      finish(() => resolve(response as TResponse));
-    };
-    const onDisconnect = () => {
-      const message = chrome.runtime?.lastError?.message;
-      finish(() => reject(new Error(message || '익스텐션 포트 연결이 종료되었습니다.')));
-    };
-    const scheduleKeepAlive = () => {
-      if (!keepAlive || settled) return;
-      keepAliveTimer = window.setTimeout(() => {
-        if (settled || !port) return;
-        try {
-          port.postMessage(keepAlive.message);
-          scheduleKeepAlive();
-        } catch (error) {
-          finish(() => reject(
-            error instanceof Error ? error : new Error(String(error)),
-          ));
-        }
-      }, keepAlive.intervalMs);
-    };
-    if (timeoutMs !== null) {
-      timeout = window.setTimeout(() => {
-        finish(() => reject(new Error(EXTENSION_TIMEOUT_MESSAGE)));
-      }, timeoutMs);
-    }
-
-    try {
-      port = chrome.runtime.connect(id, { name: portName });
-      port.onMessage.addListener(onMessage);
-      port.onDisconnect.addListener(onDisconnect);
-      port.postMessage(message);
-      scheduleKeepAlive();
-    } catch (error) {
-      finish(() =>
-        reject(error instanceof Error ? error : new Error(String(error))),
-      );
     }
   });
 }
@@ -354,20 +248,6 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
     responseType: 'kiditem:ext-id',
     timeoutMs,
     accepts: supportsEnvironmentProfiles,
-  });
-}
-
-export async function detectWingFormExtensionId(
-  timeoutMs = 1200,
-): Promise<string | null> {
-  return detectExtensionIdWithHandshake({
-    storageKey: KIDITEM_EXTENSION_ID_KEY,
-    requestType: 'kiditem:request-ext-id',
-    responseType: 'kiditem:ext-id',
-    timeoutMs,
-    accepts: (response) =>
-      supportsEnvironmentProfiles(response) &&
-      response.capabilities?.wingFormPortV1 === true,
   });
 }
 

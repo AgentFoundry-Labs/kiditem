@@ -50,16 +50,15 @@ describe('ChannelListingsSection price execution', () => {
     // 상품 × 몰 계정당 등록 설정은 하나뿐이다(KID-310) — resolve 가 고를 것 없이 그 하나를 연다.
     expect(executeTargetMallPrice).toHaveBeenCalledWith(expect.objectContaining({
       salesProductId: 'product', channelAccountId: 'account',
-      expectedPrice: 3000, listingId: 'listing', mallKey: 'kakao', idempotencyKey: expect.any(String),
+      expectedPrice: 3000, listingId: 'listing', mallKey: 'kakao', idempotencyKey: expect.any(String), salesProductOptionId: 'option',
     }));
     expect(vi.mocked(executeTargetMallPrice).mock.calls[0]![0]).not.toHaveProperty('targetId');
   });
   it('allocates a fresh intent after reload of a completed send', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(executeTargetMallPrice).mockResolvedValue({
-      execution: { status: 'succeeded' },
-      decision: { confirmed: true, message: '확인 완료', outcome: 'confirmed', after: 3000 }, sent: true,
-    } as Awaited<ReturnType<typeof executeTargetMallPrice>>);
+      operation: null, sent: true, confirmed: true, failed: false, message: '확인 완료',
+    });
     const mounted = mount();
     await screen.findByText('카카오 소매');
     fireEvent.click(screen.getByRole('button', { name: '가격 보내기' }));
