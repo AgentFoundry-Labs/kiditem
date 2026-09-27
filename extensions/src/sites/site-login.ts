@@ -83,7 +83,8 @@ export async function ensureLoggedIn(
   // 탭(새로 연 about:blank는 확장 권한 밖이라 살피기가 던진다)도 폼을 찾지 못한 것이다(KID-380 D1).
   const first = await loginFrame(page);
   if (typeof first !== 'number' && !isLogin(spec, await safeUrl(page))) {
-    await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true });
+    // 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다 — 느린 로그인 화면이 시간을 다 쓰지 않게(실기기 R1).
+    await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
   }
 
   const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
@@ -269,6 +270,8 @@ export type SiteLoginGate = ReturnType<typeof createSiteLoginGate>;
 export interface SiteSignIn {
   /** 로그인 화면과 로그인 뒤 화면의 호스트(`LoginSpec.hosts`) — 수집 탭이 불러오는 중 알림 창 가드를 거는 곳(KID-380 D4). */
   readonly hosts: readonly string[];
+  /** 로그인 화면 주소인가 — 수집 탭이 그 화면에 닿으면 다 그려지기를 기다리지 않는다(실기기 R1). */
+  isLoginUrl(url: string): boolean;
   onPage<T>(page: TabPage, returnTo: string, read: () => Promise<T>): Promise<T>;
   beforeTab<T>(tabs: TabPages, call: () => Promise<T>): Promise<T>;
 }
@@ -279,6 +282,7 @@ export function createSiteSignIn(spec: LoginSpec, credentials: SiteCredentials |
   const login = (page: TabPage) => ensureLoggedIn(page, spec, credentials as SiteCredentials, deps);
   return {
     hosts: spec.hosts,
+    isLoginUrl: (url) => isLogin(spec, url),
     onPage: (page, returnTo, read) => withLogin(read, async () => {
       const outcome = await login(page);
       if (outcome.status !== 'verification_required') await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS });

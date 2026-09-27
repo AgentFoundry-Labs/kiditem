@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../core/errors';
-import { createTabPages, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
+import { createTabPages, installDialogGuardAnswer, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
 
 function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
@@ -226,7 +226,8 @@ describe('TabPages.guardDialogs — 불러오는 중 알림 창 가드(KID-380 D
 
     const release = await tabs.guardDialogs(['i-screammall.co.kr']);
     await expect(page.navigate('https://po.i-screammall.co.kr/main.do', { timeoutMs: 1 })).resolves.toBe('https://po.i-screammall.co.kr/main.do');
-    expect(registered).toHaveLength(1);
+    // MAIN 가드와 ISOLATED 짝(수집 탭인지 런타임에 묻는다, 실기기 R1)을 함께 건다.
+    expect(registered).toHaveLength(2);
     expect(registered[0]).toMatchObject({
       matches: ['https://i-screammall.co.kr/*', 'https://*.i-screammall.co.kr/*'],
       js: ['content/page-call/dialog-guard.js'],
@@ -235,9 +236,18 @@ describe('TabPages.guardDialogs — 불러오는 중 알림 창 가드(KID-380 D
       allFrames: true,
       persistAcrossSessions: false,
     });
+    expect(registered[1]).toMatchObject({
+      matches: ['https://i-screammall.co.kr/*', 'https://*.i-screammall.co.kr/*'],
+      js: ['content/page-call/dialog-guard-bridge.js'],
+      world: 'ISOLATED',
+      runAt: 'document_start',
+      allFrames: true,
+      persistAcrossSessions: false,
+    });
+    expect(String(registered[1]!.id)).toMatch(/^kiditem-dialog-guard-/);
     await release();
     await release();
-    expect(removed).toEqual([[registered[0]!.id]]);
+    expect(removed).toEqual([[registered[0]!.id, registered[1]!.id]]);
   });
 
   it('등록이 안 되는 환경이면 가드 없이 이어 간다', async () => {
@@ -338,5 +348,35 @@ describe('sweepDialogGuards — 시작 시 남은 대화상자 가드 정리', (
       },
     } as never);
     expect(unregistered).toEqual([['kiditem-dialog-guard-a', 'kiditem-dialog-guard-b']]);
+  });
+});
+
+describe('installDialogGuardAnswer — 수집 탭인지 답한다(실기기 R1)', () => {
+  it('이 런타임이 연 탭(수집 중)만 수집 탭이다 — 닫거나 운영자에게 남기면 아니다, 붙인 운영자 탭은 아니다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const tabs = createTabPages(deps(chromeApi));
+    const listeners: Array<(message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown> = [];
+    installDialogGuardAnswer({ runtime: { onMessage: { addListener: (listener) => listeners.push(listener) } } }, tabs);
+    const ask = (tabId: number | undefined, message: unknown = { action: 'kiditem.dialogGuard.isRunTab' }) => {
+      const answers: unknown[] = [];
+      const handled = listeners[0]!(message, tabId === undefined ? {} : { tab: { id: tabId } }, (answer) => answers.push(answer));
+      return { handled, answers };
+    };
+    const page = await tabs.open('about:blank');
+    expect(ask(9).answers).toEqual([{ runTab: true }]);
+    expect(ask(4).answers).toEqual([{ runTab: false }]);
+    expect(ask(undefined).answers).toEqual([{ runTab: false }]);
+    // 다른 메시지는 받지 않는다(다른 수신자가 답한다).
+    expect(ask(9, { action: 'other' })).toEqual({ handled: undefined, answers: [] });
+
+    await tabs.keep('https://mall.test', page);
+    expect(ask(9).answers).toEqual([{ runTab: false }]);
+    const again = await tabs.reclaimKept('https://mall.test');
+    expect(again?.tabId).toBe(9);
+    expect(ask(9).answers).toEqual([{ runTab: true }]);
+    await again!.close();
+    expect(ask(9).answers).toEqual([{ runTab: false }]);
+    tabs.attach(4);
+    expect(ask(4).answers).toEqual([{ runTab: false }]);
   });
 });

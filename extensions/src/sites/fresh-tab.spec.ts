@@ -7,6 +7,7 @@ import { fakeTabPages } from './tab-page.fake';
 
 const signIn = (hosts: readonly string[]): SiteSignIn => ({
   hosts,
+  isLoginUrl: (url) => url.includes('/login'),
   onPage: (_page, _returnTo, read) => read(),
   beforeTab: (_tabs, call) => call(),
 });
@@ -53,5 +54,13 @@ describe('sites/fresh-tab — 운영자에게 남긴 탭 다시 쓰기(KID-380 D
       'navigate https://store.lotteon.com/cm/main/index_SO.wsp',
       'close 7',
     ]);
+  });
+});
+
+describe('sites/fresh-tab — 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다(실기기 R1)', () => {
+  it('로그인 입구가 있으면 그 로그인 주소를 멈출 곳으로 준다 — 느린 로그인 화면이 시간 초과로 탭을 닫지 않게', async () => {
+    const fake = fakeTabPages({ landAt: () => 'https://mall.test/login?next=orders', answer: () => ({ ok: true }) });
+    await withFreshTab(fake.tabs, 'https://mall.test/orders', async () => 'rows', { signIn: signIn(['mall.test']) });
+    expect(fake.stops).toEqual(['https://mall.test/login?next=orders']);
   });
 });

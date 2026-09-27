@@ -24,6 +24,7 @@ export function fakeTabPages(options: {
 }) {
   const log: string[] = [];
   const guards: string[] = [];
+  const stops: string[] = [];
   const guardLog = (line: string) => {
     guards.push(line);
     if (options.logBookkeeping) log.push(line);
@@ -40,6 +41,8 @@ export function fakeTabPages(options: {
         // 끝까지 안 그려져도 이어 가는 사이트(1688·TikTok)는 표시를 남긴다.
         log.push(`navigate ${url}${navigateOptions?.continueOnTimeout ? ' (continue on timeout)' : ''}`);
         current = options.landAt ? options.landAt(url) : url;
+        // 다 그려지기를 기다리지 않고 멈출 주소(로그인 화면 등)에 닿았는지 적는다.
+        if (navigateOptions?.stopAt?.(current)) stops.push(current);
         return current;
       },
       async waitWhile(blocked, waitOptions) {
@@ -108,6 +111,7 @@ export function fakeTabPages(options: {
       guardLog(`reclaim ${key} ${tabId}`);
       return page(tabId, true);
     },
+    isRunTab: () => false,
     async guardDialogs(hosts) {
       guardLog(`guard dialogs ${hosts.join(',')}`);
       return async () => {
@@ -119,5 +123,5 @@ export function fakeTabPages(options: {
       return options.fetchText?.(url) ?? null;
     },
   };
-  return { tabs, log, guards, emit: (message: Record<string, unknown>) => listeners.slice().forEach((listener) => listener(message)) };
+  return { tabs, log, guards, stops, emit: (message: Record<string, unknown>) => listeners.slice().forEach((listener) => listener(message)) };
 }

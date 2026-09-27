@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import bridgeSource from '../kiditem-os/content/page-call/dialog-guard-bridge.js?raw';
 import guardSource from '../kiditem-os/content/page-call/dialog-guard.js?raw';
 import dialogsSource from '../kiditem-os/content/page-call/login-dialogs.js?raw';
 import fillSource from '../kiditem-os/content/page-call/login-fill.js?raw';
@@ -123,49 +124,88 @@ describe('content/page-call/login-dialogs.js', () => {
   });
 });
 
-describe('content/page-call/dialog-guard.js — 불러오는 중 뜨는 알림 창(KID-380 D4)', () => {
-  it('document_start에 alert·confirm을 바꿔 문장만 모으고 바로 돌아간다 — 탭이 멈추지 않는다', () => {
+/** 가드를 넣은 창 하나(MAIN). `runTab()`은 ISOLATED 짝이 보내는 표시를 흉내 낸다. */
+function guardedWindow(native: { alert?: (message: string) => unknown; confirm?: (message: string) => boolean } = {}) {
+  const listeners: Array<(event: { source: unknown; origin: string; data: unknown }) => void> = [];
+  const window: Record<string, unknown> = {
+    alert: native.alert ?? (() => undefined),
+    confirm: native.confirm ?? (() => false),
+    location: { origin: 'https://mall.test' },
+    addEventListener: (type: string, listener: (event: { source: unknown; origin: string; data: unknown }) => void) => {
+      if (type === 'message') listeners.push(listener);
+    },
+  };
+  new Function('window', guardSource)(window);
+  return {
+    window,
+    alert: (message: string) => (window.alert as (message: string) => unknown)(message),
+    confirm: (message: string) => (window.confirm as (message: string) => boolean)(message),
+    post: (data: unknown, source: unknown = window, origin = 'https://mall.test') => listeners.forEach((listener) => listener({ source, origin, data })),
+  };
+}
+
+describe('content/page-call/dialog-guard.js — 불러오는 중 뜨는 알림 창(KID-380 D4, 실기기 R1)', () => {
+  it('alert는 탭이 무엇이든(보이는 탭이라도) 문장만 모으고 바로 돌아간다 — 로드가 멈추지 않는다, 두 번 들어와도 한 번만 바꾼다', () => {
     const shown: string[] = [];
-    const window: Record<string, unknown> = { alert: (message: string) => shown.push(message), confirm: () => { throw new Error('native confirm'); } };
-    new Function('window', 'document', guardSource)(window, { visibilityState: 'hidden' });
-    new Function('window', 'document', guardSource)(window, { visibilityState: 'hidden' }); // 두 번 들어와도 한 번만 바꾼다
-    expect((window.alert as (message: string) => unknown)('로그인이 만료되었습니다.')).toBeUndefined();
-    expect((window.confirm as (message: string) => unknown)('Session이 종료되었거나 다른 곳에서 로그인했습니다.')).toBe(true);
+    const page = guardedWindow({ alert: (message) => shown.push(message) });
+    new Function('window', guardSource)(page.window);
+    expect(page.alert('로그인이 만료되었습니다.')).toBeUndefined();
     expect(shown).toEqual([]);
-    expect(window.__kiditemDialogs).toEqual(['로그인이 만료되었습니다.', 'Session이 종료되었거나 다른 곳에서 로그인했습니다.']);
+    expect(page.window.__kiditemDialogs).toEqual(['로그인이 만료되었습니다.']);
+  });
+
+  it('confirm은 수집 탭 표시가 오기 전까지 진짜 창으로 넘기고, 표시가 오면 문장을 모으고 확인한다', () => {
+    const shown: string[] = [];
+    const page = guardedWindow({ confirm: (message) => { shown.push(message); return false; } });
+    expect(page.confirm('삭제할까요?')).toBe(false);
+    expect(shown).toEqual(['삭제할까요?']);
+    // 다른 창·다른 출처의 표시는 받지 않는다.
+    page.post({ kiditemDialogGuard: 'run-tab' }, {});
+    page.post({ kiditemDialogGuard: 'run-tab' }, page.window, 'https://evil.test');
+    expect(page.confirm('아직 운영자 탭')).toBe(false);
+    page.post({ kiditemDialogGuard: 'run-tab' });
+    expect(page.confirm('Session이 종료되었거나 다른 곳에서 로그인했습니다.')).toBe(true);
+    expect(shown).toEqual(['삭제할까요?', '아직 운영자 탭']);
+    expect(page.window.__kiditemDialogs).toEqual(['Session이 종료되었거나 다른 곳에서 로그인했습니다.']);
   });
 
   it('로그인 알림 창 받기는 지켜보기 전 문장을 버리고, 누른 뒤 가드에 모인 문장을 몰의 말로 돌려준다', () => {
-    const window: Record<string, unknown> = { alert: () => undefined, confirm: () => true };
-    new Function('window', 'document', guardSource)(window, { visibilityState: 'hidden' });
-    new Function('window', dialogsSource)(window);
-    const calls = window.__kiditemPageCalls as Record<string, () => unknown>;
-    (window.alert as (message: string) => void)('로그인이 만료되었습니다.');
+    const page = guardedWindow();
+    new Function('window', dialogsSource)(page.window);
+    const calls = page.window.__kiditemPageCalls as Record<string, () => unknown>;
+    page.alert('로그인이 만료되었습니다.');
     expect(calls['login.watchDialogs']!()).toBe(true);
-    (window.alert as (message: string) => void)('아이디 또는 비밀번호가 일치하지 않습니다.');
+    page.alert('아이디 또는 비밀번호가 일치하지 않습니다.');
     expect(calls['login.takeDialogs']!()).toEqual(['아이디 또는 비밀번호가 일치하지 않습니다.']);
     expect(calls['login.takeDialogs']!()).toEqual([]);
-    // 가드는 로그인이 끝나도 그대로다(불러오는 중 알림 창이 다시 떠도 멈추지 않는다).
-    (window.alert as (message: string) => void)('다시');
-    expect(window.__kiditemDialogs).toEqual(['다시']);
+    page.alert('다시');
+    expect(page.window.__kiditemDialogs).toEqual(['다시']);
+  });
+});
+
+describe('content/page-call/dialog-guard-bridge.js — 수집 탭인지 런타임에 묻는다(ISOLATED, 실기기 R1)', () => {
+  function bridge(answer: unknown, lastError: unknown = undefined) {
+    const sent: unknown[] = [];
+    const posted: Array<[unknown, string]> = [];
+    const chrome = {
+      runtime: {
+        get lastError() { return lastError; },
+        sendMessage: (message: unknown, callback: (response: unknown) => void) => { sent.push(message); callback(answer); },
+      },
+    };
+    const window = { postMessage: (data: unknown, origin: string) => posted.push([data, origin]) };
+    new Function('chrome', 'window', 'location', bridgeSource)(chrome, window, { origin: 'https://mall.test' });
+    return { sent, posted };
+  }
+
+  it('런타임이 수집 탭이라 답하면 같은 출처로 MAIN 가드에 표시를 보낸다', () => {
+    const run = bridge({ runTab: true });
+    expect(run.sent).toEqual([{ action: 'kiditem.dialogGuard.isRunTab' }]);
+    expect(run.posted).toEqual([[{ kiditemDialogGuard: 'run-tab' }, 'https://mall.test']]);
   });
 
-  it('보이는 탭(운영자가 보는 탭·남긴 탭·앞으로 가져온 GS샵 SMS 탭)에서는 진짜 alert·confirm으로 넘긴다(리뷰 MUST 2)', () => {
-    const shown: string[] = [];
-    const document = { visibilityState: 'visible' };
-    const window: Record<string, unknown> = {
-      alert: (message: string) => { shown.push(`alert ${message}`); },
-      confirm: (message: string) => { shown.push(`confirm ${message}`); return false; },
-    };
-    new Function('window', 'document', guardSource)(window, document);
-    (window.alert as (message: string) => void)('보이는 탭');
-    expect((window.confirm as (message: string) => boolean)('삭제할까요?')).toBe(false);
-    expect(shown).toEqual(['alert 보이는 탭', 'confirm 삭제할까요?']);
-    expect(window.__kiditemDialogs).toEqual([]);
-
-    // 같은 문서가 백그라운드로 가면 다시 기록만 한다(판정은 부를 때의 가시성).
-    document.visibilityState = 'hidden';
-    expect((window.confirm as (message: string) => boolean)('숨은 탭')).toBe(true);
-    expect(window.__kiditemDialogs).toEqual(['숨은 탭']);
+  it('운영자 탭이거나 답이 없으면 아무것도 보내지 않는다', () => {
+    expect(bridge({ runTab: false }).posted).toEqual([]);
+    expect(bridge(undefined, { message: 'Receiving end does not exist.' }).posted).toEqual([]);
   });
 });

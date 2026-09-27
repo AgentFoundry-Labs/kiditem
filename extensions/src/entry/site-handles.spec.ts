@@ -62,6 +62,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     guardDialogs: async () => async () => undefined,
     keep: async () => undefined,
     reclaimKept: async () => null,
+    isRunTab: () => false,
   };
   const deps = {
     fetch: async () => Response.json({}),

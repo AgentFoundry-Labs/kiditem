@@ -43,9 +43,12 @@ SMS·본인확인 화면(GS샵)은 `waitForOperator`로 멈췄다 잇는다.
 불러오는 중 알림 창 가드(KID-380 D4): 몰이 로드 중 `alert`·`confirm`을 띄우면 백그라운드 탭이 멈춘다. `withFreshTab`(로그인
 입구의 `hosts` 또는 `dialogGuardHosts`)과 로그인하러 여는 탭은 주소를 옮기기 전에 `TabPages.guardDialogs`로 그 호스트에
 MAIN world·document_start 등록 content script(`content/page-call/dialog-guard.js`, 실행마다 id 하나)를 걸고 끝나면 지운다.
-가드는 숨은 수집 탭에서만 문장을 `window.__kiditemDialogs`에 모으고 바로 돌아간다 — `confirm` 자동 확인도 숨은 탭에서만이고,
-보이는 탭(운영자 탭·남긴 탭·앞으로 가져온 GS샵 SMS 탭)은 진짜 창을 띄운다. 서비스워커가 다시 뜨면 입구가
-`sweepDialogGuards`로 남은 가드 등록을 지운다. `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
+MAIN 가드와 함께 ISOLATED 짝(`dialog-guard-bridge.js`)을 건다. `alert`은 그 호스트의 어느 탭이든 문장만 `window.__kiditemDialogs`에
+모으고 바로 돌아간다(알림은 안내일 뿐이고 창이 로드를 막는다 — 실행 동안만). `confirm`은 운영자 탭에서 진짜 창이고, 짝이 런타임에
+물어(`kiditem.dialogGuard.isRunTab`, 런타임이 연 탭 목록 `TabPages.isRunTab`) 수집 탭이면 MAIN에 표시를 보내 그 탭에서만 자동
+확인한다. 탭이 보이는지(`visibilityState`)로 가리지 않는다 — DevTools가 붙은 Chrome은 백그라운드 탭도 visible이다(실기기 R1).
+서비스워커가 다시 뜨면 입구가 `sweepDialogGuards`로 남은 가드 등록을 지운다. 수집 탭과 로그인 단계는 로그인 화면에 닿으면 다
+그려지기를 기다리지 않는다(`stopAt`). `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
 `alert`을 바꿨다가 되돌린다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의

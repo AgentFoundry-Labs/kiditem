@@ -41,9 +41,10 @@ function loginTab(options: {
   const messages: Array<Record<string, unknown>> = [];
   const page: TabPage = {
     tabId: 9,
-    async navigate(url) {
+    async navigate(url, navigateOptions) {
       log.push(`navigate ${url}`);
       state.url = options.landAt ? options.landAt(url) : url;
+      if (navigateOptions?.stopAt?.(state.url)) log.push(`stop at ${state.url}`);
       state.form = formAt(state.url);
       return state.url;
     },
@@ -103,6 +104,8 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     const tab = loginTab({ url: 'https://mall.test/admin', landAt: () => 'https://auth.test/login', submit: () => ({ url: 'https://mall.test/admin' }) });
     await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'ok' });
     expect(tab.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
+    // 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다(실기기 R1).
+    expect(tab.log).toContain('stop at https://auth.test/login');
     expect(tab.log[0]).toBe('frames content/page-call/login-fill.js');
     expect(tab.log).toContain('navigate https://mall.test/admin');
     expect(tab.log).toContain('call login.watchDialogs frame 0');

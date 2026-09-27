@@ -121,10 +121,31 @@ export interface TabPages {
    * 가드 없이 이어 간다.
    */
   guardDialogs(hosts: readonly string[]): Promise<() => Promise<void>>;
+  /** 이 탭이 지금 실행이 쥔 수집 탭인가(이 런타임이 열었거나 다시 가져와 쓰는 중, 닫거나 운영자에게 남기기 전) — 실기기 R1. */
+  isRunTab(tabId: number): boolean;
 }
 
 /** 불러오는 중 알림 창 가드 파일(MAIN world, document_start). */
 export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
+/** 가드의 ISOLATED 짝 — 수집 탭인지 런타임에 묻는다(실기기 R1). */
+export const DIALOG_GUARD_BRIDGE_FILE = 'content/page-call/dialog-guard-bridge.js';
+export const DIALOG_GUARD_RUN_TAB_ACTION = 'kiditem.dialogGuard.isRunTab';
+
+/**
+ * 가드 짝의 물음(`kiditem.dialogGuard.isRunTab`)에 답한다: 보낸 탭이 지금 실행이 쥔 수집 탭이면 `{runTab: true}`. 다른 메시지는
+ * 받지 않는다(다른 수신자가 답한다). 입구가 한 번 건다.
+ */
+export function installDialogGuardAnswer(
+  chromeApi: { runtime: { onMessage: { addListener(listener: (message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown): void } } },
+  tabs: Pick<TabPages, 'isRunTab'>,
+): void {
+  chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || typeof message !== 'object' || (message as { action?: unknown }).action !== DIALOG_GUARD_RUN_TAB_ACTION) return undefined;
+    const tabId = sender.tab?.id;
+    sendResponse({ runTab: typeof tabId === 'number' && tabs.isRunTab(tabId) });
+    return undefined;
+  });
+}
 const DIALOG_GUARD_ID_PREFIX = 'kiditem-dialog-guard-';
 
 /**
@@ -197,7 +218,7 @@ export interface TabPageChrome {
       id: string;
       matches: string[];
       js: string[];
-      world: 'MAIN';
+      world: 'MAIN' | 'ISOLATED';
       runAt: 'document_start';
       allFrames: boolean;
       persistAcrossSessions: boolean;
@@ -230,6 +251,8 @@ let dialogGuardSerial = 0;
 export function createTabPages(deps: TabPageDeps): TabPages {
   /** 사이트마다 운영자에게 남긴 탭 하나와 남길 때의 주소(KID-380 D8). */
   const kept = new Map<string, { tabId: number; url: string }>();
+  /** 지금 실행이 쥔 수집 탭(이 런타임이 열었거나 다시 가져온 탭). 닫거나 운영자에게 남기면 뺀다(실기기 R1). */
+  const runTabs = new Set<number>();
   /**
    * 남긴 탭을 이 확장이 다시 써도 되는가: 아직 열려 있고, 운영자가 보고 있지 않고(active 아님), 남길 때 주소나 로그인·빈 화면에
    * 머물러 있다. 운영자가 로그인해 다른 화면으로 옮긴 탭은 운영자 것이다(리뷰 SHOULD 3).
@@ -339,6 +362,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       async close() {
         if (!owned || closed) return;
         closed = true;
+        runTabs.delete(tabId);
         await deps.chrome.tabs.remove(tabId).catch(() => undefined);
       },
     };
@@ -348,6 +372,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     async open(url) {
       const created = await deps.chrome.tabs.create({ url, active: false });
       if (typeof created.id !== 'number') throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭을 열지 못했습니다.', { url });
+      runTabs.add(created.id);
       return page(created.id, true);
     },
     attach: (tabId) => page(tabId, false),
@@ -359,6 +384,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
     },
     async keep(key, keptPage) {
+      runTabs.delete(keptPage.tabId);
       const prior = kept.get(key);
       const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
       if (!tab) {
@@ -375,8 +401,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       const entry = kept.get(key);
       if (!entry) return null;
       kept.delete(key);
-      return (await stillOurs(entry)) ? page(entry.tabId, true) : null;
+      if (!(await stillOurs(entry))) return null;
+      runTabs.add(entry.tabId);
+      return page(entry.tabId, true);
     },
+    isRunTab: (tabId) => runTabs.has(tabId),
     async guardDialogs(hosts) {
       const scripting = deps.chrome.scripting;
       dialogGuardSerial += 1;
@@ -386,12 +415,13 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       if (matches.length > 0 && scripting.registerContentScripts) {
         registered = await scripting.registerContentScripts([
           { id, matches, js: [DIALOG_GUARD_FILE], world: 'MAIN', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
+          { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: 'ISOLATED', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
         ]).then(() => true, () => false);
       }
       return async () => {
         if (!registered) return;
         registered = false;
-        await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => undefined);
+        await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => undefined);
       };
     },
     async fetchText(url, init) {

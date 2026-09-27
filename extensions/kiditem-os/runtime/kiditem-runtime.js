@@ -8365,6 +8365,16 @@ var KidItemRuntime = (() => {
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   }
   var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
+  var DIALOG_GUARD_BRIDGE_FILE = "content/page-call/dialog-guard-bridge.js";
+  var DIALOG_GUARD_RUN_TAB_ACTION = "kiditem.dialogGuard.isRunTab";
+  function installDialogGuardAnswer(chromeApi, tabs) {
+    chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!message || typeof message !== "object" || message.action !== DIALOG_GUARD_RUN_TAB_ACTION) return void 0;
+      const tabId = sender.tab?.id;
+      sendResponse({ runTab: typeof tabId === "number" && tabs.isRunTab(tabId) });
+      return void 0;
+    });
+  }
   var DIALOG_GUARD_ID_PREFIX = "kiditem-dialog-guard-";
   async function sweepDialogGuards(chromeApi) {
     const scripting = chromeApi?.scripting;
@@ -8391,6 +8401,7 @@ var KidItemRuntime = (() => {
   var dialogGuardSerial = 0;
   function createTabPages(deps) {
     const kept = /* @__PURE__ */ new Map();
+    const runTabs = /* @__PURE__ */ new Set();
     async function stillOurs(entry) {
       const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
       if (!tab || tab.active === true) return false;
@@ -8491,6 +8502,7 @@ var KidItemRuntime = (() => {
         async close() {
           if (!owned || closed) return;
           closed = true;
+          runTabs.delete(tabId);
           await deps.chrome.tabs.remove(tabId).catch(() => void 0);
         }
       };
@@ -8499,6 +8511,7 @@ var KidItemRuntime = (() => {
       async open(url) {
         const created = await deps.chrome.tabs.create({ url, active: false });
         if (typeof created.id !== "number") throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url });
+        runTabs.add(created.id);
         return page(created.id, true);
       },
       attach: (tabId) => page(tabId, false),
@@ -8509,6 +8522,7 @@ var KidItemRuntime = (() => {
         return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
       async keep(key, keptPage) {
+        runTabs.delete(keptPage.tabId);
         const prior = kept.get(key);
         const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
         if (!tab) {
@@ -8524,8 +8538,11 @@ var KidItemRuntime = (() => {
         const entry = kept.get(key);
         if (!entry) return null;
         kept.delete(key);
-        return await stillOurs(entry) ? page(entry.tabId, true) : null;
+        if (!await stillOurs(entry)) return null;
+        runTabs.add(entry.tabId);
+        return page(entry.tabId, true);
       },
+      isRunTab: (tabId) => runTabs.has(tabId),
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
         dialogGuardSerial += 1;
@@ -8534,13 +8551,14 @@ var KidItemRuntime = (() => {
         let registered = false;
         if (matches.length > 0 && scripting.registerContentScripts) {
           registered = await scripting.registerContentScripts([
-            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
+            { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
           ]).then(() => true, () => false);
         }
         return async () => {
           if (!registered) return;
           registered = false;
-          await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => void 0);
+          await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => void 0);
         };
       },
       async fetchText(url, init) {
@@ -8574,7 +8592,8 @@ var KidItemRuntime = (() => {
     const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
-      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
+      const stopAt = options.signIn ? (landed) => options.signIn.isLoginUrl(landed) : void 0;
+      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...stopAt ? { stopAt } : {} });
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
@@ -8910,7 +8929,7 @@ var KidItemRuntime = (() => {
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
     if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -9047,6 +9066,7 @@ var KidItemRuntime = (() => {
     const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
     return {
       hosts: spec.hosts,
+      isLoginUrl: (url) => isLogin(spec, url),
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
         if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
@@ -13448,6 +13468,7 @@ var KidItemRuntime = (() => {
       randomId: () => crypto.randomUUID()
     };
     void sweepDialogGuards(chrome);
+    if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
