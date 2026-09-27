@@ -65,14 +65,15 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
   const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
   const call = adCenterCall(deps, lease, page);
 
-  async function graphql(query: string, variables: Record<string, unknown>): Promise<Record<string, unknown>> {
+  /** `write`: 보고서 생성처럼 두 번 보내면 안 되는 호출 — 첫 500에도 다시 묻지 않는다. */
+  async function graphql(query: string, variables: Record<string, unknown>, options: { write?: boolean } = {}): Promise<Record<string, unknown>> {
     const body = record(await call(() => caller.json<unknown>(AD_CENTER_GRAPHQL_URL, {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ query, variables }),
     }).catch((error: unknown) => {
       throw graphqlRejection(error) ?? error;
-    })));
+    }), { retryAfterWarmUp: options.write !== true }));
     const errors = body?.errors;
     if (Array.isArray(errors) && errors.length > 0) {
       const first = record(errors[0]);
@@ -122,7 +123,7 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
         granularity: input.granularity,
         // 상품 보고서는 클릭 없는 행까지(노출), 키워드 보고서는 클릭 있는 행만(광고비는 빠지지 않는다, 문서 §13.4).
         excludeIfNoClickCount: input.granularity === 'keyword',
-      });
+      }, { write: true });
       const created = record(data.requestReport);
       const reportId = text(created?.id);
       if (!created || !reportId) throw failed('graphql_invalid', '쿠팡 광고센터 보고서 생성 응답이 올바르지 않습니다.');
@@ -191,7 +192,7 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
 /**
  * 요청 하나를 감싼다. 로그인 리다이렉트면 잠금 탭(없으면 새 탭)에서 실행 자격으로 한 번 로그인하고 다시 묻는다(Wing과 같은
  * 규칙, `../wing/login`). 로그인 직후 세션이 데워지지 않아 처음 500이 오면 탭을 `/marketing`으로 다시 열고 한 번 다시 묻는다 —
- * 한 실행에 한 번뿐이다.
+ * 한 실행에 한 번뿐이고, 읽기(캠페인 목록·보고서 목록·받기·정산·tetris-api)만이다. 보고서 생성은 두 번 생기지 않게 다시 묻지 않는다.
  */
 function adCenterCall(deps: SiteDeps, lease: SiteLease, page: TabPage | null) {
   const credentials = lease.credentials;
@@ -203,19 +204,22 @@ function adCenterCall(deps: SiteDeps, lease: SiteLease, page: TabPage | null) {
     return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
   };
   let warmed = false;
-  const warm = async <T>(request: () => Promise<T>): Promise<T> => {
+  const warm = async <T>(request: () => Promise<T>, retry: boolean): Promise<T> => {
     try {
       return await request();
     } catch (error) {
-      if (warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
+      if (!retry || warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
       warmed = true;
       await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true, stopAt: isLoginUrl });
       return request();
     }
   };
-  return <T>(request: () => Promise<T>): Promise<T> => (page
-    ? withLogin(() => warm(request), () => login(page))
-    : withLoginTab(withLogin, () => warm(request), () => deps.tabs.open('about:blank'), login));
+  return <T>(request: () => Promise<T>, options: { retryAfterWarmUp?: boolean } = {}): Promise<T> => {
+    const retry = options.retryAfterWarmUp !== false;
+    return page
+      ? withLogin(() => warm(request, retry), () => login(page))
+      : withLoginTab(withLogin, () => warm(request, retry), () => deps.tabs.open('about:blank'), login);
+  };
 }
 
 /** chart-report NDJSON: 빈 줄을 건너뛰고 줄마다 객체 하나. */

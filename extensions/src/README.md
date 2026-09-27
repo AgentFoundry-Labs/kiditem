@@ -65,7 +65,7 @@ visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDi
 (`graphql_error`)로 바꾼다. 로그인 화면은 광고센터 `/user/login…`(계정 유형 선택)과 판매자 로그인(`xauth.coupang.com`)이다:
 리다이렉트면 잠금 탭에서, 계정 유형 선택 화면이면 "쿠팡 wing 로그인"을 한 번 누르고(페이지 호출 `content/ad-center/account-choice.js`,
 자격증명 없음 — 옛 `ads-report.js`가 하던 이동 클릭) xauth의 Wing과 같은 아이디·비밀번호 폼을 실행 자격으로 채운 뒤 한 번
-다시 묻는다. 누를 버튼이 없거나 폼이 오지 않으면 `SITE_LOGIN_REQUIRED`(`login_unconfirmed`)로 멈춰 탭을 운영자에게 남긴다.
+다시 묻는다. 보고서 생성(`requestReport`)은 첫 500에도 다시 묻지 않는다(보고서가 두 번 생기지 않게). 누를 버튼이 없거나 폼이 오지 않으면 `SITE_LOGIN_REQUIRED`(`login_unconfirmed`)로 멈춰 탭을 운영자에게 남긴다.
 업체코드는 탭 화면의 "업체코드" 항목을
 파일 주입(`content/ad-center/vendor-code.js`, 읽기만)으로 읽는다.
 

@@ -150,6 +150,17 @@ describe('sites/ad-center — 광고센터 읽기(서비스워커, 보고서 생
     expect(twice.fake.log).toHaveLength(1);
   });
 
+  it('보고서 생성(유일한 쓰기)은 500이어도 탭을 다시 열거나 다시 묻지 않는다 — 보고서가 두 번 생기지 않게', async () => {
+    const { site, sent, fake } = adCenter({ respond: () => new Response('vendorMarket', { status: 500 }) });
+    await expect(site.requestReport({ ...RANGE, campaignIds: ['101'], granularity: 'vendorItem' })).rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { status: 500 } });
+    expect(sent).toHaveLength(1);
+    expect(fake.log).toEqual([]);
+    // 읽기(보고서 목록)는 그 뒤에도 첫 500에 한 번 다시 연다.
+    await expect(site.listReports()).rejects.toMatchObject({ details: { status: 500 } });
+    expect(fake.log).toEqual([`navigate ${AD_CENTER_HOME_URL} (continue on timeout)`]);
+    expect(sent).toHaveLength(3);
+  });
+
   it('광고 목록은 그룹 경로로 500개씩 묻고, 목록·전체 수 필드 후보를 읽는다', async () => {
     const { site, sent } = adCenter({ respond: () => Response.json({ data: { content: [{ adId: 1 }], totalCount: 1, hasNextPage: false } }) });
     await expect(site.listAds({ adGroupId: '202', page: 1 })).resolves.toEqual({ ads: [{ adId: 1 }], totalCount: 1 });

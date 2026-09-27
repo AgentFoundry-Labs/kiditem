@@ -9870,14 +9870,14 @@ var KidItemRuntime = (() => {
     const caller = createSiteCaller(AD_CENTER_CALLER, deps);
     const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
     const call2 = adCenterCall(deps, lease, page);
-    async function graphql(query, variables) {
+    async function graphql(query, variables, options = {}) {
       const body = record2(await call2(() => caller.json(AD_CENTER_GRAPHQL_URL, {
         method: "POST",
         headers: JSON_HEADERS,
         body: JSON.stringify({ query, variables })
       }).catch((error) => {
         throw graphqlRejection(error) ?? error;
-      })));
+      }), { retryAfterWarmUp: options.write !== true }));
       const errors = body?.errors;
       if (Array.isArray(errors) && errors.length > 0) {
         const first = record2(errors[0]);
@@ -9923,7 +9923,7 @@ var KidItemRuntime = (() => {
           granularity: input.granularity,
           // 상품 보고서는 클릭 없는 행까지(노출), 키워드 보고서는 클릭 있는 행만(광고비는 빠지지 않는다, 문서 §13.4).
           excludeIfNoClickCount: input.granularity === "keyword"
-        });
+        }, { write: true });
         const created = record2(data.requestReport);
         const reportId = text3(created?.id);
         if (!created || !reportId) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uC0DD\uC131 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
@@ -9990,17 +9990,20 @@ var KidItemRuntime = (() => {
       return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
     };
     let warmed = false;
-    const warm = async (request) => {
+    const warm = async (request, retry) => {
       try {
         return await request();
       } catch (error) {
-        if (warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
+        if (!retry || warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
         warmed = true;
         await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true, stopAt: isLoginUrl });
         return request();
       }
     };
-    return (request) => page ? withLogin(() => warm(request), () => login(page)) : withLoginTab(withLogin, () => warm(request), () => deps.tabs.open("about:blank"), login);
+    return (request, options = {}) => {
+      const retry = options.retryAfterWarmUp !== false;
+      return page ? withLogin(() => warm(request, retry), () => login(page)) : withLoginTab(withLogin, () => warm(request, retry), () => deps.tabs.open("about:blank"), login);
+    };
   }
   function parseReportNdjson(body) {
     const rows = [];
