@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
-  KeyRound,
   LineChart,
   Loader2,
   Megaphone,
@@ -28,12 +27,12 @@ import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/Sellpia
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import {
   sellpiaSalesCollection,
   sellpiaSalesReadinessRange,
 } from '@/lib/sellpia-sales-source-collection';
-import { cn, formatNumber, timeAgo } from '@/lib/utils';
+import { cn, timeAgo } from '@/lib/utils';
 import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import { CatalogReadinessAction, CatalogReadinessStatus } from './CatalogReadinessControl';
 import type { LucideIcon } from 'lucide-react';
@@ -98,19 +97,6 @@ function SourceReadinessChip({ status }: { status: SourceReadinessStatus }) {
       {meta.text}
     </span>
   );
-}
-
-/** Campaign and keyword owners cover through the end date of their latest completed plan. */
-function ownerSourceReadiness(source: {
-  ready: boolean;
-  latestComplete: { plan: { endDate: string } } | null;
-}): SourceReadinessStatus {
-  return sourceReadinessStatus({
-    ready: source.ready,
-    latestComplete: source.latestComplete
-      ? { actualCutoff: source.latestComplete.plan.endDate }
-      : null,
-  });
 }
 
 /** Sellpia inventory is ready after a completed collection; it has no age cutoff. */
