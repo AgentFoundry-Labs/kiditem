@@ -24,6 +24,8 @@ export interface OrderActivityEvent {
   mallName: string;
   message: string;
   at: number;
+  /** 이 행을 남긴 실행(실행 kind 몰). 그 실행이 끝나면 이 행만 바꿔 적는다(KID-380 D7). */
+  runId?: string;
 }
 
 /**

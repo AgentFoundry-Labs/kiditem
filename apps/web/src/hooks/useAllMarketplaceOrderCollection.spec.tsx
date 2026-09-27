@@ -856,7 +856,7 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
       await act(async () => {
         await result.current.collectAll();
       });
-      expect(logActivity).toHaveBeenCalledWith('error', '키드키즈', expect.stringContaining('아직 끝나지 않았습니다'));
+      expect(logActivity).toHaveBeenCalledWith('error', '키드키즈', expect.stringContaining('아직 끝나지 않았습니다'), OPERATION_ID);
       clearMallErrorActivity.mockClear();
       logActivity.mockClear();
 
@@ -870,8 +870,9 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
         fail(new OrderOperationFailure(operation, '키드키즈 로그인이 필요합니다.'));
         await Promise.resolve();
       });
-      expect(clearMallErrorActivity).toHaveBeenCalledWith('키드키즈');
-      expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String));
+      // 그 실행의 행만 지운다 — 같은 몰의 더 새 실행 행은 두고(리뷰 SHOULD 5).
+      expect(clearMallErrorActivity).toHaveBeenCalledWith('키드키즈', OPERATION_ID);
+      expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String), OPERATION_ID);
       expect(finish).toBeTypeOf('function');
     } finally {
       mocks.collectOperation = null;
@@ -893,8 +894,34 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
         await result.current.collectAll();
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
-      expect(clearMallErrorActivity).toHaveBeenLastCalledWith('키드키즈');
-      expect(logActivity).toHaveBeenLastCalledWith('empty', '키드키즈');
+      expect(clearMallErrorActivity).toHaveBeenLastCalledWith('키드키즈', OPERATION_ID);
+      expect(logActivity).toHaveBeenLastCalledWith('empty', '키드키즈', undefined, OPERATION_ID);
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
+  });
+
+  it('화면이 내려가면 이어 읽던 실행 기다림을 모두 끊는다(리뷰 SHOULD 5)', async () => {
+    let followUpSignal: AbortSignal | null = null;
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = (input) => {
+      followUpSignal = (input as { signal: AbortSignal }).signal;
+      return new Promise(() => undefined);
+    };
+    try {
+      const { result, unmount } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn() }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(followUpSignal).not.toBeNull();
+      expect(followUpSignal!.aborted).toBe(false);
+      unmount();
+      expect(followUpSignal!.aborted).toBe(true);
     } finally {
       mocks.collectOperation = null;
       mocks.followUpOperation = null;

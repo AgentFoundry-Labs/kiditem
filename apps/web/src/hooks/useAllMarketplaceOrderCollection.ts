@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
@@ -77,6 +77,7 @@ const NOOP_ACTIVITY = (
   _kind: MarketplaceOrderCollectionActivityKind,
   _mallName: string,
   _message?: string,
+  _runId?: string,
 ) => undefined;
 const EMPTY_MALL_ACCOUNTS: OrderCollectionMallAccount[] = [];
 
@@ -142,11 +143,14 @@ type UseAllMarketplaceOrderCollectionOptions = {
   rocketChannelAccountId: string | null;
   addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
   setPreviewId?: (id: string) => void;
-  clearMallErrorActivity?: (mallName: string) => void;
+  /** 그 몰의 조치 행을 지운다. `runId`가 있으면 그 실행이 남긴 행만(KID-380 D7). */
+  clearMallErrorActivity?: (mallName: string, runId?: string) => void;
   logActivity?: (
     kind: MarketplaceOrderCollectionActivityKind,
     mallName: string,
     message?: string,
+    /** 이 행을 남긴 실행(실행 kind 몰). */
+    runId?: string,
   ) => void;
 };
 
@@ -411,6 +415,14 @@ export function useAllMarketplaceOrderCollection({
     operationRunsRef.current.get(operationId)?.abort();
     operationRunsRef.current.delete(operationId);
   }, []);
+  // 화면이 내려가면 이 브라우저가 기다리거나 이어 읽던 실행 절차를 모두 끊는다(실행 자체는 확장에서 이어진다, 리뷰 SHOULD 5).
+  useEffect(() => {
+    const runs = operationRunsRef.current;
+    return () => {
+      for (const controller of runs.values()) controller.abort();
+      runs.clear();
+    };
+  }, []);
 
   /**
    * 실행 kind(`orders.mall_orders`)로 옮긴 몰의 절차: 실행이 끝나기를 기다렸다가 실행 id로 변환해 생성 파일을
@@ -433,7 +445,7 @@ export function useAllMarketplaceOrderCollection({
         },
       });
       clearMallErrorActivity(account.name);
-      if (collected.rowCount === 0) logActivity('empty', account.name);
+      if (collected.rowCount === 0) logActivity('empty', account.name, undefined, operationId);
       return collected;
     } catch (error) {
       if (!signal.aborted) {
@@ -444,7 +456,7 @@ export function useAllMarketplaceOrderCollection({
           friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
         );
         const failureKind = classifyOrderCollectionFailure(error, evidence || message);
-        logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message);
+        logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message, operationId);
       }
       throw error;
     }
@@ -471,8 +483,8 @@ export function useAllMarketplaceOrderCollection({
           setPreviewId(historyItem.id);
         },
       });
-      clearMallErrorActivity(account.name);
-      if (collected.rowCount === 0) logActivity('empty', account.name);
+      clearMallErrorActivity(account.name, operationId);
+      if (collected.rowCount === 0) logActivity('empty', account.name, undefined, operationId);
       else if (report) toast.success(`${account.name} 수집 완료`);
     } catch (error) {
       // 중단했거나 이어 읽기도 끝나지 않았으면 적어 둔 행을 그대로 둔다.
@@ -484,8 +496,8 @@ export function useAllMarketplaceOrderCollection({
         friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
       );
       const failureKind = classifyOrderCollectionFailure(error, evidence || message);
-      clearMallErrorActivity(account.name);
-      logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message);
+      clearMallErrorActivity(account.name, operationId);
+      logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message, operationId);
     }
   }, [addGeneratedFile, clearMallErrorActivity, logActivity, setPreviewId]);
 
