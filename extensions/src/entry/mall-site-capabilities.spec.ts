@@ -3,7 +3,7 @@ import { MALL_ADMIN_LISTING_MALL_KEYS, mallListingSiteCapability } from '@kidite
 import { MALL_ORDER_OPERATION_MALLS, mallOrderSiteCapability } from '@kiditem/shared/orders-operations';
 import { siteFactoryFor } from '../sites/registry';
 import './index';
-import { mallSiteCapabilities } from './mall-site-capabilities';
+import { mallSiteCapabilities, mallWriteCapabilities } from './mall-site-capabilities';
 
 describe('mall site capabilities (KID-380 T4)', () => {
   it('ping은 이 빌드가 사이트를 가진 몰마다 mallOrderSite.<몰>·mallListingSite.<몰>을 싣는다 — 옮긴 몰 전부', () => {
@@ -20,5 +20,17 @@ describe('mall site capabilities (KID-380 T4)', () => {
   it('사이트가 없는 몰은 싣지 않는다 — 옛 빌드가 그 몰을 돌 수 있다고 말하지 않게', () => {
     const capabilities = mallSiteCapabilities((name) => (name === 'kidkids' ? siteFactoryFor(name) : null));
     expect(capabilities).toEqual({ 'mallOrderSite.kidkids': true, 'mallListingSite.kidkids': true });
+  });
+});
+
+describe('mall write capabilities (KID-256)', () => {
+  it('ping은 이 빌드가 쓰기 모듈을 가진 몰마다 mallWriteSite.<몰>을 싣는다', () => {
+    const capabilities = mallWriteCapabilities();
+    expect(capabilities['mallWriteSite.domeggook']).toBe(true);
+    expect(capabilities['mallWriteSite.sellpia']).toBeUndefined();
+  });
+
+  it('쓰기 모듈이 없는 몰은 싣지 않는다', () => {
+    expect(mallWriteCapabilities([{ mallKey: 'onch' }])).toEqual({ 'mallWriteSite.onch': true });
   });
 });

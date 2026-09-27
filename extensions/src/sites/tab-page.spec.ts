@@ -487,6 +487,19 @@ describe('운영자에게 넘긴 탭은 수집 탭이 아니다(리뷰 2 SHOULD 
     expect(sent).toEqual([{ action: 'kiditem.dialogGuard.setRunTab', runTab: false }]);
   });
 
+  it('leave(몰 쓰기가 채운 폼)는 닫지도 남긴 탭으로 적지도 않고 운영자에게 넘긴다 — 다음 등록이 그 탭을 닫지 않는다(KID-256)', async () => {
+    const sent: unknown[] = [];
+    const { chromeApi, log } = fakeChrome({ sendMessage: async (message) => { sent.push(message); return undefined; } });
+    const tabs = createTabPages(deps(chromeApi));
+    const page = await tabs.open('about:blank');
+    await page.leave();
+    expect(tabs.isRunTab(9)).toBe(false);
+    expect(sent).toEqual([{ action: 'kiditem.dialogGuard.setRunTab', runTab: false }]);
+    await page.close();
+    expect(log).not.toContain('remove 9');
+    expect(await tabs.reclaimKept('https://mall.test')).toBeNull();
+  });
+
   it('붙인 운영자 탭은 옮겨도 수집 탭이 되지 않는다', async () => {
     const { chromeApi } = fakeChrome({ sendMessage: async () => undefined });
     const tabs = createTabPages(deps(chromeApi));

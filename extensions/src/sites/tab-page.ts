@@ -36,6 +36,12 @@ export interface TabPage {
   listen(listener: (message: Record<string, unknown>) => void): () => void;
   /** 이 사이트가 연 탭이면 닫는다(운영자 탭은 닫지 않는다). */
   close(): Promise<void>;
+  /**
+   * 닫지 않고 운영자에게 넘긴다(KID-256 — 몰 쓰기가 채운 등록 폼은 성공해도 사람이 본다). 수집 탭에서 빼고 가드 짝에 알려
+   * 진짜 알림 창으로 돌린다. `keep`과 달리 남긴 탭으로 적지 않는다 — 같은 몰에 이어 채운 다음 폼이 이 탭을 닫지 않게. 이 뒤의
+   * `close()`는 아무것도 하지 않는다.
+   */
+  leave(): Promise<void>;
 }
 
 /** content script 답의 공통 모양. 시간 초과·받는 쪽 없음은 `{ ok: false, error }`로 온다. */
@@ -388,6 +394,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         closed = true;
         runTabs.delete(tabId);
         await deps.chrome.tabs.remove(tabId).catch(() => undefined);
+      },
+      async leave() {
+        closed = true;
+        await handToOperator(tabId);
       },
     };
   }

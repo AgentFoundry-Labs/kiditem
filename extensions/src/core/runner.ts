@@ -107,9 +107,16 @@ export interface RunnableCollectContext {
   report(progress: Record<string, unknown>): Promise<void>;
 }
 
+/** 수집기가 청크를 다 낸 뒤 돌려주는 finish 값(생성기 반환값). 실행마다 다른 결과(등록 결과 등)를 싣는다. */
+export interface RunnableFinish {
+  window?: OperationWindow;
+  result?: Record<string, unknown>;
+}
+
 export interface RunnableCollector {
   readonly site: string | null;
-  collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk>;
+  /** 청크 스트림. 생성기가 `RunnableFinish`를 돌려주면 그 값이 `summarize`보다 앞선다. */
+  collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk> | AsyncGenerator<RunnableChunk, RunnableFinish | void, undefined>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
 }
 
@@ -254,33 +261,51 @@ async function execute(
       );
       scheduleHeartbeat();
     };
-    for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
-      if (local.signal.aborted) break;
-      if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
-        throw new RuntimeError(RUNTIME_COLLECT_FAILED, `수집기는 예약된 chunkKind(${HEARTBEAT_CHUNK_KIND})를 쓰지 않는다.`, { reason: 'reserved_chunk_kind' });
+    // `for await`는 생성기의 반환값을 버린다 — 끝 값(실행마다 다른 result)을 받으려고 직접 넘긴다.
+    const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })[Symbol.asyncIterator]();
+    let returned: RunnableFinish | void = undefined;
+    try {
+      for (;;) {
+        const step = await stream.next();
+        if (step.done) {
+          returned = step.value as RunnableFinish | void;
+          break;
+        }
+        const chunk = step.value;
+        if (local.signal.aborted) {
+          await stream.return?.(undefined);
+          break;
+        }
+        if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
+          throw new RuntimeError(RUNTIME_COLLECT_FAILED, `수집기는 예약된 chunkKind(${HEARTBEAT_CHUNK_KIND})를 쓰지 않는다.`, { reason: 'reserved_chunk_kind' });
+        }
+        // 빈 청크는 서버가 보관하지 않는다(임대 연장·progress만) — 순번을 쓰지 않고 청크 수·상한에도 세지 않는다.
+        const empty = chunk.payload.length === 0;
+        if (!empty) assertChunkFits(chunk, chunks);
+        const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
+        const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
+        if (!empty) sequences.set(chunk.chunkKind, sequence);
+        await write(() =>
+          deps.client.putChunk({
+            operationId,
+            token,
+            chunkKind: chunk.chunkKind,
+            sequence,
+            payload: chunk.payload,
+            ...(chunk.progress ? { progress: chunk.progress } : {}),
+          }),
+        );
+        if (!empty) {
+          chunks += 1;
+          items += chunk.payload.length;
+        }
+        if (chunk.progress) lastProgress = chunk.progress;
+        scheduleHeartbeat();
       }
-      // 빈 청크는 서버가 보관하지 않는다(임대 연장·progress만) — 순번을 쓰지 않고 청크 수·상한에도 세지 않는다.
-      const empty = chunk.payload.length === 0;
-      if (!empty) assertChunkFits(chunk, chunks);
-      const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
-      const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
-      if (!empty) sequences.set(chunk.chunkKind, sequence);
-      await write(() =>
-        deps.client.putChunk({
-          operationId,
-          token,
-          chunkKind: chunk.chunkKind,
-          sequence,
-          payload: chunk.payload,
-          ...(chunk.progress ? { progress: chunk.progress } : {}),
-        }),
-      );
-      if (!empty) {
-        chunks += 1;
-        items += chunk.payload.length;
-      }
-      if (chunk.progress) lastProgress = chunk.progress;
-      scheduleHeartbeat();
+    } catch (error) {
+      // 청크 쓰기가 실패하면 수집기의 `finally`(탭 정리)가 돌게 닫는다(`for await`가 하던 일).
+      await stream.return?.(undefined).catch(() => undefined);
+      throw error;
     }
     collectionDone = true;
     stopHeartbeat();
@@ -289,7 +314,7 @@ async function execute(
     if (heartbeatStop) throw heartbeatStop;
     if (input.signal.aborted) return cancelled(operationId);
 
-    const summary = collector.summarize?.({ chunks, items }) ?? {};
+    const summary = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
     const request: OperationFinishRequest = {
       outcome: 'succeeded',
       ...(summary.result ? { result: summary.result } : {}),

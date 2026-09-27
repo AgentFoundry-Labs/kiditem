@@ -87,6 +87,9 @@ export function fakeTabPages(options: {
       async close() {
         log.push(owned ? `close ${tabId}` : `keep ${tabId}`);
       },
+      async leave() {
+        log.push(`leave ${tabId}`);
+      },
     };
   }
   const tabs: TabPages = {

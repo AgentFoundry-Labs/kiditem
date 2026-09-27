@@ -7,6 +7,8 @@
 // - `confirm`은 수집 탭 표시가 오기 전까지 진짜 창이다. ISOLATED 짝(`dialog-guard-bridge.js`)이 런타임에 물어 수집 탭이면
 //   `{kiditemDialogGuard: 'run-tab'}`(문장을 모으고 확인 — 옛 수집기의 자동 승인), 운영자 탭이면 `'operator-tab'`(둘 다 진짜
 //   창)을 보낸다. 런타임이 탭을 운영자에게 넘기면(focus·keep) 짝을 거쳐 다시 `'operator-tab'`이 온다.
+// - 몰 쓰기(등록 폼 채우기, KID-256)는 채우는 처리기가 `{kiditemDialogGuard: 'write-tab'}`을 보낸다 — 알림은 모으고 `confirm`은
+//   문장을 모은 뒤 거절한다(몰이 묻는 저장·이동을 받지 않는다). 탭을 운영자에게 넘기면 `'operator-tab'`으로 진짜 창이 돌아온다.
 // 탭이 보이는지(`visibilityState`)로 가리지 않는다 — DevTools가 붙은 QA Chrome은 백그라운드 탭도 visible이다.
 // 모은 문장은 로그인 알림 창 받기(`login-dialogs.js`)가 몰의 말로 돌려준다.
 (function installKidItemDialogGuard() {
@@ -46,22 +48,30 @@
   }
   const nativeAlert = window.alert;
   const nativeConfirm = window.confirm;
-  // 짝이 알려 주기 전(`unknown`)·수집 탭(`run`)·운영자 탭(`operator` — 런타임이 수집 탭이 아니라 답했거나, GS샵 SMS 인증처럼
+  // 짝이 알려 주기 전(`unknown`)·수집 탭(`run`)·몰 쓰기 탭(`write`)·운영자 탭(`operator` — 런타임이 수집 탭이 아니라 답했거나, GS샵 SMS 인증처럼
   // 운영자에게 넘겼거나, 운영자에게 남긴 탭, 리뷰 2 SHOULD 2·3).
   let mode = "unknown";
   window.addEventListener("message", (event) => {
     if (event.source !== window || event.origin !== window.location.origin) return;
     const mark = event.data && event.data.kiditemDialogGuard;
-    if (mark === "run-tab") mode = "run";
+    // 몰 쓰기 탭(`write`)은 수집 탭 표시가 뒤늦게 와도 그대로다 — 운영자에게 넘길 때(`operator-tab`)만 풀린다.
+    if (mark === "run-tab" && mode !== "write") mode = "run";
+    else if (mark === "write-tab") mode = "write";
     else if (mark === "operator-tab") mode = "operator";
   });
+  // 같은 문서의 몰 쓰기 처리기(`form-fill.js`)가 채우기 직전에 부른다 — postMessage 표시는 늦게 닿아 그 사이 뜬 confirm이
+  // 수집 탭 규칙(자동 확인)으로 받아들여질 수 있다(KID-256).
+  window.__kiditemWriteTab = function () {
+    mode = "write";
+  };
   window.alert = function (message) {
     if (mode === "operator" && typeof nativeAlert === "function") return nativeAlert.call(window, message);
     record(message);
   };
   window.confirm = function (message) {
-    if (mode !== "run" && typeof nativeConfirm === "function") return nativeConfirm.call(window, message);
+    if (mode !== "run" && mode !== "write" && typeof nativeConfirm === "function") return nativeConfirm.call(window, message);
     record(message);
-    return true;
+    // 몰 쓰기 탭은 몰이 묻는 저장·이동·삭제를 받지 않는다(옛 폼 채우기의 confirm 거절, KID-256). 수집 탭은 자동 확인.
+    return mode !== "write";
   };
 })();

@@ -4,6 +4,9 @@ import { describe, expect, it } from 'vitest';
 import { OPERATION_STATUSES } from '@kiditem/shared/operation';
 import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
 
+/** 쓰기 모듈이 있는 몰(KID-256). */
+const MALL_WRITE_SITES = ['always', 'domeggook'];
+
 // 커밋된 번들(서비스워커가 싣는 바로 그 파일)을 classic script 처럼 실행한다.
 // `extension:check` 가 이 파일이 src 의 새 빌드와 바이트까지 같은지 따로 본다.
 function loadRuntime(chrome: unknown, legacy: Record<string, unknown> = {}): Record<string, unknown> {
@@ -41,6 +44,7 @@ describe('committed runtime bundle', () => {
       'analytics.sellpia_product_profitability',
       'analytics.sellpia_sales',
       'channels.mall_admin_listings',
+      'channels.registration',
       'channels.sabangnet_mall_listings',
       'channels.sellpia_manual_match',
       'channels.wing_catalog_details',
@@ -94,12 +98,13 @@ describe('committed runtime bundle', () => {
     // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
     // operationLoginV1: operation.start의 credentials를 받는 빌드(KID-377) — 웹은 이 표시가 있을 때만 자격을 싣는다.
     // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드에 사이트가 있는 몰마다(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
-    const { mallSite, kinds } = Object.entries(registered[0].capabilities).reduce(
+    // mallWriteSite.<몰>: 이 빌드에 쓰기 모듈이 있는 몰마다(KID-256) — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
+    const { mallSite, writeSite, kinds } = Object.entries(registered[0].capabilities).reduce(
       (split, [name, value]) => {
-        (/^mall(Order|Listing)Site\./.test(name) ? split.mallSite : split.kinds)[name] = value;
+        (/^mall(Order|Listing)Site\./.test(name) ? split.mallSite : /^mallWriteSite\./.test(name) ? split.writeSite : split.kinds)[name] = value;
         return split;
       },
-      { mallSite: {} as Record<string, boolean>, kinds: {} as Record<string, boolean> },
+      { mallSite: {} as Record<string, boolean>, writeSite: {} as Record<string, boolean>, kinds: {} as Record<string, boolean> },
     );
     expect(kinds).toEqual({
       operationRuntime: true,
@@ -111,7 +116,9 @@ describe('committed runtime bundle', () => {
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       sellpiaOperationKindsV1: true,
+      channelsRegistrationOperationKindV1: true,
     });
+    expect(Object.keys(writeSite).sort()).toEqual(MALL_WRITE_SITES.map((mallKey) => `mallWriteSite.${mallKey}`));
     expect(mallSite).toEqual(Object.fromEntries([
       ...MALL_ORDER_OPERATION_MALLS.map((mallKey) => [mallOrderSiteCapability(mallKey), true]),
       ...MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => [mallListingSiteCapability(mallKey), true]),

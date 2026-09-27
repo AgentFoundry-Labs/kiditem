@@ -5002,18 +5002,18 @@ var KidItemRuntime = (() => {
           observedVendorId: vendorId2
         });
       }
-      const list = await site.readItemwinnerList();
+      const list2 = await site.readItemwinnerList();
       const observedAt = (/* @__PURE__ */ new Date()).toISOString();
       if (signal.aborted) return;
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS, label: "\uC544\uC774\uD15C\uC704\uB108 \uD589" });
-      for (const row of list.rows) {
+      for (const row of list2.rows) {
         const full = buffer.push(row);
         if (full) yield rowsChunk(full);
       }
       const rest = buffer.flush();
       if (rest) yield rowsChunk(rest);
-      const marker = { totalSize: list.totalSize, observedAt, vendorId: vendorId2 };
-      yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list.rows.length } };
+      const marker = { totalSize: list2.totalSize, observedAt, vendorId: vendorId2 };
+      yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list2.rows.length } };
     }
   };
   function rowsChunk(payload) {
@@ -5632,7 +5632,9 @@ var KidItemRuntime = (() => {
   var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var CHANNELS_OPERATION_CAPABILITY = "channelsOperationKindsV1";
+  var REGISTRATION_KIND = "channels.registration";
   var MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
+  var CHANNELS_REGISTRATION_OPERATION_CAPABILITY = "channelsRegistrationOperationKindV1";
   var REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, THUMBNAIL_UPDATE_EXECUTION_KIND];
   var RegistrationExecutionKindSchema = external_exports.enum(REGISTRATION_EXECUTION_KINDS);
   var RegistrationScopeSchema = external_exports.object({
@@ -5699,6 +5701,8 @@ var KidItemRuntime = (() => {
     payload: external_exports.record(external_exports.string(), external_exports.unknown()),
     startedAt: external_exports.string().datetime({ offset: true })
   }).strict();
+  var REGISTRATION_FILL_CHUNK_KIND = "registration_fill";
+  var REGISTRATION_EVIDENCE_CHUNK_KIND = "registration_evidence";
   var RegistrationFillSchema = external_exports.object({
     steps: external_exports.array(external_exports.string()),
     warnings: external_exports.array(external_exports.string()),
@@ -6057,6 +6061,109 @@ var KidItemRuntime = (() => {
   };
   registerCollector(mallAdminListingsCollector);
 
+  // extensions/src/collectors/channels.registration/payload.ts
+  var RegistrationFormPayloadSchema = external_exports.object({
+    snapshot: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
+  }).passthrough();
+  var AvailabilityPayloadSchema = external_exports.object({
+    action: external_exports.enum(["sold_out", "resume"]),
+    listings: external_exports.array(external_exports.object({
+      channelListingId: external_exports.string().uuid().nullable().optional(),
+      externalListingId: external_exports.string().min(1),
+      options: external_exports.array(external_exports.object({
+        salesProductOptionId: external_exports.string().uuid().nullable().optional(),
+        channelListingOptionId: external_exports.string().uuid().nullable().optional(),
+        externalOptionId: external_exports.string().min(1).nullable().optional(),
+        sellerSku: external_exports.string().nullable().optional()
+      }).passthrough()).default([])
+    }).passthrough()).min(1)
+  }).passthrough();
+  var ThumbnailPayloadSchema = external_exports.object({
+    image: external_exports.object({
+      dataUrl: external_exports.string().min(1),
+      filename: external_exports.string().min(1),
+      mimeType: external_exports.string().min(1)
+    }).passthrough(),
+    productName: external_exports.string().min(1).optional()
+  }).passthrough();
+
+  // extensions/src/collectors/channels.registration/index.ts
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var REGISTRATION_ACCOUNT_MISMATCH = "REGISTRATION_ACCOUNT_MISMATCH";
+  function invalid(message, details) {
+    return new RuntimeError(RUNTIME_PLAN_INVALID6, message, { kind: REGISTRATION_KIND, ...details });
+  }
+  function mallOutcomeOf(submission, providerAccountId) {
+    if (!submission) return { outcome: "not_submitted", observed: "not_submitted" };
+    if (submission.accepted === false) return { outcome: "uncertain", observed: "submission_rejected" };
+    if (submission.accepted === true && submission.externalListingId && providerAccountId) return { outcome: "confirmed", observed: "confirmed" };
+    return { outcome: "submitted", observed: "submitted" };
+  }
+  function providerOutcomeOf(outcome) {
+    if (outcome === "not_submitted") return "not_attempted";
+    if (outcome === "confirmed") return "succeeded";
+    return "uncertain";
+  }
+  var registrationCollector = {
+    kind: REGISTRATION_KIND,
+    site: "mall-write",
+    async *collect(rawPlan, site) {
+      const parsed2 = RegistrationPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw invalid("\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589\uD560 \uC218 \uC5C6\uB294 \uB4F1\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", { mallKey: null });
+      const plan = parsed2.data;
+      const writer = site?.writer(plan.mallKey) ?? null;
+      if (!writer) throw invalid(`\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uC4F0\uAE30 \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { mallKey: plan.mallKey });
+      const progress4 = { mallKey: plan.mallKey, executionKind: plan.executionKind };
+      if (plan.executionKind === "register" || plan.executionKind === "update" || plan.executionKind === "composition_change") {
+        const payload = RegistrationFormPayloadSchema.safeParse(plan.payload);
+        if (!payload.success || !payload.data.form || !writer.fill) {
+          throw invalid("\uB4F1\uB85D \uACC4\uD68D\uC5D0 \uBAB0 \uD3FC \uC9C0\uC2DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const session = await writer.fill({ form: payload.data.form, submit: plan.submit, expectedProviderAccountId: plan.expectedProviderAccountId });
+        try {
+          if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
+            throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uB4F1\uB85D\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", {
+              mallKey: plan.mallKey
+            });
+          }
+          yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress4, stage: "filled" } };
+          const submission = session.decision.press ? await session.submit() : null;
+          const { outcome, observed } = mallOutcomeOf(submission, session.providerAccountId);
+          let evidence = null;
+          if (submission) {
+            evidence = {
+              channelAccountId: plan.channelAccountId,
+              externalListingId: submission.externalListingId,
+              observedUrl: submission.observedUrl ?? session.observedUrl,
+              providerAccountId: session.providerAccountId,
+              observedStatus: observed,
+              message: submission.mallMessage,
+              options: []
+            };
+            yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "submitted" } };
+          }
+          return {
+            result: {
+              providerOutcome: providerOutcomeOf(outcome),
+              mallOutcome: outcome,
+              submitted: submission !== null,
+              submitSkipped: session.decision.press ? null : session.decision.skipped,
+              externalListingId: submission?.externalListingId ?? null,
+              mallMessage: submission?.mallMessage ?? null,
+              fill: session.fill,
+              evidence
+            }
+          };
+        } finally {
+          await session.done();
+        }
+      }
+      throw invalid(`\uC774 \uD655\uC7A5\uC774 \uC544\uC9C1 \uC2E4\uD589\uD558\uC9C0 \uBABB\uD558\uB294 \uB4F1\uB85D \uC885\uB958\uC785\uB2C8\uB2E4: ${plan.executionKind}`, { mallKey: plan.mallKey, executionKind: plan.executionKind });
+    }
+  };
+  registerCollector(registrationCollector);
+
   // packages/shared/src/schemas/sabangnet-mall-listings.ts
   var SABANGNET_ADMIN_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var SABANGNET_MALL_LISTING_LIST_PATH = "/prod-api/customer/mall/MallProductUpdate/getMallProductUpdateLists";
@@ -6167,7 +6274,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS3 = 500;
@@ -6197,8 +6304,8 @@ var KidItemRuntime = (() => {
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
       const plan = parsed2.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
@@ -6351,7 +6458,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sellpia_manual_match/index.ts
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
   var SEARCH_BATCH = 100;
@@ -6365,8 +6472,8 @@ var KidItemRuntime = (() => {
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
       const { targetCodes } = parsed2.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
@@ -7539,7 +7646,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -7550,9 +7657,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -7646,9 +7753,9 @@ var KidItemRuntime = (() => {
   }
   function centerMap(value) {
     const body = value?.body ?? value;
-    const list = Array.isArray(body) ? body : body?.body ?? [];
+    const list2 = Array.isArray(body) ? body : body?.body ?? [];
     const centers = {};
-    for (const center of Array.isArray(list) ? list : []) {
+    for (const center of Array.isArray(list2) ? list2 : []) {
       const record2 = center;
       if (!record2?.centerName) continue;
       const entry = {};
@@ -7821,14 +7928,14 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed2.data;
       const done = [];
       for (const window of plan.windows) {
@@ -7871,7 +7978,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
@@ -7879,8 +7986,8 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed2.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -8100,14 +8207,14 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema3 = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed2.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -8187,7 +8294,7 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
   var CHUNK_ROWS5 = 200;
-  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
@@ -8195,7 +8302,7 @@ var KidItemRuntime = (() => {
       const parsed2 = PlanSchema4.safeParse(rawPlan);
       const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
       if (!parsed2.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed2.success ? parsed2.data.mallKey : null
         });
@@ -8232,14 +8339,14 @@ var KidItemRuntime = (() => {
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
   var CHUNK_ROWS6 = 500;
-  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed2 = PlanSchema5.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
@@ -8261,14 +8368,14 @@ var KidItemRuntime = (() => {
     sourceAccountKey: external_exports.literal("kiditem")
   }).passthrough();
   var CHUNK_ROWS7 = 5e3;
-  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
   var sellpiaInventoryCollector = {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed2 = PlanSchema6.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
       const progress4 = { rows: rows.length };
@@ -8864,6 +8971,10 @@ var KidItemRuntime = (() => {
           closed = true;
           runTabs.delete(tabId);
           await deps.chrome.tabs.remove(tabId).catch(() => void 0);
+        },
+        async leave() {
+          closed = true;
+          await handToOperator(tabId);
         }
       };
     }
@@ -9278,6 +9389,15 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
 
+  // extensions/src/sites/mall-write/guard.ts
+  function registrationGuard(site, displayName, isLogin2) {
+    return {
+      allows: site.allows,
+      isLogin: isLogin2 ?? site.isLogin,
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.`
+    };
+  }
+
   // packages/shared/src/schemas/mall-login.ts
   var MALL_CREDENTIAL_REJECTIONS = [
     "\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0",
@@ -9517,6 +9637,680 @@ var KidItemRuntime = (() => {
       ...mallMessage ? { mallMessage } : {}
     }, error);
   }
+
+  // extensions/src/sites/mall-write/form.ts
+  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
+  var isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+  var entries = (value) => isObject(value) ? Object.entries(value) : [];
+  var list = (value) => Array.isArray(value) ? value : [];
+  function textMap(value, keepEmptyKey = true) {
+    const out = {};
+    for (const [key, entry] of entries(value)) {
+      if (!keepEmptyKey && !key || entry === null || entry === void 0) continue;
+      out[key] = String(entry);
+    }
+    return out;
+  }
+  function assertRegisterUrl(spec, value) {
+    const invalid2 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID16, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
+    let url;
+    try {
+      url = new URL(String(value ?? "").trim());
+    } catch {
+      throw invalid2();
+    }
+    if (url.origin !== spec.origin || !url.pathname.startsWith(spec.pathPrefix)) throw invalid2();
+    if (spec.exactPath && url.pathname.replace(/\/+$/, "") !== spec.pathPrefix) throw invalid2();
+    if (spec.noQuery && url.search) throw invalid2(" \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74\uC5D0\uB294 \uCC44\uC6B0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (spec.hash && (url.pathname !== spec.pathPrefix || url.hash !== spec.hash)) throw invalid2(" \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74\uC5D0\uB294 \uCC44\uC6B0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return url.toString();
+  }
+  function normalizeForm(spec, value) {
+    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
+    const url = assertRegisterUrl(spec, value.url);
+    const fields = {};
+    for (const [name, fieldValue] of entries(value.fields)) {
+      if (!name) continue;
+      fields[name] = fieldValue === null || fieldValue === void 0 ? "" : String(fieldValue);
+    }
+    const radios = {};
+    for (const [name, radioValue] of entries(value.radios)) if (name) radios[name] = String(radioValue);
+    const checks = {};
+    if (Array.isArray(value.checks)) {
+      for (const name of value.checks) if (typeof name === "string") checks[name] = true;
+    } else {
+      for (const [name, on] of entries(value.checks)) checks[name] = Boolean(on);
+    }
+    const multiFormFields = {};
+    const multiFormRadios = {};
+    const multiFormChecks = {};
+    if (spec.multiForm) {
+      for (const [formId, values] of entries(value.formFields)) {
+        if (!isObject(values)) continue;
+        const box = {};
+        for (const [name, raw] of Object.entries(values)) if (name) box[name] = raw == null ? "" : String(raw);
+        if (Object.keys(box).length > 0) multiFormFields[formId] = box;
+      }
+      for (const [formId, values] of entries(value.formRadios)) if (isObject(values)) multiFormRadios[formId] = { ...values };
+      for (const [formId, values] of entries(value.formChecks)) if (isObject(values)) multiFormChecks[formId] = { ...values };
+    }
+    const category = isObject(value.category) ? { code: String(value.category.code ?? ""), path: String(value.category.path ?? "") } : null;
+    const rawNotice = value.notice;
+    const notice = isObject(rawNotice) ? {
+      itemCode: String(rawNotice.itemCode ?? ""),
+      safeYn: rawNotice.safeCertiTgtYn === "Y" ? "Y" : "N",
+      rows: list(rawNotice.rows).filter((row) => isObject(row) && typeof row.title === "string" && row.title !== "").map((row) => ({ title: row.title, value: row.value == null ? "" : String(row.value) })),
+      radios: {
+        ...rawNotice.kcCertified ? { "072": String(rawNotice.kcCertified) } : {},
+        ...rawNotice.safeCertiTgtYn ? { safeCertiTgtYn: String(rawNotice.safeCertiTgtYn) } : {}
+      }
+    } : null;
+    const slotNames = spec.imageSlots ?? [];
+    const slots = new Set(slotNames);
+    const fileUploads = list(value.fileUploads).filter((entry) => isObject(entry) && slots.has(String(entry.name)) && typeof entry.url === "string").map((entry) => ({ name: entry.name, url: entry.url }));
+    const imageUploads = list(value.imageUploads).filter((entry) => isObject(entry) && typeof entry.url === "string").map((entry, index) => ({ name: slotNames[index] ?? "", url: entry.url })).filter((entry) => entry.name);
+    const imageGroups = {};
+    for (const [key, group] of entries(value.imageGroups)) {
+      if (Array.isArray(group)) imageGroups[key] = group.filter((url2) => typeof url2 === "string" && url2 !== "");
+    }
+    if (spec.sectionImages && Array.isArray(value.images)) {
+      const images = value.images.filter((url2) => typeof url2 === "string" && url2 !== "");
+      if (images.length > 0) imageGroups[spec.sectionImages.groupKey] = images;
+    }
+    const selectorChecks = {};
+    for (const [key, on] of entries(value.selectorChecks)) selectorChecks[key] = Boolean(on);
+    const groups = {};
+    for (const [key, group] of entries(value.groups)) {
+      if (Array.isArray(group)) groups[key] = group.map((entry) => String(entry ?? "")).filter(Boolean);
+    }
+    const dedicated = spec.dedicated ? spec.dedicated.normalize(value[spec.dedicated.formKey]) : null;
+    return {
+      url,
+      fields,
+      radios,
+      checks,
+      multiFormFields,
+      multiFormRadios,
+      multiFormChecks,
+      category,
+      notice,
+      fileUploads: fileUploads.length > 0 ? fileUploads : imageUploads,
+      detailHtmlTarget: typeof value.detailHtmlTarget === "string" ? value.detailHtmlTarget : "",
+      promoHtml: typeof value.promoHtml === "string" ? value.promoHtml : "",
+      selectorChecks,
+      categoryPaths: list(value.categoryPaths).filter((path) => Array.isArray(path) && path.length > 0).map((path) => path.map((part) => String(part))),
+      imageUrls: list(value.imageUrls).map((url2) => typeof url2 === "string" ? url2 : ""),
+      imageGroups,
+      selectorFields: textMap(value.selectorFields),
+      rowFields: textMap(value.rowFields),
+      sectionFields: textMap(value.sectionFields),
+      sectionRadios: textMap(value.sectionRadios),
+      sectionDropdowns: textMap(value.sectionDropdowns),
+      optionalSections: list(value.optionalSections).filter((title) => typeof title === "string" && title !== ""),
+      sectionCategory: isObject(value.category) && typeof value.category.path === "string" && value.category.path ? { query: String(value.category.query ?? ""), path: value.category.path } : null,
+      rowOptions: textMap(value.rowOptions),
+      tableFields: textMap(value.tableFields, false),
+      tableRadios: textMap(value.tableRadios, false),
+      tableSelects: textMap(value.tableSelects, false),
+      tablePicks: list(value.tablePicks).filter((entry) => isObject(entry) && typeof entry.row === "string" && entry.row !== "" && typeof entry.pick === "string" && entry.pick !== "").map((entry) => ({
+        row: entry.row,
+        query: typeof entry.query === "string" && entry.query ? entry.query : entry.pick,
+        pick: entry.pick
+      })),
+      groups,
+      infoRows: textMap(value.infoRows, false),
+      detailUploads: list(value.detailUploads).filter((entry) => isObject(entry) && typeof entry.url === "string"),
+      manualSteps: list(value.manualSteps).filter((step) => typeof step === "string"),
+      dedicated
+    };
+  }
+
+  // extensions/src/sites/mall-write/images.ts
+  var MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+  var DETAIL_HOSTS = {
+    /** 온채널 자기 서버. 상품등록 화면 안의 `img_form`이 쏘는 곳이고 응답이 곧 공개 주소다(라이브 확인 2026-09-10). */
+    onch: {
+      origin: "https://www.onch3.co.kr",
+      uploadPath: "/access/img_upload_access.php",
+      uploadField: "img",
+      label: "\uC628\uCC44\uB110 \uC774\uBBF8\uC9C0 \uC11C\uBC84"
+    },
+    /**
+     * 우리 키즈노트 상점의 상품 첨부 저장소. 등록화면이 발급하는 빈 상품번호(`pno`)에 파일을 붙이고 첨부 목록에서 공개 CDN
+     * 주소를 읽는다 — 상품은 만들어지지 않는다(라이브 확인 2026-09-10). 키즈노트 관리자 세션으로만 열린다.
+     */
+    kidsnote: {
+      origin: "https://shop.kidsnote.com",
+      registerPath: "/_manage/?body=product@product_register",
+      uploadPath: "/_manage/",
+      listPath: "/_manage/?body=product@product_file.frm&filetype=3&stat=1&content_id=content2",
+      filetype: "3",
+      label: "\uD0A4\uC988\uB178\uD2B8 \uCCA8\uBD80 \uC800\uC7A5\uC18C",
+      loginLabel: "\uD0A4\uC988\uB178\uD2B8 \uAD00\uB9AC\uC790"
+    }
+  };
+  var HOSTED_URL = /https?:\/\/[A-Za-z0-9.-]*kakaocdn\.net\/dn\/[^"'\s<>()]+/g;
+  var DetailHostLoginError = class extends Error {
+    needsLogin = true;
+  };
+  function isMallReadable(url) {
+    return /kakaocdn\.net|diskn\.com|onch3\.co\.kr|coupangcdn\.com/.test(url);
+  }
+  function detailImageHtml(url, paragraph) {
+    const img = `<img referrerpolicy="no-referrer" src="${url}">`;
+    return paragraph ? `<center><p>${img}</p></center>` : `<center>${img}</center>`;
+  }
+  function detailFileName(sourceUrl, mime) {
+    let base = "detail";
+    try {
+      base = new URL(sourceUrl).pathname.split("/").pop() || base;
+    } catch {
+    }
+    if (/\.(jpe?g|png|gif|webp)$/i.test(base)) return base;
+    return `${base}.${mime.includes("png") ? "png" : "jpg"}`;
+  }
+  function toBase64(bytes) {
+    let binary = "";
+    const CHUNK = 32768;
+    for (let i = 0; i < bytes.length; i += CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    return btoa(binary);
+  }
+  async function toDataUrls(fetchApi, uploads) {
+    const images = [];
+    for (const upload of uploads) {
+      try {
+        const response = await fetchApi(upload.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (blob.size > MAX_IMAGE_BYTES) throw new Error("\uC774\uBBF8\uC9C0\uAC00 8MB \uB97C \uB118\uC2B5\uB2C8\uB2E4.");
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const dataUrl = `data:${blob.type || "image/jpeg"};base64,${toBase64(bytes)}`;
+        const fileName = new URL(upload.url).pathname.split("/").pop() || "image";
+        images.push({ name: upload.name, dataUrl, fileName });
+      } catch (error) {
+        let host = "";
+        try {
+          host = new URL(upload.url).host;
+        } catch {
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        images.push({ name: upload.name, error: host ? `${message} (${host})` : message });
+      }
+    }
+    return images;
+  }
+  async function hostDetailImage(fetchApi, host, sourceUrl, options = {}) {
+    const decode = (buffer) => new TextDecoder("euc-kr").decode(buffer);
+    const source = await fetchApi(sourceUrl);
+    if (!source.ok) throw new Error(`\uC0C1\uC138 \uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 HTTP ${source.status}`);
+    const blob = await source.blob();
+    if (blob.size > MAX_IMAGE_BYTES) throw new Error("\uC0C1\uC138 \uC774\uBBF8\uC9C0\uAC00 8MB \uB97C \uB118\uC2B5\uB2C8\uB2E4.");
+    if (options.imageOnly && !/^image\//i.test(blob.type || "")) throw new Error("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
+    if (host.uploadField) {
+      const body2 = new FormData();
+      body2.append(host.uploadField, blob, detailFileName(sourceUrl, blob.type));
+      const response = await fetchApi(host.origin + host.uploadPath, { method: "POST", body: body2, credentials: "include" });
+      if (!response.ok) throw new Error(`\uC5C5\uB85C\uB4DC \uC751\uB2F5 HTTP ${response.status}`);
+      const url = decode(await response.arrayBuffer()).trim();
+      if (!/^https?:\/\//.test(url)) throw new Error("\uC5C5\uB85C\uB4DC \uACB0\uACFC\uAC00 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+      return url;
+    }
+    const read = async (path) => {
+      const response = await fetchApi(host.origin + path, { credentials: "include" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return decode(await response.arrayBuffer());
+    };
+    const page = await read(host.registerPath ?? "");
+    const pno = (page.match(/name=["']?pno["']?[^>]*value=["']?(\d+)/i) || [])[1];
+    if (!pno) throw new DetailHostLoginError("\uC0C1\uD488\uBC88\uD638\uB97C \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    const body = new FormData();
+    body.append("body", "product@product_file.exe");
+    body.append("pno", pno);
+    body.append("upload_one", "Y");
+    body.append("filetype", host.filetype ?? "");
+    body.append("ino", "");
+    body.append("upfile", blob, detailFileName(sourceUrl, blob.type));
+    const upload = await fetchApi(host.origin + host.uploadPath, { method: "POST", body, credentials: "include" });
+    if (!upload.ok) throw new Error(`\uC5C5\uB85C\uB4DC \uC751\uB2F5 HTTP ${upload.status}`);
+    await upload.arrayBuffer();
+    const list2 = await read(`${host.listPath ?? ""}&pno=${pno}`);
+    const found = list2.match(HOSTED_URL);
+    if (!found || found.length === 0) throw new Error("\uC62C\uB77C\uAC04 \uC8FC\uC18C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    return found[found.length - 1];
+  }
+
+  // extensions/src/sites/mall-write/form-register.ts
+  var FORM_FILL_FILE = "content/page-call/form-fill.js";
+  var FORM_FRAME_FILE = "content/page-call/form-frame.js";
+  var REGISTRATION_FILL_FAILED = "REGISTRATION_FILL_FAILED";
+  var FILL_TIMEOUT_MS = 12e4;
+  var STATE_TIMEOUT_MS = 5e3;
+  async function prepareMallForm(context, spec, form) {
+    const warnings = [];
+    const uploaded = await toDataUrls(context.fetch, form.fileUploads);
+    const images = uploaded.filter((image) => image.dataUrl);
+    for (const image of uploaded.filter((entry) => entry.error)) warnings.push(`\uC774\uBBF8\uC9C0 ${image.name}: ${image.error}`);
+    const detailWarnings = [];
+    const host = spec.detailHost ? DETAIL_HOSTS[spec.detailHost] ?? null : null;
+    let detailUrl = form.detailUploads.find((entry) => isMallReadable(entry.url))?.url ?? "";
+    if (!detailUrl && form.detailUploads.length > 0 && host) {
+      try {
+        detailUrl = await hostDetailImage(context.fetch, host, form.detailUploads[0].url);
+      } catch (error) {
+        detailWarnings.push(
+          error instanceof DetailHostLoginError && host.loginLabel ? `\uC0C1\uC138 \uC774\uBBF8\uC9C0\uB97C \uC62C\uB9AC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 ${host.loginLabel}\uC5D0 \uB85C\uADF8\uC778\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. ${host.loginLabel}\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uCC44\uC6B0\uC138\uC694.` : `${host.label}\uC5D0 \uC0C1\uC138\uC124\uBA85\uC744 \uC62C\uB9AC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${error instanceof Error ? error.message : String(error)}. \uD654\uBA74\uC5D0\uC11C \uC9C1\uC811 \uC62C\uB9AC\uC138\uC694.`
+        );
+      }
+    } else if (!detailUrl && form.detailUploads.length > 0 && !spec.detailSelfUpload) {
+      detailWarnings.push("\uC0C1\uC138\uC124\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uBAB0\uC774 \uC77D\uC744 \uC218 \uC788\uB294 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4. \uD654\uBA74\uC5D0\uC11C \uC9C1\uC811 \uC62C\uB9AC\uC138\uC694.");
+    }
+    const detailHtml = detailUrl ? detailImageHtml(detailUrl, Boolean(spec.detailParagraph)) : "";
+    const imageGroups = {};
+    const slotSpecs = [
+      ...spec.imageFileInputs ?? [],
+      ...spec.imageDialogs ?? [],
+      ...spec.imageRepeat ? [{ key: spec.imageRepeat.groupKey, label: spec.imageRepeat.label }] : [],
+      ...spec.imageUpload ? [{ key: spec.imageUpload.groupKey, label: spec.imageUpload.label }] : [],
+      ...spec.sectionImages ? [{ key: spec.sectionImages.groupKey, label: spec.sectionImages.label }] : [],
+      ...(spec.tableForm?.images ?? []).map((slot) => ({ key: slot.key, label: slot.row })),
+      ...spec.dedicated ? [{ key: spec.dedicated.imageGroupKey, label: "\uC0C1\uD488\uC774\uBBF8\uC9C0" }] : []
+    ];
+    for (const slot of slotSpecs) {
+      const urls = form.imageGroups[slot.key] ?? [];
+      if (urls.length === 0) continue;
+      const loaded = await toDataUrls(context.fetch, urls.map((url, index) => ({ name: `${slot.key}${index}`, url })));
+      for (const bad of loaded.filter((image) => image.error)) warnings.push(`${slot.label} \uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${bad.error}`);
+      const ok = loaded.filter((image) => image.dataUrl);
+      if (ok.length > 0) imageGroups[slot.key] = ok;
+    }
+    let repImage = null;
+    if (spec.imageFileInput && form.imageUrls[0]) {
+      const [image] = await toDataUrls(context.fetch, [{ name: "rep", url: form.imageUrls[0] }]);
+      if (image?.dataUrl) repImage = image;
+      else warnings.push(`\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${image?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`);
+    }
+    let detailImage = null;
+    if (spec.detailSelfUpload && form.detailUploads[0]) {
+      const [image] = await toDataUrls(context.fetch, [{ name: "detail", url: form.detailUploads[0].url }]);
+      if (image?.dataUrl) detailImage = image;
+      else warnings.push(`\uC0C1\uC138\uC124\uBA85 \uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${image?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`);
+    }
+    return { form, images, imageGroups, repImage, detailImage, detailHtml, warnings: [...warnings, ...detailWarnings] };
+  }
+  function fillPayload(spec, prepared) {
+    const { form, imageGroups, repImage, detailImage, detailHtml } = prepared;
+    if (spec.dedicated) {
+      return {
+        call: spec.dedicated.call,
+        files: [spec.dedicated.file],
+        payload: {
+          form: form.dedicated,
+          images: imageGroups[spec.dedicated.imageGroupKey] ?? [],
+          ...spec.dedicated.options,
+          detailImage,
+          detailHtml
+        }
+      };
+    }
+    const editor = spec.detailEditor ?? null;
+    const sectionForm = spec.sectionForm;
+    return {
+      call: "mallForm.fill",
+      files: [],
+      payload: {
+        formSelector: spec.formSelector,
+        dynamic: spec.dynamic,
+        acceptRecommendation: spec.acceptRecommendation ?? null,
+        groupInputs: spec.groupInputs ?? [],
+        groups: form.groups,
+        selectorChecks: spec.selectorChecks ?? [],
+        selectorCheckValues: form.selectorChecks,
+        selectorFields: spec.selectorFields ?? [],
+        selectorFieldValues: form.selectorFields,
+        selectFirstOptions: spec.selectFirstOptions ?? [],
+        wizardSteps: spec.wizardSteps ?? [],
+        detailRich: spec.detailRich ?? null,
+        categoryPicker: spec.categoryPicker ?? null,
+        categoryPaths: form.categoryPaths,
+        imageFileInput: spec.imageFileInput ?? null,
+        repImage,
+        detailSelfUpload: spec.detailSelfUpload ?? null,
+        detailImage,
+        categorySearch: spec.categorySearch ?? null,
+        categoryFirst: Boolean(spec.categoryFirst),
+        categoryConnect: spec.categoryConnect ?? null,
+        rowFields: spec.rowFields ?? [],
+        rowFieldValues: form.rowFields,
+        rowOptions: spec.rowOptions ?? [],
+        rowOptionValues: form.rowOptions,
+        detailSelector: spec.detailSelector ?? "",
+        detailPreviewSelector: spec.detailPreviewSelector ?? "",
+        imageFileInputs: spec.imageFileInputs ?? [],
+        imageRepeat: spec.imageRepeat ?? null,
+        imageDialogs: spec.imageDialogs ?? [],
+        imageUpload: spec.imageUpload ?? null,
+        imageGroups,
+        fields: form.fields,
+        radios: form.radios,
+        checks: form.checks,
+        images: prepared.images,
+        // 팝업 에디터 몰은 칸에 직접 쓰지 않는다. 폼을 채운 뒤 버튼을 눌러서 넣는다.
+        detailHtmlTarget: editor ? "" : form.detailHtmlTarget,
+        detailHtml: editor ? "" : detailHtml,
+        multiFormFields: form.multiFormFields,
+        multiFormRadios: form.multiFormRadios,
+        multiFormChecks: form.multiFormChecks,
+        categoryFields: spec.categoryFields ?? null,
+        categoryCode: form.category?.code ?? "",
+        categoryPath: form.category?.path ?? "",
+        noticeSection: spec.noticeSection ?? null,
+        noticeItemCode: form.notice?.itemCode ?? "",
+        noticeSafeYn: form.notice?.safeYn ?? "N",
+        noticeRows: form.notice?.rows ?? [],
+        noticeRadios: form.notice?.radios ?? {},
+        detailSmartEditor: spec.detailSmartEditor ?? null,
+        // 섹션 제목이 유일한 손잡이인 몰(ESM Plus). 스펙 네 조각을 한 덩어리로 묶어 넘긴다.
+        sectionLayout: sectionForm ? { ...sectionForm, category: spec.sectionCategory ?? null, detail: spec.sectionDetail ?? null, images: spec.sectionImages ?? null } : null,
+        sectionFields: form.sectionFields,
+        sectionRadios: form.sectionRadios,
+        sectionDropdowns: form.sectionDropdowns,
+        sectionCategory: form.sectionCategory,
+        optionalSections: form.optionalSections,
+        dismissDialogs: spec.dismissDialogs ?? null,
+        formWaitMs: spec.formWaitMs ?? 0,
+        readySelector: spec.readySelector ?? "",
+        preRadios: spec.preRadios ?? [],
+        afterSelectorClicks: spec.afterSelectorClicks ?? [],
+        infoRows: spec.infoRows ?? null,
+        fireKeyup: Boolean(spec.fireKeyup),
+        infoRowValues: form.infoRows,
+        tableForm: spec.tableForm ?? null,
+        tableFields: form.tableFields,
+        tableRadios: form.tableRadios,
+        tableSelects: form.tableSelects,
+        tablePicks: form.tablePicks,
+        frameUrlIncludes: spec.frameUrlIncludes ?? ""
+      }
+    };
+  }
+  async function waitForFormFrame(context, page, spec) {
+    if (!spec.frameUrlIncludes) return;
+    const until = context.now() + (spec.frameWaitMs ?? 3e4);
+    let lastDoc = null;
+    let steady = 0;
+    while (context.now() < until && steady < 2) {
+      const frame = (await frameStates(page)).find((entry) => entry.href.includes(spec.frameUrlIncludes)) ?? null;
+      const ready = frame ? await readyIn(context, page, spec, frame.frameId) : false;
+      steady = frame && ready && frame.doc === lastDoc ? steady + 1 : 0;
+      lastDoc = frame ? frame.doc : null;
+      if (steady < 2) await context.sleep(1e3);
+    }
+  }
+  async function frameStates(page) {
+    try {
+      const frames = await page.frames([FORM_FRAME_FILE]);
+      return frames.map((frame) => ({ frameId: frame.frameId, href: String(frame.result.href ?? ""), doc: Number(frame.result.doc ?? 0) })).sort((a, b) => a.frameId - b.frameId);
+    } catch {
+      return [];
+    }
+  }
+  async function readyIn(context, page, spec, frameId) {
+    try {
+      const state = await callPage(page, "mallForm.state", { formSelector: spec.formSelector, readySelector: spec.readySelector ?? "" }, {
+        timeoutMs: STATE_TIMEOUT_MS,
+        guard: context.guard,
+        main: [FORM_FILL_FILE],
+        displayName: context.displayName,
+        frameId
+      });
+      return state?.form === true && state.ready === true;
+    } catch {
+      return false;
+    }
+  }
+  async function fillTargets(page, spec) {
+    if (!spec.allFrames) return [void 0];
+    const frames = await frameStates(page);
+    if (frames.length === 0) return [void 0];
+    const preferred = spec.frameUrlIncludes ? frames.filter((frame) => frame.href.includes(spec.frameUrlIncludes)) : frames;
+    return (preferred.length > 0 ? preferred : frames).map((frame) => frame.frameId);
+  }
+  async function callFill(context, page, spec, prepared) {
+    const { call: call2, files, payload } = fillPayload(spec, prepared);
+    let last = { ok: false, error: "\uD3FC \uCC44\uC6C0 \uACB0\uACFC\uB97C \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." };
+    for (const frameId of await fillTargets(page, spec)) {
+      const answer = await callPage(page, call2, payload, {
+        timeoutMs: FILL_TIMEOUT_MS,
+        guard: context.guard,
+        main: [DIALOG_GUARD_FILE, FORM_FILL_FILE, ...files],
+        displayName: context.displayName,
+        ...frameId !== void 0 ? { frameId } : {}
+      });
+      last = answer ?? last;
+      if (last.ok === true || !last.noForm) return last;
+    }
+    return last;
+  }
+  async function fillMallForm(context, page, spec, prepared) {
+    await waitForFormFrame(context, page, spec);
+    let outcome = await callFill(context, page, spec, prepared);
+    if (outcome.ok !== true && outcome.noForm && spec.frameUrlIncludes) {
+      await waitForFormFrame(context, page, spec);
+      outcome = await callFill(context, page, spec, prepared);
+    }
+    if (outcome.ok !== true) {
+      if (outcome.noForm && (context.signIn || /로그인/.test(outcome.error ?? ""))) {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, context.guard.loginMessage, { url: prepared.form.url, reason: "no_form" });
+      }
+      throw new RuntimeError(REGISTRATION_FILL_FAILED, outcome.error ?? `${context.displayName} \uC0C1\uD488\uB4F1\uB85D \uD3FC\uC744 \uCC44\uC6B0\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, {
+        mallKey: context.mallKey,
+        steps: outcome.steps ?? []
+      });
+    }
+    const steps = [...outcome.steps ?? []];
+    const warnings = [...outcome.warnings ?? [], ...prepared.warnings];
+    const editor = spec.detailEditor;
+    if (editor && prepared.detailHtml && prepared.form.detailHtmlTarget) {
+      const said = await writeDetailThroughEditor(context, page, spec, prepared).catch((error) => {
+        warnings.push(`\uC0C1\uC138\uC124\uBA85\uC744 \uC5D0\uB514\uD130\uB85C \uB123\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${error instanceof Error ? error.message : String(error)}. \uD654\uBA74\uC5D0\uC11C \uC9C1\uC811 \uB123\uC73C\uC138\uC694.`);
+        return null;
+      });
+      if (said !== null) steps.push("\uC0C1\uC138\uC124\uBA85(\uC791\uC131\uD558\uAE30 \uC5D0\uB514\uD130)");
+    }
+    return { steps, warnings, manualSteps: prepared.form.manualSteps, dialogs: outcome.dialogs ?? [] };
+  }
+  async function writeDetailThroughEditor(context, page, spec, prepared) {
+    const editor = spec.detailEditor;
+    const outcome = await callPage(page, "mallForm.detailEditor", {
+      html: prepared.detailHtml,
+      formSelector: spec.formSelector,
+      target: prepared.form.detailHtmlTarget,
+      buttonId: editor.buttonId,
+      editorKey: editor.editorKey,
+      toggleSelector: editor.toggleSelector,
+      framePrefix: editor.framePrefix,
+      frameSuffix: editor.frameSuffix,
+      submitId: editor.submitId,
+      promoKey: editor.promoKey ?? "",
+      promoHtml: prepared.form.promoHtml,
+      openTimeoutMs: editor.openTimeoutMs,
+      submitTimeoutMs: editor.submitTimeoutMs
+    }, {
+      timeoutMs: FILL_TIMEOUT_MS,
+      guard: context.guard,
+      main: [DIALOG_GUARD_FILE, FORM_FILL_FILE],
+      displayName: context.displayName
+    });
+    if (!outcome?.ok) throw new Error(outcome?.error ?? "\uC0C1\uC138\uB0B4\uC6A9\uC744 \uB123\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    if (!outcome.filled) throw new Error((outcome.alerts ?? []).join(" / ") || "\uC5D0\uB514\uD130\uAC00 \uB4F1\uB85D\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+    return true;
+  }
+
+  // extensions/src/sites/mall-write/submit-gate.ts
+  function shouldPressRegister(input) {
+    if (input.submit !== true) return { press: false, skipped: null };
+    if (!input.verifiedSubmit) return { press: false, skipped: "no_verified_submit" };
+    if (input.warnings.length > 0) return { press: false, skipped: "fill_warnings" };
+    if (input.manualSteps.length > 0) return { press: false, skipped: "manual_steps" };
+    return { press: true };
+  }
+
+  // extensions/src/sites/mall-write/write-tab.ts
+  var NAVIGATION_TIMEOUT_MS5 = 45e3;
+  var SETTLE_MS = 1200;
+  async function openWriteTab(deps, url, options) {
+    const signIn = options.signIn ?? null;
+    const hosts = signIn?.hosts ?? options.dialogHosts;
+    const releaseGuard = hosts.length > 0 ? await deps.tabs.guardDialogs(hosts) : null;
+    let reached = false;
+    let finished = false;
+    let page = null;
+    const done = async () => {
+      if (finished) return;
+      finished = true;
+      if (page) {
+        if (reached) await page.leave().catch(() => void 0);
+        else await page.close().catch(() => void 0);
+      }
+      await releaseGuard?.();
+    };
+    try {
+      page = await deps.tabs.open("about:blank");
+      const stopAt = signIn ? (landed) => signIn.isLoginUrl(landed) : void 0;
+      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS5, ...stopAt ? { stopAt } : {} });
+      reached = true;
+      await deps.sleep(SETTLE_MS);
+    } catch (error) {
+      await done();
+      throw error;
+    }
+    const opened = page;
+    return {
+      page: opened,
+      async run(work) {
+        try {
+          return await (signIn ? signIn.onPage(opened, url, () => work(opened)) : work(opened));
+        } catch (error) {
+          const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
+          if (operatorStep) await opened.focus().catch(() => void 0);
+          throw error;
+        }
+      },
+      done
+    };
+  }
+
+  // extensions/src/sites/mall-write/writer.ts
+  var writers = /* @__PURE__ */ new Map();
+  function registerMallWriter(definition) {
+    if (writers.has(definition.mallKey)) throw new Error(`duplicate mall writer: ${definition.mallKey}`);
+    writers.set(definition.mallKey, definition);
+  }
+  function mallWriterFor(mallKey) {
+    return writers.get(mallKey) ?? null;
+  }
+  function registeredMallWriters() {
+    return [...writers.values()].sort((a, b) => a.mallKey < b.mallKey ? -1 : a.mallKey > b.mallKey ? 1 : 0);
+  }
+  function mallWriteContext(definition, deps, lease) {
+    return {
+      ...deps,
+      mallKey: definition.mallKey,
+      displayName: definition.displayName,
+      guard: definition.guard,
+      signIn: definition.login ? createSiteSignIn(definition.login, lease.credentials, deps) : null
+    };
+  }
+  async function fillRegistration(definition, context, input) {
+    const spec = definition.form;
+    const custom2 = definition.custom;
+    if (!spec && !custom2) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID16, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
+    }
+    const normalized = spec ? normalizeForm(spec, input.form) : null;
+    const prepared = spec && normalized ? await prepareMallForm(context, spec, normalized) : null;
+    const url = normalized ? normalized.url : custom2.url(input.form);
+    const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: definition.dialogHosts });
+    try {
+      const filled = await tab.run(async (page) => {
+        if (spec && prepared) return { fill: await fillMallForm(context, page, spec, prepared), providerAccountId: null };
+        return custom2.fill(context, page, input);
+      });
+      const decision = shouldPressRegister({
+        submit: input.submit,
+        verifiedSubmit: Boolean(custom2?.submit),
+        warnings: filled.fill.warnings,
+        manualSteps: filled.fill.manualSteps
+      });
+      const observedUrl = await tab.page.currentUrl().catch(() => null);
+      return {
+        fill: filled.fill,
+        decision,
+        providerAccountId: filled.providerAccountId,
+        observedUrl: observedUrl ? observedUrl.split(/[?#]/)[0] : null,
+        submit: async () => {
+          if (!decision.press || !custom2?.submit) throw new Error("\uAD00\uBB38\uC774 \uB204\uB974\uC9C0 \uC54A\uAE30\uB85C \uD55C \uB4F1\uB85D\uC785\uB2C8\uB2E4.");
+          return custom2.submit(context, tab.page);
+        },
+        done: () => tab.done()
+      };
+    } catch (error) {
+      await tab.done();
+      throw error;
+    }
+  }
+
+  // extensions/src/sites/always/registration.ts
+  var ALWAYS_REGISTRATION_FORM = {
+    label: "\uC62C\uC6E8\uC774\uC988",
+    origin: "https://alwayzseller.ilevit.com",
+    pathPrefix: "/items/registrations",
+    /**
+     * 이 화면에는 `<form>` 이 없다. React 트리에 입력칸이 흩어져 있고 이름 있는
+     * 칸은 `keyword` 하나뿐이라 전부 선택자로 잡는다(라이브 실측 2026-09-10).
+     */
+    formSelector: "body",
+    imageSlots: [],
+    dynamic: null,
+    /**
+     * 분류는 검색해서 고른다.
+     *
+     * 목록을 미리 들고 있어 타이핑하면 화면에서 걸러진다 — 네트워크 요청이 없다.
+     * 결과는 `대분류 > 중분류 > 소분류` 글자를 가진 버튼이고, 누르면 입력칸이
+     * 그 전체 경로로 바뀐다. 코드가 아니라 이름이다.
+     */
+    categorySearch: {
+      inputSelector: "#category-search-input",
+      optionSelector: "button",
+      waitMs: 2200
+    },
+    selectorFields: [
+      { key: "productName", selector: "#register-productName", label: "\uC0C1\uD488\uBA85" },
+      { key: "optionName", selector: 'input[placeholder^="1\uBC88\uC9F8 \uC635\uC158\uBA85"]', label: "\uC635\uC158\uBA85" },
+      { key: "optionDetail", selector: 'input[placeholder^="1\uBC88\uC9F8 \uC138\uBD80\uC635\uC158"]', label: "\uC138\uBD80\uC635\uC158" },
+      { key: "individualPrice", selector: "#register-individualPrice", label: "\uAC1C\uBCC4\uAD6C\uB9E4\uAC00" },
+      { key: "teamPrice", selector: "#register-teamPrice", label: "\uD300\uAD6C\uB9E4\uAC00" },
+      { key: "keyword", selector: 'input[name="keyword"]', label: "\uD0A4\uC6CC\uB4DC" },
+      // 택배사는 **이름이 곧 값**이다. 수정 화면의 숫자 코드(`04`)와 다르다.
+      { key: "shippingCompany", selector: "#shipping_company_item", label: "\uD0DD\uBC30\uC0AC" }
+    ],
+    /**
+     * 이미지 칸 셋. 전부 숨어 있고 이름이 없어 화면 순서로 잡는다.
+     * 위지윅 에디터가 없다 — 상세설명도 이미지 파일이다.
+     */
+    imageFileInputs: [
+      { key: "representative", label: "\uB300\uD45C\uC774\uBBF8\uC9C0" },
+      { key: "additional", label: "\uCD94\uAC00\uC774\uBBF8\uC9C0" },
+      { key: "detail", label: "\uC0C1\uC138\uC774\uBBF8\uC9C0" }
+    ]
+  };
+  registerMallWriter({
+    mallKey: "always",
+    displayName: "\uC62C\uC6E8\uC774\uC988",
+    guard: registrationGuard(ALWAYS_PAGE_GUARD, "\uC62C\uC6E8\uC774\uC988"),
+    dialogHosts: ["alwayzseller.ilevit.com"],
+    form: ALWAYS_REGISTRATION_FORM
+  });
 
   // extensions/src/sites/art09/listings.ts
   var ART09_LISTINGS_URL = "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage";
@@ -10066,12 +10860,12 @@ var KidItemRuntime = (() => {
   var ORIGIN3 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS3 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
-  var SETTLE_MS = 1500;
+  var SETTLE_MS2 = 1500;
   var CONTENT_FILE3 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
     origin: ORIGIN3,
-    caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
+    caller: { minIntervalMs: SETTLE_MS2, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
     return `${ORIGIN3}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
@@ -10094,7 +10888,7 @@ var KidItemRuntime = (() => {
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
-          await deps.sleep(SETTLE_MS);
+          await deps.sleep(SETTLE_MS2);
           const evidence = await page.ask(
             { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
             { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE3] } }
@@ -10322,7 +11116,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS5 = 3e4;
+  var NAVIGATION_TIMEOUT_MS6 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -10334,7 +11128,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -10378,7 +11172,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS5 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -10443,7 +11237,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS6 = 3e4;
+  var NAVIGATION_TIMEOUT_MS7 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -10475,7 +11269,7 @@ var KidItemRuntime = (() => {
       shipmentPage ??= (async () => {
         const tab = shipmentTab ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
@@ -10575,11 +11369,11 @@ var KidItemRuntime = (() => {
     if (!body || typeof body !== "object" || Array.isArray(body) || body.res === false) {
       throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: DOMEGGOOK_ORDER_LIST_API });
     }
-    const list = body.dat;
-    return Array.isArray(list) ? list : [];
+    const list2 = body.dat;
+    return Array.isArray(list2) ? list2 : [];
   }
-  function pickDomeggookCsvUrl(entries, afterReq) {
-    for (const entry of entries) {
+  function pickDomeggookCsvUrl(entries2, afterReq) {
+    for (const entry of entries2) {
       if (entry?.state !== "SUCCESS" || !/ORDER_ALL/.test(String(entry.dlBtn ?? ""))) continue;
       if (afterReq && !(String(entry.dateReq ?? "") > afterReq)) continue;
       const url = (String(entry.dlBtn).match(/href=['"]([^'"]+)['"]/) ?? [])[1];
@@ -10649,12 +11443,118 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/domeggook/registration.ts
+  var DOMEGGOOK_REGISTRATION_FORM = {
+    label: "\uB3C4\uB9E4\uAFB9",
+    origin: "https://www.domeggook.com",
+    pathPrefix: "/sc/item/regFrm",
+    formSelector: "#lFormRegItem",
+    // 대표이미지 칸. 전문가용업로드(`imageResize=0`)에서 보이는 것은 `image1~4`
+    // 이고 순서대로 760·330·150·75 픽셀 이상이다. `image0` 은 일반업로드 전용이라
+    // 그 방식에서는 숨는다(라이브 실측 2026-09-10).
+    imageSlots: ["image0", "image1", "image2", "image3", "image4"],
+    dynamic: { trigger: "infoDutyType", waitPrefix: "infoDuty[" },
+    // 키워드 10칸은 **이름이 없다**(class 만 `lKeywordTmp`). `form.elements[name]`
+    // 로는 닿지 않아서, 숨은 `itemKeyword` 만 채우면 화면은 빈 채로 남고 페이지가
+    // 그 칸들로 숨은 값을 다시 만들어 덮는다(라이브 확인 2026-09-10).
+    // 그러니 보이는 칸을 채워야 한다. 채우면 숨은 값이 저절로 따라온다.
+    groupInputs: [{ key: "keywords", selector: "input.lKeywordTmp" }],
+    // `이미지 사용허용`(도매매 판매시 필수옵션)도 `name` 이 없다. 누르면 숨은
+    // `imageArrow` 가 `1` 이 된다(라이브 확인 2026-09-10). 숨은 칸을 직접 쓰지 않고
+    // 사람처럼 누른다 — 키워드 칸에서 배운 것과 같다.
+    selectorChecks: [{ key: "imageAllow", selector: "#lImageAllow", label: "\uC774\uBBF8\uC9C0 \uC0AC\uC6A9\uD5C8\uC6A9" }],
+    /**
+     * 이름 없는 입력칸들. 폼으로는 못 닿아 선택자로 찾는다.
+     *
+     * 원산지 세 칸은 계단식이라 앞 칸을 고른 뒤 다음 목록이 채워지기를 기다려야
+     * 한다. 안전인증 칸은 상품군(`infoDutyType`)을 고르면 통째로 다시 그려지므로
+     * 그 뒤에 와야 한다(라이브 실측 2026-09-10).
+     *
+     * 이 칸들의 값은 화면에만 보이고, `itemCountry`·`itemSafetyCertCat[1]`·
+     * `itemCertNumber[1]` 은 도매꾹이 제출할 때 여기서 만든다.
+     */
+    selectorFields: [
+      { key: "originType", selector: "#lItemCountrySelect1", label: "\uC6D0\uC0B0\uC9C0 \uAD6C\uBD84", waitMs: 1300 },
+      { key: "originArea", selector: "#lItemCountrySelect2", label: "\uC6D0\uC0B0\uC9C0 \uB300\uB959", waitMs: 1300 },
+      { key: "originNation", selector: "#lItemCountrySelect3", label: "\uC6D0\uC0B0\uC9C0 \uAD6D\uAC00", waitMs: 600 },
+      { key: "certExempt", selector: ".lCertItem select.lKC", label: "\uBA74\uC81C\uB300\uC0C1\uC5EC\uBD80", waitMs: 600 },
+      { key: "certType", selector: ".lCertItem select.lCert", label: "\uC548\uC804\uC778\uC99D \uBD84\uB958", waitMs: 600 },
+      { key: "certNumber", selector: ".lCertItem input.lInputCertNo", label: "\uC548\uC804\uC778\uC99D\uBC88\uD638" }
+    ],
+    /**
+     * 저장된 주소 중 첫 번째를 고르는 칸.
+     *
+     * 값이 계정마다 다른 내부 번호라 적어두지 않는다. 사람이 화면에서 고르는 것도
+     * '내 출고지'뿐이다.
+     */
+    selectFirstOptions: ["deliShippingArea", "returnShippingArea"],
+    // 이미지를 넣으면 도매꾹이 '꾹AI:렌즈'로 유사 상품을 찾아 분류를 추천한다.
+    // 우리는 6단 코드를 지어낼 수 없으니 그 추천을 받는다 — 몰이 자기 분류 체계로
+    // 판단한 값이라 우리 추측보다 낫다.
+    //
+    // 고정 선택자가 없다(런타임에 만들어진다). 사람이 알아보는 방식 그대로
+    // 문구로 찾는다: '추천 카테고리'가 들어간 대화상자 안의 '변경하기' 버튼.
+    // 두 조건을 모두 요구해서 엉뚱한 버튼을 누르지 않게 한다.
+    acceptRecommendation: {
+      containerText: "\uCD94\uCC9C \uCE74\uD14C\uACE0\uB9AC",
+      acceptText: "\uBCC0\uACBD\uD558\uAE30",
+      timeoutMs: 4e4
+    },
+    // 상세내용은 사람이 하는 그대로 '상품상세내용 작성하기' 버튼을 눌러서 넣는다.
+    // 버튼이 팝업 에디터(`my_sellInfoFormEditor.php`)를 새 탭으로 열고, 거기서
+    // 등록을 누르면 에디터가 opener 콜백으로 `itemMemo[Item]` 을 채운다.
+    //
+    // 그 칸에 값을 직접 써넣을 수도 있지만 그러면 버튼이 '작성하기'로 남아 사람이
+    // "안 들어갔나" 하고 다시 열어 덮어쓴다. 에디터를 거치면 라벨('수정')과
+    // `data-mode="edit"` 를 페이지가 스스로 바꾼다(라이브 확인 2026-09-10).
+    //
+    // ⚠️ 이 에디터는 켜져 있는 항목이 비면 `alert()` 를 띄운다. 등록폼이 열어주는
+    //    기본값은 네 항목 전부 켜짐이고 상품정보 말고는 비어 있다. 네이티브
+    //    대화상자는 자동화에서 렌더러를 통째로 멈춰 아무것도 읽지 못하게 만든다
+    //    (라이브 확인 2026-09-10). 그래서 비어 있는 항목은 미리 끄고, alert 은
+    //    삼켜서 경고로 돌려준다 — 몰의 말을 버리지 않으면서 화면은 살려둔다.
+    detailEditor: {
+      buttonId: "lBtnWriteItemMemo",
+      urlPattern: "https://www.domeggook.com/main/mySell/register/my_sellInfoFormEditor.php*",
+      editorKey: "Item",
+      toggleSelector: "input.lBtnContentType",
+      framePrefix: "easyWebEditor_lTextarea",
+      frameSuffix: "_iframe",
+      submitId: "lBtnSubmit",
+      // `내 다른 판매상품 홍보`. 켜면 도매꾹이 내용을 요구하므로, 넣을 값이 있을
+      // 때만 켠 채로 채우고 없으면 끈다.
+      promoKey: "OtherItem",
+      openTimeoutMs: 2e4,
+      submitTimeoutMs: 2e4
+    },
+    // 상세설명 이미지는 **몰이 읽을 수 있는 주소**여야 한다. 우리 렌더 산출물은
+    // `http://localhost:9000/...`(로컬 MinIO)라 도매꾹도 구매자도 못 읽는다.
+    //
+    // 도매꾹 자체 호스팅(`my_sellImageCacheAjax.php`)은 못 쓴다. 파일을 보내면
+    // 서버가 `{"res":false,"dmsg":"API token 정보가 없습니다"}` 로 거절한다 —
+    // iwinv 유료 서비스 토큰이 있어야 열린다(라이브 확인 2026-09-10).
+    //
+    // 그래서 우리 상점 첨부 저장소에 올려서 공개 주소를 받는다. 탭을 열지 않고
+    // fetch 세 번으로 끝난다(`DETAIL_HOSTS` 참고). 예전엔 키즈노트 등록화면을
+    // 탭으로 열었는데, 도매꾹을 누른 사람에게 키즈노트가 열리는 건 설명되지 않는
+    // 동작이었다. 이제 아무 창도 열리지 않으므로 사람이 켜고 끌 이유도 없다.
+    detailHost: "kidsnote"
+  };
+  registerMallWriter({
+    mallKey: "domeggook",
+    displayName: "\uB3C4\uB9E4\uAFB9",
+    guard: registrationGuard(DOMEGGOOK_PAGE_GUARD, "\uB3C4\uB9E4\uAFB9"),
+    dialogHosts: ["domeggook.com"],
+    login: DOMEGGOOK_LOGIN,
+    form: DOMEGGOOK_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/gs-shop/index.ts
   var GS_SHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
   var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
   var READ_TIMEOUT_MS5 = 14e4;
   var WALL_TIMEOUT_MS = 1e4;
-  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var NAVIGATION_TIMEOUT_MS8 = 3e4;
   var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
   var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
@@ -10707,7 +11607,7 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
         }
         waited = true;
-        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
+        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
       };
       for (; ; ) {
         let answer;
@@ -11167,7 +12067,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS8 = 35e3;
+  var NAVIGATION_TIMEOUT_MS9 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -11207,14 +12107,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -11334,6 +12234,21 @@ var KidItemRuntime = (() => {
     opensOwnTabs: true,
     create: (deps, lease) => ({
       reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+    })
+  });
+
+  // extensions/src/sites/mall-write/index.ts
+  var MALL_WRITE_SITE = "mall-write";
+  registerSite({
+    name: MALL_WRITE_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      writer(mallKey) {
+        const definition = mallWriterFor(mallKey);
+        if (!definition) return null;
+        const context = mallWriteContext(definition, deps, lease);
+        return { fill: (input) => fillRegistration(definition, context, input) };
+      }
     })
   });
 
@@ -11566,7 +12481,7 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS9 = 45e3;
+  var NAVIGATION_TIMEOUT_MS10 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
   var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
@@ -11585,7 +12500,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
         return next;
       })();
       return tab;
@@ -11811,7 +12726,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS10 = 45e3;
+  var NAVIGATION_TIMEOUT_MS11 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
   var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
@@ -11824,7 +12739,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS11 });
         return next;
       })();
       return tab;
@@ -12005,7 +12920,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS11 = 35e3;
+  var NAVIGATION_TIMEOUT_MS12 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -12076,14 +12991,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS12, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS12, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -12748,9 +13663,9 @@ var KidItemRuntime = (() => {
   }
   function productRows(response) {
     const data = asRecord(asRecord(response)?.data);
-    const list = data?.productList;
-    if (!Array.isArray(list)) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC0C1\uD488 \uAC80\uC0C9 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
-    return list.map((row) => asRecord(row) ?? {});
+    const list2 = data?.productList;
+    if (!Array.isArray(list2)) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC0C1\uD488 \uAC80\uC0C9 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return list2.map((row) => asRecord(row) ?? {});
   }
   function totalCountOf(response) {
     const total = asRecord(asRecord(asRecord(response)?.data)?.pagination)?.totalCount;
@@ -13558,39 +14473,55 @@ var KidItemRuntime = (() => {
         );
         scheduleHeartbeat();
       };
-      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
-        if (local.signal.aborted) break;
-        if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
-          throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
+      const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })[Symbol.asyncIterator]();
+      let returned = void 0;
+      try {
+        for (; ; ) {
+          const step = await stream.next();
+          if (step.done) {
+            returned = step.value;
+            break;
+          }
+          const chunk = step.value;
+          if (local.signal.aborted) {
+            await stream.return?.(void 0);
+            break;
+          }
+          if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
+            throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
+          }
+          const empty = chunk.payload.length === 0;
+          if (!empty) assertChunkFits(chunk, chunks);
+          const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
+          const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
+          if (!empty) sequences.set(chunk.chunkKind, sequence);
+          await write(
+            () => deps.client.putChunk({
+              operationId,
+              token,
+              chunkKind: chunk.chunkKind,
+              sequence,
+              payload: chunk.payload,
+              ...chunk.progress ? { progress: chunk.progress } : {}
+            })
+          );
+          if (!empty) {
+            chunks += 1;
+            items += chunk.payload.length;
+          }
+          if (chunk.progress) lastProgress = chunk.progress;
+          scheduleHeartbeat();
         }
-        const empty = chunk.payload.length === 0;
-        if (!empty) assertChunkFits(chunk, chunks);
-        const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
-        const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
-        if (!empty) sequences.set(chunk.chunkKind, sequence);
-        await write(
-          () => deps.client.putChunk({
-            operationId,
-            token,
-            chunkKind: chunk.chunkKind,
-            sequence,
-            payload: chunk.payload,
-            ...chunk.progress ? { progress: chunk.progress } : {}
-          })
-        );
-        if (!empty) {
-          chunks += 1;
-          items += chunk.payload.length;
-        }
-        if (chunk.progress) lastProgress = chunk.progress;
-        scheduleHeartbeat();
+      } catch (error) {
+        await stream.return?.(void 0).catch(() => void 0);
+        throw error;
       }
       collectionDone = true;
       stopHeartbeat();
       await writes;
       if (heartbeatStop) throw heartbeatStop;
       if (input.signal.aborted) return cancelled(operationId);
-      const summary = collector.summarize?.({ chunks, items }) ?? {};
+      const summary = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
       const request = {
         outcome: "succeeded",
         ...summary.result ? { result: summary.result } : {},
@@ -13857,6 +14788,12 @@ var KidItemRuntime = (() => {
     }
     return capabilities;
   }
+  function mallWriteSiteCapability(mallKey) {
+    return `mallWriteSite.${mallKey}`;
+  }
+  function mallWriteCapabilities(writers2 = registeredMallWriters()) {
+    return Object.fromEntries(writers2.map((writer) => [mallWriteSiteCapability(writer.mallKey), true]));
+  }
 
   // extensions/src/entry/index.ts
   function installEntry() {
@@ -13895,7 +14832,11 @@ var KidItemRuntime = (() => {
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
         [SELLPIA_OPERATION_CAPABILITY]: true,
-        ...mallSiteCapabilities()
+        // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
+        // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
+        [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
+        ...mallSiteCapabilities(),
+        ...mallWriteCapabilities()
       }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
