@@ -371,3 +371,10 @@ export async function runAvailability(module: MallAvailabilityModule, context: A
     observedUrl: answer.observedUrl ?? null,
   };
 }
+
+/** 판매 상태 읽기 실행(`channels.mall_availability_read`)의 한 묶음. 몰이 거절한 답·로그인은 던진다. */
+export async function readAvailabilityOrThrow(module: MallAvailabilityModule, context: AvailabilityContext, codes: readonly string[]) {
+  const read = await readMallAvailability(module, context, codes);
+  if (!read.success) throw answerError(module, read.error);
+  return { products: read.products, missing: read.missing };
+}

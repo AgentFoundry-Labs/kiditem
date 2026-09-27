@@ -9,6 +9,7 @@ import '../collectors/advertising.wing_traffic';
 import '../collectors/analytics.sellpia_product_profitability';
 import '../collectors/analytics.sellpia_sales';
 import '../collectors/channels.mall_admin_listings';
+import '../collectors/channels.mall_availability_read';
 import '../collectors/channels.registration';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';

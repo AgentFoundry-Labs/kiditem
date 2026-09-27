@@ -2,6 +2,7 @@ import { registerSite } from '../registry';
 import {
   availabilityContext,
   mallAvailabilityFor,
+  readAvailabilityOrThrow,
   runAvailability,
   type AvailabilityObserved,
   type AvailabilityRunInput,
@@ -45,6 +46,13 @@ registerSite({
         handle.availability = (input) => runAvailability(availability, context, input);
       }
       return handle;
+    },
+    /** 판매 상태 읽기(`channels.mall_availability_read`) — 읽기가 있는 몰만. */
+    reader(mallKey: string) {
+      const availability = mallAvailabilityFor(mallKey);
+      if (!availability?.read) return null;
+      const context = availabilityContext(availability, deps, lease);
+      return { read: (codes: string[]) => readAvailabilityOrThrow(availability, context, codes) };
     },
   }),
 });
