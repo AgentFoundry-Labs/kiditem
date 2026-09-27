@@ -56,6 +56,7 @@ describe('isMallAlert', () => {
       ['orders.coupang_directship', 'coupang-direct'],
       ['advertising.wing_traffic', 'coupang'],
       ['advertising.wing_itemwinner', 'coupang'],
+      ['advertising.ad_report', 'coupang'],
     ];
     for (const [sourceType, mallKey] of cases) {
       const item = alert(sourceType, { type: 'operation_failure', sourceType });
@@ -266,6 +267,7 @@ describe('몰 원천 → 채널 키', () => {
     'orders.coupang_directship',
     'advertising.wing_traffic',
     'advertising.wing_itemwinner',
+    'advertising.ad_report',
   ];
 
   it('⭐ 몰을 말하는 원천의 몰 키가 모두 레지스트리에 있다', () => {

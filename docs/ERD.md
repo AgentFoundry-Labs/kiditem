@@ -25,7 +25,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 
 | Domain | Models |
 |---|---:|
-| [Advertising](erd/advertising.md) | 11 |
+| [Advertising](erd/advertising.md) | 16 |
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 10 |
 | [Analytics](erd/analytics.md) | 2 |
@@ -45,7 +45,12 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Model | Domain | Table | Description |
 |---|---:|---|---|
 | AdAction | Advertising | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask 파이프라인. 실행 상태는 최신 ExecutionTask에서 파생한다. |
+| ChannelAdCampaign | Advertising | `channel_ad_campaigns` | ChannelAdCampaign canonical state owned by advertising. |
+| ChannelAdCampaignAd | Advertising | `channel_ad_campaign_ads` | ChannelAdCampaignAd canonical state owned by advertising. |
+| ChannelAdDailyBilling | Advertising | `channel_ad_daily_billings` | ChannelAdDailyBilling canonical state owned by advertising. |
+| ChannelAdKeywordDailySnapshot | Advertising | `channel_ad_keyword_daily_snapshots` | ChannelAdKeywordDailySnapshot canonical state owned by advertising. |
 | ChannelAdListingProductMonthlyFact | Advertising | `channel_ad_listing_product_monthly_facts` | ChannelAdListingProductMonthlyFact canonical state owned by advertising. |
+| ChannelAdProductDailySnapshot | Advertising | `channel_ad_product_daily_snapshots` | ChannelAdProductDailySnapshot canonical state owned by advertising. |
 | ChannelAdTargetDailySnapshot | Advertising | `channel_ad_target_daily_snapshots` | ChannelAdTargetDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordRankDailySnapshot | Advertising | `coupang_keyword_rank_daily_snapshots` | CoupangKeywordRankDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordSerpDailySnapshot | Advertising | `coupang_keyword_serp_daily_snapshots` | CoupangKeywordSerpDailySnapshot canonical state owned by advertising. |
@@ -300,6 +305,75 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  ChannelAdCampaign {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    String campaignId
+    String name
+    Boolean isActive
+    String status
+    String servingStatus
+    Int budget
+    String budgetType
+    Decimal roasTarget
+    String adSelectionType
+    Int totalAdCount
+    DateTime lastSeenAt
+    DateTime deletedAt
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdCampaignAd {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    String adId
+    String campaignId
+    String adGroupId
+    String optionId
+    Boolean isActive
+    String status
+    DateTime lastSeenAt
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdDailyBilling {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    DateTime date
+    String settlementDomain
+    String campaignKey
+    Int deliveredSpend
+    Int billedSpend
+    Int promotionAdjustment
+    Int billableAdjustment
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdKeywordDailySnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    DateTime date
+    String campaignId
+    String adGroupId
+    String optionId
+    String keyword
+    Int impressions
+    Int clicks
+    Int spend
+    Int orders
+    Int units
+    Int revenue
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelAdListingProductMonthlyFact {
     String id PK
     String organizationId FK
@@ -314,6 +388,27 @@ erDiagram
     BigInt mappingGeneration
     Int observedTargetDayCount
     BigInt allocatedSpend
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdProductDailySnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    DateTime date
+    String campaignId
+    String adGroupId
+    String optionId
+    String listingId
+    String optionName
+    Int impressions
+    Int clicks
+    Int spend
+    Int orders
+    Int units
+    Int revenue
+    Int billedSpend
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2432,7 +2527,12 @@ erDiagram
   Organization ||--o{ Alert : "organization"
   Organization ||--o{ CapabilityInvocation : "organization"
   Organization ||--o{ CategoryMapping : "organization"
+  Organization ||--o{ ChannelAdCampaign : "organization"
+  Organization ||--o{ ChannelAdCampaignAd : "organization"
+  Organization ||--o{ ChannelAdDailyBilling : "organization"
+  Organization ||--o{ ChannelAdKeywordDailySnapshot : "organization"
   Organization ||--o{ ChannelAdListingProductMonthlyFact : "organization"
+  Organization ||--o{ ChannelAdProductDailySnapshot : "organization"
   Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ContentAsset : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
