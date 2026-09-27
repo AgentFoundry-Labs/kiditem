@@ -6,7 +6,7 @@ import { describeRegistrationOperation, type RegistrationOperationState } from '
 /** `/mall-tasks` 표의 한 줄 — 등록 실행(`channels.registration`) 하나. 상태 말은 등록 실행 표 하나를 쓴다. */
 export interface RegistrationTaskRow {
   id: string;
-  startedAt: string;
+  startedAt: string | Date;
   mallName: string;
   kindLabel: string;
   target: string;

@@ -25,7 +25,7 @@ const STATE_TONE: Record<RegistrationOperationState, string> = {
   cancelled: 'bg-slate-100 text-slate-600',
 };
 
-function startedLabel(value: string): string {
+function startedLabel(value: string | Date): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
 }
