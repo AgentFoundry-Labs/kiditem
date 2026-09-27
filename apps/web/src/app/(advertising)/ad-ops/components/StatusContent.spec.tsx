@@ -69,7 +69,7 @@ describe("wingKpiCount", () => {
 describe("StatusContent", () => {
   it("keeps the itemwinner collection on the status tab before any KPI is collected", async () => {
     mockApiGet.mockImplementation(async (path: string) =>
-      path === "/api/operations?kinds=advertising.wing_itemwinner&limit=5"
+      path === "/api/operations?kinds=advertising.wing_itemwinner&limit=5" || path === "/api/operations?kinds=advertising.ad_report&limit=5"
         ? { operations: [] }
         : { roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } } },
     );
@@ -93,6 +93,33 @@ describe("StatusContent", () => {
     expect(screen.getByRole("heading", { name: "아이템위너 · 노출 현재 상태" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "아이템위너 수집" })).toBeEnabled();
     expect(screen.getByText("아직 수집한 아이템위너 현황이 없습니다.")).toBeInTheDocument();
+  });
+
+  it("puts the ad report collection on the status tab next to the itemwinner card", async () => {
+    mockApiGet.mockImplementation(async (path: string) =>
+      path.startsWith("/api/operations?kinds=")
+        ? { operations: [] }
+        : { roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } } },
+    );
+
+    render(
+      wrapper(
+        <StatusContent
+          rules={[]}
+          strategy={null}
+          trends={null}
+          wingKpis={{}}
+          campaigns={[]}
+          onGoToCampaign={vi.fn()}
+          period="14d"
+          onPeriodChange={vi.fn()}
+          extensionStatus={null}
+        />,
+      ),
+    );
+
+    expect(screen.getByRole("heading", { name: "광고 보고서" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "광고 보고서 수집" })).toBeEnabled();
   });
 });
 

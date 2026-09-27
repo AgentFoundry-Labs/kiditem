@@ -68,6 +68,91 @@
       "legacyReaders": []
     },
     {
+      "name": "Advertising product day",
+      "owner": "advertising",
+      "table": "channel_ad_product_daily_snapshots",
+      "prismaModel": "channelAdProductDailySnapshot",
+      "prismaType": "ChannelAdProductDailySnapshot",
+      "relationNames": [
+        "channelAdProductDailySnapshots"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-report-operation.repository.ts",
+          "reason": "Replaces the confirmed window's product-day rows inside the advertising.ad_report finish transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Advertising keyword day",
+      "owner": "advertising",
+      "table": "channel_ad_keyword_daily_snapshots",
+      "prismaModel": "channelAdKeywordDailySnapshot",
+      "prismaType": "ChannelAdKeywordDailySnapshot",
+      "relationNames": [
+        "channelAdKeywordDailySnapshots"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-report-operation.repository.ts",
+          "reason": "Replaces the confirmed window's keyword-day rows inside the advertising.ad_report finish transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Advertising campaign state",
+      "owner": "advertising",
+      "table": "channel_ad_campaigns",
+      "prismaModel": "channelAdCampaign",
+      "prismaType": "ChannelAdCampaign",
+      "relationNames": [
+        "channelAdCampaigns"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-report-operation.repository.ts",
+          "reason": "Upserts current campaign state inside the advertising.ad_report finish transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Advertising campaign ad state",
+      "owner": "advertising",
+      "table": "channel_ad_campaign_ads",
+      "prismaModel": "channelAdCampaignAd",
+      "prismaType": "ChannelAdCampaignAd",
+      "relationNames": [
+        "channelAdCampaignAds"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-report-operation.repository.ts",
+          "reason": "Upserts current ad state inside the advertising.ad_report finish transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
+      "name": "Advertising daily billing",
+      "owner": "advertising",
+      "table": "channel_ad_daily_billings",
+      "prismaModel": "channelAdDailyBilling",
+      "prismaType": "ChannelAdDailyBilling",
+      "relationNames": [
+        "channelAdDailyBillings"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/advertising/adapter/out/repository/ad-report-operation.repository.ts",
+          "reason": "Replaces the confirmed window's settlement rows inside the advertising.ad_report finish transaction."
+        }
+      ],
+      "legacyReaders": []
+    },
+    {
       "name": "Channel listing daily facts",
       "owner": "channels",
       "table": "channel_listing_daily_snapshots",
