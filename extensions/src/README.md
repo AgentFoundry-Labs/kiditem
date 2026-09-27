@@ -27,7 +27,9 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 노출이다. 실패한 로그인은 `SITE_LOGIN_REQUIRED` details.reason(`credentials_rejected`·`no_credentials`·
 `verification_required`·`login_unconfirmed`)으로 알리고, runner가 failed finish의 `result.login`에 까닭과 몰의 말만 싣는다.
 웹이 차단 때문에 자격을 싣지 않은 실행(`operation.start`의 `loginBlocked`, `operationLoginBlockedV1`)은 `no_credentials` 대신
-`blocked`로 적는다(실기기 R7).
+`blocked`로 적는다(실기기 R7). 캡차가 붙은 폼(아트공구 reCAPTCHA)은 칸만 채우고 `verification_required`로 멈춰 탭을 앞으로
+가져오고, 눌렀지만 몰의 폼 검사가 막아 보내기가 나가지 않았으면(같은 문서에 폼) `login_unconfirmed`다 — 보내기가 나간 뒤 폼이
+다시 온 것만 `credentials_rejected`다(재QA 3 D1).
 웹(`apps/web/src/lib/operation-login.ts`)은 `credentials_rejected`면 몰의 말과 상관없이 그 몰의 자동 로그인을 멈춘다(KID-380 D10 —
 같은 자격으로 거듭 두드리면 계정이 잠긴다). 푸는 것은 사람이고, 스스로 도는 수집의 한 시간 간격은 그대로다.
 

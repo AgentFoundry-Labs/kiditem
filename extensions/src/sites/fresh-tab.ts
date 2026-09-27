@@ -1,5 +1,6 @@
 import type { SiteSignIn } from './site-login';
 import { isRuntimeError } from '../core/errors';
+import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import { leftForOperator, OPERATOR_ACTION_REQUIRED, type TabPage, type TabPages } from './tab-page';
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -49,7 +50,10 @@ async function readInTab<T>(
   } catch (error) {
     if (leftForOperator(error)) keepOpen = true;
     // 운영자 조치(GS샵 SMS 인증 시간 초과·보리보리 다운로드 비밀번호, KID-380)는 그 탭에서 한다 — 앞으로 가져온다.
-    if (isRuntimeError(error) && error.code === OPERATOR_ACTION_REQUIRED) await page.focus().catch(() => undefined);
+    // 본인확인·캡차에서 멈춘 로그인(재QA 3 D1 — 아트공구 reCAPTCHA)도 운영자가 그 탭에서 푼다.
+    const operatorStep = isRuntimeError(error)
+      && (error.code === OPERATOR_ACTION_REQUIRED || (error.code === SITE_LOGIN_REQUIRED && error.details?.reason === 'verification_required'));
+    if (operatorStep) await page.focus().catch(() => undefined);
     throw error;
   } finally {
     if (!keepOpen) await page.close();

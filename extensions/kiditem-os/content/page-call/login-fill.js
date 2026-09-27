@@ -10,8 +10,20 @@
   "use strict";
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
   calls["login.fill"] = (args) => fillLogin(args && typeof args === "object" ? args.values : null);
+  // 보내기가 실제로 나갔는지(재QA 3 D1): 누를 때 이 문서에 표시를 남기고, 막히지 않은 submit 이벤트를 보면 나간 것으로 적는다.
+  // 몰의 폼 검사(form_check·캡차)가 막으면 같은 문서에 "채웠지만 보내지 않음"이 남는다 — 사이트 로그인 단계가 거절로 단정하지 않는다.
+  // 보내기로 문서가 바뀌면 표시가 없다(새 문서).
+  if (!globalThis.__kiditemLoginSubmitWatch && typeof window.addEventListener === "function") {
+    globalThis.__kiditemLoginSubmitWatch = true;
+    window.addEventListener("submit", (event) => {
+      const mark = globalThis.__kiditemLoginSubmit;
+      if (mark && !event.defaultPrevented) mark.observed = true;
+    });
+  }
   const password = pickPasswordInput();
-  return { loginForm: Boolean(password && pickLoginIdInput(password)) };
+  const mark = globalThis.__kiditemLoginSubmit;
+  const loginForm = Boolean(password && pickLoginIdInput(password));
+  return mark ? { loginForm, filledHere: true, submitObserved: mark.observed === true } : { loginForm };
 
   function fillLogin(values) {
     const passwordInput = pickPasswordInput();
@@ -40,6 +52,10 @@
     if (supplierLoginInput) setInputValue(supplierLoginInput, values.supplierLoginId);
     setInputValue(passwordInput, values.password);
 
+    // 캡차가 붙은 폼(Cafe24 reCAPTCHA 등)은 사람이 풀어야 보내진다 — 칸만 채우고 누르지 않는다(재QA 3 D1).
+    if (captchaShown(passwordInput)) return { state: "verification_required", reason: "captcha" };
+
+    globalThis.__kiditemLoginSubmit = { observed: false };
     const method = triggerLogin(passwordInput);
     return method ? { state: "submitted", method } : { state: "incomplete", reason: "submit-not-found" };
   }
@@ -87,6 +103,14 @@
     if (inputs.length < 2 && form !== document) inputs = textInputs(document);
     const candidates = inputs.filter((input) => input !== supplierInput);
     return candidates.find((input) => /쇼핑몰|mall.?id|shop.?id|cafe24/.test(inputDescriptor(input))) || candidates[0] || null;
+  }
+
+  /** 그 로그인 폼(없으면 문서)에 보이는 캡차 위젯이 있는가 — reCAPTCHA·hCaptcha. 숨은 탭의 위젯은 보지 않는다. */
+  function captchaShown(anchor) {
+    const root = anchor.closest("form") || document;
+    return Array.from(
+      root.querySelectorAll(".g-recaptcha, .gRecaptcha, iframe[src*='recaptcha'], .h-captcha, iframe[src*='hcaptcha']"),
+    ).some(isVisibleControl);
   }
 
   /** 로그인 화면의 "공급사" 탭(Cafe24 eclogin). 폼 안의 버튼·안내 링크가 아닌, 글자가 딱 "공급사"(로그인)인 보이는 컨트롤. */

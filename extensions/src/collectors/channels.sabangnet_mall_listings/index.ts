@@ -45,7 +45,7 @@ const SOURCE_SNAPSHOT_INVALID = 'SOURCE_SNAPSHOT_INVALID' as const;
 const CHUNK_ROWS = 500;
 
 function drift(stage: string): never {
-  throw new RuntimeError(MALL_CONTRACT_CHANGED, `사방넷 목록 형식이 바뀌어 가져오기를 멈췄습니다. [${stage}]`, { stage });
+  throw new RuntimeError(MALL_CONTRACT_CHANGED, '사방넷 목록 형식이 바뀌어 가져오기를 멈췄습니다.', { stage, field: stage });
 }
 
 function text(value: unknown, maximum: number): string | null {

@@ -40,8 +40,11 @@ describe('kidkids listings page script', () => {
   it('점검 안내가 아닌데 건수가 없으면 그대로 형식 변경이다', async () => {
     const handler = load('<html><body><p>상품 목록</p></body></html>', { contentType: 'text/html; charset=UTF-8' });
     await expect(handler({ plan: PLAN })).resolves.toEqual({ success: false, errorCode: 'mall_contract_drift', stage: 'counter' });
-    // 2xx는 머리의 문자셋과 상관없이 EUC-KR(리뷰 2 SHOULD 1).
-    expect(handler.labels).toEqual(['euc-kr']);
+    // 응답 머리의 문자셋을 따르고(재QA 3 D2 — 2xx에도 utf-8), 머리에 없을 때만 EUC-KR.
+    expect(handler.labels).toEqual(['utf-8']);
+    const bare = load('<html><body><p>상품 목록</p></body></html>');
+    await bare({ plan: PLAN });
+    expect(bare.labels).toEqual(['euc-kr']);
   });
 
   it('목록 화면이 404 UTF-8 점검 화면이면 mall_maintenance, 다른 HTTP 오류는 mall_network_failed(실기기 R2)', async () => {

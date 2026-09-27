@@ -67,7 +67,8 @@ export function readMallListings(
       case 'mall_login_required':
         throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
       case 'mall_contract_drift':
-        throw new RuntimeError(MALL_CONTRACT_CHANGED, `${spec.displayName} 상품 목록 형식이 바뀌어 가져오기를 멈췄습니다.${stage ? ` [${stage}]` : ''}`, { stage, mallKey: spec.mallKey });
+        // 단계 표시는 details에만 — 운영자 문장에는 싣지 않는다(재QA 3 D3).
+        throw new RuntimeError(MALL_CONTRACT_CHANGED, `${spec.displayName} 상품 목록 형식이 바뀌어 가져오기를 멈췄습니다.`, { stage, field: stage, mallKey: spec.mallKey });
       case 'mall_total_changed':
         throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, `읽는 사이 ${spec.displayName} 상품 목록이 바뀌었습니다. 잠시 뒤 다시 가져와 주세요.`, { stage: 'total_changed', mallKey: spec.mallKey });
       case 'mall_invalid_snapshot':
