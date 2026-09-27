@@ -253,6 +253,13 @@ describe('content/page-call/dialog-guard-bridge.js — 수집 탭인지 런타�
     expect(bridge(undefined, { message: 'Receiving end does not exist.' }).posted).toEqual([]);
   });
 
+  it('자기 메시지가 아닌 것(페이지 호출 KIDITEM_PAGE_CALL 등)에는 false로 답하지 않고 넘긴다(재QA 2 B1)', () => {
+    const run = bridge({ runTab: true });
+    expect(run.receive({ type: 'KIDITEM_PAGE_CALL', call: 'login.fill', args: {} })).toBe(false);
+    expect(run.receive({ action: 'other' })).toBe(false);
+    expect(run.receive({ action: 'kiditem.dialogGuard.setRunTab', runTab: false })).toBe(false);
+  });
+
   it('런타임이 탭을 운영자에게 넘기거나(runTab false) 다시 쓰면(true) 그 표시를 MAIN에 보낸다(리뷰 2 SHOULD 2·3)', () => {
     const run = bridge({ runTab: true });
     run.receive({ action: 'kiditem.dialogGuard.setRunTab', runTab: false });

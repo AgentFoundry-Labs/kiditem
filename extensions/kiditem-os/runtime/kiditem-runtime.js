@@ -8485,7 +8485,7 @@ var KidItemRuntime = (() => {
           };
           await checkHere();
           const first = await send(message, timeoutMs, frameId);
-          if (!inject || !isMissing(first)) {
+          if (!inject || !(isMissing(first) || isEmpty(first))) {
             if (isMissing(first) || isTimeout(first)) await checkHere();
             return first;
           }
@@ -8584,6 +8584,9 @@ var KidItemRuntime = (() => {
         }
       }
     };
+  }
+  function isEmpty(value) {
+    return typeof value === "object" && value !== null && value.error === "empty_response";
   }
   function isTimeout(value) {
     return typeof value === "object" && value !== null && value.error === "timeout";
@@ -10388,7 +10391,7 @@ var KidItemRuntime = (() => {
   var READ_TIMEOUT_MS6 = 18e4;
   var LOGIN_MESSAGE6 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var HOSTS = ["mallseller.genimarket.co.kr"];
-  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
+  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /\/(?:[\w-]*_)?login/i.test(url.pathname);
   var HAEBUB_MALL_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS),
     isLogin: isHaebubLogin,

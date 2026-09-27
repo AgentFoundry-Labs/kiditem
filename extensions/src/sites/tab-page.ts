@@ -347,7 +347,9 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         };
         await checkHere();
         const first = await send<T>(message, timeoutMs, frameId);
-        if (!inject || !isMissing(first)) {
+        // 가드 짝(ISOLATED)만 있는 탭은 받는 쪽이 있어 "Receiving end does not exist" 대신 빈 답이 온다 — 주입 전의 빈 답은
+        // 처리기가 없는 것과 같다(재QA 2 B1). 주입한 뒤의 빈 답은 그대로 오류다.
+        if (!inject || !(isMissing(first) || isEmpty(first))) {
           if (isMissing(first) || isTimeout(first)) await checkHere();
           return first;
         }
@@ -455,6 +457,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       }
     },
   };
+}
+
+function isEmpty(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { error?: unknown }).error === 'empty_response';
 }
 
 function isTimeout(value: unknown): boolean {

@@ -101,6 +101,9 @@ describe('sites/haebub-mall — 몰 주문 읽기(KID-380)', () => {
 
   it('로그인 주소 추측은 경로의 /login 마디만 본다(쿼리의 login은 로그인 화면이 아니다)', () => {
     expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL('https://mallseller.genimarket.co.kr/mall/login.php'))).toBe(true);
+    // 로그아웃이면 /mall/admin_login.php로 넘어간다(재QA 2 B2) — 주소만으로 로그인 화면이다.
+    expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL('https://mallseller.genimarket.co.kr/mall/admin_login.php'))).toBe(true);
+    expect(HAEBUB_MALL_PAGE_GUARD.isLogin(new URL('https://mallseller.genimarket.co.kr/mall/admin_login.php?url=basket_list'))).toBe(true);
     expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL('https://mallseller.genimarket.co.kr/mall/order/basket_list.php?ref=login'))).toBe(false);
     // 확장 권한(host_permissions)이 여는 호스트만.
     expect(HAEBUB_MALL_LOGIN.hosts).toEqual(['mallseller.genimarket.co.kr']);

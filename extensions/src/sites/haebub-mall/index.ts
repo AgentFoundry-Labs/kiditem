@@ -21,7 +21,8 @@ const LOGIN_MESSAGE = '해법몰 로그인이 필요합니다. mallseller.genima
 const HOSTS = ['mallseller.genimarket.co.kr'];
 
 /** 경로에 login으로 시작하는 마디가 있는 해법몰 화면. 처리기는 옛 수집기처럼 주소 전체의 login도 본다. */
-const isHaebubLogin = (url: URL) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
+// 로그아웃이면 /mall/admin_login.php로 넘어간다(재QA 2 B2) — 경로 조각이 login으로 시작하거나 _login으로 끝나면 로그인 화면이다.
+const isHaebubLogin = (url: URL) => hostWithin(url, HOSTS) && /\/(?:[\w-]*_)?login/i.test(url.pathname);
 
 export const HAEBUB_MALL_PAGE_GUARD: PageGuard = {
   allows: (url) => hostWithin(url, HOSTS),

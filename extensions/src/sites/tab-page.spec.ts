@@ -494,3 +494,27 @@ describe('운영자에게 넘긴 탭은 수집 탭이 아니다(리뷰 2 SHOULD 
     expect(tabs.isRunTab(4)).toBe(false);
   });
 });
+
+describe('TabPage.ask — 가드 짝만 있는 탭(빈 답)도 처리기를 넣고 다시 묻는다(재QA 2 B1)', () => {
+  it('주입 전 빈 답(undefined)은 받는 쪽이 없는 것과 같다 — 파일을 한 번 넣고 다시 물어 답을 돌려준다', async () => {
+    let injected = false;
+    const { chromeApi, log } = fakeChrome({ sendMessage: async () => (injected ? { ok: true, value: 'rows' } : undefined) });
+    const executeScript = chromeApi.scripting.executeScript;
+    chromeApi.scripting.executeScript = async (injection) => {
+      injected = true;
+      return executeScript(injection);
+    };
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.ask({ type: 'KIDITEM_PAGE_CALL' }, { timeoutMs: 1_000, inject: { isolated: ['content/page-call/bridge.js', 'content/page-call/login-fill.js'] } }))
+      .resolves.toEqual({ ok: true, value: 'rows' });
+    expect(log).toEqual(['inject ISOLATED content/page-call/bridge.js,content/page-call/login-fill.js']);
+  });
+
+  it('주입한 뒤에도 빈 답이면 그대로 오류다(한 번만 넣는다)', async () => {
+    const { chromeApi, log } = fakeChrome({ sendMessage: async () => undefined });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.ask({ type: 'KIDITEM_PAGE_CALL' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] } }))
+      .resolves.toEqual({ ok: false, error: 'empty_response' });
+    expect(log.filter((line) => line.startsWith('inject'))).toHaveLength(1);
+  });
+});
