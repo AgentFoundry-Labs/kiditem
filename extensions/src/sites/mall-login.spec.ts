@@ -75,6 +75,8 @@ describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () =
     expect(DOMEGGOOK_LOGIN.isLoginUrl(new URL('https://domeggook.com/ssl/member/mem_loginForm.php'))).toBe(true);
     expect(ICECREAM_LOGIN).toMatchObject({ loginUrl: ICECREAM_MALL_URL, hosts: ['i-screammall.co.kr'], fields: ['loginId', 'password'], settleMs: 8_000 });
     expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/loginForm.do'))).toBe(true);
+    // 틀린 자격으로 누르면 아이스크림몰은 /error/loginExpired로 넘긴다 — 로그인 화면이다(실기기 R5).
+    expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/error/loginExpired'))).toBe(true);
   });
 });
 

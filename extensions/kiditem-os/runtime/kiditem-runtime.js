@@ -8919,6 +8919,27 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
 
+  // packages/shared/src/schemas/mall-login.ts
+  var MALL_CREDENTIAL_REJECTIONS = [
+    "\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0",
+    "\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778",
+    "\uBE44\uBC00\uBC88\uD638\uAC00 \uC62C\uBC14\uB974\uC9C0",
+    "\uC544\uC774\uB514 \uB610\uB294 \uBE44\uBC00\uBC88\uD638",
+    "\uC544\uC774\uB514\uC640 \uBE44\uBC00\uBC88\uD638",
+    "\uB4F1\uB85D\uB418\uC9C0 \uC54A\uC740 \uC544\uC774\uB514",
+    "\uC874\uC7AC\uD558\uC9C0 \uC54A\uB294 \uC544\uC774\uB514",
+    "\uC77C\uCE58\uD558\uB294 \uD68C\uC6D0",
+    "\uAC00\uC785\uB418\uC9C0 \uC54A\uC740",
+    "incorrect password",
+    "invalid password",
+    "password does not match"
+  ];
+  function mallRejectedCredentials(message) {
+    const text5 = (message ?? "").toLowerCase();
+    if (!text5) return false;
+    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text5.includes(phrase.toLowerCase()));
+  }
+
   // extensions/src/sites/site-login.ts
   var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
   var LOGIN_DIALOGS_FILE = "content/page-call/login-dialogs.js";
@@ -8972,6 +8993,7 @@ var KidItemRuntime = (() => {
     const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
     const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
+    if (mallMessage && mallRejectedCredentials(mallMessage)) return { status: "rejected", ...withMessage };
     const remains = await formRemains(page, deps);
     const status = remains === "unknown" ? "unconfirmed" : remains ? "form_remains" : "ok";
     return { status, ...withMessage };
@@ -9065,7 +9087,7 @@ var KidItemRuntime = (() => {
         return await call2();
       } catch (error) {
         if (!isLoginRequired(error)) throw error;
-        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
+        throw outcome.status === "form_remains" || outcome.status === "rejected" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
       }
     };
   }
@@ -9127,7 +9149,7 @@ var KidItemRuntime = (() => {
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
     return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
       ...error.details ?? {},
       reason,

@@ -183,6 +183,30 @@ describe('content/page-call/dialog-guard.js — 불러오는 중 뜨는 알림 �
   });
 });
 
+describe('content/page-call/dialog-guard.js — 화면이 넘어가도 몰의 말을 잃지 않는다(실기기 R5)', () => {
+  it('모은 문장을 그 출처의 sessionStorage에 두고, 다음 문서의 가드가 이어받아 로그인 알림 창 받기가 돌려준다', () => {
+    const store = new Map<string, string>();
+    const sessionStorage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+    };
+    const make = () => {
+      const window: Record<string, unknown> = { alert: () => undefined, confirm: () => false, location: { origin: 'https://po.i-screammall.co.kr' }, addEventListener: () => undefined, sessionStorage };
+      new Function('window', guardSource)(window);
+      new Function('window', dialogsSource)(window);
+      return window;
+    };
+    const loginPage = make();
+    (loginPage.__kiditemPageCalls as Record<string, () => unknown>)['login.watchDialogs']!();
+    (loginPage.alert as (message: string) => void)('아이디 혹은 비밀번호가 일치하지 않습니다.');
+    // 몰이 /error/loginExpired로 넘긴다 — 새 문서.
+    const errorPage = make();
+    expect((errorPage.__kiditemPageCalls as Record<string, () => unknown>)['login.takeDialogs']!()).toEqual(['아이디 혹은 비밀번호가 일치하지 않습니다.']);
+    expect(make().__kiditemDialogs).toEqual([]);
+  });
+});
+
 describe('content/page-call/dialog-guard-bridge.js — 수집 탭인지 런타임에 묻는다(ISOLATED, 실기기 R1)', () => {
   function bridge(answer: unknown, lastError: unknown = undefined) {
     const sent: unknown[] = [];

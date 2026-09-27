@@ -1,3 +1,4 @@
+import { mallRejectedCredentials } from '@kiditem/shared/mall-login';
 import { RuntimeError, isRuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import { callPage } from './page-call';
@@ -49,11 +50,12 @@ export interface LoginSpec {
 }
 
 /**
+ * `rejected`: 눌렀더니 몰이 거절 문장으로 답했다(화면이 어디로 넘어갔든, 실기기 R5).
  * `ok`: 눌렀고 폼이 사라졌다. `no_form`: 로그인 폼이 없었다(이미 로그인됐거나 폼이 아닌 화면). `form_remains`: 눌렀는데
  * 폼이 남았다(`mallMessage`가 있으면 몰의 말). `verification_required`: 본인확인 화면. `unconfirmed`: 폼을 다 채우지
  * 못했거나 화면을 들여다보지 못했다.
  */
-export type LoginStatus = 'ok' | 'no_form' | 'form_remains' | 'verification_required' | 'unconfirmed';
+export type LoginStatus = 'ok' | 'no_form' | 'form_remains' | 'rejected' | 'verification_required' | 'unconfirmed';
 export interface LoginOutcome {
   status: LoginStatus;
   mallMessage?: string;
@@ -125,6 +127,8 @@ async function afterSubmit(page: TabPage, spec: LoginSpec, guard: PageGuard, fra
     .find(Boolean);
   const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
   if (isVerification(spec, await safeUrl(page))) return { status: 'verification_required', ...withMessage };
+  // 몰이 거절 문장으로 답했으면 화면이 어디로 넘어갔든 거절이다(실기기 R5 — 아이스크림몰은 /error/loginExpired로 넘긴다).
+  if (mallMessage && mallRejectedCredentials(mallMessage)) return { status: 'rejected', ...withMessage };
   const remains = await formRemains(page, deps);
   const status: LoginStatus = remains === 'unknown' ? 'unconfirmed' : remains ? 'form_remains' : 'ok';
   return { status, ...withMessage };
@@ -252,7 +256,7 @@ export function createSiteLoginGate(credentials: SiteCredentials | null | undefi
       return await call();
     } catch (error) {
       if (!isLoginRequired(error)) throw error;
-      throw outcome.status === 'form_remains'
+      throw outcome.status === 'form_remains' || outcome.status === 'rejected'
         ? loginFailure(error, 'credentials_rejected', outcome.mallMessage)
         : loginFailure(error, 'login_unconfirmed');
     }
@@ -354,7 +358,8 @@ const REASON_TEXT: Record<LoginFailureReason, string> = {
 };
 
 function loginFailure(error: RuntimeError, reason: LoginFailureReason, mallMessage?: string): RuntimeError {
-  const text = reason === 'credentials_rejected' ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ''}.` : REASON_TEXT[reason];
+  // 몰의 말은 details.mallMessage(→ result.login.mallMessage)에만 싣는다 — 오류 문장은 레지스트리 말 그대로(실기기 R5).
+  const text = reason === 'credentials_rejected' ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
   return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text}`, {
     ...(error.details ?? {}),
     reason,

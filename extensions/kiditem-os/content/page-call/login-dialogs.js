@@ -13,6 +13,7 @@
   calls["login.watchDialogs"] = () => {
     if (guarded()) {
       window.__kiditemDialogs.length = 0;
+      if (typeof window.__kiditemSaveDialogs === "function") window.__kiditemSaveDialogs();
       return true;
     }
     if (!window.__kiditemLoginDialogs) {
@@ -32,7 +33,10 @@
   calls["login.takeDialogs"] = () => {
     const messages = Array.isArray(window.__kiditemLoginDialogs) ? window.__kiditemLoginDialogs.slice() : [];
     if (typeof window.__kiditemRestoreLoginDialogs === "function") window.__kiditemRestoreLoginDialogs();
-    if (guarded()) messages.push(...window.__kiditemDialogs.splice(0));
+    if (guarded()) {
+      messages.push(...window.__kiditemDialogs.splice(0));
+      if (typeof window.__kiditemSaveDialogs === "function") window.__kiditemSaveDialogs();
+    }
     return messages;
   };
 })();

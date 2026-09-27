@@ -13,10 +13,35 @@
   if (window.__kiditemDialogGuard) return;
   window.__kiditemDialogGuard = true;
   const MAX_MESSAGES = 20;
-  if (!Array.isArray(window.__kiditemDialogs)) window.__kiditemDialogs = [];
+  // 모은 문장은 그 출처의 sessionStorage에도 둔다 — 몰이 알림 창을 띄운 뒤 다른 화면으로 넘겨도(아이스크림몰
+  // /error/loginExpired) 다음 문서의 가드가 이어받아 로그인 알림 창 받기가 몰의 말을 돌려준다(실기기 R5).
+  const STORE_KEY = "__kiditemDialogs";
+  let storage = null;
+  try {
+    storage = window.sessionStorage || null;
+  } catch {
+    storage = null;
+  }
+  let saved = [];
+  try {
+    saved = JSON.parse((storage && storage.getItem(STORE_KEY)) || "[]");
+  } catch {
+    saved = [];
+  }
+  window.__kiditemDialogs = Array.isArray(saved) ? saved.filter((item) => typeof item === "string").slice(0, MAX_MESSAGES) : [];
+  window.__kiditemSaveDialogs = function () {
+    try {
+      if (!storage) return;
+      if (window.__kiditemDialogs.length > 0) storage.setItem(STORE_KEY, JSON.stringify(window.__kiditemDialogs));
+      else storage.removeItem(STORE_KEY);
+    } catch {
+      // 저장소를 못 쓰는 화면 — 이 문서 안에서만 모은다.
+    }
+  };
   function record(message) {
     const messages = window.__kiditemDialogs;
     if (messages.length < MAX_MESSAGES) messages.push(String(message === undefined ? "" : message));
+    window.__kiditemSaveDialogs();
   }
   const nativeConfirm = window.confirm;
   let runTab = false;
