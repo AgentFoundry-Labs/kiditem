@@ -78,18 +78,17 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('RegistrationPendingSection checking actions', () => {
-  it('shows the failure of the adopted candidate and clears it for the sales product', async () => {
+  it('shows the failure of the adopted candidate without a local clear — the failed run lives in /mall-tasks', async () => {
     vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
       if (href.startsWith('/api/ai/thumbnail-jobs')) return jobResponse();
       return { items: [executionStatus({ status: 'failed', providerOutcome: 'definitive_failure', error: '로그인 필요' })] };
     });
-    vi.mocked(apiClient.delete).mockResolvedValue({ dismissed: true });
     renderSection();
 
     expect(await screen.findByText('등록 실패')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '에러 지우기' }));
-
-    await waitFor(() => expect(apiClient.delete).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/failed/${SP1}`));
+    expect(screen.queryByRole('button', { name: '에러 지우기' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /초기화/ })).toBeNull();
+    expect(apiClient.delete).not.toHaveBeenCalled();
   });
 
   it('offers resend and not-applied but no confirmation while the upload itself is still running', async () => {

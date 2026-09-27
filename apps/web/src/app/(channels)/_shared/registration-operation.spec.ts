@@ -299,7 +299,7 @@ describe('몰 쓰기 경로 잠금', () => {
 
   it('옛 실행 경로와 확장 쓰기 액션이 웹에 없다', () => {
     expect(filesMatching(
-      'registration-executions|registration-targets/[^\'"`]*/executions|listing-availability-executions|thumbnail-executions/[^\'"`]*/(report|resend|applied|not-applied)'
+      'registration-executions|registration-targets/[^\'"`]*/executions|listing-availability-executions|thumbnail-executions/[^\'"`]*/(report|resend|applied|not-applied)|thumbnail-executions/failed'
       + '|registerToMallForm|registerToKidsnoteForm|registerToWingForm|registerRepresentativeImage|\'sendMallAvailability\'|\'readMallAvailability\'|\'sendMallPrice\'',
     )).toEqual([]);
   });
