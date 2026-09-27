@@ -57,9 +57,8 @@ describe('ChannelListingsSection price execution', () => {
   it('allocates a fresh intent after reload of a completed send', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(executeTargetMallPrice).mockResolvedValue({
-      execution: { status: 'succeeded' },
-      decision: { confirmed: true, message: '확인 완료', outcome: 'confirmed', after: 3000 }, sent: true,
-    } as Awaited<ReturnType<typeof executeTargetMallPrice>>);
+      operation: null, sent: true, confirmed: true, failed: false, message: '확인 완료',
+    });
     const mounted = mount();
     await screen.findByText('카카오 소매');
     fireEvent.click(screen.getByRole('button', { name: '가격 보내기' }));
