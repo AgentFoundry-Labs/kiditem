@@ -75,7 +75,16 @@ export class AdActionService {
       Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000,
     );
 
-    const latestRows = await this.repo.findRuleTargets(organizationId);
+    const targets = await this.repo.findRuleTargets(organizationId);
+    // A keyword paused from this window's evidence keeps its pre-pause clicks
+    // in the window, so it is not proposed again until the window moves past it.
+    const windowStartDate = targets[0]?.windowStartDate;
+    const appliedPauses = windowStartDate
+      ? new Set((await this.repo.findAppliedKeywordPauses(organizationId, windowStartDate))
+        .map((pause) => `${pause.externalId ?? ''}::${pause.targetLabel}`))
+      : new Set<string>();
+    const latestRows = targets.filter((row) =>
+      row.targetType !== 'keyword' || !appliedPauses.has(`${row.vendorItemId ?? ''}::${row.keyword ?? ''}`));
 
     const listingIds = [...new Set(latestRows.flatMap((row) => row.listingIds))];
     const availability = listingIds.length > 0

@@ -69,6 +69,14 @@ export interface AdRuleTarget {
   businessDate: string;
   /** Measured days of the window the sums cover. */
   measuredDays: number;
+  /** First measured day of the window the sums cover. */
+  windowStartDate: string;
+}
+
+/** A keyword (advertised option + keyword text) a pause proposal names. */
+export interface KeywordPauseKey {
+  externalId: string | null;
+  targetLabel: string;
 }
 
 export interface AdActionReviewSummary {
@@ -162,6 +170,14 @@ export interface AdActionRepositoryPort {
 
   /** Campaign and keyword targets of the recent measured window (KID-372). */
   findRuleTargets(organizationId: string): Promise<AdRuleTarget[]>;
+
+  /**
+   * Keywords whose `pause_keyword` proposal created on or after the KST
+   * calendar day `sinceDate` stands approved or reads done. The window's
+   * keyword rows still carry the clicks from before the pause, so such a
+   * keyword is not proposed again from that window.
+   */
+  findAppliedKeywordPauses(organizationId: string, sinceDate: string): Promise<KeywordPauseKey[]>;
 
   /**
    * Actions created since `sinceCreatedAt` that are still open work: awaiting

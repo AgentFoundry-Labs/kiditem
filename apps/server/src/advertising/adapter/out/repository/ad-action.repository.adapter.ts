@@ -60,6 +60,7 @@ import type {
   KeywordPauseProposalRow,
   HydratedAdAction,
   AdRuleTarget,
+  KeywordPauseKey,
 } from '../../../application/port/out/repository/ad-action.repository.port';
 
 const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
@@ -283,6 +284,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         const businessDate = current.latestMeasuredDate;
         if (businessDate === null) return [];
         const measuredDays = current.measuredDates.length;
+        const windowStartDate = current.measuredDates[0];
         const catalog = await this.channelListings.readCatalogFacts(handle, {
           organizationId, channels: ['coupang'], activeAccountsOnly: true, activeOnly: true,
         });
@@ -314,6 +316,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               orders: campaign.orders,
               businessDate,
               measuredDays,
+              windowStartDate,
             };
           }),
           ...current.keywords.filter((row) => !row.nonSearch).map((row) => {
@@ -342,6 +345,7 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
               orders: row.orders,
               businessDate,
               measuredDays,
+              windowStartDate,
             };
           }),
         ];
@@ -373,6 +377,20 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
+  }
+
+  async findAppliedKeywordPauses(organizationId: string, sinceDate: string): Promise<KeywordPauseKey[]> {
+    const since = new Date(`${sinceDate}T00:00:00+09:00`);
+    return this.prisma.$queryRaw<KeywordPauseKey[]>(Prisma.sql`
+      SELECT DISTINCT action.external_id AS "externalId", action.target_label AS "targetLabel"
+      FROM ad_actions action
+      ${LATEST_EXECUTION_TASK_JOIN}
+      WHERE action.organization_id = ${organizationId}::uuid
+        AND action.action_type = 'pause_keyword'
+        AND action.target_type = 'keyword'
+        AND action.created_at >= ${since}::timestamptz
+        AND (action.approval_status = 'approved' OR ${derivedExecuteStatusIn(['done'], new Date())})
+    `);
   }
 
   async findExistingInflightActions(

@@ -21,6 +21,7 @@ import type { PrismaClient } from '@prisma/client';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { measuredRunCovering } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
+import { seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -486,6 +487,45 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.actionType).toBe('change_daily_budget');
       expect(action.currentValue).toBe(20000);
       expect(action.proposedValue).toBe(10000);
+    });
+    it('#6b does not propose pausing a keyword again while a pause of it made in the measured window stands approved or done', async () => {
+      const { listing, option, listingOption } = await seedListingWithOption({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+      });
+      const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const windowStart = new Date(Date.parse(`${today}T00:00:00.000Z`) - 13 * 86_400_000).toISOString().slice(0, 10);
+      await seedAdReportRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, channelAccountId: listing.channelAccountId, start: windowStart, end: today,
+      });
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        listingOptionId: listingOption.id,
+        optionId: option.id,
+        pageType: 'keyword',
+        externalId: 'KW-APPLIED',
+        keyword: 'applied keyword',
+        spend: 6000,
+        conversions: 0,
+      });
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 1 });
+      const pause = await prisma.adAction.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID } });
+      await adActionService.approveActions([pause.id], TEST_ORGANIZATION_ID);
+      // The operator paused it in the ad center; an attempt from before decision A reads done.
+      await prisma.executionTask.updateMany({ where: { actionId: pause.id }, data: { status: 'done', finishedAt: new Date() } });
+      const backdate = (days: number) => prisma.adAction.update({
+        where: { id: pause.id },
+        data: { createdAt: new Date(Date.now() - days * 86_400_000) },
+      });
+
+      // Past the 24-hour dedup, but inside the window whose rows still show the keyword's clicks.
+      await backdate(3);
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 0 });
+
+      // A pause older than the window's first measured day no longer stands for these rows.
+      await backdate(20);
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 1 });
     });
   });
 
@@ -1199,8 +1239,10 @@ describe('AdAction flow (PG integration)', () => {
       // The ad center keeps the old values until the operator applies them and
       // a later sweep reads them, so the rules fire again; the confirmed
       // proposals still stand.
+      // The approved keyword pause leaves the rule input (an applied pause in the
+      // window); the approved budget change is skipped as existing work.
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
-        .resolves.toMatchObject({ generated: 0, skippedExisting: 2 });
+        .resolves.toMatchObject({ generated: 0, skippedExisting: 1 });
 
       await adActionService.rejectActions(ids, TEST_ORGANIZATION_ID);
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))

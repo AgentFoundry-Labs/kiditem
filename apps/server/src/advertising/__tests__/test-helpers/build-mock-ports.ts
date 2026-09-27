@@ -77,6 +77,7 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
   return {
     findAdActionsForReview: vi.fn(),
     findRuleTargets: vi.fn(),
+    findAppliedKeywordPauses: vi.fn(),
     findExistingInflightActions: vi.fn(),
     findKeywordPauseProposals: vi.fn().mockResolvedValue([]),
     createAdActionsFromCandidates: vi.fn(),

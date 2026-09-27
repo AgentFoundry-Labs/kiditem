@@ -30,6 +30,7 @@ function keywordRow(overrides: Partial<AdRuleTarget> = {}): AdRuleTarget {
     abcGrade: null,
     businessDate: '2026-09-20',
     measuredDays: 14,
+    windowStartDate: '2026-09-07',
     ...overrides,
   };
 }

@@ -40,6 +40,7 @@ function campaign(overrides: Partial<AdRuleTarget> = {}): AdRuleTarget {
     abcGrade: 'B',
     businessDate: '2026-09-20',
     measuredDays: 14,
+    windowStartDate: '2026-09-07',
     ...overrides,
   };
 }
