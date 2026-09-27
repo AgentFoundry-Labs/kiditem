@@ -26,6 +26,8 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 폼 채우기는 `content/page-call/login-fill.js`에 페이지 호출 인자로 그 탭에만 가며, 옛 `executeScript` 인자와 같은
 노출이다. 실패한 로그인은 `SITE_LOGIN_REQUIRED` details.reason(`credentials_rejected`·`no_credentials`·
 `verification_required`·`login_unconfirmed`)으로 알리고, runner가 failed finish의 `result.login`에 까닭과 몰의 말만 싣는다.
+웹(`apps/web/src/lib/operation-login.ts`)은 `credentials_rejected`면 몰의 말과 상관없이 그 몰의 자동 로그인을 멈춘다(KID-380 D10 —
+같은 자격으로 거듭 두드리면 계정이 잠긴다). 푸는 것은 사람이고, 스스로 도는 수집의 한 시간 간격은 그대로다.
 
 몰 이관 규칙(H3′·L′, KID-380·381): 로그인 폼 명세가 없는 사이트(올웨이즈 JWT, 지마켓·옥션·스마트스토어·떠리몰·11번가 목록)는
 `loginSpec` 없이 `PageGuard.isLogin`만 두어 로그인 화면이면 `SITE_LOGIN_REQUIRED`로 멈추고 탭을 남긴다(운영자가 로그인).
