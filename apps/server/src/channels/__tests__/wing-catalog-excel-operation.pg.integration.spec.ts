@@ -1,3 +1,4 @@
+import { seedRegistrationOperation } from './registration-operation-seeds';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import type { ParsedWingCatalogWorkbook } from '../application/port/out/documents/channel-document.models';
 import { randomUUID } from 'node:crypto';
@@ -179,23 +180,15 @@ describe('Wing catalog workbook over the operation contract (PG integration)', (
         wingProduct: { variants: [{ vendorItemCode: 'KID12345678' }] },
       },
     }, channelIntegrity.sha256);
-    await prisma.productRegistrationExecution.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: await createRegistrationTarget(prisma, WING_ACCOUNT_ID, component.id, 'KID12345678'),
-        channelAccountId: WING_ACCOUNT_ID,
-        channelListingId: listing.id,
-        executionKind: 'register',
-        idempotencyKey: randomUUID(),
-        requestHash: frozen.hash,
-        submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
-        submissionPayloadHash: frozen.hash,
-        status: 'succeeded',
-        providerOutcome: 'succeeded',
-        providerSubmissionId: 'provider-workbook-bundle',
-        externalListingId: 'P-REGISTERED',
-        resultJson: { externalListingId: 'P-REGISTERED' },
-      },
+    await seedRegistrationOperation(prisma, {
+      executionKind: 'register',
+      mallKey: 'coupang',
+      registrationTargetId: await createRegistrationTarget(prisma, WING_ACCOUNT_ID, component.id, 'KID12345678'),
+      channelAccountId: WING_ACCOUNT_ID,
+      channelListingId: listing.id,
+      payload: { snapshot: frozen.payload, form: null },
+      status: 'succeeded',
+      result: { channelListingId: listing.id, externalListingId: 'P-REGISTERED' },
     });
     await prisma.channelListingOption.update({
       where: { id: listing.options[0]!.id },
@@ -1008,8 +1001,8 @@ describe('Wing catalog workbook over the operation contract (PG integration)', (
     await importCatalog([makeRow(0)]);
 
     // 몰로 나가는 모든 제출은 등록 실행 울타리를 지난다. 품절 전송도 마찬가지다.
-    await expect(prisma.productRegistrationExecution.count({
-      where: { organizationId: TEST_ORGANIZATION_ID },
+    await expect(prisma.operation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, kind: 'channels.registration' },
     })).resolves.toBe(0);
     // 원천 수집이 발행된 계산을 대신 만들지 않는다 (ADR-0009).
     await expect(prisma.masterProductAbcEvaluation.count({
@@ -1218,19 +1211,9 @@ describe('Wing catalog workbook over the operation contract (PG integration)', (
   }
 
   async function registrationExecutionSnapshot(executionId: string) {
-    return prisma.productRegistrationExecution.findUniqueOrThrow({
+    return prisma.operation.findUniqueOrThrow({
       where: { id: executionId },
-      select: {
-        id: true,
-        requestHash: true,
-        submissionPayloadJson: true,
-        submissionPayloadHash: true,
-        status: true,
-        providerOutcome: true,
-        providerSubmissionId: true,
-        externalListingId: true,
-        resultJson: true,
-      },
+      select: { id: true, status: true, plan: true, result: true, finishedAt: true },
     });
   }
 });
@@ -1298,24 +1281,16 @@ async function createFrozenRegistrationExecution(input: {
       wingProduct: { variants: [{ vendorItemCode: input.sellerSku }] },
     },
   }, channelIntegrity.sha256);
-  const execution = await input.prisma.productRegistrationExecution.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
+  const execution = await seedRegistrationOperation(input.prisma, {
+      executionKind: 'register',
+      mallKey: 'coupang',
       registrationTargetId: await createRegistrationTarget(input.prisma, input.channelAccountId, input.masterProductId, input.sellerSku),
       channelAccountId: input.channelAccountId,
       channelListingId: input.channelListingId,
-      executionKind: 'register',
-      idempotencyKey: randomUUID(),
-      requestHash: frozen.hash,
-      submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
-      submissionPayloadHash: frozen.hash,
+      payload: { snapshot: frozen.payload, form: null },
       status: 'succeeded',
-      providerOutcome: 'succeeded',
-      providerSubmissionId: `provider-${input.sourceCode}`,
-      externalListingId: 'P-DELETED',
-      resultJson: { externalListingId: 'P-DELETED' },
-    },
-  });
+      result: { channelListingId: input.channelListingId, externalListingId: 'P-DELETED' },
+    });
   return { id: execution.id };
 }
 

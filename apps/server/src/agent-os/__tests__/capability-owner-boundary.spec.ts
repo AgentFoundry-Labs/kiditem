@@ -8,7 +8,6 @@ const serverRoot = resolve(__dirname, '../..');
 const requiredOwners = [
   ['sourcing.ingestCandidate', 'sourcing', 'sourcing.ingestCandidate'],
   ['products.create_listing_generation_package', 'products', 'products.createListingGenerationPackage'],
-  ['channels.submit_representative_image', 'channels', 'channels.submitRepresentativeImage'],
   ['analytics.readOverview', 'analytics', 'analytics.readOverview'],
   ['supply.create_purchase_order_draft', 'supply', 'supply.createPurchaseOrderDraft'],
   ['supply.submit_purchase_order', 'supply', 'supply.submitPurchaseOrder'],
@@ -42,12 +41,13 @@ describe('KID-25 owner capability boundary', () => {
     expect(source).not.toContain('market.collect_shadow_signals');
     expect(source).not.toContain('product_listing.create_generation_package');
     expect(source).not.toContain('product_listing.submit_wing_thumbnail');
+    // KID-364: the Channels mall-write capabilities left with the registration execution table.
+    expect(source).not.toContain('channels.submit_representative_image');
   });
 
   it('keeps business capability execution out of Agent and AgentRun wrappers', () => {
     const ownerAdapters = [
       'products/adapter/in/agent/products-listing-generation-capability.adapter.ts',
-      'channels/adapter/in/agent/channels-representative-image-capability.adapter.ts',
       'supply/adapter/in/agent/supply-agent-capability.adapter.ts',
       'analytics/adapter/in/agent/analytics-overview-capability.adapter.ts',
       'sourcing/adapter/in/agent/sourcing-capability-composition.adapter.ts',

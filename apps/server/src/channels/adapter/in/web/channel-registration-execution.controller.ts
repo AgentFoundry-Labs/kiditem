@@ -10,7 +10,7 @@ import type { SalesProductRegistrationState } from '@kiditem/shared/sales-produc
 /**
  * 판매 상품 하나의 몰 계정별 등록 상태 — 등록 상태 reader 하나가 판정한다(KID-313 결정 11, KID-320).
  *
- * 제출은 이 경로가 아니라 등록 대상 실행(`channels/registration-targets/:id/executions`)이 한다 —
+ * 제출은 이 경로가 아니라 등록 실행(`POST /api/operations`, kind `channels.registration`, KID-364)이 한다 —
  * 몰마다 다른 전달 방식은 채널 어댑터가 맡는다(KID-321,
  * [ADR-0014](../../../../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
  */

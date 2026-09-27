@@ -383,6 +383,7 @@ export class MallPublishingService implements MallPublishingPort {
           registration,
           rawStatus: listing?.status ?? null,
           externalId: listing?.externalId ?? null,
+          channelListingId: listing?.id ?? null,
           productUrl: listing
             ? mallProductUrl(column.mallKey, listing.externalId, listing.storefrontProductId)
             : null,

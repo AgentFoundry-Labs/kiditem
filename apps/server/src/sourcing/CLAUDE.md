@@ -87,13 +87,13 @@ belong to Supply; supplier payments belong to Finance.
 
 ## Registration invariants
 
-- Reach registration settings and the submission fence through the Channels
-  registration execution interface; never write
-  `ProductRegistrationExecution` rows
+- Reach registration settings and the submission fence through Channels: a
+  registration is a `channels.registration` operation that Channels owns
+  (plan · finalize, KID-364); never write registration or operation rows
   ([ADR-0014](../../../../docs/adr/0014-channels-owns-the-registration-execution-fence.md)).
 - Registration freezes the reviewed payload, content/hash, idempotency key,
-  actor, account, execution kind, provider outcome, reconciliation state, and
-  terminal listing in its ledger.
+  account, execution kind, provider outcome, reconciliation state, and
+  terminal listing in that operation's plan and result.
 - Provider calls are idempotent and account-scoped. An uncertain outcome is
   reconciled before retrying; concurrent active drafts surface a conflict.
 - A source record is deleted only with its draft (Channels draft deletion). It

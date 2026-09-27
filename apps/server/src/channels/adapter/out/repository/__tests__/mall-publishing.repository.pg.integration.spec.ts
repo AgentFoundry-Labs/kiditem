@@ -1,3 +1,4 @@
+import { seedRegistrationOperation } from '../../../../__tests__/registration-operation-seeds';
 import { ListingContentQueryRepositoryAdapter } from '../../../../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -775,12 +776,9 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       const target = await prisma.registrationTarget.create({
         data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: salesProduct.id, channelAccountId: COUPANG_ACCOUNT },
       });
-      await prisma.productRegistrationExecution.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, channelAccountId: COUPANG_ACCOUNT,
-          executionKind: 'register', idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64),
-          status: 'succeeded', providerOutcome: 'succeeded',
-        },
+      await seedRegistrationOperation(prisma, {
+        executionKind: 'register', mallKey: 'coupang', registrationTargetId: target.id, salesProductId: salesProduct.id,
+        channelAccountId: COUPANG_ACCOUNT, payload: { snapshot: null, form: {} }, status: 'succeeded',
       });
       for (const [externalId, master, salesProductId] of [
         ['EXT-601', linkedMaster, salesProduct.id],
@@ -808,6 +806,10 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         registration: { channelAccountId: COUPANG_ACCOUNT, registrationTargetId: target.id, state: 'registered' },
       });
       expect(cell(unlinkedMaster.id)).toMatchObject({ state: 'published', registration: null });
+      // 칸 단위 품절 · 재개(등록 실행 묶음)가 쓰는 리스팅 id — 리스팅이 있는 칸마다 채워진다(KID-364).
+      const listingIdOf = async (externalId: string) => (await prisma.channelListing.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, externalId } })).id;
+      expect(cell(linkedMaster.id)?.channelListingId).toBe(await listingIdOf('EXT-601'));
+      expect(cell(unlinkedMaster.id)?.channelListingId).toBe(await listingIdOf('EXT-602'));
       // 계약 고정: 실제 칸이 엄격한 공유 스키마를 그대로 지난다.
       for (const entry of [cell(linkedMaster.id), cell(unlinkedMaster.id)]) {
         expect(MallListingMatrixCellSchema.strict().parse(entry)).toEqual(entry);

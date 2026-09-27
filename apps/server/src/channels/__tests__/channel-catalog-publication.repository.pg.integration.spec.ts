@@ -1,3 +1,4 @@
+import { seedRegistrationOperation } from './registration-operation-seeds';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
@@ -178,7 +179,7 @@ describe('Wing catalog list publication over the operation contract (PG integrat
     // KID-348: 목록에서 빠진 상품은 삭제 확인 전까지 그대로 둔다.
     expect(absentAfter.isActive).toBe(true);
     expect(absentAfter.options[0]?.isActive).toBe(true);
-    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
+    expect(await prisma.operation.count({ where: { organizationId: TEST_ORGANIZATION_ID, kind: 'channels.registration' } })).toBe(0);
   });
 
   it('links a later catalog capture to the frozen registered bundle code without allocating another code', async () => {
@@ -212,23 +213,15 @@ describe('Wing catalog list publication over the operation contract (PG integrat
         },
       },
     }, channelIntegrity.sha256);
-    await prisma.productRegistrationExecution.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: await createRegistrationTarget(prisma, ACCOUNT_ID),
-        channelAccountId: ACCOUNT_ID,
-        channelListingId: listing.id,
-        executionKind: 'register',
-        idempotencyKey: randomUUID(),
-        requestHash: frozen.hash,
-        submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
-        submissionPayloadHash: frozen.hash,
-        status: 'succeeded',
-        providerOutcome: 'succeeded',
-        providerSubmissionId: 'provider-registered-bundle',
-        externalListingId: 'P-REGISTERED',
-        resultJson: { externalListingId: 'P-REGISTERED' },
-      },
+    await seedRegistrationOperation(prisma, {
+      executionKind: 'register',
+      mallKey: 'coupang',
+      registrationTargetId: await createRegistrationTarget(prisma, ACCOUNT_ID),
+      channelAccountId: ACCOUNT_ID,
+      channelListingId: listing.id,
+      payload: { snapshot: frozen.payload, form: null },
+      status: 'succeeded',
+      result: { channelListingId: listing.id, externalListingId: 'P-REGISTERED' },
     });
 
     await publish(randomUUID(), [product('P-REGISTERED', 'S-REGISTERED', {
@@ -420,19 +413,9 @@ describe('Wing catalog list publication over the operation contract (PG integrat
   }
 
   async function registrationExecutionSnapshot(executionId: string) {
-    return prisma.productRegistrationExecution.findUniqueOrThrow({
+    return prisma.operation.findUniqueOrThrow({
       where: { id: executionId },
-      select: {
-        id: true,
-        requestHash: true,
-        submissionPayloadJson: true,
-        submissionPayloadHash: true,
-        status: true,
-        providerOutcome: true,
-        providerSubmissionId: true,
-        externalListingId: true,
-        resultJson: true,
-      },
+      select: { id: true, status: true, plan: true, result: true, finishedAt: true },
     });
   }
 });
@@ -456,24 +439,16 @@ async function createFrozenRegistrationExecution(input: {
       wingProduct: { variants: [{ vendorItemCode: input.sellerSku }] },
     },
   }, channelIntegrity.sha256);
-  const execution = await input.prisma.productRegistrationExecution.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
+  const execution = await seedRegistrationOperation(input.prisma, {
+      executionKind: 'register',
+      mallKey: 'coupang',
       registrationTargetId: await createRegistrationTarget(input.prisma, input.channelAccountId),
       channelAccountId: input.channelAccountId,
       channelListingId: input.channelListingId,
-      executionKind: 'register',
-      idempotencyKey: randomUUID(),
-      requestHash: frozen.hash,
-      submissionPayloadJson: frozen.payload as unknown as Prisma.InputJsonValue,
-      submissionPayloadHash: frozen.hash,
+      payload: { snapshot: frozen.payload, form: null },
       status: 'succeeded',
-      providerOutcome: 'succeeded',
-      providerSubmissionId: `provider-${input.sourceCode}`,
-      externalListingId: 'P-DELETED',
-      resultJson: { externalListingId: 'P-DELETED' },
-    },
-  });
+      result: { channelListingId: input.channelListingId, externalListingId: 'P-DELETED' },
+    });
   return { id: execution.id };
 }
 

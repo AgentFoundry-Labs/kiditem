@@ -1,6 +1,5 @@
 import type { RegistrationMallInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
-import type { RepresentativeImageRunnerPort } from '../automation/representative-image-runner.port';
 
 export const CHANNEL_ADAPTER_REGISTRY_PORT = Symbol('CHANNEL_ADAPTER_REGISTRY_PORT');
 
@@ -73,8 +72,12 @@ export interface ChannelAdapter {
    * 안에서 불린다 — 몰 사실을 읽기만 한다.
    */
   prepareAdapterPayload(transaction: OwnerTransaction, input: PrepareAdapterPayloadInput): Promise<Record<string, unknown>>;
-  /** 대표이미지 반영을 지원하면 runner, 아니면 null(registry `representativeImage` 와 같아야 한다). */
-  readonly representativeImage: RepresentativeImageRunnerPort | null;
+  /**
+   * 등록 실행 plan 이 얼리는 몰별 폼 지시의 최종본(KID-364, 2026-09-27 리더 결정). 웹이 보낸 `form` 위에 이 몰의
+   * 얼린 값(`adapterPayload`)을 덮는다. 같은 상품이 이 계정에 이미 있는 등 보내면 안 되는 문서는 여기서 거절한다.
+   * 덮을 것이 없는 몰은 받은 것을 그대로 돌려준다.
+   */
+  freezeForm(form: Record<string, unknown> | null, adapterPayload: Readonly<Record<string, unknown>>): Record<string, unknown> | null;
   /** 품절 · 재개 실행이 이 몰 옵션을 보낼 수 있는가(`AvailabilityOptionKind`). */
   availabilityOption(option: { registrationType: string | null }): AvailabilityOptionKind;
 }

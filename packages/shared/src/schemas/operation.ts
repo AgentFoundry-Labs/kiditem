@@ -36,8 +36,12 @@ export function isOperationTerminal(status: OperationStatus): boolean {
   return (OPERATION_TERMINAL_STATUSES as readonly OperationStatus[]).includes(status);
 }
 
-/** finish가 받는 결과. 취소는 finish가 아니라 cancel 엔드포인트다. */
-export const OPERATION_OUTCOMES = ['succeeded', 'failed'] as const;
+/**
+ * finish가 받는 결과. 취소는 finish가 아니라 cancel 엔드포인트다.
+ * `reconciling`(KID-364): 몰에 제출했지만 외부 결과를 그 자리에서 읽지 못한 등록 실행. `result`가 있어야 하고, 실행은
+ * 임대 없이 잠금·청크를 쥔 채 남아 owner의 확인(`resolve`)이나 운영자 취소로만 끝난다. finalize는 부르지 않는다.
+ */
+export const OPERATION_OUTCOMES = ['succeeded', 'failed', 'reconciling'] as const;
 export const OperationOutcomeSchema = z.enum(OPERATION_OUTCOMES);
 export type OperationOutcome = z.infer<typeof OperationOutcomeSchema>;
 
@@ -214,6 +218,7 @@ export type OperationChunkPutResponse = z.infer<typeof OperationChunkPutResponse
  * finish `POST /api/operations/:id/finish` (헤더 `x-operation-token`).
  * 성공이면 owner `finalize(chunks, window)`가 같은 트랜잭션에서 원장을 쓰고, 실패면 아무것도 쓰지 않는다.
  * 어느 쪽이든 청크는 지워지고 잠금은 풀린다. `failed`에는 errorCode가 있어야 한다.
+ * `reconciling`은 청크·잠금을 남기고 `result`만 저장한다. 그 뒤 토큰 쓰기는 `OPERATION_FENCE_LOST{terminal}`이다.
  */
 export const OperationFinishRequestSchema = z.object({
   outcome: OperationOutcomeSchema,
@@ -232,6 +237,9 @@ export const OperationFinishRequestSchema = z.object({
 ).refine(
   (value) => value.outcome === 'failed' || value.retryAfterMs === undefined,
   { message: 'retryAfterMs는 failed에만 쓴다', path: ['retryAfterMs'] },
+).refine(
+  (value) => value.outcome !== 'reconciling' || value.result !== undefined,
+  { message: '확인 중으로 멈출 때는 `result` 본문이 필요합니다', path: ['result'] },
 );
 export type OperationFinishRequest = z.infer<typeof OperationFinishRequestSchema>;
 

@@ -1007,7 +1007,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     expect(projected?.sku).toMatchObject({ safetyStock: 3, sellableStock: 3 });
     expect((await prisma.channelListingOption.findUniqueOrThrow({ where: { id: sibling.id } })).safetyStock).toBe(0);
     expect((await prisma.masterProduct.findUniqueOrThrow({ where: { id: product.id } })).currentStock).toBe(6);
-    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
+    expect(await prisma.operation.count({ where: { organizationId: TEST_ORGANIZATION_ID, kind: 'channels.registration' } })).toBe(0);
   });
 
   async function nextGeneratedCode() {

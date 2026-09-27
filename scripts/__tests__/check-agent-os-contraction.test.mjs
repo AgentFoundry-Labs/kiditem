@@ -36,16 +36,7 @@ const CAPABILITY_FILES = [
     "apps/server/src/analytics/domain/capability/analytics.capabilities.ts",
     ["analytics.read_overview"],
   ],
-  [
-    "apps/server/src/channels/domain/capability/channels.capabilities.ts",
-    [
-      "channels.submit_representative_image",
-      "channels.prepare_target_execution",
-      "channels.get_target_execution",
-      "channels.start_target_execution",
-      "channels.report_target_execution",
-    ],
-  ],
+  ["apps/server/src/channels/domain/capability/channels.capabilities.ts", []],
   [
     "apps/server/src/products/domain/capability/products.capabilities.ts",
     ["products.create_listing_generation_package"],
@@ -325,14 +316,14 @@ test("enforces final Agent, domain, capability, and MCP cardinalities", () => {
 test("requires each owner capability to provide bounded Korean completion copy", () => {
   const files = finalContractFiles();
   const analytics = files.find((file) => file.path.endsWith("analytics.capabilities.ts"));
-  const channels = files.find((file) => file.path.endsWith("channels.capabilities.ts"));
+  const products = files.find((file) => file.path.endsWith("products.capabilities.ts"));
 
   analytics.source = analytics.source.replace(", resultSummary: '업무를 완료했습니다.'", "");
-  channels.source = channels.source.replace("업무를 완료했습니다.", "technical-completion");
+  products.source = products.source.replace("업무를 완료했습니다.", "technical-completion");
 
   const findings = collectAgentOsContractionFindings(files);
   expectFinding(findings, "analytics.read_overview: missing resultSummary");
-  expectFinding(findings, "channels.submit_representative_image: resultSummary must be bounded Korean copy");
+  expectFinding(findings, "products.create_listing_generation_package: resultSummary must be bounded Korean copy");
 });
 
 test("keeps provider CLIs out of the API and worker image surfaces", () => {

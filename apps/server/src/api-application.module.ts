@@ -15,6 +15,7 @@ import { OrganizationScopeGuard } from './auth/guards/organization-scope.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
 import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
 import { ChannelsModule } from './channels/channels.module';
+import { ChannelsRegistrationOperationModule } from './channels/channels-registration-operation.module';
 import { CommonModule } from './common/common.module';
 import { OperationModule } from './common/operation/operation.module';
 import { StorageModule } from './common/storage/storage.module';
@@ -61,6 +62,7 @@ function apiThrottleLimitPerMinute(): number {
     SourcingModule,
     SupplyModule,
     ChannelsModule,
+    ChannelsRegistrationOperationModule,
     AiModule,
     FinanceModule,
     AgentOsInteractionHttpModule,

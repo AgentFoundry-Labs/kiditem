@@ -28,6 +28,11 @@ describe('operation lease', () => {
 });
 
 describe('operation fence', () => {
+  it('refuses a token write on a reconciling operation as terminal without expiring it, even past its old lease (KID-364)', () => {
+    expect(evaluateOperationFence(executing({ status: 'reconciling', expiresAt: new Date('2026-09-25T02:00:00.000Z') }), TOKEN, NOW))
+      .toEqual({ verdict: 'reject', reason: 'terminal', expire: false });
+  });
+
   it('admits the holder of the token while the lease is live', () => {
     expect(evaluateOperationFence(executing(), TOKEN, NOW)).toEqual({ verdict: 'admit' });
   });
