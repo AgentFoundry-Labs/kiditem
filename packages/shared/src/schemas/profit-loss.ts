@@ -141,8 +141,13 @@ export const FinanceWindowTotalsSchema = z.object({
   adCostRate: z.number().nullable(),
   /** Listing-grain spend on listings with no product row; `null` when `adCost` is unavailable. */
   unallocatedAdCost: z.number().int().nullable(),
-  /** Campaign-grain `adCost` minus listing-grain spend over every listing; `null` when `adCost` is unavailable. */
+  /** Campaign-grain `adCost` minus listing-grain spend over every listing; `null` when `adCost` is unavailable. KID-372 ①b가 지운다(새 원장에는 캠페인 grain이 없다). */
   adCostGrainDifference: z.number().int().nullable(),
+  /**
+   * 계정 조정 광고비(KID-368·372): 캠페인에 붙일 수 없는 정산(캠페인 키 '')의 청구액에 부가세를 얹은 원 단위 값.
+   * `adCost`에 포함돼 있고 별도 줄로 보여 준다. `adCost`가 없으면 `null`. 골격에서는 선택 칸이고 ①b가 필수로 바꾼다.
+   */
+  adAccountAdjustment: z.number().int().nullable().optional(),
   /** Shipping no line revenue can weigh onto a row; `null` when revenue is unavailable. */
   unallocatedShipping: z.number().int().nullable(),
 }).strict();
