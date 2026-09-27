@@ -6,7 +6,7 @@ import { Inject,  Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
-import { adConversions, performanceAdSpend, profitAdCost } from '../../../../../advertising/domain/ad-spend-rule';
+import { AD_VAT_RATE, adConversions, performanceAdSpend } from '../../../../../advertising/domain/ad-spend-rule';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
@@ -374,7 +374,8 @@ export class WingTrafficAggregationRepositoryAdapter
     return days.map((row) => ({
       date: row.businessDate,
       ad_cost: performanceAdSpend(row.spend),
-      profit_ad_cost: profitAdCost({ billedSpend: row.billedSpend, adjustment: row.adjustment }),
+      // Exact: a reader summing days rounds once (profitAdCost rounds a single total).
+      profit_ad_cost: (row.billedSpend + row.adjustment) * (1 + AD_VAT_RATE),
     } satisfies CoupangAdsDailyRow));
   }
 

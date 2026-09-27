@@ -108,7 +108,7 @@ export class DashboardTrendService {
         // account adjustment, VAT included — KID-368), not delivered spend.
         const adRow = coupangAdsByDate.get(date);
         const adCost = adRow !== undefined
-          ? Number(adRow.profit_ad_cost)
+          ? Math.round(Number(adRow.profit_ad_cost))
           : dailyProfit?.adCost ?? null;
         const ownerAdEvidence = dailyProfit?.hasAdEvidence === true
           && dailyProfit.adCost !== null;

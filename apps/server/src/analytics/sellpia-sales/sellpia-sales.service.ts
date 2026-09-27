@@ -424,7 +424,8 @@ function normalizeDailyAds(
   for (const row of rows) {
     const date = validDateText(row.date);
     if (!date || !selectedDates.has(date)) continue;
-    if (!Number.isFinite(row.profit_ad_cost) || row.profit_ad_cost < 0) {
+    // A promotion adjustment can make a day's profit ad cost negative; only a non-number is refused.
+    if (!Number.isFinite(row.profit_ad_cost)) {
       invalidDates.add(date);
       byDate.delete(date);
       continue;
@@ -475,8 +476,8 @@ function buildProfitInputs(
     },
     { revenue: 0, cost: 0, qty: 0 },
   );
-  // Profit input: billed spend plus account adjustment with VAT (KID-368).
-  const adCost = dates.reduce((sum, date) => sum + (adsByDate.get(date)?.profit_ad_cost ?? 0), 0);
+  // Profit input: billed spend plus account adjustment with VAT (KID-368), exact per day, rounded once.
+  const adCost = Math.round(dates.reduce((sum, date) => sum + (adsByDate.get(date)?.profit_ad_cost ?? 0), 0));
   if (
     !Number.isFinite(totals.revenue)
     || !Number.isFinite(totals.cost)
