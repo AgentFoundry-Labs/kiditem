@@ -107,7 +107,7 @@ describe('ad-ledger-facts (PG)', () => {
     expect(coverage.measuredDates).toEqual(['2026-09-02', '2026-09-03']);
     expect(coverage.latestMeasuredDate).toBe('2026-09-03');
     expect(coverage.observedAt?.toISOString()).toBe('2026-09-05T02:00:00.000Z');
-    expect(coverage.activeAccountIds.sort()).toEqual([a.id, b.id].sort());
+    expect([...coverage.activeAccountIds].sort()).toEqual([a.id, b.id].sort());
 
     const facts = await service.readAdWindowFacts(tx, { organizationId: ORG });
     expect(facts.days).toEqual([
