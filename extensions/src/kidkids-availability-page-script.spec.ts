@@ -159,7 +159,7 @@ it('키드키즈 판매 재개는 품절인 상품만 [품절해제](Y)로 · �
   assert.deepEqual(plain(await reader.api.read({ mallKey: 'kidkids', codes: ['1090904', '949784', '1234567'] })), {
     success: true,
     products: [
-      { code: '1090904', options: [{ optionCode: '1090904', stock: null, rocket: false }] },
+      { code: '1090904', options: [{ optionCode: '1090904', stock: null, rocket: false, state: '판매' }] },
       { code: '949784', options: [{ optionCode: '949784', stock: 0, rocket: false, state: '품절' }] },
     ],
     missing: ['1234567'],

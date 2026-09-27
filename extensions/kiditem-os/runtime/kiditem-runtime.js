@@ -10857,7 +10857,7 @@ var KidItemRuntime = (() => {
     };
   }
   function flagOption(code2, selling, state) {
-    return selling ? { optionCode: code2, stock: null, rocket: false } : { optionCode: code2, stock: 0, rocket: false, ...state ? { state: String(state) } : {} };
+    return selling ? { optionCode: code2, stock: null, rocket: false, state: state ? String(state) : "\uD310\uB9E4\uC911" } : { optionCode: code2, stock: 0, rocket: false, ...state ? { state: String(state) } : {} };
   }
   function stoppedMidway(message, counts) {
     const { sent, failed: failed9, confirmed, already, warnings, left } = counts;
@@ -12580,7 +12580,7 @@ var KidItemRuntime = (() => {
       if (result.loggedOut) return { success: false, error: LOGGED_OUT2 };
       if (!result.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
       const byId = new Map(result.items.map((item) => [String(item._id), item]));
-      found = ids.filter((id3) => byId.has(id3)).map((id3) => ({ code: id3, options: [{ optionCode: id3, stock: byId.get(id3).soldOut ? 0 : null, rocket: false }] }));
+      found = ids.filter((id3) => byId.has(id3)).map((id3) => ({ code: id3, options: [flagOption(id3, !byId.get(id3).soldOut, byId.get(id3).soldOut ? "\uD488\uC808" : null)] }));
       missing = ids.filter((id3) => !byId.has(id3));
       return null;
     });
@@ -12860,7 +12860,10 @@ var KidItemRuntime = (() => {
       if (result.loggedOut) return { success: false, error: LOGGED_OUT3 };
       if (!result.rows) return { success: false, error: `${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
       const rows = result.rows;
-      found = products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [{ optionCode: no, stock: rows.get(no).selling === false ? 0 : null, rocket: false }] }));
+      found = products.filter((no) => rows.has(no)).map((no) => {
+        const selling = rows.get(no).selling;
+        return { code: no, options: [selling === null ? { optionCode: no, stock: null, rocket: false } : flagOption(no, selling, selling ? "\uD310\uB9E4\uD568" : "\uD310\uB9E4\uC548\uD568")] };
+      });
       missing = products.filter((no) => !rows.has(no));
       return null;
     });
@@ -15625,7 +15628,7 @@ var KidItemRuntime = (() => {
           continue;
         }
         const selling = row.word === "\uD310\uB9E4";
-        found.push({ code: code2, options: [{ optionCode: code2, stock: selling ? null : 0, rocket: false, ...selling ? {} : { state: row.word || "\uD488\uC808" } }] });
+        found.push({ code: code2, options: [flagOption(code2, selling, selling ? row.word : row.word || "\uD488\uC808")] });
       }
       return null;
     });
@@ -16151,6 +16154,7 @@ var KidItemRuntime = (() => {
   var LABEL9 = "\uAF2C\uB9DD\uC138";
   var LOGGED_OUT8 = `${LABEL9} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var isZero = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
+  var stockOption = (code2, stock) => String(stock ?? "").trim() === "" ? { optionCode: code2, stock: null, rocket: false } : flagOption(code2, !isZero(stock), isZero(stock) ? "\uD488\uC808" : null);
   async function send9(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? String(RESUME_STOCK) : "0";
@@ -16236,7 +16240,7 @@ var KidItemRuntime = (() => {
           missing.push(products[index]);
           continue;
         }
-        found.push({ code: products[index], options: [{ optionCode: products[index], stock: isZero(row.stock) ? 0 : null, rocket: false }] });
+        found.push({ code: products[index], options: [stockOption(products[index], row.stock)] });
       }
       return null;
     });
@@ -17959,6 +17963,7 @@ var KidItemRuntime = (() => {
   var LABEL13 = "\uD2F0\uCCD0\uBAB0";
   var LOGGED_OUT11 = `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var isZero2 = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
+  var stockOption2 = (code2, stock) => String(stock ?? "").trim() === "" ? { optionCode: code2, stock: null, rocket: false } : flagOption(code2, !isZero2(stock), isZero2(stock) ? "\uD488\uC808" : null);
   async function send13(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? String(RESUME_STOCK2) : "0";
@@ -18051,7 +18056,7 @@ var KidItemRuntime = (() => {
         }
         found.push({
           code: products[index],
-          options: form.stocks.map(([option, stock]) => ({ optionCode: option, stock: isZero2(stock) ? 0 : null, rocket: false }))
+          options: form.stocks.map(([option, stock]) => stockOption2(option, stock))
         });
       }
       return null;

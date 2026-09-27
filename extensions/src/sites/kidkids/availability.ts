@@ -1,4 +1,5 @@
 import {
+  flagOption,
   READ_LIMIT,
   registerMallAvailability,
   stoppedMidway,
@@ -152,7 +153,7 @@ async function read(context: AvailabilityContext, codes: readonly string[]): Pro
         continue;
       }
       const selling = row.word === '판매';
-      found.push({ code, options: [{ optionCode: code, stock: selling ? null : 0, rocket: false, ...(selling ? {} : { state: row.word || '품절' }) }] });
+      found.push({ code, options: [flagOption(code, selling, selling ? row.word : row.word || '품절')] });
     }
     return null;
   });

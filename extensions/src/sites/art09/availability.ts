@@ -1,4 +1,5 @@
 import {
+  flagOption,
   READ_LIMIT,
   registerMallAvailability,
   withSellerPage,
@@ -125,8 +126,11 @@ async function read(context: AvailabilityContext, codes: readonly string[]): Pro
     if (result.loggedOut) return { success: false, error: LOGGED_OUT };
     if (!result.rows) return { success: false, error: `${LABEL} 상품목록을 읽지 못했습니다(${result.error}).` };
     const rows = result.rows;
-    // 판매안함만 품절(0)이다. 판매 상태를 못 읽었으면(null) 모른다 — 품절로 단정하지 않는다.
-    found = products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [{ optionCode: no, stock: rows.get(no)!.selling === false ? 0 : null, rocket: false }] }));
+    // 판매안함만 품절(0)이다. 판매 상태를 못 읽었으면(null) 모른다 — 품절로도 판매중으로도 단정하지 않는다.
+    found = products.filter((no) => rows.has(no)).map((no) => {
+      const selling = rows.get(no)!.selling;
+      return { code: no, options: [selling === null ? { optionCode: no, stock: null, rocket: false } : flagOption(no, selling, selling ? '판매함' : '판매안함')] };
+    });
     missing = products.filter((no) => !rows.has(no));
     return null;
   });

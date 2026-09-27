@@ -168,7 +168,7 @@ it('키즈노트 — 목록은 100개씩 넘기되 찾던 상품을 다 찾으�
   const { api, log } = kidsnoteMall({ products });
   const read = await api.read({ mallKey: 'kidsnote', codes: ['100150'] });
   assert.deepEqual(log.pages, [1, 2], '두 번째 쪽에서 찾았으니 세 번째 쪽은 읽지 않는다');
-  assert.deepEqual(plain(read.products), [{ code: '100150', options: [{ optionCode: '100150', stock: null, rocket: false }] }]);
+  assert.deepEqual(plain(read.products), [{ code: '100150', options: [{ optionCode: '100150', stock: null, rocket: false, state: '정상' }] }]);
   log.pages.length = 0;
   const miss = await api.read({ mallKey: 'kidsnote', codes: ['777'] });
   assert.deepEqual(log.pages, [1, 2, 3], '끝 쪽(100개 미만)까지 읽고 멈춘다');
@@ -197,7 +197,7 @@ it('키즈노트 지금 상태 읽기 — 정상이면 모름, 품절 · 숨김�
   assert.deepEqual(plain(await api.read({ mallKey: 'kidsnote', codes: ['1', '2', '3', '4'] })), {
     success: true,
     products: [
-      { code: '1', options: [{ optionCode: '1', stock: null, rocket: false }] },
+      { code: '1', options: [{ optionCode: '1', stock: null, rocket: false, state: '정상' }] },
       { code: '2', options: [{ optionCode: '2', stock: 0, rocket: false, state: '품절' }] },
       { code: '3', options: [{ optionCode: '3', stock: 0, rocket: false, state: '숨김' }] },
     ],

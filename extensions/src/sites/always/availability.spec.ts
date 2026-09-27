@@ -68,8 +68,8 @@ describe('올웨이즈 품절·재개', () => {
     expect(await api.read({ codes: [A, B] })).toEqual({
       success: true,
       products: [
-        { code: A, options: [{ optionCode: A, stock: 0, rocket: false }] },
-        { code: B, options: [{ optionCode: B, stock: null, rocket: false }] },
+        { code: A, options: [{ optionCode: A, stock: 0, rocket: false, state: '품절' }] },
+        { code: B, options: [{ optionCode: B, stock: null, rocket: false, state: '판매중' }] },
       ],
       missing: [],
     });

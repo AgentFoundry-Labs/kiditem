@@ -1,9 +1,11 @@
 import {
+  flagOption,
   READ_LIMIT,
   registerMallAvailability,
   stoppedMidway,
   withSellerPage,
   type AvailabilityContext,
+  type AvailabilityOption,
   type AvailabilityProduct,
   type AvailabilityReadAnswer,
   type AvailabilitySendAnswer,
@@ -34,6 +36,9 @@ const LOGGED_OUT = `${LABEL} 로그인이 풀렸습니다. 로그인한 뒤 다�
 
 /** 빈 칸은 0이 아니다 — 모르는 재고를 품절로 읽지 않는다. */
 const isZero = (stock: unknown) => String(stock).trim() !== '' && Number(stock) === 0;
+/** 재고 칸 한 줄의 지금 상태 — 0이면 품절, 숫자가 있으면 판매중(재고 수는 싣지 않는다), 비었으면 모름. */
+const stockOption = (code: string, stock: unknown): AvailabilityOption =>
+  (String(stock ?? '').trim() === '' ? { optionCode: code, stock: null, rocket: false } : flagOption(code, !isZero(stock), isZero(stock) ? '품절' : null));
 
 async function send(context: AvailabilityContext, input: { codes: string[]; resume: boolean }): Promise<AvailabilitySendAnswer> {
   const { codes, resume } = input;
@@ -118,7 +123,7 @@ async function read(context: AvailabilityContext, codes: readonly string[]): Pro
         missing.push(products[index]!);
         continue;
       }
-      found.push({ code: products[index]!, options: [{ optionCode: products[index]!, stock: isZero(row.stock) ? 0 : null, rocket: false }] });
+      found.push({ code: products[index]!, options: [stockOption(products[index]!, row.stock)] });
     }
     return null;
   });

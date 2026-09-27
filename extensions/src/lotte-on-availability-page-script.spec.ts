@@ -176,7 +176,7 @@ it('롯데ON 지금 상태 읽기 — 판매중이면 모름, 품절 · 판매�
     success: true,
     products: [
       { code: 'LO11110000', options: [{ optionCode: 'LO11110000', stock: 0, rocket: false, state: '품절' }] },
-      { code: 'LO22220000', options: [{ optionCode: 'LO22220000', stock: null, rocket: false }] },
+      { code: 'LO22220000', options: [{ optionCode: 'LO22220000', stock: null, rocket: false, state: '판매중' }] },
       { code: 'LO33330000', options: [{ optionCode: 'LO33330000', stock: 0, rocket: false, state: '판매중지' }] },
     ],
     missing: ['LO44440000'],

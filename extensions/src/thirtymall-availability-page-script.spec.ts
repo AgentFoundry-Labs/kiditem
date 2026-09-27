@@ -166,7 +166,7 @@ it('떠리몰 지금 상태 — 살 수 있으면 재고 모름, 아니면 몰�
   const result = await api.read({ mallKey: 'thirtymall', codes: ['131987854', '132154733', '132154700', '132154701', '132154702', '999999999'] });
   assert.equal(result.success, true);
   const byCode = Object.fromEntries(result.products.map((product: any) => [product.code, product.options[0]]));
-  assert.deepEqual(plain(byCode['131987854']), { optionCode: '131987854', stock: null, rocket: false });
+  assert.deepEqual(plain(byCode['131987854']), { optionCode: '131987854', stock: null, rocket: false, state: '판매중' });
   assert.equal(byCode['132154733'].state, '판매중지');
   assert.equal(byCode['132154700'].state, '판매금지');
   assert.equal(byCode['132154701'].state, '품절');

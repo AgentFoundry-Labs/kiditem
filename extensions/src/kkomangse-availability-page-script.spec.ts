@@ -122,8 +122,8 @@ it('꼬망세 지금 재고 읽기 — 재고 0 이면 품절(0), 아니면 모�
   assert.deepEqual(plain(await api.read({ mallKey: 'kkomangse', codes: ['A0000-A0000-A0001', 'A0000-A0000-A0002', 'A0000-A0000-A0003'] })), {
     success: true,
     products: [
-      { code: 'A0000-A0000-A0001', options: [{ optionCode: 'A0000-A0000-A0001', stock: 0, rocket: false }] },
-      { code: 'A0000-A0000-A0002', options: [{ optionCode: 'A0000-A0000-A0002', stock: null, rocket: false }] },
+      { code: 'A0000-A0000-A0001', options: [{ optionCode: 'A0000-A0000-A0001', stock: 0, rocket: false, state: '품절' }] },
+      { code: 'A0000-A0000-A0002', options: [{ optionCode: 'A0000-A0000-A0002', stock: null, rocket: false, state: '판매중' }] },
     ],
     missing: ['A0000-A0000-A0003'],
   });

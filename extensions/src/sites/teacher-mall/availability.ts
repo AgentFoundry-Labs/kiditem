@@ -1,9 +1,11 @@
 import {
+  flagOption,
   READ_LIMIT,
   registerMallAvailability,
   stoppedMidway,
   withSellerPage,
   type AvailabilityContext,
+  type AvailabilityOption,
   type AvailabilityProduct,
   type AvailabilityReadAnswer,
   type AvailabilitySendAnswer,
@@ -35,6 +37,9 @@ const LABEL = '티쳐몰';
 const LOGGED_OUT = `${LABEL} 로그인이 풀렸습니다. 로그인한 뒤 다시 시도하세요.`;
 
 const isZero = (stock: unknown) => String(stock).trim() !== '' && Number(stock) === 0;
+/** 재고 칸 한 줄의 지금 상태 — 0이면 품절, 숫자가 있으면 판매중(재고 수는 싣지 않는다), 비었으면 모름. */
+const stockOption = (code: string, stock: unknown): AvailabilityOption =>
+  (String(stock ?? '').trim() === '' ? { optionCode: code, stock: null, rocket: false } : flagOption(code, !isZero(stock), isZero(stock) ? '품절' : null));
 
 async function send(context: AvailabilityContext, input: { codes: string[]; resume: boolean }): Promise<AvailabilitySendAnswer> {
   const { codes, resume } = input;
@@ -132,7 +137,7 @@ async function read(context: AvailabilityContext, codes: readonly string[]): Pro
       }
       found.push({
         code: products[index]!,
-        options: (form.stocks as Array<[string, string]>).map(([option, stock]) => ({ optionCode: option, stock: isZero(stock) ? 0 : null, rocket: false })),
+        options: (form.stocks as Array<[string, string]>).map(([option, stock]) => stockOption(option, stock)),
       });
     }
     return null;

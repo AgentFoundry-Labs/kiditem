@@ -180,9 +180,14 @@ function pageRun(context: AvailabilityContext, page: TabPage, isolated: readonly
   };
 }
 
-/** 품절 여부만 주는 몰의 지금 상태 한 줄(옛 `flagOption`). 판매중이면 재고 모름(null), 아니면 0과 몰의 상태 글자. */
+/**
+ * 품절 여부만 주는 몰의 지금 상태 한 줄(옛 `flagOption`). 판매중이면 재고 모름(null)과 몰의 말(없으면 '판매중'), 아니면 0과 몰의
+ * 상태 글자. 판매중도 상태를 싣는다 — 재고를 모르는 몰의 재개는 몰이 판매중이라고 읽힌 것으로 확인한다(KID-256 리뷰).
+ */
 export function flagOption(code: string, selling: boolean, state?: string | null): AvailabilityOption {
-  return selling ? { optionCode: code, stock: null, rocket: false } : { optionCode: code, stock: 0, rocket: false, ...(state ? { state: String(state) } : {}) };
+  return selling
+    ? { optionCode: code, stock: null, rocket: false, state: state ? String(state) : '판매중' }
+    : { optionCode: code, stock: 0, rocket: false, ...(state ? { state: String(state) } : {}) };
 }
 
 /**

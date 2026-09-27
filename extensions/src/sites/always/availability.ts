@@ -1,4 +1,5 @@
 import {
+  flagOption,
   READ_LIMIT,
   registerMallAvailability,
   withSellerPage,
@@ -91,7 +92,7 @@ async function read(context: AvailabilityContext, codes: readonly string[]): Pro
     if (result.loggedOut) return { success: false, error: LOGGED_OUT };
     if (!result.items) return { success: false, error: `${LABEL} 상품 상태를 읽지 못했습니다(${result.error}).` };
     const byId = new Map(result.items.map((item) => [String(item._id), item]));
-    found = ids.filter((id) => byId.has(id)).map((id) => ({ code: id, options: [{ optionCode: id, stock: byId.get(id).soldOut ? 0 : null, rocket: false }] }));
+    found = ids.filter((id) => byId.has(id)).map((id) => ({ code: id, options: [flagOption(id, !byId.get(id).soldOut, byId.get(id).soldOut ? '품절' : null)] }));
     missing = ids.filter((id) => !byId.has(id));
     return null;
   });

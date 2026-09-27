@@ -118,8 +118,8 @@ describe('아트공구 품절·재개(화면 안 함수를 실제로 돌린다)'
     expect(await api.read({ codes: ['1', '2', '3'] })).toEqual({
       success: true,
       products: [
-        { code: '1', options: [{ optionCode: '1', stock: 0, rocket: false }] },
-        { code: '2', options: [{ optionCode: '2', stock: null, rocket: false }] },
+        { code: '1', options: [{ optionCode: '1', stock: 0, rocket: false, state: '판매안함' }] },
+        { code: '2', options: [{ optionCode: '2', stock: null, rocket: false, state: '판매함' }] },
       ],
       missing: ['3'],
     });

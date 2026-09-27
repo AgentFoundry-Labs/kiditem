@@ -313,7 +313,7 @@ it('지금 상태 읽기 — 지마켓 · 11번가 · 스마트스토어는 판�
   assert.deepEqual(plain(await esm.api.read({ mallKey: 'gmarket', codes: ['4829864103_6518691205', '4713197366_6276734052', '4999999999_1'] })), {
     success: true,
     products: [
-      { code: '4829864103_6518691205', options: [{ optionCode: '4829864103_6518691205', stock: null, rocket: false }] },
+      { code: '4829864103_6518691205', options: [{ optionCode: '4829864103_6518691205', stock: null, rocket: false, state: '판매중' }] },
       { code: '4713197366_6276734052', options: [{ optionCode: '4713197366_6276734052', stock: 0, rocket: false, state: '판매중지' }] },
     ],
     missing: ['4999999999_1'],

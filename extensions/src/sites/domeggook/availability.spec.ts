@@ -103,7 +103,7 @@ describe('도매꾹 품절·재개', () => {
     expect(await api.read({ codes: ['1', '2', '3'] })).toEqual({
       success: true,
       products: [
-        { code: '1', options: [{ optionCode: '1', stock: null, rocket: false }] },
+        { code: '1', options: [{ optionCode: '1', stock: null, rocket: false, state: '진열함' }] },
         { code: '2', options: [{ optionCode: '2', stock: 0, rocket: false, state: '진열안함' }] },
       ],
       missing: ['3'],

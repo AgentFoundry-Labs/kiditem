@@ -161,8 +161,8 @@ it('티쳐몰 지금 재고 읽기 — 재고 0 이면 품절(0), 아니면 모�
   assert.deepEqual(plain(await api.read({ mallKey: 'teacher-mall', codes: ['1', '2', '3'] })), {
     success: true,
     products: [
-      { code: '1', options: [{ optionCode: '11', stock: 0, rocket: false }] },
-      { code: '2', options: [{ optionCode: '2176308', stock: null, rocket: false }] },
+      { code: '1', options: [{ optionCode: '11', stock: 0, rocket: false, state: '품절' }] },
+      { code: '2', options: [{ optionCode: '2176308', stock: null, rocket: false, state: '판매중' }] },
     ],
     missing: ['3'],
   });

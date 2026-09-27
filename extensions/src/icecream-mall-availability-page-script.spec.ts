@@ -171,7 +171,7 @@ it('아이스크림몰 지금 상태 읽기 — 판매중이면 모름, 품절 �
   assert.deepEqual(plain(await api.read({ mallKey: 'icecream-mall', codes: ['1111111', '2222222', '3333333', '4444444'] })), {
     success: true,
     products: [
-      { code: '1111111', options: [{ optionCode: '1111111', stock: null, rocket: false }] },
+      { code: '1111111', options: [{ optionCode: '1111111', stock: null, rocket: false, state: '판매중' }] },
       { code: '2222222', options: [{ optionCode: '2222222', stock: 0, rocket: false, state: '품절' }] },
       { code: '3333333', options: [{ optionCode: '3333333', stock: 0, rocket: false, state: '판매종료' }] },
     ],
