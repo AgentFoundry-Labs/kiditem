@@ -806,6 +806,10 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         registration: { channelAccountId: COUPANG_ACCOUNT, registrationTargetId: target.id, state: 'registered' },
       });
       expect(cell(unlinkedMaster.id)).toMatchObject({ state: 'published', registration: null });
+      // 칸 단위 품절 · 재개(등록 실행 묶음)가 쓰는 리스팅 id — 리스팅이 있는 칸마다 채워진다(KID-364).
+      const listingIdOf = async (externalId: string) => (await prisma.channelListing.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID, externalId } })).id;
+      expect(cell(linkedMaster.id)?.channelListingId).toBe(await listingIdOf('EXT-601'));
+      expect(cell(unlinkedMaster.id)?.channelListingId).toBe(await listingIdOf('EXT-602'));
       // 계약 고정: 실제 칸이 엄격한 공유 스키마를 그대로 지난다.
       for (const entry of [cell(linkedMaster.id), cell(unlinkedMaster.id)]) {
         expect(MallListingMatrixCellSchema.strict().parse(entry)).toEqual(entry);
