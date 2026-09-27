@@ -36,6 +36,15 @@ export interface OperationActor {
   userId?: string | null;
 }
 
+export interface OperationResolveInput {
+  organizationId: string;
+  operationId: string;
+  outcome: 'succeeded' | 'failed';
+  result?: Record<string, unknown>;
+  errorCode?: string;
+  errorMessage?: string | null;
+}
+
 export interface OperationPort {
   begin(organizationId: string, request: OperationBeginRequest, actor?: OperationActor): Promise<OperationBeginResponse>;
   /** owner가 자기 트랜잭션(`tx`) 안에서 만들어 두는 실행. 잠금은 여기서 잡혀 terminal까지 유지된다. */
@@ -55,6 +64,12 @@ export interface OperationPort {
     token: string | undefined;
     request: OperationFinishRequest;
   }): Promise<OperationFinishResponse>;
+  /**
+   * `reconciling` 실행을 owner가 확인해 끝낸다(서버 내부, 토큰 없음 — KID-364 등록 확인·닫기). succeeded면 남겨 둔 청크로
+   * owner `finalize`(context.result = 멈출 때 result + 요청 result)를 부른 뒤 닫고, failed면 `onFailed` 규칙대로 닫는다
+   * (재시도 없음). `reconciling`이 아니면 `OPERATION_FENCE_LOST{terminal}`.
+   */
+  resolve(input: OperationResolveInput): Promise<OperationFinishResponse>;
   /** `tx`를 주면 owner 트랜잭션 안에서 취소한다(생성 기록 취소와 함께). */
   cancel(organizationId: string, operationId: string, tx?: OwnerTransaction): Promise<OperationCancelResponse>;
   list(organizationId: string, query: OperationListQuery): Promise<OperationListResponse>;

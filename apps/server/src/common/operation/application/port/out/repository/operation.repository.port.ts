@@ -74,12 +74,21 @@ export interface OperationClaimWrite {
 
 /** 실행을 끝내는 쓰기. 같은 트랜잭션에서 청크를 지우고 잠금을 푼다. */
 export interface OperationClosure {
-  status: Exclude<OperationStatus, 'executing' | 'prepared'>;
+  status: Exclude<OperationStatus, 'executing' | 'prepared' | 'reconciling'>;
   errorCode: string | null;
   errorMessage: string | null;
   result?: JsonObject | null;
   window?: OperationWindow | null;
   finishedAt: Date;
+}
+
+/**
+ * `reconciling`으로 멈추는 쓰기(KID-364). 잠금·청크·progress는 그대로 두고 `result`만 저장한다. 임대가 없으므로
+ * `expiresAt`은 멈춘 시각이다(칸은 not null이다; 만료 판정은 executing에만 걸린다).
+ */
+export interface OperationHold {
+  result: JsonObject;
+  heldAt: Date;
 }
 
 export interface OperationTransaction {
@@ -109,6 +118,7 @@ export interface OperationTransaction {
    */
   lockExhaustedExpired(filter: { kinds: readonly string[]; now: Date; limit: number }): Promise<OperationRecord[]>;
   close(organizationId: string, operationId: string, closure: OperationClosure): Promise<OperationRecord>;
+  hold(organizationId: string, operationId: string, hold: OperationHold): Promise<OperationRecord>;
   findChunkChecksum(operationId: string, chunkKind: string, sequence: number): Promise<string | null>;
   countChunks(operationId: string): Promise<number>;
   insertChunk(chunk: {

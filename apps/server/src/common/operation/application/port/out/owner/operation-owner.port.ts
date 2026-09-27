@@ -20,6 +20,11 @@ export interface OperationFinalizeContext {
   organizationId: string;
   operationId: string;
   plan: JsonObject;
+  /**
+   * `reconciling`으로 멈췄던 실행을 owner가 확인(`resolve` succeeded)할 때만: 멈출 때 저장한 `result`에 확인 요청의
+   * `result`를 덮은 값(KID-364). 확장 finish에서 온 finalize에는 finish 요청의 `result`(없으면 null)다.
+   */
+  result?: JsonObject | null;
   /** 이번 시도가 몇 번째 claim인가(begin으로 연 실행은 1)와 상한(KID-358). */
   attempts: number;
   maxAttempts: number;

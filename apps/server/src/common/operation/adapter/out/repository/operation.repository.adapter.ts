@@ -13,6 +13,7 @@ import type {
   NewOperation,
   OperationClaimWrite,
   OperationClosure,
+  OperationHold,
   OperationListFilter,
   OperationReschedule,
   OperationRecord,
@@ -259,6 +260,16 @@ class PrismaOperationTransaction implements OperationTransaction {
     const closed = await this.read(organizationId, operationId);
     if (!closed) throw new Error(`operation ${operationId} vanished while closing`);
     return closed;
+  }
+
+  async hold(organizationId: string, operationId: string, hold: OperationHold) {
+    await this.tx.operation.updateMany({
+      where: { id: operationId, organizationId },
+      data: { status: 'reconciling', result: hold.result as Prisma.InputJsonValue, expiresAt: hold.heldAt },
+    });
+    const held = await this.read(organizationId, operationId);
+    if (!held) throw new Error(`operation ${operationId} vanished while holding`);
+    return held;
   }
 
   async findChunkChecksum(operationId: string, chunkKind: string, sequence: number) {
