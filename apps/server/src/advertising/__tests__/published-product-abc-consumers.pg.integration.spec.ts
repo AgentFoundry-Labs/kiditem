@@ -1,3 +1,4 @@
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
 import { seedAdCampaign, seedAdProductDays, seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
@@ -170,7 +171,7 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts);
+    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter());
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');

@@ -33,7 +33,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     await prisma.$connect();
     repository = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
-      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter()
     );
   });
 

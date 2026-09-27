@@ -39,7 +39,7 @@ describe('ad-ops tabs over the ad report ledger (PG)', () => {
     service = new AdCampaignsService(
       new AdCampaignRepositoryAdapter(db, ports.accounts, new AdLedgerReadPersistenceAdapter()),
       listingRepo,
-      new AdActionRepositoryAdapter(ports.listings, ports.recipes, db, listingRepo, ports.accounts),
+      new AdActionRepositoryAdapter(ports.listings, ports.recipes, db, listingRepo, ports.accounts, new AdLedgerReadPersistenceAdapter()),
       undefined as unknown as AdConfigService,
     );
   });

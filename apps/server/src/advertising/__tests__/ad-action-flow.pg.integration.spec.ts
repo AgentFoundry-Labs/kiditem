@@ -1,3 +1,4 @@
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -892,7 +893,7 @@ describe('AdAction flow (PG integration)', () => {
       });
       const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts, new AdLedgerReadPersistenceAdapter()
       );
 
       expect(await refusal(rejecting.rejectAdActions([action.id], TEST_ORGANIZATION_ID)))
@@ -927,7 +928,7 @@ describe('AdAction flow (PG integration)', () => {
       });
       const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts, new AdLedgerReadPersistenceAdapter()
       );
       try {
         return await rejecting.rejectAdActions([actionId], TEST_ORGANIZATION_ID);

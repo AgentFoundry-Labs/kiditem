@@ -15,7 +15,6 @@ import {
   AdKeywordPauseProposalSchema,
 } from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { AdLedgerReadPersistenceAdapter } from '../persistence/ad-ledger-read.persistence.adapter';
 import {
   AD_LEDGER_READ_REPOSITORY_PORT,
   type AdLedgerReadRepositoryPort,
@@ -165,14 +164,10 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     // intra-domain composition; ports/services never see this.
     private readonly listingAdapter: AdListingRepositoryAdapter,
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(AD_LEDGER_READ_REPOSITORY_PORT) private readonly ledger: AdLedgerReadRepositoryPort,
     @Optional()
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products?: ProductTransactionalReadPort,
-    // The owner's ledger read adapter; the stateless default serves adapter
-    // specs that compose this adapter by hand.
-    @Optional()
-    @Inject(AD_LEDGER_READ_REPOSITORY_PORT)
-    private readonly ledger: AdLedgerReadRepositoryPort = new AdLedgerReadPersistenceAdapter(),
   ) {}
 
   async findAdActionsForReview(
