@@ -12066,6 +12066,82 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kkomangse/registration.ts
+  var KKOMANGSE_REGISTRATION_FORM = {
+    label: "\uAF2C\uB9DD\uC138\uBAB0",
+    origin: "https://nstore.edupre.co.kr",
+    pathPrefix: "/subAdmin/_product.form.php",
+    formSelector: 'form[name="frm"]',
+    preRadios: ["_kc_yn"],
+    /**
+     * 계단식이라 **다음 단 목록이 올 때까지** 기다린다. 고정 시간으로 자르면 AJAX 가
+     * 늦는 날 `목록에 없습니다` 로 끝난다.
+     */
+    selectorFields: [
+      { key: "category1", selector: 'select[name="pass_cate01"]', label: "\uBD84\uB958 1\uB2E8", waitMs: 600, waitForOption: true },
+      { key: "category2", selector: 'select[name="pass_cate02"]', label: "\uBD84\uB958 2\uB2E8", waitMs: 600, waitForOption: true },
+      { key: "category3", selector: 'select[name="pass_cate03"]', label: "\uBD84\uB958 3\uB2E8", waitMs: 600, waitForOption: true }
+    ],
+    /**
+     * 고르기만 하면 붙지 않는다. 누르면 목록에 `삭제` 줄(`category_delete(…)`)이 생긴다 —
+     * 그게 반영의 증거다. 세 단이 다 골라진 때만 누른다(반쯤 고른 분류를 붙이지 않는다).
+     */
+    afterSelectorClicks: [
+      {
+        text: "\uC120\uD0DD \uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
+        label: "\uC120\uD0DD \uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
+        waitMs: 1200,
+        expectSelector: '[onclick*="category_delete"]',
+        requireFilled: true
+      }
+    ],
+    // 칸 이름이 텍스트 칸(외부 주소용)과 파일 칸이 같다. 반드시 파일 칸을 집는다.
+    imageFileInputs: [
+      { key: "square", label: "\uBAA9\uB85D \uAE30\uBCF8 \uC774\uBBF8\uC9C0", selector: 'input[type="file"][name="_img_list_square"]' },
+      { key: "over", label: "\uC624\uBC84 \uC774\uBBF8\uC9C0", selector: 'input[type="file"][name="_img_list_over"]' },
+      { key: "swipe", label: "\uC0C1\uC138 \uC774\uBBF8\uC9C0 1", selector: 'input[type="file"][name="_img_b1"]' }
+    ],
+    /**
+     * 상세 이미지 2~5. 처음엔 1번 칸 하나뿐이고 `추가`(`a.js_addimg_btn`)를 누를 때마다
+     * 한 줄씩 붙는다. 붙을 때마다 화면이 `rename_img()` 로 파일 칸 이름을 순서대로
+     * `_img_b1~5` 로 다시 매긴다(실측). 다섯 칸을 넘기려 하면 alert 가 뜨므로 넷까지다.
+     */
+    imageRepeat: {
+      anchorSelector: 'input[type="file"][name="_img_b1"]',
+      sectionClosest: ".in_option_list",
+      addSelector: "a.js_addimg_btn",
+      slotSelector: 'input[type="file"].realFile',
+      namePattern: "_img_b{n}",
+      firstIndex: 2,
+      groupKey: "gallery",
+      max: 4,
+      label: "\uC0C1\uC138 \uC774\uBBF8\uC9C0 2~5"
+    },
+    detailSmartEditor: {
+      // 구역 id 가 없다. textarea 자체의 id(`ir1`)에서 칸(부모 td)을 찾는다.
+      // 같은 화면에 이용안내용 에디터가 하나 더 있어 문서 전체에서 찾으면 안 된다.
+      anchorId: "ir1",
+      target: "_content",
+      toSourceSelector: "button.se2_to_html",
+      sourceSelector: "textarea.se2_input_htmlsrc",
+      toEditorSelector: "button.se2_to_editor",
+      upload: {
+        endpoint: "/include/smarteditor2/plugin/photo_uploader/file_uploader_html5.php",
+        mode: "html5"
+      }
+    },
+    // 상세 이미지를 File 로 받아 와야 몰 업로더에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "kkomangse",
+    displayName: "\uAF2C\uB9DD\uC138",
+    guard: registrationGuard(KKOMANGSE_PAGE_GUARD, "\uAF2C\uB9DD\uC138"),
+    dialogHosts: ["edupre.co.kr"],
+    login: KKOMANGSE_LOGIN,
+    form: KKOMANGSE_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS9 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;

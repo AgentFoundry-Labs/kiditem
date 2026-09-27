@@ -49,6 +49,7 @@ import '../sites/kakao/listings';
 import '../sites/kidkids';
 import '../sites/kidsnote';
 import '../sites/kkomangse';
+import '../sites/kkomangse/registration';
 import '../sites/live-commerce';
 import '../sites/lotte-on';
 import '../sites/mall-admin-listings';
