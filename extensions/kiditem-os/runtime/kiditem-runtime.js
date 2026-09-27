@@ -12878,6 +12878,95 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/lotte-on/registration.ts
+  var LOTTE_ON_REGISTER_FILE = "content/page-call/lotte-on-register.js";
+  var encoder2 = new TextEncoder();
+  var utf8Bytes = (entry) => encoder2.encode(entry).length;
+  function normalizeLotteonForm(value) {
+    const raw = requireRaw(value, "\uB86F\uB370ON \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const trimmed = (entry, max = 1e3) => text4(entry).trim().slice(0, max);
+    const category = code(String(raw.category ?? "").trim().toUpperCase(), /^BC\d{8}$/);
+    if (!category) throw planInvalid("\uB86F\uB370ON \uD45C\uC900\uCE74\uD14C\uACE0\uB9AC \uCF54\uB4DC(\uC608: BC55031100)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const productName = cutBytes(trimmed(raw.productName, 400).replace(/[<>]/g, "").replace(/\s+/g, " "), 150, utf8Bytes);
+    if (!productName) throw planInvalid("\uB86F\uB370ON \uD310\uB9E4\uC790\uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uB86F\uB370ON \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const origin = asRaw(raw.origin);
+    const domestic = origin.typeCode === "DMST";
+    const delivery = asRaw(raw.delivery);
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [itemCode, entry] of entriesOf(notice.values)) {
+      if (/^\d{4}$/.test(itemCode) && entry !== null && entry !== void 0) noticeValues[itemCode] = trimmed(entry, 1e3);
+    }
+    const purchase = asRaw(raw.purchase);
+    const maxQty = amount(purchase.maxQty);
+    const periodDays = amount(purchase.periodDays);
+    return {
+      category,
+      productName,
+      salePrice,
+      stockManaged: raw.stockManaged === true,
+      stock: amount(raw.stock),
+      modelNo: code(String(raw.modelNo ?? "").replace(/\s/g, ""), /^[A-Za-z0-9\-_+/.]{1,40}$/),
+      maker: trimmed(raw.maker, 30),
+      origin: domestic ? { typeCode: "DMST", code: "KR" } : { typeCode: "OVS", code: code(String(origin.code ?? "").toUpperCase(), /^[A-Z]{2}$/) || "CN" },
+      notice: { groupCode: code(notice.groupCode, /^\d{1,3}$/), values: noticeValues },
+      delivery: {
+        costPolicy: digits2(delivery.costPolicy),
+        extraCostPolicy: digits2(delivery.extraCostPolicy),
+        shipPlace: code(delivery.shipPlace, /^[A-Z0-9]{3,20}$/),
+        returnPlace: code(delivery.returnPlace, /^[A-Z0-9]{3,20}$/),
+        courier: code(delivery.courier, /^\d{4}$/),
+        returnCourier: code(delivery.returnCourier, /^\d{4}$/),
+        sameDay: delivery.sameDay === true,
+        closeTime: code(delivery.closeTime, /^([01]\d|2[0-3])[0-5]\d$/),
+        saturday: delivery.saturday === "Y" ? "Y" : "N",
+        retrieveType: code(delivery.retrieveType, /^[A-Z]+_RTRV$/)
+      },
+      purchase: {
+        maxQty: maxQty >= 1 ? Math.min(maxQty, 99999) : 0,
+        periodDays: periodDays >= 1 && periodDays <= 31 ? periodDays : 1
+      },
+      asText: trimmed(raw.asText, 1e3),
+      sellerCode: cutBytes(trimmed(raw.sellerCode, 60), 30, utf8Bytes)
+    };
+  }
+  var LOTTE_ON_REGISTRATION_FORM = {
+    label: "\uB86F\uB370ON",
+    origin: "https://store.lotteon.com",
+    pathPrefix: "/cm/main/index_SO.wsp",
+    exactPath: true,
+    noQuery: true,
+    formSelector: "body",
+    imageSlots: [],
+    dedicated: {
+      file: LOTTE_ON_REGISTER_FILE,
+      call: "lotteon.fill",
+      // 단품 이미지 창이 받는 최대 장수.
+      imageGroupKey: "lotteon",
+      formKey: "lotteon",
+      normalize: normalizeLotteonForm,
+      options: {
+        maxImages: 10,
+        // 로그인 확인 → 탭 열기 → 화면 초기화(공통코드 1.5초 대기 포함)까지.
+        formWaitMs: 6e4,
+        // 섹션 하나(분류 연관정보·고시 항목·배송비 정책 조회 등)가 끝날 때까지 기다리는 시간.
+        stepWaitMs: 2e4
+      }
+    },
+    // 상세 이미지는 사람이 편집기에 끌어다 놓는 것과 같은 편집기 업로드로 넣는다. File로 받아 와야 한다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "lotte-on",
+    displayName: "\uB86F\uB370ON",
+    guard: registrationGuard(LOTTE_ON_PAGE_GUARD, "\uB86F\uB370ON"),
+    dialogHosts: ["store.lotteon.com"],
+    login: LOTTE_ON_LOGIN,
+    form: LOTTE_ON_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/mall-admin-listings/index.ts
   var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
   registerSite({
@@ -14120,9 +14209,9 @@ var KidItemRuntime = (() => {
     if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
     return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`).join(",")}}`;
   }
-  var encoder2 = new TextEncoder();
+  var encoder3 = new TextEncoder();
   function jsonByteLength(value) {
-    return encoder2.encode(stableStringify(value)).byteLength;
+    return encoder3.encode(stableStringify(value)).byteLength;
   }
   function assertJsonBytes(value, maxBytes, message) {
     const bytes = jsonByteLength(value);
@@ -15438,7 +15527,7 @@ var KidItemRuntime = (() => {
   var RUNTIME_CHUNK_TOO_LARGE = "RUNTIME_CHUNK_TOO_LARGE";
   var HEARTBEAT_CHUNK_KIND = "heartbeat";
   var HEARTBEAT_INTERVAL_MS = OPERATION_LEASE_MS / 3;
-  var encoder3 = new TextEncoder();
+  var encoder4 = new TextEncoder();
   function createRunner(deps, collectorFor2) {
     return {
       /**
@@ -15651,7 +15740,7 @@ var KidItemRuntime = (() => {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
   }
   function assertChunkFits(chunk, sentChunks) {
-    const bytes = encoder3.encode(JSON.stringify(chunk.payload)).byteLength;
+    const bytes = encoder4.encode(JSON.stringify(chunk.payload)).byteLength;
     if (bytes > OPERATION_CHUNK_MAX_BYTES) {
       throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C \uD558\uB098\uAC00 ${OPERATION_CHUNK_MAX_BYTES}\uBC14\uC774\uD2B8\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, bytes });
     }

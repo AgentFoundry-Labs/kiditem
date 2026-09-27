@@ -59,6 +59,7 @@ import '../sites/kkomangse';
 import '../sites/kkomangse/registration';
 import '../sites/live-commerce';
 import '../sites/lotte-on';
+import '../sites/lotte-on/registration';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/mall-write';
