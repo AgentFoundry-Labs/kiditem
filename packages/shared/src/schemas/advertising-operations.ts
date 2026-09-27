@@ -816,7 +816,8 @@ export const AdReportProductRowSchema = z.object({
   date: adCalendarDate,
   campaignId: z.string().regex(/^[1-9]\d*$/),
   campaignName: z.string(),
-  adGroupId: z.string().regex(/^[1-9]\d*$/),
+  /** 큰 보고서(TSV)에는 그룹 id가 없고 삭제 캠페인은 목록에도 없어 못 풀 수 있다 → null. owner는 키에 `''`로 넣는다. */
+  adGroupId: z.string().regex(/^[1-9]\d*$/).nullable(),
   adGroupName: z.string(),
   /** 광고한 옵션. */
   advertisedVendorItemId: z.string().regex(/^[1-9]\d*$/),

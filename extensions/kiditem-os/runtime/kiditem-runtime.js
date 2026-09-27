@@ -4731,7 +4731,8 @@ var KidItemRuntime = (() => {
     date: adCalendarDate,
     campaignId: external_exports.string().regex(/^[1-9]\d*$/),
     campaignName: external_exports.string(),
-    adGroupId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** 큰 보고서(TSV)에는 그룹 id가 없고 삭제 캠페인은 목록에도 없어 못 풀 수 있다 → null. owner는 키에 `''`로 넣는다. */
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
     adGroupName: external_exports.string(),
     /** 광고한 옵션. */
     advertisedVendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
