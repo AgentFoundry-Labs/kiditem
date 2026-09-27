@@ -8485,7 +8485,7 @@ var KidItemRuntime = (() => {
           };
           await checkHere();
           const first = await send(message, timeoutMs, frameId);
-          if (!inject || !isMissing(first)) {
+          if (!inject || !(isMissing(first) || isEmpty(first))) {
             if (isMissing(first) || isTimeout(first)) await checkHere();
             return first;
           }
@@ -8584,6 +8584,9 @@ var KidItemRuntime = (() => {
         }
       }
     };
+  }
+  function isEmpty(value) {
+    return typeof value === "object" && value !== null && value.error === "empty_response";
   }
   function isTimeout(value) {
     return typeof value === "object" && value !== null && value.error === "timeout";

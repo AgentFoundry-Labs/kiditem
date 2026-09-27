@@ -10,10 +10,10 @@
       if (answer && typeof answer.runTab === "boolean") mark(answer.runTab);
     });
     // 런타임이 이 탭을 운영자에게 넘기거나(GS샵 SMS 인증·남긴 로그인 탭) 다시 쓸 때(리뷰 2 SHOULD 2·3).
+    // 자기 메시지(setRunTab)만 받고 답하지 않는다 — 그 밖(페이지 호출 KIDITEM_PAGE_CALL 등)은 false로 곧바로 넘긴다(재QA 2 B1).
     chrome.runtime.onMessage.addListener((message) => {
-      if (!message || message.action !== "kiditem.dialogGuard.setRunTab" || typeof message.runTab !== "boolean") return undefined;
-      mark(message.runTab);
-      return undefined;
+      if (message && message.action === "kiditem.dialogGuard.setRunTab" && typeof message.runTab === "boolean") mark(message.runTab);
+      return false;
     });
   } catch {
     // 확장이 다시 로드되는 중이다 — 운영자 탭처럼 둔다.
