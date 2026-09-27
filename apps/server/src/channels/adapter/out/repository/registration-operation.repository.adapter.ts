@@ -269,8 +269,9 @@ export class RegistrationOperationRepositoryAdapter implements RegistrationOpera
       account,
       listings: listings.map((listing) => {
         const selection = wanted.get(listing.id)!;
-        // 옵션 단위 몰은 살아 있는 옵션 전부를 얼리고(옛 준비와 같다), 몰이 판매자 재고를 받지 않는 옵션은 거절한다.
-        const options = selection === 'all' || byOption ? listing.options : listing.options.filter((option) => selection.has(option.id));
+        // 옵션 단위 몰은 가리킨 옵션만(리스팅으로 가리키면 살아 있는 옵션 전부) 얼리고, 얼린 옵션 가운데 몰이 판매자 재고를
+        // 받지 않는 것이 있으면 거절한다. 리스팅 단위 몰은 리스팅 전체를 바꾸므로 살아 있는 옵션 전부를 얼린다.
+        const options = selection === 'all' || !byOption ? listing.options : listing.options.filter((option) => selection.has(option.id));
         if (byOption) assertAvailabilityOptionSupport(adapter, options, 'CHANNELS_PREFLIGHT_FAILED');
         return {
           channelListingId: listing.id,

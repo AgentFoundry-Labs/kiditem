@@ -352,6 +352,27 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(done.body.operation).toMatchObject({ status: 'succeeded', lockKeys: [], result: { mallOutcome: 'confirmed' } });
   });
 
+  it('freezes only the asked options for an option-level mall, and every live option for a listing-level mall', async () => {
+    const wing = await createFixture(prisma, targets, { listing: true, channel: 'coupang' });
+    const sibling = await prisma.channelListingOption.create({ data: {
+      organizationId: ORG, listingId: wing.listingId!, externalOptionId: 'provider-option-2', rawJson: { registrationType: 'NORMAL' }, isActive: true,
+    } });
+    const optionLevel = await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-1', items: [{ channelListingOptionIds: [sibling.id] }] });
+    expect(parseRegistrationPayload('sold_out', planOf(optionLevel).payload).listings[0]!.options.map((option) => option.externalOptionId)).toEqual(['provider-option-2']);
+    await request(httpUrl).post(`/api/operations/${optionLevel.operation.id}/cancel`).expect(200);
+    const wholeListing = await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-2', items: [{ channelListingId: wing.listingId }] });
+    expect(parseRegistrationPayload('sold_out', planOf(wholeListing).payload).listings[0]!.options.map((option) => option.externalOptionId)).toEqual(['provider-option-1', 'provider-option-2']);
+    await request(httpUrl).post(`/api/operations/${wholeListing.operation.id}/cancel`).expect(200);
+    // 판매자 재고를 받지 않는 옵션은 얼리지 않은 옵션이면 막지 않는다.
+    await prisma.channelListingOption.update({ where: { id: wing.listingOptionId! }, data: { rawJson: { registrationType: 'RFM' } } });
+    await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-3', items: [{ channelListingOptionIds: [sibling.id] }] });
+
+    const kidkids = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
+    await prisma.channelListingOption.create({ data: { organizationId: ORG, listingId: kidkids.listingId!, externalOptionId: 'provider-option-3', isActive: true } });
+    const listingLevel = await beginOk({ executionKind: 'sold_out', channelAccountId: kidkids.accountId, idempotencyKey: 'kk-1', items: [{ channelListingOptionIds: [kidkids.listingOptionId] }] });
+    expect(parseRegistrationPayload('sold_out', planOf(listingLevel).payload).listings[0]!.options.map((option) => option.externalOptionId)).toEqual(['provider-option-1', 'provider-option-3']);
+  });
+
   it('refuses a sold-out batch for a mall without an availability route before any lock', async () => {
     const fixture = await createFixture(prisma, targets, { listing: true, channel: 'rocket' });
     const refused = await begin({ executionKind: 'sold_out', channelAccountId: fixture.accountId, idempotencyKey: 's-2', items: [{ channelListingId: fixture.listingId }] });
