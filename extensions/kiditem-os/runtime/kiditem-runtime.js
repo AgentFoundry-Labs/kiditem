@@ -4094,7 +4094,7 @@ var KidItemRuntime = (() => {
   // packages/shared/src/schemas/operation.ts
   var OPERATION_STATUSES = ["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"];
   var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
-  var OPERATION_OUTCOMES = ["succeeded", "failed"];
+  var OPERATION_OUTCOMES = ["succeeded", "failed", "reconciling"];
   var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
   var OPERATION_CANCEL_CODE = "USER_CANCELLED";
   var OPERATION_LEASE_MS = 30 * 60 * 1e3;
@@ -4190,6 +4190,9 @@ var KidItemRuntime = (() => {
   ).refine(
     (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
     { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
+  ).refine(
+    (value) => value.outcome !== "reconciling" || value.result !== void 0,
+    { message: "\uD655\uC778 \uC911\uC73C\uB85C \uBA48\uCD9C \uB54C\uB294 `result` \uBCF8\uBB38\uC774 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["result"] }
   );
   var OperationFinishResponseSchema = external_exports.object({
     operation: OperationViewSchema
@@ -4869,7 +4872,7 @@ var KidItemRuntime = (() => {
     let lastSentAt = null;
     let queue = Promise.resolve();
     const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send(url, { requireXsrf = false, ...init } = {}) {
+    async function send14(url, { requireXsrf = false, ...init } = {}) {
       const headers = new Headers(init.headers);
       if (options.xsrf) {
         const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
@@ -4906,7 +4909,7 @@ var KidItemRuntime = (() => {
     }
     return {
       json: (url, init) => enqueue(async () => {
-        const response = await send(url, init);
+        const response = await send14(url, init);
         const body = await safeText(response);
         try {
           return JSON.parse(body);
@@ -4915,8 +4918,8 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
         }
       }),
-      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
-      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
+      text: (url, init) => enqueue(async () => (await send14(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send14(url, init)).arrayBuffer()))
     };
   }
   async function safeText(response) {
@@ -5214,7 +5217,7 @@ var KidItemRuntime = (() => {
   function settlementRow(value, domain, index) {
     const item = record(value);
     const date = settlementDate(item?.date);
-    const money = (field) => {
+    const money2 = (field) => {
       const parsed3 = number(item?.[field]);
       if (parsed3 === null) throw rowInvalid("settlement", index, field);
       return Math.round(parsed3);
@@ -5227,10 +5230,10 @@ var KidItemRuntime = (() => {
       settlementDomain: domain,
       campaignId,
       campaignName: text(item.campaignName),
-      deliveredSpend: money("deliveredAdcost"),
-      billedSpend: money("billableAmount"),
-      promotionAdjustment: money("promotionAdjustment"),
-      billableAdjustment: money("billableAdjustment")
+      deliveredSpend: money2("deliveredAdcost"),
+      billedSpend: money2("billableAmount"),
+      promotionAdjustment: money2("promotionAdjustment"),
+      billableAdjustment: money2("billableAdjustment")
     };
   }
   function campaignIdsRejected(error) {
@@ -5376,10 +5379,10 @@ var KidItemRuntime = (() => {
       try {
         for (const [index, { keyword: keyword2, maxPages }] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const read = await site.serp(keyword2, maxPages, {
+          const read13 = await site.serp(keyword2, maxPages, {
             onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 })
           });
-          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read };
+          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read13 };
           yield {
             chunkKind: KEYWORD_SERP_CHUNK_KIND,
             payload: [chunk],
@@ -5470,13 +5473,13 @@ var KidItemRuntime = (() => {
     site: "wing-search",
     async *collect(plan, site, { signal }) {
       for (const [index, { keyword: keyword2 }] of plan.keywords.entries()) {
-        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (read === null) return;
+        const read13 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read13 === null) return;
         const chunk = {
           keyword: keyword2,
           capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          pagesScanned: read.pagesScanned,
-          items: rankBySales(read.rows)
+          pagesScanned: read13.pagesScanned,
+          items: rankBySales(read13.rows)
         };
         yield {
           chunkKind: WING_RANK_CHUNK_KIND,
@@ -5514,10 +5517,10 @@ var KidItemRuntime = (() => {
     async *collect(plan, site, { signal }) {
       const planned = new Set(plan.products.map((product) => product.productId));
       for (const [index, keyword2] of plan.keywords.entries()) {
-        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (read === null) return;
+        const read13 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read13 === null) return;
         const items = /* @__PURE__ */ new Map();
-        for (const row of read.rows) {
+        for (const row of read13.rows) {
           if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
         }
         const chunk = { keyword: keyword2, items: [...items.values()] };
@@ -5808,15 +5811,15 @@ var KidItemRuntime = (() => {
       if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       const periods = purchasePeriods(parsed3.data);
-      const read = await site.productProfit(
+      const read13 = await site.productProfit(
         { start: parsed3.data.from, end: parsed3.data.to, periods, signal },
         async (done, total) => {
           await report?.({ months: total, monthsRead: done });
         }
       );
       if (signal.aborted) return;
-      const products = assembleProfitProducts(read.baseline, read.periods);
-      const progress4 = { months: periods.length, monthsRead: periods.length, products: products.length, skippedAdjustments: read.baseline.skippedAdjustmentCount };
+      const products = assembleProfitProducts(read13.baseline, read13.periods);
+      const progress4 = { months: periods.length, monthsRead: periods.length, products: products.length, skippedAdjustments: read13.baseline.skippedAdjustmentCount };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_PRODUCTS, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uD55C \uC0C1\uD488" });
       for (const product of products) {
         const full = buffer.push(product);
@@ -6040,6 +6043,11 @@ var KidItemRuntime = (() => {
     dialogs: external_exports.array(external_exports.string())
   }).strict();
   var RegistrationEvidenceSchema = external_exports.object({
+    /**
+     * 이 증거가 가리키는 얼린 문서(plan `payloadHash`). 다르면 이 실행의 증거가 아니다(`OPERATION`이 아니라 등록 fence의 거절,
+     * `CHANNELS_EXECUTION_FENCE_LOST{PAYLOAD_HASH_MISMATCH}`). KID-364 M1 추가.
+     */
+    payloadHash: external_exports.string().min(1),
     channelAccountId: external_exports.string().uuid(),
     externalListingId: external_exports.string().trim().min(1).nullable(),
     observedUrl: external_exports.string().url().nullable(),
@@ -6050,7 +6058,17 @@ var KidItemRuntime = (() => {
       salesProductOptionId: external_exports.string().uuid(),
       externalOptionId: external_exports.string().trim().min(1),
       sellerSku: external_exports.string().nullable()
-    }).strict())
+    }).strict()),
+    /**
+     * 품절 · 재개만(KID-364 M1 추가, 리더 결정): 보낸 뒤 몰에서 다시 읽은 옵션 상태. 옵션 단위 몰은 얼린 옵션마다 한 줄이 있어야
+     * 확인이다(sold_out은 재고 0 또는 판매중지, resume은 판매중). 리스팅 단위 몰은 `observedStatus`로 확인한다. 묶음 실행은 리스팅마다
+     * 증거 청크 하나를 보낸다.
+     */
+    observedOptions: external_exports.array(external_exports.object({
+      externalOptionId: external_exports.string().trim().min(1),
+      stock: external_exports.number().int().nonnegative().nullable(),
+      status: external_exports.string().nullable()
+    }).strict()).max(1e3).optional()
   }).strict();
   var REGISTRATION_MALL_OUTCOMES = ["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"];
   var RegistrationMallOutcomeSchema = external_exports.enum(REGISTRATION_MALL_OUTCOMES);
@@ -6062,7 +6080,9 @@ var KidItemRuntime = (() => {
     externalListingId: external_exports.string().nullable(),
     mallMessage: external_exports.string().nullable(),
     fill: RegistrationFillSchema,
-    evidence: RegistrationEvidenceSchema.nullable()
+    evidence: RegistrationEvidenceSchema.nullable(),
+    /** owner finalize가 연결 · 생성한 리스팅(확인된 등록만). 확장은 보내지 않는다. KID-364 M1 추가. */
+    channelListingId: external_exports.string().uuid().nullable().optional()
   }).strict();
   var RegistrationConfirmRequestSchema = external_exports.object({
     externalListingId: external_exports.string().trim().min(1).max(64),
@@ -6077,6 +6097,7 @@ var KidItemRuntime = (() => {
     /** 운영자가 몰에서 확인한 사실: 등록되지 않았다(failed). */
     reason: external_exports.string().trim().min(1).max(500)
   }).strict();
+  var MALL_AVAILABILITY_READ_KIND = "channels.mall_availability_read";
   var MallAvailabilityReadScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64),
@@ -6086,6 +6107,7 @@ var KidItemRuntime = (() => {
     expectedProviderAccountId: external_exports.string().min(1).nullable(),
     startedAt: external_exports.string().datetime({ offset: true })
   }).strict();
+  var MALL_AVAILABILITY_ROWS_CHUNK_KIND = "availability_rows";
   var MallAvailabilityRowSchema = external_exports.object({
     externalListingId: external_exports.string().min(1),
     externalOptionId: external_exports.string().min(1).nullable(),
@@ -6103,6 +6125,765 @@ var KidItemRuntime = (() => {
     /** 요청했지만 몰에서 못 찾은 리스팅. */
     missingExternalListingIds: external_exports.array(external_exports.string()),
     rows: external_exports.array(MallAvailabilityRowSchema)
+  }).strict();
+
+  // packages/shared/src/schemas/registration-state.ts
+  var MallListingStateSchema = external_exports.enum([
+    "published",
+    "reviewing",
+    "error",
+    "paused",
+    "discontinued",
+    "unknown",
+    "unregistered"
+  ]);
+  var REGISTRATION_ACCOUNT_STATES = [
+    "unregistered",
+    "preparing",
+    "submitting",
+    "confirming",
+    "registered",
+    "failed"
+  ];
+  var RegistrationAccountStateValueSchema = external_exports.enum(REGISTRATION_ACCOUNT_STATES);
+  var RegistrationAccountLastExecutionSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    kind: external_exports.string(),
+    status: external_exports.string(),
+    providerOutcome: external_exports.string(),
+    createdAt: external_exports.string(),
+    completedAt: external_exports.string().nullable()
+  }).strict();
+  var RegistrationAccountStateSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    channel: external_exports.string(),
+    channelAccountName: external_exports.string().nullable(),
+    /** 이 계정의 등록 설정(상품 × 계정당 하나). 리스팅만 있고 설정이 없으면 null. */
+    registrationTargetId: external_exports.string().uuid().nullable(),
+    /** 몰에 있는 리스팅(활성이든 내렸든 가장 최근 것). 없으면 null. */
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().nullable(),
+    /** 그 리스팅을 몰이 보고한 상태(우리 어휘). 등록됨 배지는 `published` 일 때만 초록이고, 그 밖은 몰 상태를 옆에 보인다. */
+    listingState: MallListingStateSchema.nullable(),
+    /** 몰이 준 원문 상태. 툴팁용. */
+    listingRawStatus: external_exports.string().nullable(),
+    /** 리스팅이 몰에 살아 있는가. 카탈로그 부재로 내린 리스팅은 false — "등록됨 · 내림". 리스팅이 없으면 false. */
+    listingActive: external_exports.boolean(),
+    state: RegistrationAccountStateValueSchema,
+    /** 등록됨 위 품절 표시. 등록되지 않았으면 false. */
+    soldOut: external_exports.boolean(),
+    /** 등록 뒤 상품 · 옵션 · 등록 설정 · 상세 revision · 대표이미지가 바뀌어 재전송이 필요하다. 등록되지 않았으면 false. */
+    changedSinceRegistration: external_exports.boolean(),
+    /** 등록 설정이 고른 콘텐츠(Content id). 비면 워크스페이스의 현재 값. */
+    selectedThumbnailAssetId: external_exports.string().uuid().nullable(),
+    selectedDetailPageRevisionId: external_exports.string().uuid().nullable(),
+    lastExecution: RegistrationAccountLastExecutionSchema.nullable()
+  }).strict();
+  var SalesProductRegistrationStateSchema = external_exports.object({
+    accounts: external_exports.array(RegistrationAccountStateSchema)
+  }).strict();
+
+  // packages/shared/src/schemas/sales-product.ts
+  var SALES_PRODUCT_STATUSES = ["draft", "active", "archived"];
+  var SalesProductStatusSchema = external_exports.enum(SALES_PRODUCT_STATUSES);
+  var SALES_PRODUCT_OPTION_SUPPLY_STATUSES = ["selling", "sold_out", "unused"];
+  var SalesProductOptionSupplyStatusSchema = external_exports.enum(SALES_PRODUCT_OPTION_SUPPLY_STATUSES);
+  var SALES_PRODUCT_TAX_TYPES = ["taxable", "tax_free", "zero_rated", "unknown"];
+  var SalesProductTaxTypeSchema = external_exports.enum(SALES_PRODUCT_TAX_TYPES);
+  var SALES_PRODUCT_KC_STATUSES = ["unknown", "none", "exists"];
+  var SalesProductKcStatusSchema = external_exports.enum(SALES_PRODUCT_KC_STATUSES);
+  var SALES_PRODUCT_DELIVERY_FEE_TYPES = ["free", "collect", "prepay", "collect_or_prepay"];
+  var SalesProductDeliveryFeeTypeSchema = external_exports.enum(SALES_PRODUCT_DELIVERY_FEE_TYPES);
+  var SALES_PRODUCT_MAX_OPTION_AXES = 3;
+  var SALES_PRODUCT_MAX_OPTIONS = 200;
+  var SALES_PRODUCT_OPTION_FORBIDDEN_CHARS = [":", "|", "^", "<", ">"];
+  var MAX_KRW = 1e9;
+  var money = external_exports.number().int().min(0).max(MAX_KRW);
+  var optionalText = (max) => external_exports.string().trim().max(max).nullable().optional();
+  var requiredText = (max) => external_exports.string().trim().min(1).max(max);
+  function hasForbiddenOptionChar(value) {
+    return SALES_PRODUCT_OPTION_FORBIDDEN_CHARS.some((char) => value.includes(char));
+  }
+  var optionText = requiredText(100).refine(
+    (value) => !hasForbiddenOptionChar(value),
+    { message: `\uC635\uC158\uC5D0\uB294 ${SALES_PRODUCT_OPTION_FORBIDDEN_CHARS.join(" ")} \uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` }
+  );
+  function salesProductOptionKey(values) {
+    return values.map((value) => value.trim()).join(":");
+  }
+  var SalesProductCertificationSchema = external_exports.object({
+    number: requiredText(100),
+    issuer: optionalText(100),
+    field: optionalText(100),
+    validFrom: optionalText(10),
+    validTo: optionalText(10),
+    issuedAt: optionalText(10),
+    certifiedAt: optionalText(10),
+    imageUrl: optionalText(1e3)
+  }).strict();
+  var SalesProductOptionComponentInputSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    quantity: external_exports.number().int().min(1).max(999)
+  }).strict();
+  var SalesProductOptionInputSchema = external_exports.object({
+    /** 이미 있는 단품을 고칠 때 그 단품 id. 없으면 값(optionKey)으로 찾고, 그래도 없으면 새로 만든다. */
+    id: external_exports.string().uuid().optional(),
+    optionCode: external_exports.string().trim().min(1).max(80).optional(),
+    values: external_exports.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES),
+    alias: optionalText(100),
+    barcode: optionalText(60),
+    /** 초안은 판매가가 아직 없다. 비어 있으면 상품이 `draft` 로 내려간다. */
+    salePrice: money.nullable().default(null),
+    normalPrice: money.nullable().default(null),
+    supplyStatus: SalesProductOptionSupplyStatusSchema.default("selling"),
+    safetyStock: external_exports.number().int().min(0).max(1e6).nullable().optional(),
+    components: external_exports.array(SalesProductOptionComponentInputSchema).max(10).default([])
+  }).strict();
+  var OptionSetSchema = external_exports.object({
+    optionAxes: external_exports.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES).default([]),
+    options: external_exports.array(SalesProductOptionInputSchema).min(1).max(SALES_PRODUCT_MAX_OPTIONS)
+  });
+  function refineOptionSet(value, ctx) {
+    const axes = value.optionAxes;
+    if (new Set(axes).size !== axes.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["optionAxes"], message: "\uC635\uC158 \uB2E8 \uC774\uB984\uC774 \uACB9\uCE69\uB2C8\uB2E4." });
+    }
+    if (axes.length === 0 && value.options.length !== 1) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options"], message: "\uC635\uC158 \uB2E8\uC774 \uC5C6\uC73C\uBA74 \uB2E8\uD488\uC740 \uD558\uB098\uC785\uB2C8\uB2E4." });
+    }
+    const keys = /* @__PURE__ */ new Set();
+    value.options.forEach((option, index) => {
+      if (option.values.length !== axes.length) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["options", index, "values"],
+          message: `\uC635\uC158 \uAC12\uC740 \uB2E8 \uC218(${axes.length})\uB9CC\uD07C \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4.`
+        });
+        return;
+      }
+      const key = salesProductOptionKey(option.values);
+      if (keys.has(key)) {
+        ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options", index, "values"], message: "\uAC19\uC740 \uC635\uC158\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4." });
+      }
+      keys.add(key);
+      const skuIds = option.components.map((component) => component.masterProductId);
+      if (new Set(skuIds).size !== skuIds.length) {
+        ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options", index, "components"], message: "\uAC19\uC740 \uC140\uD53C\uC544 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4." });
+      }
+    });
+    const codes = value.options.map((option) => option.optionCode).filter(Boolean);
+    if (new Set(codes).size !== codes.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options"], message: "\uB2E8\uD488\uCF54\uB4DC\uAC00 \uACB9\uCE69\uB2C8\uB2E4." });
+    }
+  }
+  var SalesProductBasicsInputSchema = external_exports.object({
+    name: requiredText(255),
+    ownCode: optionalText(100),
+    shortName: optionalText(255),
+    englishName: optionalText(255),
+    printName: optionalText(255),
+    modelName: optionalText(60),
+    modelNo: optionalText(60),
+    brand: optionalText(50),
+    manufacturer: optionalText(50),
+    originCountry: optionalText(50),
+    originRegion: optionalText(50),
+    keywords: external_exports.array(requiredText(60)).max(30).default([]),
+    standardCategory: optionalText(40),
+    /** 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML 은 Content 의 상세 페이지 revision 이 정본이다(KID-313 W2). */
+    description: external_exports.string().max(2e4).default(""),
+    targetAudience: optionalText(200),
+    ageGroup: optionalText(100),
+    productSize: optionalText(200),
+    colorVariantNames: external_exports.array(requiredText(60)).max(30).default([]),
+    boxSetQuantity: external_exports.number().int().min(1).max(1e5).nullable().optional(),
+    /** 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다. */
+    registrationDefaults: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().optional(),
+    taxType: SalesProductTaxTypeSchema.default("taxable"),
+    deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable().optional(),
+    deliveryFee: money.nullable().optional(),
+    stockManaged: external_exports.boolean().default(false),
+    imageUrls: external_exports.array(requiredText(1e3)).max(30).default([]),
+    noticeCategory: optionalText(10),
+    noticeValues: external_exports.array(external_exports.string().max(1e3)).max(40).default([]),
+    certifications: external_exports.array(SalesProductCertificationSchema).max(10).default([]),
+    /** KC 가 이 상품에 어떻게 걸리는가. '해당 없음'은 여기서만 말할 수 있다. */
+    kcStatus: SalesProductKcStatusSchema.default("unknown"),
+    importDeclarationNo: optionalText(60),
+    adminMemo: optionalText(2e3)
+  }).strict();
+  var SalesProductCreateInputSchema = SalesProductBasicsInputSchema.extend({
+    /** 판매상품코드. 비우면 서버가 만든다. */
+    code: external_exports.string().trim().min(1).max(60).optional(),
+    optionAxes: OptionSetSchema.shape.optionAxes,
+    options: OptionSetSchema.shape.options
+  }).strict().superRefine(refineOptionSet);
+  var SalesProductUpdateInputSchema = SalesProductBasicsInputSchema.partial().extend({
+    expectedVersion: external_exports.number().int().min(1),
+    status: external_exports.literal("archived").optional()
+  }).strict();
+  var SalesProductOptionsReplaceInputSchema = OptionSetSchema.extend({
+    expectedVersion: external_exports.number().int().min(1)
+  }).strict().superRefine(refineOptionSet);
+  var SalesProductOptionComponentSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    sellpiaCode: external_exports.string(),
+    name: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    quantity: external_exports.number().int(),
+    currentStock: external_exports.number().int().nullable()
+  });
+  var SalesProductOptionSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 초안의 단품은 비어 있다. */
+    optionCode: external_exports.string().nullable(),
+    values: external_exports.array(external_exports.string()),
+    optionKey: external_exports.string(),
+    alias: external_exports.string().nullable(),
+    barcode: external_exports.string().nullable(),
+    /** 초안은 아직 정하지 않아 비어 있다. */
+    salePrice: money.nullable(),
+    normalPrice: money.nullable(),
+    supplyStatus: SalesProductOptionSupplyStatusSchema,
+    safetyStock: external_exports.number().int().nullable(),
+    sortOrder: external_exports.number().int(),
+    components: external_exports.array(SalesProductOptionComponentSchema),
+    /**
+     * 참고 원가(원). 구성 원천 상품의 지금 매입가 × 수량의 합이다. 구성이 없거나 매입가가 빠진
+     * 원천이 하나라도 있으면 null(계산 불가). 읽기 전용 표시이며 손익 · ABC 계산과 무관하다.
+     */
+    // 이 칸이 생기기 전에 동결한 실행 payload 도 읽히도록 비어 있으면 null 이다.
+    referenceCost: external_exports.number().int().nullable().default(null),
+    /** 이 단품에 연결된 몰 옵션 수. 연결된 단품은 지우지 않는다. */
+    linkedChannelOptionCount: external_exports.number().int().min(0)
+  });
+  var SalesProductChannelOverrideSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string(),
+    mallName: external_exports.string(),
+    salePrice: external_exports.number().int().nullable(),
+    stockPercent: external_exports.number().int().nullable(),
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).nullable(),
+    version: external_exports.number().int(),
+    updatedAt: zIsoDate
+  });
+  var SalesProductChannelListingSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string(),
+    mallName: external_exports.string(),
+    externalId: external_exports.string(),
+    displayName: external_exports.string().nullable(),
+    status: external_exports.string().nullable(),
+    isActive: external_exports.boolean(),
+    /** 몰 옵션 — 가져올 때 읽은 몰 판매가와 이어진 단품. */
+    options: external_exports.array(external_exports.object({
+      id: external_exports.string().uuid(),
+      externalOptionId: external_exports.string(),
+      itemName: external_exports.string().nullable(),
+      salePrice: external_exports.number().int().nullable(),
+      salesProductOptionId: external_exports.string().uuid().nullable()
+    }))
+  });
+  var SalesProductSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다(화면은 '미발급'). */
+    code: external_exports.string().nullable(),
+    ownCode: external_exports.string().nullable(),
+    sabangnetGoodsNo: external_exports.string().nullable(),
+    /** 이 상품을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷 상품은 없다. 초안을 지우면 함께 지워진다. */
+    sourceRecordId: external_exports.string().uuid().nullable(),
+    /** 원천 장터(`1688` · `coupang` · `sabangnet` …). 초안을 만들 때 복사하고 바꾸지 않는다. */
+    sourcePlatform: external_exports.string().nullable(),
+    sourceUrl: external_exports.string().nullable(),
+    name: external_exports.string(),
+    shortName: external_exports.string().nullable(),
+    englishName: external_exports.string().nullable(),
+    printName: external_exports.string().nullable(),
+    modelName: external_exports.string().nullable(),
+    modelNo: external_exports.string().nullable(),
+    brand: external_exports.string().nullable(),
+    manufacturer: external_exports.string().nullable(),
+    originCountry: external_exports.string().nullable(),
+    originRegion: external_exports.string().nullable(),
+    keywords: external_exports.array(external_exports.string()),
+    standardCategory: external_exports.string().nullable(),
+    description: external_exports.string(),
+    targetAudience: external_exports.string().nullable(),
+    ageGroup: external_exports.string().nullable(),
+    productSize: external_exports.string().nullable(),
+    colorVariantNames: external_exports.array(external_exports.string()),
+    boxSetQuantity: external_exports.number().int().nullable(),
+    registrationDefaults: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
+    status: SalesProductStatusSchema,
+    taxType: SalesProductTaxTypeSchema,
+    deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable(),
+    deliveryFee: external_exports.number().int().nullable(),
+    optionAxes: external_exports.array(external_exports.string()),
+    stockManaged: external_exports.boolean(),
+    imageUrls: external_exports.array(external_exports.string()),
+    noticeCategory: external_exports.string().nullable(),
+    noticeValues: external_exports.array(external_exports.string()),
+    certifications: external_exports.array(SalesProductCertificationSchema),
+    kcStatus: SalesProductKcStatusSchema,
+    importDeclarationNo: external_exports.string().nullable(),
+    adminMemo: external_exports.string().nullable(),
+    version: external_exports.number().int(),
+    createdAt: zIsoDate,
+    updatedAt: zIsoDate,
+    options: external_exports.array(SalesProductOptionSchema),
+    channelOverrides: external_exports.array(SalesProductChannelOverrideSchema),
+    channelListings: external_exports.array(SalesProductChannelListingSchema)
+  });
+  var SalesProductListQuerySchema = external_exports.object({
+    query: external_exports.string().trim().max(200).optional(),
+    status: SalesProductStatusSchema.optional(),
+    /** 원천 장터 탭(수집상품 화면의 1688 · 쿠팡 · 사방넷). 초안에 복사된 값으로 거른다. */
+    sourcePlatform: external_exports.string().trim().max(40).optional(),
+    /**
+     * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
+     * `unregistered`: KID 를 받은 판매 상품(`active`) 중 아직 어느 몰에도 올라가지 않은 것 ·
+     * `preparing`: 수집상품 화면 — 초안(`draft`, KID 없음)만(KID-313).
+     */
+    focus: external_exports.enum(["all", "with_options", "unlinked", "unregistered", "preparing"]).default("all"),
+    page: external_exports.coerce.number().int().min(1).default(1),
+    limit: external_exports.coerce.number().int().min(1).max(100).default(50)
+  });
+  var SalesProductListItemSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다. */
+    code: external_exports.string().nullable(),
+    ownCode: external_exports.string().nullable(),
+    /** 이 상품을 만든 원본 기록(SourceRecord) id. */
+    sourceRecordId: external_exports.string().uuid().nullable(),
+    sourcePlatform: external_exports.string().nullable(),
+    sourceUrl: external_exports.string().nullable(),
+    name: external_exports.string(),
+    status: SalesProductStatusSchema,
+    /** 팔 옵션 중 가장 싼 값. 초안이라 아직 정하지 않았으면 null. */
+    salePrice: external_exports.number().int().nullable(),
+    imageUrl: external_exports.string().nullable(),
+    optionAxes: external_exports.array(external_exports.string()),
+    optionCount: external_exports.number().int(),
+    sellingOptionCount: external_exports.number().int(),
+    /** 셀피아 구성이 비어 있는 단품 수(미사용 제외). */
+    unlinkedOptionCount: external_exports.number().int(),
+    channelListingCount: external_exports.number().int(),
+    /** 몰 계정별 등록 상태(KID-313 결정 11). 화면은 이것만 읽고 실행 · 리스팅 표를 조합하지 않는다. */
+    registrationAccounts: external_exports.array(RegistrationAccountStateSchema),
+    updatedAt: zIsoDate
+  });
+  var SalesProductListResponseSchema = external_exports.object({
+    items: external_exports.array(SalesProductListItemSchema),
+    total: external_exports.number().int(),
+    page: external_exports.number().int(),
+    limit: external_exports.number().int(),
+    summary: external_exports.object({
+      total: external_exports.number().int(),
+      withOptions: external_exports.number().int(),
+      withUnlinkedOptions: external_exports.number().int(),
+      /** 아직 어느 몰에도 올라가지 않은 판매상품 수. */
+      unregistered: external_exports.number().int(),
+      /** KID 를 아직 받지 않은 초안 수. */
+      draft: external_exports.number().int()
+    })
+  });
+  var SALES_PRODUCT_LINK_SOURCES = ["sabangnet_record", "send_record_file", "seller_code"];
+  var SalesProductLinkSourceSchema = external_exports.enum(SALES_PRODUCT_LINK_SOURCES);
+  var SalesProductLinkResultSchema = external_exports.object({
+    /** 이번에 판매상품을 새로 이은 몰 상품 수. */
+    linkedListings: external_exports.number().int(),
+    /** 이미 이어져 있던 몰 상품 수(그대로 둔다). */
+    alreadyLinked: external_exports.number().int(),
+    /** 몰 옵션 ↔ 단품을 이은 수(옵션 하나인 상품끼리만). */
+    linkedOptions: external_exports.number().int(),
+    /** 비어 있던 몰 옵션 레시피를 단품의 셀피아 구성으로 채운 수. */
+    recipesFilled: external_exports.number().int(),
+    /** 근거가 서로 다른 판매상품을 가리켜 잇지 않은 몰 상품 수. */
+    conflicts: external_exports.number().int(),
+    bySource: external_exports.record(SalesProductLinkSourceSchema, external_exports.number().int())
+  });
+  var SABANGNET_WORKBOOK_KINDS = [
+    "products",
+    "options",
+    "channel_overrides",
+    "send_records",
+    "mall_categories",
+    "mall_templates"
+  ];
+  var SabangnetWorkbookKindSchema = external_exports.enum(SABANGNET_WORKBOOK_KINDS);
+  var SabangnetImportIssueSchema = external_exports.object({
+    kind: SabangnetWorkbookKindSchema,
+    row: external_exports.number().int(),
+    code: external_exports.string().nullable(),
+    message: external_exports.string()
+  });
+  var SabangnetImportSelectionSchema = external_exports.array(external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    expectedVersion: external_exports.number().int().positive()
+  }).strict()).max(1e4);
+  var SabangnetImportPreviewSchema = external_exports.object({
+    dryRun: external_exports.boolean(),
+    existingChanges: external_exports.array(external_exports.object({
+      salesProductId: external_exports.string().uuid(),
+      code: external_exports.string(),
+      name: external_exports.string(),
+      sourceKey: external_exports.string(),
+      expectedVersion: external_exports.number().int().positive(),
+      changed: external_exports.boolean(),
+      /** 판매상품 값은 그대로이고 다음 가져오기가 비교할 저장된 원문(기준값)만 바뀐다. */
+      baselineOnly: external_exports.boolean(),
+      /** 파일 값이 달랐지만 지난 가져오기 뒤 사람이 고쳐서 지킨 칸(판매상품 필드 이름). */
+      preserved: external_exports.array(external_exports.string()),
+      /** 사람이 고치지 않아 파일 값으로 바꾸는 칸. */
+      updated: external_exports.array(external_exports.string())
+    })),
+    files: external_exports.array(external_exports.object({ name: external_exports.string(), kind: SabangnetWorkbookKindSchema, rows: external_exports.number().int() })),
+    products: external_exports.object({
+      total: external_exports.number().int(),
+      created: external_exports.number().int(),
+      updated: external_exports.number().int(),
+      unchanged: external_exports.number().int()
+    }),
+    options: external_exports.object({
+      total: external_exports.number().int(),
+      withOptionsProducts: external_exports.number().int(),
+      /** 셀피아 상품코드 · 옵션명이 정확히 맞아 연결한 단품 수. */
+      linked: external_exports.number().int(),
+      unlinked: external_exports.number().int()
+    }),
+    channelOverrides: external_exports.object({
+      total: external_exports.number().int(),
+      saved: external_exports.number().int(),
+      /** 우리 몰 계정이 없어 넘긴 사방넷 쇼핑몰 코드와 줄 수. */
+      skippedByShop: external_exports.record(external_exports.string(), external_exports.number().int())
+    }),
+    issues: external_exports.array(SabangnetImportIssueSchema).max(200),
+    issueCount: external_exports.number().int(),
+    /** 몰에 올라간 상품 ↔ 판매상품 잇기 결과. 옮길 때는 늘 잇고, 송신 기록 없이 미리볼 때만 null. */
+    links: SalesProductLinkResultSchema.nullable(),
+    /** 송신 기록에서 읽은 상품 × 몰의 사방넷 분류 · 부가정보. 송신 기록이 없으면 null. */
+    mallValues: external_exports.object({
+      pairs: external_exports.number().int(),
+      withCategory: external_exports.number().int(),
+      withTemplate: external_exports.number().int()
+    }).nullable()
+  });
+  var SalesProductExternalImagesSchema = external_exports.object({
+    /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
+    images: external_exports.number().int(),
+    /** 그런 사진이 있는 판매상품 수. */
+    products: external_exports.number().int()
+  });
+  var SalesProductImageMirrorResultSchema = external_exports.object({
+    mirrored: external_exports.number().int(),
+    failedCount: external_exports.number().int(),
+    failed: external_exports.array(external_exports.object({ url: external_exports.string(), reason: external_exports.string() })).max(20),
+    productsUpdated: external_exports.number().int(),
+    /** 그사이 누가 고쳐 이번에 쓰지 못한 판매상품. 다음 묶음에서 다시 옮긴다. */
+    productsSkipped: external_exports.number().int(),
+    /** 아직 옮기지 못한 사진 수. */
+    remaining: external_exports.number().int(),
+    /** 다음 묶음을 부를 때 넘길 `skip` — 이번까지 못 옮긴 사진은 건너뛴다. */
+    nextSkip: external_exports.number().int()
+  });
+  var SalesProductMallCategoriesSchema = external_exports.object({
+    mallKey: external_exports.string(),
+    categories: external_exports.array(external_exports.object({
+      /** 몰 분류 경로(사방넷이 몰에 보낸 그대로, `>` 로 잇는다). */
+      path: external_exports.string(),
+      /** 사방넷에서 붙인 분류 이름. */
+      title: external_exports.string().nullable(),
+      /** 이 분류를 쓴 판매상품 수. */
+      count: external_exports.number().int()
+    }))
+  });
+  var SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ["options_disagree"];
+  var SalesProductMallPriceConflictReasonSchema = external_exports.enum(SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS);
+  var SalesProductMallPriceAdoptionSchema = external_exports.object({
+    /** false 면 미리보기 — 쓰지 않았다. */
+    applied: external_exports.boolean(),
+    /** 단품 판매가를 몰 가격으로 바꿀(바꾼) 상품의 가격 근거 상품 × 몰. */
+    pairs: external_exports.number().int(),
+    products: external_exports.number().int(),
+    /** 이미 같은 상품 × 몰. */
+    unchanged: external_exports.number().int(),
+    conflicts: external_exports.number().int(),
+    conflictSamples: external_exports.array(external_exports.object({
+      code: external_exports.string(),
+      name: external_exports.string(),
+      mallName: external_exports.string(),
+      reason: SalesProductMallPriceConflictReasonSchema,
+      prices: external_exports.array(external_exports.number().int())
+    })).max(20),
+    /** 몰 이름 → 바꿀(바꾼) 상품 수. */
+    byMall: external_exports.record(external_exports.string(), external_exports.number().int())
+  });
+  var SalesProductMallSheetSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    label: external_exports.string(),
+    /** 이 파일이 올라가는 몰 키(ESM 은 G마켓 · 옥션 둘). */
+    mallKeys: external_exports.array(external_exports.string()),
+    /** 몰 분류를 번호로 받는가(`code`, 몰 카테고리표로 경로를 번호로 바꾼다), 이름 그대로 받는가(`name`). */
+    categoryBy: external_exports.enum(["code", "name"]),
+    /** 몰이 한 파일에 받는 상품 수. */
+    maxProducts: external_exports.number().int(),
+    /** 몰 계정에 한 번 정하는 값(출하지 코드 · 스토어명 …)과 기본값. */
+    fixedFields: external_exports.array(external_exports.object({
+      key: external_exports.string(),
+      label: external_exports.string(),
+      required: external_exports.boolean(),
+      defaultValue: external_exports.string(),
+      help: external_exports.string().nullable()
+    })),
+    /** 올리는 곳 · 올린 뒤 할 일. */
+    notes: external_exports.array(external_exports.string())
+  });
+  var SalesProductMallSheetListSchema = external_exports.object({
+    sheets: external_exports.array(SalesProductMallSheetSchema),
+    /** 신규 등록 엑셀이 없는 몰과 그 까닭 — 폼 채우기 등록으로 간다. */
+    unavailable: external_exports.array(external_exports.object({ mallKey: external_exports.string(), reason: external_exports.string() }))
+  });
+  var SALES_PRODUCT_MALL_SHEET_MAX_IDS = 1e3;
+  var SalesProductMallSheetRequestSchema = external_exports.object({
+    /** 비우면(확인만) 이 몰에 아직 없는 판매상품 — 몰 상품과 이어지지 않았고 사방넷이 보낸 적도 없는 것. */
+    salesProductIds: external_exports.array(external_exports.string().uuid()).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS).optional(),
+    /** 고정값. 빈 칸은 기본값을 쓴다. */
+    fixed: external_exports.record(external_exports.string(), external_exports.string().max(1e3)).default({})
+  }).strict();
+  var SalesProductMallSheetCategorySchema = external_exports.object({
+    mallKey: external_exports.string(),
+    path: external_exports.string().nullable(),
+    code: external_exports.string().nullable(),
+    source: external_exports.enum(["set", "sabangnet", "none"]),
+    /** 엑셀에 넣을 수 있는가(번호로 받는 몰은 번호가, 이름으로 받는 몰은 경로가 있어야). */
+    resolved: external_exports.boolean(),
+    /** 풀리지 않았을 때, 같은 상품이 다른 몰에서 쓰는 분류로 짐작한 이 몰 분류. 사람이 확인해 저장해야 쓴다. */
+    suggestion: external_exports.object({
+      path: external_exports.string(),
+      /** 투표한 몰들(또는 비슷한 이름의 판매상품들)이 이 분류에 준 몫의 평균(0~1). */
+      share: external_exports.number(),
+      voters: external_exports.number().int(),
+      /** 짐작 근거: 같은 상품의 다른 몰 분류 · 이름이 비슷한 판매상품의 이 몰 분류. */
+      basis: external_exports.enum(["other_malls", "similar_names"]),
+      /** 이 분류가 번호로 풀리는가(번호로 받는 몰). */
+      resolves: external_exports.boolean()
+    }).nullable()
+  });
+  var SalesProductMallSheetCheckSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    /** `missing`: 이 몰에 없는 판매상품을 서버가 골랐다. `selected`: 보낸 id 그대로. */
+    scope: external_exports.enum(["selected", "missing"]),
+    /** 비어 있는 필수 고정값 이름. 있으면 파일을 만들지 않는다. */
+    missingFixed: external_exports.array(external_exports.string()),
+    /**
+     * `missing` 에서 뺀 판매상품 수 — 몰 상품과 이어지지 않았지만 사방넷이 이 몰에 보낸 적이 있어 이미 올라가 있을 수
+     * 있는 것. 다시 올리면 몰에 같은 상품이 둘 생긴다.
+     */
+    maybeListed: external_exports.number().int(),
+    products: external_exports.array(external_exports.object({
+      salesProductId: external_exports.string().uuid(),
+      /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있고, 파일을 만들 때 발급된다. */
+      code: external_exports.string().nullable(),
+      name: external_exports.string(),
+      /** 파일에 들어갈 행 수(쿠팡은 단품마다 한 줄). 못 넣는 상품은 0. */
+      rows: external_exports.number().int(),
+      problems: external_exports.array(external_exports.string()),
+      warnings: external_exports.array(external_exports.string()),
+      /** 이 파일에 들어갈 사진 중 몰이 못 읽어(우리 저장소) 막는 사진 수. [사진 올리기]가 공개 주소를 만든다. */
+      unreadableImages: external_exports.number().int(),
+      /** 이 파일이 다루는 몰마다의 분류. */
+      categories: external_exports.array(SalesProductMallSheetCategorySchema)
+    })),
+    ready: external_exports.number().int(),
+    blocked: external_exports.number().int()
+  });
+  var SalesProductMallSheetCategoryListSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    mallKey: external_exports.string(),
+    /** 찾은 분류 경로(`>` 로 이은 이름). 몰 분류표가 없는 몰이면 빈 배열. */
+    paths: external_exports.array(external_exports.string()),
+    /** 몰 분류표에 있는 전체 분류 수(0 이면 표가 없다). */
+    total: external_exports.number().int()
+  });
+  var SalesProductMallCategoryAssignRequestSchema = external_exports.object({
+    mallKey: external_exports.string().trim().min(1).max(40),
+    path: external_exports.string().trim().min(1).max(300),
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS)
+  }).strict();
+  var SalesProductMallCategoryAssignResultSchema = external_exports.object({
+    /** 바뀐 상품 × 몰 줄 수(이미 같은 분류면 세지 않는다). */
+    written: external_exports.number().int(),
+    /** 몰 카테고리표에서 이 경로의 번호(번호로 받는 몰). 없으면 null — 엑셀은 여전히 막힌다. */
+    code: external_exports.string().nullable()
+  });
+  var CoupangCatalogChangeSchema = external_exports.object({
+    column: external_exports.string(),
+    before: external_exports.string(),
+    after: external_exports.string()
+  });
+  var CoupangCatalogRowSchema = external_exports.object({
+    /** 윙 옵션 ID. 한 줄은 상품이 아니라 옵션 하나다. */
+    optionId: external_exports.string(),
+    listingName: external_exports.string(),
+    optionName: external_exports.string(),
+    /** 이어진 판매상품 코드. 이어지지 않았으면 null. */
+    salesProductCode: external_exports.string().nullable(),
+    unlinked: external_exports.boolean(),
+    changes: external_exports.array(CoupangCatalogChangeSchema),
+    conflicts: external_exports.array(CoupangCatalogChangeSchema)
+  });
+  var CoupangCatalogPlanResultSchema = external_exports.object({
+    /** 파일의 옵션 줄 수. */
+    rows: external_exports.number().int(),
+    /** 우리 단품과 이어진 옵션 줄 수. */
+    linked: external_exports.number().int(),
+    /** 값이 바뀌는 줄 수. */
+    changedRows: external_exports.number().int(),
+    /** 바뀌는 칸 수. */
+    changedCells: external_exports.number().int(),
+    /** 다르지만 두고 센 칸 수. */
+    conflicts: external_exports.number().int(),
+    /** 칸 이름 → 그 칸을 채우는 줄 수. */
+    byColumn: external_exports.record(external_exports.string(), external_exports.number().int()),
+    /** 화면이 보여 줄 줄(바뀌는 줄 · 다른 줄 먼저). */
+    samples: external_exports.array(CoupangCatalogRowSchema)
+  });
+  var SalesProductPublicImagePendingSchema = external_exports.object({
+    urls: external_exports.array(external_exports.string()),
+    /** 그런 사진이 있는 판매상품 수. */
+    products: external_exports.number().int()
+  });
+  var SalesProductPublicImagePendingRequestSchema = external_exports.object({
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS)
+  }).strict();
+  var SalesProductPublicImageSaveRequestSchema = external_exports.object({
+    images: external_exports.array(external_exports.object({
+      sourceUrl: external_exports.string().trim().min(1).max(2e3),
+      publicUrl: external_exports.string().trim().url().max(2e3),
+      host: external_exports.string().trim().min(1).max(40)
+    }).strict()).min(1).max(500)
+  }).strict();
+
+  // packages/shared/src/schemas/registration-target-execution.ts
+  var TargetExecutionKindSchema = external_exports.enum(TARGET_EXECUTION_KINDS);
+  var OptionTransitionSchema = external_exports.object({
+    channelListingOptionId: external_exports.string().uuid(),
+    salesProductOptionId: external_exports.string().uuid()
+  }).strict();
+  var PrepareTargetExecutionInputSchema = external_exports.object({
+    expectedVersion: external_exports.number().int().positive(),
+    kind: TargetExecutionKindSchema,
+    idempotencyKey: external_exports.string().trim().min(1).max(200),
+    channelListingId: external_exports.string().uuid().optional(),
+    /** Supported price update sends only this field, never the whole registration form. */
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    /** Execution-only provider defaults; target settings remain authoritative overrides. */
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    /** Explicit values edited for this submission only; never writes reusable settings. */
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean().default(false),
+    /** Explicit old marketplace option → new common option; never match by order/name. */
+    optionTransitions: external_exports.array(OptionTransitionSchema).max(1e3).optional()
+  }).strict();
+  var TargetExecutionSnapshotSchema = external_exports.object({
+    targetId: external_exports.string().uuid(),
+    targetVersion: external_exports.number().int().positive(),
+    channelAccountId: external_exports.string().uuid(),
+    kind: TargetExecutionKindSchema,
+    channelListingId: external_exports.string().uuid().nullable(),
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    /** Execution-only provider defaults; target settings remain authoritative overrides. */
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    /** Explicit values edited for this submission only; never writes reusable settings. */
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean(),
+    optionTransitions: external_exports.array(OptionTransitionSchema).optional(),
+    product: SalesProductSchema,
+    /**
+     * 이 실행이 몰에 보낼 상세 — 준비 순간 Content 의 revision 을 읽어 동결한다(KID-313 W2). 등록 대상이 고른
+     * revision, 없으면 워크스페이스의 현재 revision. 상세가 없으면 null.
+     */
+    detailPage: external_exports.object({
+      revisionId: external_exports.string().uuid(),
+      html: external_exports.string()
+    }).strict().nullable(),
+    /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). 몰 공급가는 `mallFields.supplyPrice` 다. */
+    registrationInput: external_exports.record(external_exports.string(), external_exports.unknown()),
+    /**
+     * 준비 순간 채널 어댑터가 얼려 넣는 실행 시점 몰 사실(KID-321) — 쿠팡: 해석된 `wingProduct` ·
+     * Sellpia 매칭 · 기존 몰 상품 · vendorItemCode. 등록 대상에는 저장하지 않는다(대상에 남는 몰 값은
+     * `registrationInput.adapter[channel]` 뿐). 어댑터가 얼릴 것이 없으면 `{}`.
+     */
+    adapterPayload: external_exports.record(external_exports.string(), external_exports.unknown())
+  });
+  var TargetExecutionResultSchema = external_exports.object({
+    executionId: external_exports.string().uuid(),
+    targetId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    status: external_exports.enum(["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"]),
+    providerOutcome: external_exports.enum(["not_attempted", "uncertain", "succeeded", "definitive_failure"]),
+    payloadHash: external_exports.string(),
+    payload: TargetExecutionSnapshotSchema,
+    leaseToken: external_exports.string().uuid().nullable(),
+    /** Only the request that atomically starts this execution may perform provider IO. */
+    maySubmit: external_exports.boolean(),
+    externalListingId: external_exports.string().nullable(),
+    expectedProviderAccountId: external_exports.string().nullable().optional(),
+    result: external_exports.unknown().nullable(),
+    createdAt: zIsoDate.optional()
+  }).strict();
+  var ReportTargetExecutionInputSchema = external_exports.object({
+    leaseToken: external_exports.string().uuid(),
+    payloadHash: external_exports.string().min(1),
+    outcome: external_exports.enum(["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"]),
+    evidence: external_exports.object({
+      channelAccountId: external_exports.string().uuid(),
+      externalListingId: external_exports.string().trim().min(1).optional(),
+      observedUrl: external_exports.string().url().optional(),
+      providerAccountId: external_exports.string().optional(),
+      observedStatus: external_exports.string().optional(),
+      message: external_exports.string().optional(),
+      options: external_exports.array(external_exports.object({
+        salesProductOptionId: external_exports.string().uuid(),
+        externalOptionId: external_exports.string().trim().min(1),
+        sellerSku: external_exports.string().nullable().optional()
+      }).strict()).optional()
+    }).strict()
+  }).strict();
+
+  // packages/shared/src/schemas/registration-plan-payloads.ts
+  var RegistrationDocumentPayloadSchema = external_exports.object({
+    snapshot: TargetExecutionSnapshotSchema.nullable(),
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
+  }).strict().refine((payload) => payload.snapshot !== null || payload.form !== null, {
+    message: "\uC5BC\uB9B0 \uBB38\uC11C\uB098 \uD3FC \uC9C0\uC2DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4"
+  });
+  var RegistrationAvailabilityOptionSchema = external_exports.object({
+    /** 판매 옵션에 연결되지 않은 몰 옵션(수집으로만 들어온 것)은 null. */
+    salesProductOptionId: external_exports.string().uuid().nullable(),
+    channelListingOptionId: external_exports.string().uuid(),
+    externalOptionId: external_exports.string().min(1),
+    sellerSku: external_exports.string().nullable()
+  }).strict();
+  var RegistrationAvailabilityListingSchema = external_exports.object({
+    channelListingId: external_exports.string().uuid(),
+    externalListingId: external_exports.string().min(1),
+    /** 바꿀 옵션. 리스팅 단위로 받는 몰은 그 리스팅의 살아 있는 옵션 전부다. */
+    options: external_exports.array(RegistrationAvailabilityOptionSchema).max(1e3)
+  }).strict();
+  var RegistrationAvailabilityPayloadSchema = external_exports.object({
+    action: external_exports.enum(["sold_out", "resume"]),
+    listings: external_exports.array(RegistrationAvailabilityListingSchema).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS)
+  }).strict();
+  var RegistrationThumbnailPayloadSchema = ThumbnailExecutionImageSchema.extend({
+    salesProductId: external_exports.string().uuid(),
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().min(1).nullable(),
+    assetId: external_exports.string().uuid(),
+    /** 몰 관리자에서 상품을 찾는 이름. */
+    productName: external_exports.string().min(1)
   }).strict();
 
   // packages/shared/src/schemas/mall-admin-listings.ts
@@ -6257,7 +7038,7 @@ var KidItemRuntime = (() => {
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
-  var requiredText = (max) => boundedText(max).min(1);
+  var requiredText2 = (max) => boundedText(max).min(1);
   var MallAdminListingsPlanSchema = external_exports.object({
     sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
     parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
@@ -6290,11 +7071,11 @@ var KidItemRuntime = (() => {
      */
     codedListings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
     /** 우리 상태 글자별 상품 수. */
-    statuses: external_exports.record(requiredText(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
+    statuses: external_exports.record(requiredText2(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
   }).strict();
   var MallAdminListingsSourceMallSchema = external_exports.object({
     mallKey: MallKeySchema,
-    mallName: requiredText(40),
+    mallName: requiredText2(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
     /** `latestSucceeded`가 남긴 발행 결과. */
@@ -6308,23 +7089,23 @@ var KidItemRuntime = (() => {
   }).strict();
   var MallAdminListingRowSchema = external_exports.object({
     /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
-    mallProductCode: requiredText(60),
+    mallProductCode: requiredText2(60),
     /**
      * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
      * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
      */
-    alternateCodes: external_exports.array(requiredText(60)).max(3).optional(),
-    productName: requiredText(400),
+    alternateCodes: external_exports.array(requiredText2(60)).max(3).optional(),
+    productName: requiredText2(400),
     /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
-    sellpiaName: requiredText(400).nullable(),
+    sellpiaName: requiredText2(400).nullable(),
     /**
      * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
      * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
      * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
      */
-    sellerCode: requiredText(60).nullable(),
+    sellerCode: requiredText2(60).nullable(),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
-    statusWords: external_exports.array(requiredText(20)).min(1).max(4),
+    statusWords: external_exports.array(requiredText2(20)).min(1).max(4),
     registeredOn: YYYY_MM_DD.nullable(),
     /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
     imageUrl: external_exports.string().url().max(2e3).optional()
@@ -6392,42 +7173,112 @@ var KidItemRuntime = (() => {
   };
   registerCollector(mallAdminListingsCollector);
 
+  // packages/shared/src/channel-registry.ts
+  var REGISTRY_ROWS = [
+    { key: "one-polaris", name: "\uC6D0\uD3F4\uB77C\uB9AC\uC2A4", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: null },
+    { key: "icecream-mall", name: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0", kind: "mall", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/icecream-mall.png" },
+    { key: "kidkids", name: "\uD0A4\uB4DC\uD0A4\uC988", kind: "mall", collector: "extension", uploadTracking: true, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/kidkids.ico" },
+    { key: "kidsnote", name: "\uD0A4\uC988\uB178\uD2B8", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/kidsnote.png" },
+    { key: "haebub-mall", name: "\uD574\uBC95\uBAB0", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/haebub-mall.ico" },
+    { key: "onch", name: "\uC628\uCC44\uB110", kind: "mall", collector: "extension", uploadTracking: true, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/onch.ico" },
+    { key: "kkomangse", name: "\uAF2C\uB9DD\uC138", kind: "mall", collector: "extension", uploadTracking: false, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/kkomangse.ico" },
+    { key: "art09", name: "\uC544\uD2B8\uACF5\uAD6C", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/art09.ico" },
+    { key: "tekville-edu", name: "\uD14C\uD06C\uBE4C\uAD50\uC721", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/tekville-edu.ico" },
+    { key: "benepia-mul", name: "\uBCA0\uB124\uD53C\uC544\uBB3C", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/benepia-mul.png" },
+    { key: "domeggook", name: "\uB3C4\uB9E4\uAFB9", kind: "mall", collector: "extension", uploadTracking: true, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/domeggook.ico" },
+    { key: "lotte-on", name: "\uB86F\uB370ON", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/lotte-on.png" },
+    { key: "boribori", name: "\uBCF4\uB9AC\uBCF4\uB9AC", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/boribori.ico" },
+    { key: "always", name: "\uC62C\uC6E8\uC774\uC988", kind: "mall", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/always.png" },
+    { key: "woongjin-class", name: "\uC6C5\uC9C4\uD074\uB798\uC2A4\uBAB0", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/woongjin-class.ico" },
+    { key: "kakao", name: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/kakao.ico" },
+    { key: "toss", name: "\uD1A0\uC2A4\uC1FC\uD551", kind: "mall", collector: "none", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/toss.ico" },
+    { key: "teacher-mall", name: "\uD2F0\uCCD0\uBAB0", kind: "mall", collector: "extension", uploadTracking: false, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/teacher-mall.ico" },
+    { key: "gs-shop", name: "GS\uC0F5", kind: "mall", collector: "extension", uploadTracking: false, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/gs-shop.ico" },
+    { key: "coupang-direct", name: "\uCFE0\uD321\uC9C1\uBC30\uC1A1", kind: "mall", sharedAccountChannel: "rocket", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/coupang-direct.ico" },
+    { key: "gmarket", name: "\uC9C0\uB9C8\uCF13", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/gmarket.ico" },
+    { key: "auction", name: "\uC625\uC158", kind: "mall", formSpec: "gmarket", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/auction.png" },
+    { key: "11st", name: "11\uBC88\uAC00", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/11st.ico" },
+    { key: "smartstore", name: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/smartstore.ico" },
+    { key: "ssg", name: "\uC2E0\uC138\uACC4(SSG)", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/ssg.ico" },
+    { key: "thirtymall", name: "\uB5A0\uB9AC\uBAB0", kind: "mall", collector: "none", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/thirtymall.ico" },
+    { key: "yoons", name: "\uC724\uC120\uC0DD", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/yoons.ico" },
+    // ── 마켓 판매자 시스템 — 몰 등록 마법사에 서지 않는다 ──────────────────────
+    { key: "coupang", name: "\uCFE0\uD321 WING", kind: "marketplace", collector: "sellpia", uploadTracking: false, delivery: "form", representativeImage: true, soldOutScope: "option", verified: true, logo: "/mall-logos/coupang.ico" },
+    { key: "rocket", name: "\uCFE0\uD321 \uB85C\uCF13", kind: "marketplace", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/rocket.ico" }
+  ];
+  var BY_KEY = new Map(
+    REGISTRY_ROWS.map((entry) => [entry.key, entry])
+  );
+  function findChannel(key) {
+    return BY_KEY.get(key) ?? null;
+  }
+  var MALL_CHANNELS = REGISTRY_ROWS.filter(
+    (entry) => entry.kind === "mall"
+  );
+  var MARKETPLACE_CHANNELS = REGISTRY_ROWS.filter(
+    (entry) => entry.kind === "marketplace"
+  );
+
+  // extensions/src/collectors/channels.mall_availability_read/index.ts
+  var READ_BATCH = 50;
+  var mallAvailabilityReadCollector = {
+    kind: MALL_AVAILABILITY_READ_KIND,
+    site: "mall-write",
+    async *collect(rawPlan, site) {
+      const parsed3 = MallAvailabilityReadPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError("RUNTIME_PLAN_INVALID", "\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589\uD560 \uC218 \uC5C6\uB294 \uD310\uB9E4 \uC0C1\uD0DC \uC77D\uAE30 \uACC4\uD68D\uC785\uB2C8\uB2E4.", { kind: MALL_AVAILABILITY_READ_KIND });
+      const plan = parsed3.data;
+      const reader = site?.reader(plan.mallKey) ?? null;
+      if (!reader) {
+        throw new RuntimeError("RUNTIME_PLAN_INVALID", `\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uD310\uB9E4 \uC0C1\uD0DC \uC77D\uAE30\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`, { kind: MALL_AVAILABILITY_READ_KIND, mallKey: plan.mallKey });
+      }
+      const byOption = findChannel(plan.mallKey)?.soldOutScope === "option";
+      const codes = [...new Set(plan.externalListingIds)];
+      const rows = [];
+      const missing = [];
+      for (let start = 0; start < codes.length; start += READ_BATCH) {
+        const batch = codes.slice(start, start + READ_BATCH);
+        const read13 = await reader.read(batch);
+        const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+        const batchRows = read13.products.flatMap((product) => product.options.map((option) => ({
+          externalListingId: product.code,
+          externalOptionId: byOption ? option.optionCode : null,
+          available: option.stock !== 0,
+          stock: option.stock,
+          rocket: option.rocket,
+          observedStatus: option.state ?? null,
+          observedAt
+        })));
+        missing.push(...read13.missing);
+        rows.push(...batchRows);
+        if (batchRows.length > 0) {
+          yield { chunkKind: MALL_AVAILABILITY_ROWS_CHUNK_KIND, payload: batchRows, progress: { mallKey: plan.mallKey, read: Math.min(start + batch.length, codes.length), total: codes.length } };
+        }
+      }
+      return { result: { rowCount: rows.length, missingExternalListingIds: missing, rows } };
+    }
+  };
+  registerCollector(mallAvailabilityReadCollector);
+
   // extensions/src/collectors/channels.registration/payload.ts
-  var RegistrationDocumentPayloadSchema = external_exports.object({
+  var RegistrationDocumentPayloadSchema2 = external_exports.object({
     snapshot: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
     form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
-  }).passthrough();
-  var RegistrationAvailabilityOptionSchema = external_exports.object({
-    /** 판매 옵션에 연결되지 않은 몰 옵션(수집으로만 들어온 것)은 null. */
-    salesProductOptionId: external_exports.string().uuid().nullable(),
-    channelListingOptionId: external_exports.string().uuid(),
-    externalOptionId: external_exports.string().min(1),
-    sellerSku: external_exports.string().nullable()
-  }).passthrough();
-  var RegistrationAvailabilityPayloadSchema = external_exports.object({
-    action: external_exports.enum(["sold_out", "resume"]),
-    listings: external_exports.array(external_exports.object({
-      channelListingId: external_exports.string().uuid(),
-      externalListingId: external_exports.string().min(1),
-      /** 바꿀 옵션. 리스팅 단위로 받는 몰은 그 리스팅의 살아 있는 옵션 전부다. */
-      options: external_exports.array(RegistrationAvailabilityOptionSchema).max(1e3)
-    }).passthrough()).min(1)
-  }).passthrough();
-  var RegistrationThumbnailPayloadSchema = external_exports.object({
-    dataUrl: external_exports.string().min(1),
-    filename: external_exports.string().min(1),
-    mimeType: external_exports.string().min(1),
-    salesProductId: external_exports.string().uuid(),
-    channelListingId: external_exports.string().uuid().nullable(),
-    externalListingId: external_exports.string().min(1).nullable(),
-    assetId: external_exports.string().uuid(),
-    /** 몰 관리자에서 상품을 찾는 이름. */
-    productName: external_exports.string().min(1)
   }).passthrough();
 
   // extensions/src/collectors/channels.registration/index.ts
   var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var REGISTRATION_ACCOUNT_MISMATCH = "REGISTRATION_ACCOUNT_MISMATCH";
+  var MALL_WRITE_FAILED = "MALL_WRITE_FAILED";
+  function observedConfirms(resume, stock, status) {
+    if (!resume) return stock === 0;
+    return stock !== 0 && (stock !== null || status !== null);
+  }
+  function listingConfirms(resume, byOption, frozen, observed) {
+    if (!observed || observed.options.length === 0) return false;
+    const lines = byOption ? frozen.map((id3) => observed.options.find((option) => option.externalOptionId === id3)) : observed.options;
+    return lines.every((line) => line !== void 0 && observedConfirms(resume, line.stock, line.status ?? observed.status));
+  }
   function invalid(message, details) {
     return new RuntimeError(RUNTIME_PLAN_INVALID7, message, { kind: REGISTRATION_KIND, ...details });
   }
@@ -6452,8 +7303,74 @@ var KidItemRuntime = (() => {
       const writer = site?.writer(plan.mallKey) ?? null;
       if (!writer) throw invalid(`\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uC4F0\uAE30 \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { mallKey: plan.mallKey });
       const progress4 = { mallKey: plan.mallKey, executionKind: plan.executionKind };
-      if (plan.executionKind === "register" || plan.executionKind === "update" || plan.executionKind === "composition_change") {
-        const payload = RegistrationDocumentPayloadSchema.safeParse(plan.payload);
+      if (plan.executionKind === "update") {
+        const payload = RegistrationDocumentPayloadSchema2.safeParse(plan.payload);
+        const snapshot = payload.success ? payload.data.snapshot : null;
+        const options = snapshot?.product?.options;
+        const price2 = options?.length === 1 ? options[0].salePrice : null;
+        if (!writer.price || !plan.externalListingId || typeof price2 !== "number" || !Number.isInteger(price2)) {
+          throw invalid("\uAC00\uACA9 \uC218\uC815 \uACC4\uD68D\uC5D0 \uBAB0 \uC0C1\uD488 \uBC88\uD638\uB098 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const empty = { steps: [], warnings: [], manualSteps: [], dialogs: [] };
+        if (!plan.submit) {
+          return {
+            result: {
+              providerOutcome: "not_attempted",
+              mallOutcome: "not_submitted",
+              submitted: false,
+              submitSkipped: "not_requested",
+              externalListingId: null,
+              mallMessage: null,
+              fill: empty,
+              evidence: null
+            }
+          };
+        }
+        const answer = await writer.price({ externalListingId: plan.externalListingId, price: price2 });
+        const warnings = [...answer.warnings ?? [], ...answer.notes ?? []];
+        if (!answer.submissionAttempted || (answer.sent ?? 0) === 0) {
+          throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(" ") : "\uBAB0\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey });
+        }
+        const observed = answer.results?.find((item) => item.code === plan.externalListingId) ?? null;
+        const won = (value) => `${value.toLocaleString("ko-KR")}\uC6D0`;
+        const fill = {
+          ...empty,
+          steps: [`\uD310\uB9E4\uAC00 ${won(price2)}\uC744 \uBCF4\uB0C8\uC2B5\uB2C8\uB2E4${observed?.before != null && observed.after != null ? `(${won(observed.before)} \u2192 ${won(observed.after)})` : ""}.`],
+          warnings
+        };
+        yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [fill], progress: { ...progress4, stage: "sent" } };
+        const confirmed = observed?.confirmed === true;
+        let evidence = null;
+        if (confirmed) {
+          evidence = {
+            payloadHash: plan.payloadHash,
+            channelAccountId: plan.channelAccountId,
+            externalListingId: plan.externalListingId,
+            observedUrl: observed?.observedUrl ?? null,
+            providerAccountId: null,
+            observedStatus: null,
+            message: null,
+            options: []
+          };
+          yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "reread" } };
+        }
+        const outcome = confirmed ? "confirmed" : "submitted";
+        return {
+          ...confirmed ? {} : { outcome: "reconciling" },
+          result: {
+            providerOutcome: providerOutcomeOf(outcome),
+            mallOutcome: outcome,
+            submitted: true,
+            submitSkipped: null,
+            externalListingId: plan.externalListingId,
+            mallMessage: warnings.length > 0 ? warnings.join(" ") : null,
+            fill,
+            evidence
+          }
+        };
+      }
+      if (plan.executionKind === "register" || plan.executionKind === "composition_change") {
+        const payload = RegistrationDocumentPayloadSchema2.safeParse(plan.payload);
         if (!payload.success || !payload.data.form || !writer.fill) {
           throw invalid("\uB4F1\uB85D \uACC4\uD68D\uC5D0 \uBAB0 \uD3FC \uC9C0\uC2DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
         }
@@ -6506,6 +7423,87 @@ var KidItemRuntime = (() => {
           await session.done();
         }
       }
+      if (plan.executionKind === "sold_out" || plan.executionKind === "resume") {
+        const payload = RegistrationAvailabilityPayloadSchema.safeParse(plan.payload);
+        if (!payload.success || !writer.availability) {
+          throw invalid("\uD488\uC808\xB7\uC7AC\uAC1C \uACC4\uD68D\uC5D0 \uB9AC\uC2A4\uD305 \uBB36\uC74C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const resume = plan.executionKind === "resume";
+        const listings = payload.data.listings.map((listing) => ({
+          externalListingId: listing.externalListingId,
+          externalOptionIds: listing.options.map((option) => option.externalOptionId)
+        }));
+        if (!plan.submit) {
+          return {
+            result: {
+              providerOutcome: "not_attempted",
+              mallOutcome: "not_submitted",
+              submitted: false,
+              submitSkipped: "not_requested",
+              externalListingId: null,
+              mallMessage: null,
+              fill: { steps: [], warnings: [], manualSteps: [], dialogs: [] },
+              evidence: null
+            }
+          };
+        }
+        const byOption = findChannel(plan.mallKey)?.soldOutScope === "option";
+        const run = await writer.availability({ resume, byOption, listings, expectedProviderAccountId: plan.expectedProviderAccountId });
+        if (plan.expectedProviderAccountId && run.providerAccountId && run.providerAccountId !== plan.expectedProviderAccountId) {
+          throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uC2E4\uD589\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: plan.mallKey });
+        }
+        const sent = run.answer.sent ?? 0;
+        const warnings = run.answer.warnings ?? [];
+        const byListing = new Map(run.observed.map((observed) => [observed.externalListingId, observed]));
+        const confirmed = listings.filter((listing) => listingConfirms(resume, byOption, listing.externalOptionIds, byListing.get(listing.externalListingId)));
+        if (sent === 0 && confirmed.length < listings.length) {
+          throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(" ") : "\uBAB0\uC774 \uD310\uB9E4 \uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey });
+        }
+        const fill = {
+          steps: [
+            `\uBAB0\uC5D0 ${sent}\uAC74\uC744 \uBCF4\uB0C8\uC2B5\uB2C8\uB2E4.`,
+            ...run.observed.length > 0 ? [`\uB2E4\uC2DC \uC77D\uC5B4 ${confirmed.length}\uAC74\uC774 \uBC14\uB010 \uAC83\uC744 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.`] : []
+          ],
+          warnings,
+          manualSteps: [],
+          dialogs: []
+        };
+        yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [fill], progress: { ...progress4, stage: "sent" } };
+        const evidence = listings.flatMap((listing) => {
+          const observed = byListing.get(listing.externalListingId);
+          if (!observed) return [];
+          return [{
+            payloadHash: plan.payloadHash,
+            channelAccountId: plan.channelAccountId,
+            externalListingId: listing.externalListingId,
+            observedUrl: run.observedUrl,
+            providerAccountId: run.providerAccountId,
+            observedStatus: byOption ? observed.status : observed.status ?? (observed.options.every((option) => option.stock === 0) ? "\uD488\uC808" : "\uD310\uB9E4\uC911"),
+            message: null,
+            options: [],
+            ...byOption ? {
+              observedOptions: listing.externalOptionIds.flatMap((id3) => observed.options.filter((option) => option.externalOptionId === id3)).map((option) => ({ externalOptionId: option.externalOptionId, stock: option.stock, status: option.status }))
+            } : {}
+          }];
+        });
+        for (const row of evidence) {
+          yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [row], progress: { ...progress4, stage: "reread", externalListingId: row.externalListingId } };
+        }
+        const outcome = confirmed.length === listings.length ? "confirmed" : run.answer.requestOnly ? "awaiting_approval" : "uncertain";
+        return {
+          ...outcome === "confirmed" ? {} : { outcome: "reconciling" },
+          result: {
+            providerOutcome: providerOutcomeOf(outcome),
+            mallOutcome: outcome,
+            submitted: true,
+            submitSkipped: null,
+            externalListingId: null,
+            mallMessage: null,
+            fill,
+            evidence: null
+          }
+        };
+      }
       throw invalid(`\uC774 \uD655\uC7A5\uC774 \uC544\uC9C1 \uC2E4\uD589\uD558\uC9C0 \uBABB\uD558\uB294 \uB4F1\uB85D \uC885\uB958\uC785\uB2C8\uB2E4: ${plan.executionKind}`, { mallKey: plan.mallKey, executionKind: plan.executionKind });
     }
   };
@@ -6522,9 +7520,9 @@ var KidItemRuntime = (() => {
   var SHOP_ID = external_exports.string().regex(/^shop\d{4}$/);
   var YYYYMMDD = external_exports.string().regex(/^\d{8}$/);
   var boundedText2 = (max) => external_exports.string().trim().max(max);
-  var requiredText2 = (max) => boundedText2(max).min(1);
+  var requiredText3 = (max) => boundedText2(max).min(1);
   var SabangnetMallListingsPlanMallSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     channelAccountId: external_exports.string().uuid(),
     sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
   }).strict();
@@ -6552,7 +7550,7 @@ var KidItemRuntime = (() => {
     }
   });
   var SabangnetMallListingsPublicationSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     channelAccountId: external_exports.string().uuid(),
     /** 이번에 받은 몰 상품코드 수. */
     listings: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
@@ -6560,7 +7558,7 @@ var KidItemRuntime = (() => {
     deactivated: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
   }).strict();
   var SabangnetMallListingsSourceMallSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
     sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
@@ -6583,17 +7581,17 @@ var KidItemRuntime = (() => {
     sendSerial: external_exports.string().regex(/^\d{1,30}$/),
     sabangnetShopId: SHOP_ID,
     /** 몰 상품코드(`shmaPrdNo`). 옵션 외부 ID 칸이 60자다. */
-    mallProductCode: requiredText2(60),
+    mallProductCode: requiredText3(60),
     /** 사방넷 품번(`prdNo`). */
     sabangnetProductNo: external_exports.string().regex(/^\d{1,30}$/),
     /** 사방넷 모델명(`modlNm`). 셀피아 재고 SKU 코드와 같다. */
-    modelName: requiredText2(120).nullable(),
+    modelName: requiredText3(120).nullable(),
     /** 사방넷 자체상품코드(`onsfPrdCd`). 바코드인 경우가 많다. */
-    ownProductCode: requiredText2(120).nullable(),
-    productName: requiredText2(400),
+    ownProductCode: requiredText3(120).nullable(),
+    productName: requiredText3(400),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
     /** 사방넷 공급상태 이름(`prdSplyStsCdNm`) — 공급중 · 일시중지 · 완전품절 · 대기중. */
-    supplyStatus: requiredText2(20),
+    supplyStatus: requiredText3(20),
     /** 첫 송신 시각(`prdRegsFstTrnmDt`, `yyyyMMdd HH:mm`). */
     firstSentAt: external_exports.string().regex(/^\d{8} \d{2}:\d{2}$/).nullable()
   }).strict();
@@ -7424,7 +8422,7 @@ var KidItemRuntime = (() => {
   var ROCKET_PO_ROW_LIMIT = 4e3;
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
   var boundedText3 = (max) => external_exports.string().trim().max(max);
-  var requiredText3 = (max) => boundedText3(max).min(1);
+  var requiredText4 = (max) => boundedText3(max).min(1);
   var isoDay5 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -7441,7 +8439,7 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     truncated: external_exports.boolean(),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
-    failedPoNumbers: external_exports.array(requiredText3(80)).max(ROCKET_PO_ROW_LIMIT)
+    failedPoNumbers: external_exports.array(requiredText4(80)).max(ROCKET_PO_ROW_LIMIT)
   }).strict().superRefine((value, ctx) => {
     if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
       ctx.addIssue({
@@ -7452,12 +8450,12 @@ var KidItemRuntime = (() => {
     }
   });
   var RocketPoCatalogRowSchema = external_exports.object({
-    poLineId: requiredText3(300),
-    poNumber: requiredText3(80),
+    poLineId: requiredText4(300),
+    poNumber: requiredText4(80),
     vendorId: boundedText3(120),
-    productNo: requiredText3(60),
+    productNo: requiredText4(60),
     barcode: boundedText3(80),
-    productName: requiredText3(240),
+    productName: requiredText4(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
     plannedDeliveryDate: isoDay5,
     poStatusCode: boundedText3(20).optional(),
@@ -7494,14 +8492,14 @@ var KidItemRuntime = (() => {
   var RocketSavedPoSummarySchema = external_exports.object({
     /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
     rocketPoOperationId: external_exports.string().uuid(),
-    poNumber: requiredText3(80),
+    poNumber: requiredText4(80),
     orderedAt: boundedText3(40),
     plannedDeliveryDate: isoDay5,
     status: boundedText3(80),
     vendorId: boundedText3(120),
     centerName: boundedText3(120),
     inboundType: boundedText3(80),
-    firstProductName: requiredText3(240),
+    firstProductName: requiredText4(240),
     skuCount: external_exports.number().int().nonnegative(),
     orderQuantity: external_exports.number().int().nonnegative(),
     /** Null when any listed line has no provider-confirmed total. */
@@ -7519,7 +8517,7 @@ var KidItemRuntime = (() => {
     // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
     // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
     // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
-    exportedPoLineIds: external_exports.array(requiredText3(300)).max(ROCKET_PO_ROW_LIMIT)
+    exportedPoLineIds: external_exports.array(requiredText4(300)).max(ROCKET_PO_ROW_LIMIT)
   }).strict();
   var RocketPurchaseRequestBaseSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -7589,12 +8587,12 @@ var KidItemRuntime = (() => {
   var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
   var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
     idempotencyKey: external_exports.string().uuid(),
-    selectedPoLineIds: external_exports.array(requiredText3(300)).min(1).max(4e3).optional(),
+    selectedPoLineIds: external_exports.array(requiredText4(300)).min(1).max(4e3).optional(),
     shortageReasons: external_exports.record(
       external_exports.string().min(1).max(300),
       RocketShortageReasonSchema
     ),
-    artifactFileName: requiredText3(240),
+    artifactFileName: requiredText4(240),
     artifactContentType: external_exports.literal(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -7685,17 +8683,17 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketPurchasePreviewComponentSchema = external_exports.object({
     masterProductId: external_exports.string().uuid(),
-    code: requiredText3(120).nullable(),
-    name: requiredText3(240).nullable(),
+    code: requiredText4(120).nullable(),
+    name: requiredText4(240).nullable(),
     optionName: external_exports.string().trim().min(1).max(240).nullable(),
     quantity: external_exports.number().int().positive(),
     currentStock: external_exports.number().int().nonnegative().nullable()
   }).strict();
   var RocketPurchasePreviewRowSchema = external_exports.object({
-    poLineId: requiredText3(300),
-    poNumber: requiredText3(80),
-    productNo: requiredText3(60),
-    productName: requiredText3(240),
+    poLineId: requiredText4(300),
+    poNumber: requiredText4(80),
+    productNo: requiredText4(60),
+    productName: requiredText4(240),
     plannedDeliveryDate: isoDay5,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -7727,7 +8725,7 @@ var KidItemRuntime = (() => {
     inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
     generatedAt: external_exports.string().datetime(),
     artifact: external_exports.object({
-      fileName: requiredText3(240),
+      fileName: requiredText4(240),
       contentType: external_exports.literal(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       ),
@@ -7741,7 +8739,7 @@ var KidItemRuntime = (() => {
       componentQuantity: external_exports.number().int().nonnegative()
     }).strict(),
     rows: external_exports.array(external_exports.object({
-      poLineId: requiredText3(300),
+      poLineId: requiredText4(300),
       workbookQuantity: external_exports.number().int().nonnegative(),
       shortageReason: RocketShortageReasonSchema.nullable()
     }).strict()).max(ROCKET_PO_ROW_LIMIT)
@@ -8400,12 +9398,12 @@ var KidItemRuntime = (() => {
   function listedPo(raw, status, page) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
     const row = raw;
-    const poNumber = requiredText4(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
-    const purchaseOrderStatus = requiredText4(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    const poNumber = requiredText5(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText5(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
     if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
     return {
       poNumber,
-      vendorId: requiredText4(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      vendorId: requiredText5(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
       purchaseOrderStatus,
       plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
       listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
@@ -8453,11 +9451,11 @@ var KidItemRuntime = (() => {
       skip = rowSpan - 1;
       if (!/^\d+$/.test(values[0] ?? "")) continue;
       if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
-      const lineNumber = requiredText4(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      const lineNumber = requiredText5(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
       if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
       lineNumbers.add(lineNumber);
-      const productNo = requiredText4(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
-      const productText = requiredText4(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const productNo = requiredText5(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText5(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
       const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
       const productName = clean(productText, 240);
       if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -8515,7 +9513,7 @@ var KidItemRuntime = (() => {
   function clean(value, max) {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
-  function requiredText4(value, field) {
+  function requiredText5(value, field) {
     const text8 = norm(value);
     if (!text8) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return text8;
@@ -9251,7 +10249,7 @@ var KidItemRuntime = (() => {
     }
     function page(tabId, owned) {
       let closed = false;
-      async function send(message, timeoutMs, frameId) {
+      async function send14(message, timeoutMs, frameId) {
         let timer;
         const timeout = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
@@ -9344,7 +10342,7 @@ var KidItemRuntime = (() => {
             checkPageUrl(guard, tab.url ?? "");
           };
           await checkHere();
-          const first = await send(message, timeoutMs, frameId);
+          const first = await send14(message, timeoutMs, frameId);
           if (!inject || !(isMissing(first) || isEmpty(first))) {
             if (isMissing(first) || isTimeout(first)) await checkHere();
             return first;
@@ -9357,7 +10355,7 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          const second = await send(message, timeoutMs, frameId);
+          const second = await send14(message, timeoutMs, frameId);
           if (isMissing(second) || isTimeout(second)) await checkHere();
           return second;
         },
@@ -9461,16 +10459,16 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS = 3e4;
-  async function withFreshTab(tabs, url, read, options = {}) {
+  async function withFreshTab(tabs, url, read13, options = {}) {
     const guardHosts = options.dialogGuardHosts ?? options.signIn?.hosts ?? [];
     const releaseGuard = guardHosts.length > 0 ? await tabs.guardDialogs(guardHosts) : null;
     try {
-      return await readInTab(tabs, url, read, options);
+      return await readInTab(tabs, url, read13, options);
     } finally {
       await releaseGuard?.();
     }
   }
-  async function readInTab(tabs, url, read, options) {
+  async function readInTab(tabs, url, read13, options) {
     const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
     const site = siteKey(url);
     const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
@@ -9478,7 +10476,7 @@ var KidItemRuntime = (() => {
     try {
       const stopAt = options.signIn ? (landed) => options.signIn.isLoginUrl(landed) : void 0;
       if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...stopAt ? { stopAt } : {} });
-      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read13(page)) : read13(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
       const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
@@ -9495,16 +10493,6 @@ var KidItemRuntime = (() => {
     } catch {
       return url;
     }
-  }
-
-  // extensions/src/sites/mall-maintenance.ts
-  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
-    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
-      status: null,
-      reason: "maintenance",
-      url,
-      ...details
-    });
   }
 
   // extensions/src/sites/page-call.ts
@@ -9536,90 +10524,6 @@ var KidItemRuntime = (() => {
     });
   }
 
-  // extensions/src/sites/mall-listings.ts
-  var READ_TIMEOUT_MS = 20 * 6e4;
-  var NAVIGATION_TIMEOUT_MS2 = 45e3;
-  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
-  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
-  function readMallListings(tabs, spec, plan, signIn) {
-    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
-    const guard = { ...spec.guard, loginMessage: login };
-    return withFreshTab(tabs, spec.startUrl, async (page) => {
-      const answer = await callPage(page, spec.call, { plan }, {
-        timeoutMs: READ_TIMEOUT_MS,
-        guard,
-        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
-        displayName: spec.displayName
-      });
-      if (answer?.success === true) return answer.snapshot;
-      const stage = answer?.stage ?? null;
-      switch (answer?.errorCode) {
-        case "mall_login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
-        case "mall_contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { stage, field: stage, mallKey: spec.mallKey });
-        case "mall_total_changed":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
-        case "mall_invalid_snapshot":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
-        case "mall_maintenance":
-          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
-        case "mall_timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
-        default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
-      }
-    }, {
-      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS2,
-      ...signIn ? { signIn } : {},
-      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
-    });
-  }
-
-  // extensions/src/sites/registry.ts
-  var sites = /* @__PURE__ */ new Map();
-  function registerSite(factory) {
-    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
-    sites.set(factory.name, factory);
-  }
-  function siteFactoryFor(name) {
-    return sites.get(name) ?? null;
-  }
-  function registeredSites() {
-    return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-  }
-
-  // extensions/src/sites/11st/listings.ts
-  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
-  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
-  var ST11_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["11st.co.kr"]),
-    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
-    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  function create11stListings(tabs) {
-    return {
-      readListings: (plan) => readMallListings(tabs, {
-        mallKey: "11st",
-        displayName: "11\uBC88\uAC00",
-        startUrl: ST11_LISTINGS_URL,
-        file: ST11_LISTINGS_FILE,
-        call: "11st.listings",
-        guard: ST11_LISTINGS_GUARD
-      }, plan)
-    };
-  }
-  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
-
-  // extensions/src/sites/mall-write/guard.ts
-  function registrationGuard(site, displayName, isLogin2) {
-    return {
-      allows: site.allows,
-      isLogin: isLogin2 ?? site.isLogin,
-      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.`
-    };
-  }
-
   // packages/shared/src/schemas/mall-login.ts
   var MALL_CREDENTIAL_REJECTIONS = [
     "\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0",
@@ -9648,7 +10552,7 @@ var KidItemRuntime = (() => {
   var FILL_RETRY_MS = 500;
   var AFTER_SUBMIT_MS = 1500;
   var AFTER_REDIRECT_MS = 1200;
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var NAVIGATION_TIMEOUT_MS2 = 3e4;
   var CALL_TIMEOUT_MS = 5e3;
   var REMAIN_CHECKS = 3;
   var REMAIN_CHECK_GAP_MS = 1500;
@@ -9659,7 +10563,7 @@ var KidItemRuntime = (() => {
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
     if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -9800,9 +10704,9 @@ var KidItemRuntime = (() => {
     return {
       hosts: spec.hosts,
       isLoginUrl: (url) => isLogin(spec, url),
-      onPage: (page, returnTo, read) => withLogin(read, async () => {
+      onPage: (page, returnTo, read13) => withLogin(read13, async () => {
         const outcome = await login(page);
-        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS2 });
         return outcome;
       }),
       beforeTab: async (tabs, call2) => {
@@ -9859,6 +10763,452 @@ var KidItemRuntime = (() => {
       ...mallMessage ? { mallMessage } : {}
     }, error);
   }
+
+  // extensions/src/sites/mall-write/availability.ts
+  var AVAILABILITY_FILE = "content/page-call/mall-availability.js";
+  var AVAILABILITY_MAIN_FILE = "content/page-call/mall-availability-main.js";
+  var CALL_TIMEOUT_MS2 = 3 * 6e4;
+  var modules = /* @__PURE__ */ new Map();
+  function registerMallAvailability(module) {
+    if (modules.has(module.mallKey)) throw new Error(`duplicate mall availability: ${module.mallKey}`);
+    modules.set(module.mallKey, module);
+  }
+  function mallAvailabilityFor(mallKey) {
+    return modules.get(mallKey) ?? null;
+  }
+  function registeredMallAvailability() {
+    return [...modules.values()].sort((a, b) => a.mallKey < b.mallKey ? -1 : a.mallKey > b.mallKey ? 1 : 0);
+  }
+  function availabilityContext(module, deps, lease) {
+    return {
+      ...deps,
+      mallKey: module.mallKey,
+      displayName: module.displayName,
+      guard: module.guard,
+      signIn: module.login ? createSiteSignIn(module.login, lease.credentials, deps) : null,
+      dialogHosts: module.dialogHosts
+    };
+  }
+  async function withSellerPage(context, origin, pageUrl, work, options = {}) {
+    return withFreshTab(context.tabs, pageUrl, async (page) => work(pageRun(context, page, options.isolated ?? []), page), {
+      reuseTabMatching: `${origin}/*`,
+      ...context.signIn ? { signIn: context.signIn } : { dialogGuardHosts: context.dialogHosts }
+    });
+  }
+  function pageRun(context, page, isolated) {
+    return async (name, args, world) => {
+      try {
+        const answer = await callPage(page, `availability.${name}`, args, {
+          timeoutMs: CALL_TIMEOUT_MS2,
+          guard: context.guard,
+          displayName: context.displayName,
+          ...world === "main" ? { main: [AVAILABILITY_MAIN_FILE] } : { isolated: [...isolated, AVAILABILITY_FILE] }
+        });
+        return answer ?? { status: 0, json: null };
+      } catch (error) {
+        if (error instanceof RuntimeError && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url")) throw error;
+        return { status: 0, json: null, preview: error instanceof Error ? error.message.slice(0, 200) : "" };
+      }
+    };
+  }
+  function flagOption(code2, selling, state) {
+    return selling ? { optionCode: code2, stock: null, rocket: false } : { optionCode: code2, stock: 0, rocket: false, ...state ? { state: String(state) } : {} };
+  }
+  function stoppedMidway(message, counts) {
+    const { sent, failed: failed8, confirmed, already, warnings, left } = counts;
+    if (sent === 0) return { success: false, error: message };
+    return {
+      success: true,
+      sent: sent + already,
+      failed: failed8 + left,
+      confirmed: confirmed + already,
+      already,
+      rocket: 0,
+      requestOnly: false,
+      warnings: [...warnings, `${message} ${left > 0 ? `\u2014 ${left}\uAC74\uC740 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.` : ""}`.trim()],
+      stopped: "halted"
+    };
+  }
+  function readAnswer(status, text8) {
+    const failed8 = /로그인|login|오류|실패|error|권한/i.test(String(text8 || "").slice(0, 500));
+    return { status, accepted: status >= 200 && status < 400 && !failed8, failed: failed8 };
+  }
+  async function readJson(response) {
+    const text8 = await response.text().catch(() => "");
+    try {
+      return { json: JSON.parse(text8), text: text8 };
+    } catch {
+      return { json: null, text: text8 };
+    }
+  }
+  async function postForm(fetchApi, origin, action, pairs, encoding) {
+    const params = new URLSearchParams();
+    for (const [name, value] of pairs) params.append(name, value);
+    const response = await fetchApi(`${origin}${action}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": `application/x-www-form-urlencoded${encoding ? `; charset=${encoding}` : ""}` },
+      body: params.toString()
+    });
+    const landed = String(response.url || "");
+    if (landed && (!landed.startsWith(origin) || /login/i.test(landed))) {
+      return { status: response.status, accepted: false, failed: true, loggedOut: true };
+    }
+    return readAnswer(response.status, await response.text().catch(() => ""));
+  }
+  var PRICE_BATCH = 50;
+  var PRICE_MIN = 10;
+  var PRICE_MAX = 1e7;
+  var READ_LIMIT = 50;
+  function failureOf(error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  function rethrowIfLeftForOperator(error) {
+    if (error instanceof RuntimeError && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url")) throw error;
+  }
+  async function sendMallAvailability(module, context, input) {
+    const codes = [...new Set(input.codes.map((code2) => String(code2 || "").trim()).filter(Boolean))];
+    if (codes.length === 0) return { success: false, error: "\uD488\uC808\uB85C \uBCF4\uB0BC \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
+    try {
+      return await module.send(context, { codes, options: input.options ?? null, resume: input.resume, expectedProviderAccountId: input.expectedProviderAccountId ?? null });
+    } catch (error) {
+      rethrowIfLeftForOperator(error);
+      return failureOf(error);
+    }
+  }
+  async function readMallAvailability(module, context, codes) {
+    if (!module.read) return { success: false, error: `\uC9C0\uAE08 \uC7AC\uACE0\uB97C \uC77D\uC744 \uC218 \uC788\uB294 \uBAB0\uC774 \uC544\uB2D9\uB2C8\uB2E4: ${module.mallKey}` };
+    try {
+      return await module.read(context, codes.map((code2) => String(code2 || "").trim()).filter(Boolean));
+    } catch (error) {
+      rethrowIfLeftForOperator(error);
+      return failureOf(error);
+    }
+  }
+  async function sendMallPrice(module, context, raw) {
+    if (!module.sendPrice) return { success: false, error: `\uAC00\uACA9 \uACBD\uB85C\uB97C \uC544\uB294 \uBAB0\uC774 \uC544\uB2D9\uB2C8\uB2E4: ${module.mallKey}` };
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const item of raw) {
+      const code2 = String(item?.code || "").trim();
+      const price2 = Number(item?.price);
+      const ifPrice = item?.ifPrice === null || item?.ifPrice === void 0 ? null : Number(item.ifPrice);
+      if (!code2 || seen.has(code2)) continue;
+      if (!Number.isInteger(price2) || price2 < PRICE_MIN || price2 > PRICE_MAX) {
+        return { success: false, error: `${code2}: \uAC00\uACA9\uC740 ${PRICE_MIN}\uC6D0 ~ ${PRICE_MAX.toLocaleString("ko-KR")}\uC6D0 \uC0AC\uC774 \uC815\uC218\uC5EC\uC57C \uD569\uB2C8\uB2E4.` };
+      }
+      if (ifPrice !== null && !Number.isInteger(ifPrice)) return { success: false, error: `${code2}: \uC9C0\uAE08 \uBAB0 \uAC00\uACA9 \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.` };
+      seen.add(code2);
+      items.push({ code: code2, price: price2, ifPrice });
+    }
+    if (items.length === 0) return { success: false, error: "\uAC00\uACA9\uC744 \uBCF4\uB0BC \uC0C1\uD488\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." };
+    if (items.length > PRICE_BATCH) return { success: false, error: `\uAC00\uACA9\uC740 \uD55C \uBC88\uC5D0 ${PRICE_BATCH}\uAC1C\uAE4C\uC9C0 \uBCF4\uB0C5\uB2C8\uB2E4.` };
+    try {
+      return await module.sendPrice(context, items);
+    } catch (error) {
+      rethrowIfLeftForOperator(error);
+      return failureOf(error);
+    }
+  }
+  var MALL_WRITE_FAILED2 = "MALL_WRITE_FAILED";
+  function answerError(module, error) {
+    const message = error || `${module.displayName}\uC5D0 \uD310\uB9E4 \uC0C1\uD0DC\uB97C \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
+    return /로그인/.test(message) ? new RuntimeError(SITE_LOGIN_REQUIRED, message, { mallKey: module.mallKey }) : new RuntimeError(MALL_WRITE_FAILED2, message, { mallKey: module.mallKey });
+  }
+  function observedOf(product) {
+    return {
+      externalListingId: product.code,
+      status: product.options.find((option) => option.state)?.state ?? null,
+      options: product.options.map((option) => ({ externalOptionId: option.optionCode, stock: option.stock, status: option.state ?? null }))
+    };
+  }
+  async function runAvailability(module, context, input) {
+    const codes = input.listings.map((listing) => listing.externalListingId);
+    const options = input.byOption ? Object.fromEntries(input.listings.map((listing) => [listing.externalListingId, [...listing.externalOptionIds]])) : null;
+    const answer = await sendMallAvailability(module, context, { codes, options, resume: input.resume, expectedProviderAccountId: input.expectedProviderAccountId });
+    if (!answer.success) throw answerError(module, answer.error);
+    let products = answer.observed ?? null;
+    if (!products && module.read && !answer.requestOnly) {
+      products = [];
+      for (let start = 0; start < codes.length; start += READ_LIMIT) {
+        const read13 = await readMallAvailability(module, context, codes.slice(start, start + READ_LIMIT));
+        if (!read13.success) {
+          answer.warnings = [...answer.warnings ?? [], `${module.displayName}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${read13.error}`];
+          break;
+        }
+        products.push(...read13.products);
+      }
+    }
+    return {
+      answer,
+      observed: (products ?? []).map(observedOf),
+      providerAccountId: answer.providerAccountId ?? null,
+      observedUrl: answer.observedUrl ?? null
+    };
+  }
+  async function readAvailabilityOrThrow(module, context, codes) {
+    const read13 = await readMallAvailability(module, context, codes);
+    if (!read13.success) throw answerError(module, read13.error);
+    return { products: read13.products, missing: read13.missing };
+  }
+  async function observedUrlOf(page, origin) {
+    const raw = await page.currentUrl().catch(() => "");
+    try {
+      return new URL(raw).origin === origin ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+  function priceNumber(value) {
+    return Number(String(value ?? "").replace(/[,\s원]/g, ""));
+  }
+  async function sendPriceOrThrow(module, context, input) {
+    const answer = await sendMallPrice(module, context, [{ code: input.externalListingId, price: input.price }]);
+    if (!answer.success) throw answerError(module, answer.error);
+    return answer;
+  }
+
+  // extensions/src/sites/mall-write/guard.ts
+  function registrationGuard(site, displayName, isLogin2) {
+    return {
+      allows: site.allows,
+      isLogin: isLogin2 ?? site.isLogin,
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.`
+    };
+  }
+  function availabilityGuard(site, displayName, isLogin2) {
+    return {
+      allows: site.allows,
+      isLogin: isLogin2 ?? site.isLogin,
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`
+    };
+  }
+
+  // extensions/src/sites/mall-maintenance.ts
+  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
+      status: null,
+      reason: "maintenance",
+      url,
+      ...details
+    });
+  }
+
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS3 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan, signIn) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    const guard = { ...spec.guard, loginMessage: login };
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard,
+        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { stage, field: stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_maintenance":
+          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, {
+      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS3,
+      ...signIn ? { signIn } : {},
+      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
+    });
+  }
+
+  // extensions/src/sites/registry.ts
+  var sites = /* @__PURE__ */ new Map();
+  function registerSite(factory) {
+    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
+    sites.set(factory.name, factory);
+  }
+  function siteFactoryFor(name) {
+    return sites.get(name) ?? null;
+  }
+  function registeredSites() {
+    return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  }
+
+  // extensions/src/sites/11st/listings.ts
+  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
+  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
+  var ST11_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["11st.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
+    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function create11stListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "11st",
+        displayName: "11\uBC88\uAC00",
+        startUrl: ST11_LISTINGS_URL,
+        file: ST11_LISTINGS_FILE,
+        call: "11st.listings",
+        guard: ST11_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
+
+  // extensions/src/sites/11st/availability.ts
+  var ORIGIN = "https://soffice.11st.co.kr";
+  var PAGE_URL = "https://soffice.11st.co.kr/view/8006";
+  var LIST_PATH = "/product/SellProductAjaxAction.tmall";
+  var SAVE_PATH = "/product/SellProductAction.tmall";
+  var BATCH_SIZE = 100;
+  var PACE_MS = 700;
+  var RECHECK_MS = 2e3;
+  var RECHECK_TIMES = 3;
+  var LABEL = "11\uBC88\uAC00";
+  var LOGGED_OUT = `${LABEL} \uC140\uB7EC\uC624\uD53C\uC2A4 \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var ST11_WORDS = { 101: "\uC2B9\uC778\uB300\uAE30", 102: "\uC804\uC2DC\uC804", 104: "\uD488\uC808", 105: "\uD310\uB9E4\uC911\uC9C0" };
+  var isProductNo = (code2) => /^\d{6,12}$/.test(code2);
+  async function readRows(context, run, prdNos) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < prdNos.length; start += BATCH_SIZE) {
+      if (start > 0) await context.sleep(PACE_MS);
+      const answer = await run("st11ListOnPage", [LIST_PATH, prdNos.slice(start, start + BATCH_SIZE)]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
+      for (const row of answer.rows) if (row?.prdNo) rows.set(row.prdNo, row);
+    }
+    return { rows };
+  }
+  async function send(context, input) {
+    const { codes, resume } = input;
+    const mode = resume ? "SELL_RELEASE" : "SELL_STOP";
+    const wanted = resume ? "103" : "105";
+    const warnings = [];
+    const products = codes.filter(isProductNo);
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN, PAGE_URL, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT };
+      if (!before.rows) return { success: false, error: `${LABEL} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed8 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(\uC9C0\uC6B4 \uC0C1\uD488\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4).`);
+      }
+      const stat = (no) => rows.get(no).selStatCd;
+      let targets;
+      if (resume) {
+        const stopped = found.filter((no) => stat(no) === "105");
+        const empty = stopped.filter((no) => !(rows.get(no).stckQty > 0) && rows.get(no).setTypCd !== "02");
+        if (empty.length > 0) {
+          failed8 += empty.length;
+          warnings.push(`${empty.length}\uAC74\uC740 ${LABEL} \uC7AC\uACE0\uAC00 0 \uC774\uB77C \uD310\uB9E4\uC911\uC9C0\uB97C \uD480\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 \uC7AC\uACE0\uB97C \uB123\uC740 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+        }
+        targets = stopped.filter((no) => !empty.includes(no));
+        already += found.filter((no) => stat(no) === "103").length;
+        const other = found.filter((no) => !["103", "105"].includes(stat(no))).length;
+        if (other > 0) {
+          failed8 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uC804\uC2DC\uC804 \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+      } else {
+        targets = found.filter((no) => stat(no) === "103");
+        already += found.length - targets.length;
+      }
+      const accepted = [];
+      for (let start = 0; start < targets.length; start += BATCH_SIZE) {
+        const group = targets.slice(start, start + BATCH_SIZE);
+        const answer = await run("st11SaveOnPage", [SAVE_PATH, mode, group]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT;
+          left = targets.length - start;
+          return null;
+        }
+        if (answer?.status !== 200 || answer.msg !== "SAVE_OK") {
+          failed8 += group.length;
+          const said = answer?.alert || answer?.msg || answer?.error || `HTTP ${answer?.status ?? 0}`;
+          warnings.push(`${LABEL}\uC774 ${resume ? "\uD310\uB9E4\uC911\uC9C0 \uD574\uC81C" : "\uD310\uB9E4\uC911\uC9C0"}\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+        } else {
+          sent += group.length;
+          accepted.push(...group);
+          if (answer.total !== null && answer.done !== null && answer.done < answer.total) {
+            warnings.push(`${LABEL}\uC774 ${answer.total}\uAC74 \uC911 ${answer.done}\uAC74\uB9CC \uCC98\uB9AC\uD588\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+          }
+        }
+        await context.sleep(PACE_MS);
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS);
+        const after = await readRows(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((no) => after.rows.get(no)?.selStatCd === wanted).length;
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488\uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488\uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read(context, codes) {
+    const valid = [...new Set(codes)].filter(isProductNo).slice(0, READ_LIMIT);
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN, PAGE_URL, async (run) => {
+      const result = await readRows(context, run, valid);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT };
+      if (!result.rows) return { success: false, error: `${LABEL} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = valid.filter((code2) => rows.has(code2)).map((code2) => {
+        const stat = String(rows.get(code2).selStatCd);
+        return { code: code2, options: [flagOption(code2, stat === "103", stat === "103" ? null : ST11_WORDS[stat] || "\uD310\uB9E4\uC911\uC9C0")] };
+      });
+      missing = valid.filter((code2) => !rows.has(code2));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "11st",
+    displayName: LABEL,
+    guard: availabilityGuard(ST11_LISTINGS_GUARD, LABEL),
+    dialogHosts: ["soffice.11st.co.kr"],
+    send,
+    read
+  });
 
   // extensions/src/sites/mall-write/form.ts
   var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
@@ -10077,12 +11427,12 @@ var KidItemRuntime = (() => {
       if (!/^https?:\/\//.test(url)) throw new Error("\uC5C5\uB85C\uB4DC \uACB0\uACFC\uAC00 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
       return url;
     }
-    const read = async (path) => {
+    const read13 = async (path) => {
       const response = await fetchApi(host.origin + path, { credentials: "include" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return decode(await response.arrayBuffer());
     };
-    const page = await read(host.registerPath ?? "");
+    const page = await read13(host.registerPath ?? "");
     const pno = (page.match(/name=["']?pno["']?[^>]*value=["']?(\d+)/i) || [])[1];
     if (!pno) throw new DetailHostLoginError("\uC0C1\uD488\uBC88\uD638\uB97C \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     const body = new FormData();
@@ -10095,7 +11445,7 @@ var KidItemRuntime = (() => {
     const upload = await fetchApi(host.origin + host.uploadPath, { method: "POST", body, credentials: "include" });
     if (!upload.ok) throw new Error(`\uC5C5\uB85C\uB4DC \uC751\uB2F5 HTTP ${upload.status}`);
     await upload.arrayBuffer();
-    const list2 = await read(`${host.listPath ?? ""}&pno=${pno}`);
+    const list2 = await read13(`${host.listPath ?? ""}&pno=${pno}`);
     const found = list2.match(HOSTED_URL);
     if (!found || found.length === 0) throw new Error("\uC62C\uB77C\uAC04 \uC8FC\uC18C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     return found[found.length - 1];
@@ -10729,7 +12079,7 @@ var KidItemRuntime = (() => {
   };
   var AD_CENTER_ACCOUNT_CHOICE_FILE = "content/ad-center/account-choice.js";
   var NAVIGATION_TIMEOUT_MS6 = 3e4;
-  var CALL_TIMEOUT_MS2 = 5e3;
+  var CALL_TIMEOUT_MS3 = 5e3;
   var FORM_WAIT_MS = 15e3;
   var FORM_POLL_MS = 500;
   function isAccountChoiceUrl(url) {
@@ -10759,7 +12109,7 @@ var KidItemRuntime = (() => {
     const url = parsed2(current);
     if (!url || !isAccountChoiceUrl(url)) return;
     const answer = await callPage(page, "adCenter.chooseWingAccount", {}, {
-      timeoutMs: CALL_TIMEOUT_MS2,
+      timeoutMs: CALL_TIMEOUT_MS3,
       guard: GUARD,
       displayName: AD_CENTER_LOGIN.displayName,
       isolated: [AD_CENTER_ACCOUNT_CHOICE_FILE]
@@ -10832,8 +12182,8 @@ var KidItemRuntime = (() => {
         if (!(await page.currentUrl().catch(() => "")).startsWith(AD_CENTER_HOME_URL)) {
           await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
         }
-        for (let read = 0; read < VENDOR_READS; read += 1) {
-          if (read > 0) await deps.sleep(VENDOR_READ_GAP_MS);
+        for (let read13 = 0; read13 < VENDOR_READS; read13 += 1) {
+          if (read13 > 0) await deps.sleep(VENDOR_READ_GAP_MS);
           const frames = await page.frames([AD_CENTER_VENDOR_FILE]).catch(() => []);
           const found = frames.map((frame) => text3(frame.result?.vendorId)?.trim()).find(Boolean);
           if (found) return found;
@@ -11110,6 +12460,89 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
 
+  // extensions/src/sites/always/availability.ts
+  var ORIGIN2 = "https://alwayzseller.ilevit.com";
+  var PAGE_URL2 = "https://alwayzseller.ilevit.com/items/management";
+  var BACKEND = "https://alwayz-seller-back.ilevit.com";
+  var TOKEN_KEY = "@alwayz@seller@token@";
+  var PACE_MS2 = 700;
+  var LABEL2 = "\uC62C\uC6E8\uC774\uC988";
+  var LOGGED_OUT2 = `${LABEL2} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isItemId = (code2) => /^[0-9a-f]{24}$/i.test(code2);
+  async function readItems(run, itemIds) {
+    const answer = await run("alwayzRequestOnPage", [`${BACKEND}/sellers/items/info-request`, { itemIds }, TOKEN_KEY]);
+    if (answer.loggedOut) return { loggedOut: true };
+    const items = Array.isArray(answer.json?.data) ? answer.json.data : null;
+    if (answer.status !== 200 || !items) return { error: `HTTP ${answer.status}` };
+    return { items };
+  }
+  async function send2(context, input) {
+    const { codes, resume } = input;
+    const warnings = [];
+    const ids = codes.filter(isItemId);
+    let failed8 = codes.length - ids.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL2} \uC0C1\uD488 \uACE0\uC720\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    const halted = await withSellerPage(context, ORIGIN2, PAGE_URL2, async (run) => {
+      if (ids.length === 0) return null;
+      const read13 = await readItems(run, ids);
+      if (read13.loggedOut) return { success: false, error: LOGGED_OUT2 };
+      if (!read13.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${read13.error}).` };
+      const byId = new Map(read13.items.map((item) => [String(item._id), item]));
+      const missing = ids.filter((id3) => !byId.has(id3));
+      if (missing.length > 0) {
+        failed8 += missing.length;
+        warnings.push(`${missing.length}\uAC74\uC740 ${LABEL2}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const targets = ids.filter((id3) => byId.has(id3) && Boolean(byId.get(id3).soldOut) === resume);
+      already += ids.filter((id3) => byId.has(id3)).length - targets.length;
+      if (targets.length === 0) return null;
+      const path = resume ? "/items/resume-many" : "/items/sold-out-many";
+      const answer = await run("alwayzRequestOnPage", [`${BACKEND}${path}`, { itemIdList: targets }, TOKEN_KEY]);
+      const ok = answer.status === 200 && (answer.json?.status === void 0 || Number(answer.json.status) === 200);
+      if (!ok) {
+        failed8 += targets.length;
+        warnings.push(`${LABEL2}\uC774 ${resume ? "\uD310\uB9E4\uC7AC\uAC1C" : "\uD488\uC808"}\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+        return null;
+      }
+      sent += targets.length;
+      await context.sleep(PACE_MS2);
+      const after = await readItems(run, targets);
+      if (after.items) confirmed += after.items.filter((item) => Boolean(item.soldOut) === !resume).length;
+      else warnings.push(`${LABEL2}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read2(context, codes) {
+    const ids = [...new Set(codes)].filter(isItemId).slice(0, READ_LIMIT);
+    if (ids.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL2} \uC0C1\uD488 \uACE0\uC720\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN2, PAGE_URL2, async (run) => {
+      const result = await readItems(run, ids);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT2 };
+      if (!result.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const byId = new Map(result.items.map((item) => [String(item._id), item]));
+      found = ids.filter((id3) => byId.has(id3)).map((id3) => ({ code: id3, options: [{ optionCode: id3, stock: byId.get(id3).soldOut ? 0 : null, rocket: false }] }));
+      missing = ids.filter((id3) => !byId.has(id3));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "always",
+    displayName: LABEL2,
+    guard: availabilityGuard(ALWAYS_PAGE_GUARD, LABEL2),
+    dialogHosts: ["alwayzseller.ilevit.com"],
+    send: send2,
+    read: read2
+  });
+
   // extensions/src/sites/always/registration.ts
   var ALWAYS_REGISTRATION_FORM = {
     label: "\uC62C\uC6E8\uC774\uC988",
@@ -11281,6 +12714,116 @@ var KidItemRuntime = (() => {
     form: ART09_REGISTRATION_FORM
   });
 
+  // extensions/src/sites/art09/availability.ts
+  var ORIGIN3 = "https://zzogzzog1.cafe24.com";
+  var PAGE_URL3 = "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage";
+  var LIST_PATH2 = "/disp/admin/shop1/product/ProductManage";
+  var STATE_PATH = "/exec/admin/product/ProductManageState";
+  var PAGE_SIZE2 = 100;
+  var MAX_PAGES = 60;
+  var PACE_MS3 = 700;
+  var LABEL3 = "\uC544\uD2B8\uACF5\uAD6C";
+  var LOGGED_OUT3 = `${LABEL3} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  async function readRows2(run) {
+    const answer = await run("cafe24ListOnPage", [LIST_PATH2, PAGE_SIZE2, MAX_PAGES]);
+    if (answer?.loggedOut) return { loggedOut: true };
+    if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uD615\uC2DD\uC744 \uBAA8\uB985\uB2C8\uB2E4" };
+    return { rows: new Map(answer.rows.map((row) => [row.no, row])) };
+  }
+  async function send3(context, input) {
+    const { codes, resume } = input;
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{1,12}$/.test(code2));
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    const halted = await withSellerPage(context, ORIGIN3, PAGE_URL3, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows2(run);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT3 };
+      if (!before.rows) return { success: false, error: `${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed8 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      }
+      const sets = found.filter((no) => rows.get(no).set).length;
+      if (sets > 0) {
+        failed8 += sets;
+        warnings.push(`\uC138\uD2B8\uC0C1\uD488 ${sets}\uAC1C\uB294 ${LABEL3} \uD654\uBA74\uB3C4 \uD310\uB9E4\uC0C1\uD0DC\uB97C \uBC14\uAFB8\uC9C0 \uBABB\uD558\uAC8C \uB9C9\uC544 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      const readable = (no) => rows.get(no).selling !== null && rows.get(no).display !== null;
+      const unknown = found.filter((no) => !rows.get(no).set && !readable(no)).length;
+      if (unknown > 0) {
+        failed8 += unknown;
+        warnings.push(`${unknown}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uD310\uB9E4 \xB7 \uC9C4\uC5F4 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      const known = found.filter((no) => !rows.get(no).set && readable(no));
+      const targets = known.filter((no) => rows.get(no).selling !== resume);
+      already += known.length - targets.length;
+      const accepted = [];
+      for (let start = 0; start < targets.length; start += PAGE_SIZE2) {
+        const group = targets.slice(start, start + PAGE_SIZE2);
+        const body = new URLSearchParams();
+        for (const no of group) body.append("product_no[]", no);
+        body.append("change", "is_selling");
+        body.append("state", resume ? "T" : "F");
+        for (const no of group) {
+          const row = rows.get(no);
+          body.append(`market[${no}][is_display]`, row.display ? "T" : "F");
+          body.append(`market[${no}][is_selling]`, row.selling ? "T" : "F");
+        }
+        const answer = await run("requestOnPage", [STATE_PATH, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(), { "X-Requested-With": "XMLHttpRequest" }]);
+        if (answer.status < 200 || answer.status >= 300 || !answer.json || answer.json.passed === false) {
+          failed8 += group.length;
+          const reason = answer.json?.msg ? `: ${String(answer.json.msg).slice(0, 120)}` : "";
+          warnings.push(`${LABEL3}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason}.`);
+          continue;
+        }
+        sent += group.length;
+        accepted.push(...group);
+        await context.sleep(PACE_MS3);
+      }
+      if (sent === 0) return null;
+      const after = await readRows2(run);
+      if (after.rows) confirmed += accepted.filter((no) => after.rows.get(no)?.selling === resume).length;
+      else warnings.push(`${LABEL3}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read3(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL3} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN3, PAGE_URL3, async (run) => {
+      const result = await readRows2(run);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT3 };
+      if (!result.rows) return { success: false, error: `${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [{ optionCode: no, stock: rows.get(no).selling === false ? 0 : null, rocket: false }] }));
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "art09",
+    displayName: LABEL3,
+    guard: availabilityGuard(ART09_PAGE_GUARD, LABEL3, isArt09LoginPage),
+    dialogHosts: ["zzogzzog1.cafe24.com", "eclogin.cafe24.com"],
+    login: { ...ART09_LOGIN, isLoginUrl: isArt09LoginPage },
+    send: send3,
+    read: read3
+  });
+
   // extensions/src/sites/gmarket/listings.ts
   var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
   var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";
@@ -11304,6 +12847,168 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "gmarket", create: (deps) => createEsmListings(deps.tabs, "gmarket", "\uC9C0\uB9C8\uCF13") });
+
+  // extensions/src/sites/gmarket/esm-availability.ts
+  var ORIGIN4 = "https://item.esmplus.com";
+  var PAGE_URL4 = "https://item.esmplus.com/goods/list";
+  var SEARCH_PATH = "/api/ea/goods/search";
+  var GOODS_PATH = "/api/ea/goods/";
+  var BATCH_SIZE2 = 100;
+  var PACE_MS4 = 700;
+  var ESM_PACE_MS = 300;
+  var RECHECK_MS2 = 2e3;
+  var RECHECK_TIMES2 = 3;
+  var ESM_WORDS = { 21: "\uD310\uB9E4\uC911\uC9C0", 22: "\uD310\uB9E4\uBD88\uAC00", 31: "SKU\uD488\uC808", "01": "\uB4F1\uB85D\uB300\uAE30" };
+  function registerEsmAvailability(mallKey, label, site) {
+    const loggedOut = `${label}(ESM) \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+    const siteNoOf = (code2) => {
+      const siteNo = String(code2 || "").split("_")[0];
+      const pattern = site === "gmkt" ? /^\d{6,12}$/ : /^[A-Z]\d{6,12}$/;
+      return pattern.test(siteNo) ? siteNo : null;
+    };
+    async function readItems2(context, run, siteNos) {
+      const items = /* @__PURE__ */ new Map();
+      for (let start = 0; start < siteNos.length; start += BATCH_SIZE2) {
+        if (start > 0) await context.sleep(PACE_MS4);
+        const answer = await run("esmSearchOnPage", [SEARCH_PATH, siteNos.slice(start, start + BATCH_SIZE2)]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.items)) return { error: answer?.error || "\uBAA9\uB85D \uAC80\uC0C9 \uC2E4\uD328" };
+        for (const item of answer.items) {
+          const siteNo = item?.siteGoodsNo?.[site];
+          if (siteNo) items.set(String(siteNo), item);
+        }
+      }
+      return { items };
+    }
+    async function send14(context, input) {
+      const { codes, resume } = input;
+      const wanted = resume ? "11" : "21";
+      const from = resume ? "21" : "11";
+      const warnings = [];
+      const bySite = /* @__PURE__ */ new Map();
+      for (const code2 of codes) {
+        const siteNo = siteNoOf(code2);
+        if (siteNo) bySite.set(siteNo, code2);
+      }
+      let failed8 = codes.length - bySite.size;
+      if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${label} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      let halt = null;
+      let left = 0;
+      const halted = await withSellerPage(context, ORIGIN4, PAGE_URL4, async (run) => {
+        const siteNos = [...bySite.keys()];
+        if (siteNos.length === 0) return null;
+        const before = await readItems2(context, run, siteNos);
+        if (before.loggedOut) return { success: false, error: loggedOut };
+        if (!before.items) return { success: false, error: `${label} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+        const items = before.items;
+        const found = siteNos.filter((no) => items.has(no));
+        const missing = siteNos.length - found.length;
+        if (missing > 0) {
+          failed8 += missing;
+          warnings.push(`${missing}\uAC74\uC740 ${label}(ESM)\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+        }
+        const combined = found.filter((no) => items.get(no).siteGoodsNo.gmkt && items.get(no).siteGoodsNo.iac);
+        if (combined.length > 0) {
+          failed8 += combined.length;
+          warnings.push(`${combined.length}\uAC74\uC740 \uC9C0\uB9C8\uCF13 \xB7 \uC625\uC158 \uD1B5\uD569\uC0C1\uD488\uC774\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ESM \uC5D0\uC11C \uC0AC\uC774\uD2B8\uB97C \uACE8\uB77C \uBC14\uAFB8\uC138\uC694.`);
+        }
+        const single = found.filter((no) => !combined.includes(no));
+        const locked = single.filter((no) => ![from, wanted].includes(items.get(no).sellStatus[site])).length;
+        if (resume && locked > 0) {
+          failed8 += locked;
+          warnings.push(`${locked}\uAC74\uC740 \uD310\uB9E4\uBD88\uAC00 \xB7 SKU\uD488\uC808 \xB7 \uB4F1\uB85D\uB300\uAE30\uB77C ${label} \uD654\uBA74\uB3C4 \uD310\uB9E4\uAC00\uB2A5\uC73C\uB85C \uBABB \uBC14\uAFC9\uB2C8\uB2E4.`);
+        }
+        if (!resume) already += locked;
+        const targets = single.filter((no) => items.get(no).sellStatus[site] === from);
+        already += single.filter((no) => items.get(no).sellStatus[site] === wanted).length;
+        const accepted = [];
+        for (let index = 0; index < targets.length; index += 1) {
+          const no = targets[index];
+          const item = items.get(no);
+          const answer = await run("esmSellStatusOnPage", [
+            GOODS_PATH,
+            item.goodsNo,
+            { isSell: { [site]: resume } },
+            { gmkt: encodeURIComponent(item.siteSellerId.gmkt ?? ""), iac: encodeURIComponent(item.siteSellerId.iac ?? "") }
+          ]);
+          if (answer?.loggedOut) {
+            halt = loggedOut;
+            left = targets.length - index;
+            return null;
+          }
+          const siteResult = answer?.[site];
+          const ok = answer?.status === 200 && (answer.resultCode === 5300 || siteResult?.resultCode === 0 || siteResult?.resultCode === 5300);
+          if (ok) {
+            sent += 1;
+            accepted.push(no);
+          } else {
+            failed8 += 1;
+            const said = siteResult?.message || answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
+            warnings.push(`${label}\uC774 ${no} \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+          }
+          await context.sleep(ESM_PACE_MS);
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= RECHECK_TIMES2; attempt += 1) {
+          if (attempt > 0) await context.sleep(RECHECK_MS2);
+          const after = await readItems2(context, run, accepted);
+          if (!after.items) continue;
+          seen = accepted.filter((no) => after.items.get(no)?.sellStatus?.[site] === wanted).length;
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${label}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. ESM \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) warnings.push(`${label} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 ESM \uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+      return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+    async function read13(context, codes) {
+      const valid = [...new Set(codes)].filter((code2) => Boolean(siteNoOf(code2))).slice(0, READ_LIMIT);
+      if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${label} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(context, ORIGIN4, PAGE_URL4, async (run) => {
+        const bySite = new Map(valid.map((code2) => [siteNoOf(code2), code2]));
+        const result = await readItems2(context, run, [...bySite.keys()]);
+        if (result.loggedOut) return { success: false, error: loggedOut };
+        if (!result.items) return { success: false, error: `${label} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+        const items = result.items;
+        const selling = new Map([...bySite].filter(([siteNo]) => items.has(siteNo)).map(([siteNo, code2]) => {
+          const stat = String(items.get(siteNo).sellStatus[site]);
+          return [code2, stat === "11" ? true : ESM_WORDS[stat] || "\uD310\uB9E4\uC911\uC9C0"];
+        }));
+        found = valid.filter((code2) => selling.has(code2)).map((code2) => {
+          const state = selling.get(code2);
+          return { code: code2, options: [flagOption(code2, state === true, state === true ? null : state)] };
+        });
+        missing = valid.filter((code2) => !selling.has(code2));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+    registerMallAvailability({
+      mallKey,
+      displayName: label,
+      guard: availabilityGuard(esmListingsGuard(label), label),
+      dialogHosts: ["item.esmplus.com"],
+      send: send14,
+      read: read13
+    });
+  }
+
+  // extensions/src/sites/auction/availability.ts
+  registerEsmAvailability("auction", "\uC625\uC158", "iac");
 
   // extensions/src/sites/auction/listings.ts
   registerSite({ name: "auction", create: (deps) => createEsmListings(deps.tabs, "auction", "\uC625\uC158") });
@@ -11404,7 +13109,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/coupang-product/index.ts
-  var ORIGIN = "https://www.coupang.com";
+  var ORIGIN5 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS = 6e4;
   var ASK_TIMEOUT_MS = 2e4;
   var RENDER_WAIT_MS = 1200;
@@ -11413,7 +13118,7 @@ var KidItemRuntime = (() => {
   var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_PRODUCT_SITE = {
     name: "coupang-product",
-    origin: ORIGIN,
+    origin: ORIGIN5,
     caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321" }
   };
   var COUPANG_PRODUCT_PAGE_GUARD = {
@@ -11647,7 +13352,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-search/serp.ts
-  var ORIGIN2 = "https://www.coupang.com";
+  var ORIGIN6 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS2 = 6e4;
   var EXTRACTION_TIMEOUT_MS2 = 2e4;
   var RENDER_WAIT_MS2 = 1200;
@@ -11664,7 +13369,7 @@ var KidItemRuntime = (() => {
     loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
   };
   function buildCoupangSerpUrl(keyword2, page) {
-    return `${ORIGIN2}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+    return `${ORIGIN6}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
   }
   function isExpectedSerpUrl(actual, expected) {
     try {
@@ -11681,7 +13386,7 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     let keywordsRead = 0;
     const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
-    async function read(current, url) {
+    async function read13(current, url) {
       const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
       if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
       await deps.sleep(RENDER_WAIT_MS2);
@@ -11711,7 +13416,7 @@ var KidItemRuntime = (() => {
           await onAttention?.(attention);
         }
         const here = await current.currentUrl().catch(() => "");
-        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read(current, url).then((result) => result.read);
+        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read13(current, url).then((result) => result.read);
         if (again && again.ok && again.wall !== "captcha") {
           await onAttention?.(null);
           return again;
@@ -11736,7 +13441,7 @@ var KidItemRuntime = (() => {
         let pagesScanned = 0;
         for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
           const url = buildCoupangSerpUrl(keyword2, pageNumber);
-          const first = await read(current, url);
+          const first = await read13(current, url);
           let answer = first.read;
           if (answer === null) failIfLeftSite(first.landed, () => {
             keepOpen = true;
@@ -11813,18 +13518,18 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN3 = "https://www.coupang.com";
+  var ORIGIN7 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS3 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS2 = 1500;
   var CONTENT_FILE3 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN3,
+    origin: ORIGIN7,
     caller: { minIntervalMs: SETTLE_MS2, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
-    return `${ORIGIN3}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
+    return `${ORIGIN7}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -11876,7 +13581,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/coupang-shop/index.ts
-  var ORIGIN4 = "https://shop.coupang.com";
+  var ORIGIN8 = "https://shop.coupang.com";
   var PAGE_TIMEOUT_MS4 = 6e4;
   var CATALOG_TIMEOUT_MS = 9e4;
   var SORT_TIMEOUT_MS = 2e4;
@@ -11885,7 +13590,7 @@ var KidItemRuntime = (() => {
   var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_SHOP_SITE = {
     name: "coupang-shop",
-    origin: ORIGIN4,
+    origin: ORIGIN8,
     caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
   };
   var COUPANG_SHOP_PAGE_GUARD = {
@@ -12238,8 +13943,8 @@ var KidItemRuntime = (() => {
       })();
       return poPage;
     }
-    const onShipments = (read) => remember(withLogin(() => shipments().then(read), shipmentLogin));
-    const onPurchaseOrders = (read) => remember(withLogin(() => purchaseOrders().then(read), poLogin));
+    const onShipments = (read13) => remember(withLogin(() => shipments().then(read13), shipmentLogin));
+    const onPurchaseOrders = (read13) => remember(withLogin(() => purchaseOrders().then(read13), poLogin));
     return {
       /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
       parcelPage(pageNumber) {
@@ -12399,6 +14104,119 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/domeggook/availability.ts
+  var ORIGIN9 = "https://www.domeggook.com";
+  var LOOKUP_PATH = "/sc/item/lst";
+  var EDIT_PATH = "/sc/item/editOnList";
+  var MAX_CODES = 500;
+  var SHOWN = { hide: "\uC9C4\uC5F4\uC548\uD568", show: "\uC9C4\uC5F4\uD568" };
+  var PACE_MS5 = 700;
+  var LABEL4 = "\uB3C4\uB9E4\uAFB9";
+  async function lookupListRows(context, codes) {
+    const params = new URLSearchParams();
+    for (const [key, value] of [
+      ["ktype", "no"],
+      ["nos", codes.join(",")],
+      ["ttl", ""],
+      ["st", ""],
+      ["chn[]", "dome"],
+      ["chn[]", "supply"],
+      ["sec[]", "sell"],
+      ["sec[]", "shop"],
+      ["ca1", "00"],
+      ["ca2", "00"],
+      ["ca3", "00"],
+      ["ca4", "00"],
+      ["idx", ""],
+      ["qty", ""],
+      ["disp", ""],
+      ["rmp", ""],
+      ["format", "grid"],
+      ["pg", "1"],
+      ["sz", String(MAX_CODES)],
+      ["so", "rd"]
+    ]) params.append(key, value);
+    const response = await context.fetch(`${ORIGIN9}${LOOKUP_PATH}?${params.toString()}`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { accept: "application/json", "x-requested-with": "XMLHttpRequest" }
+    });
+    const { json, text: text8 } = await readJson(response);
+    if (!response.ok || !json || json.res !== true || !Array.isArray(json.dat)) {
+      const loggedOut = /로그인|login/i.test(`${json?.msg || ""} ${text8.slice(0, 300)}`);
+      throw new Error(loggedOut ? `${LABEL4}\uC5D0 \uB85C\uADF8\uC778\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.` : `${LABEL4} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    }
+    return json.dat;
+  }
+  async function send4(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? SHOWN.show : SHOWN.hide;
+    const warnings = [];
+    let sent = 0;
+    let failed8 = 0;
+    let confirmed = 0;
+    let already = 0;
+    const missing = [];
+    for (let start = 0; start < codes.length; start += MAX_CODES) {
+      const group = codes.slice(start, start + MAX_CODES);
+      const rows = new Map((await lookupListRows(context, group)).map((row) => [String(row.no), row]));
+      const found = group.filter((code2) => rows.has(code2));
+      missing.push(...group.filter((code2) => !rows.has(code2)));
+      const targets = found.filter((code2) => rows.get(code2).disp !== wanted);
+      already += found.length - targets.length;
+      if (targets.length > 0) {
+        const dat = targets.map((code2) => {
+          const row = rows.get(code2);
+          return { no: row.no, disp: resume, title: row.title, loq: String(row.loq ?? "").replace(",", ""), useOpt: row.useOpt !== "N" };
+        });
+        const response = await context.fetch(`${ORIGIN9}${EDIT_PATH}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", accept: "application/json", "x-requested-with": "XMLHttpRequest" },
+          body: `dat=${encodeURIComponent(JSON.stringify(dat))}`
+        });
+        const { json } = await readJson(response);
+        if (!response.ok || !json || json.res !== true) {
+          failed8 += targets.length;
+          warnings.push(`${LABEL4}\uC774 \uC218\uC815\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${json?.msg ? `: ${String(json.msg).slice(0, 120)}` : ""}.`);
+        } else {
+          const counted = typeof json.success === "number" || typeof json.success === "string" && /^\d+$/.test(json.success) ? Number(json.success) : null;
+          const ok = counted === null ? targets.length : Math.min(counted, targets.length);
+          sent += ok;
+          failed8 += targets.length - ok;
+          if (ok < targets.length) warnings.push(`${LABEL4}\uC774 ${targets.length}\uAC74 \uC911 ${ok}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+        }
+        await context.sleep(PACE_MS5);
+      }
+      const after = found.length > 0 ? await lookupListRows(context, found).catch(() => null) : [];
+      if (after) confirmed += after.filter((row) => row.disp === wanted).length;
+      else warnings.push(`${LABEL4}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uBAA9\uB85D\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+    }
+    if (already > 0) warnings.push(`${already}\uAC74\uC740 \uC774\uBBF8 ${wanted}\uC774\uC5C8\uC2B5\uB2C8\uB2E4.`);
+    if (missing.length > 0) warnings.push(`${missing.length}\uAC74\uC740 ${LABEL4} \uC0C1\uD488\uBC88\uD638\uB85C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    return { success: true, sent: sent + already, failed: failed8 + missing.length, confirmed, requestOnly: false, warnings };
+  }
+  async function read4(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL4} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const rows = new Map((await lookupListRows(context, products)).map((row) => [String(row.no), row]));
+    return {
+      success: true,
+      products: products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [flagOption(no, rows.get(no).disp === SHOWN.show, rows.get(no).disp)] })),
+      missing: products.filter((no) => !rows.has(no))
+    };
+  }
+  registerMallAvailability({
+    mallKey: "domeggook",
+    displayName: LABEL4,
+    guard: availabilityGuard(DOMEGGOOK_PAGE_GUARD, LABEL4),
+    dialogHosts: ["domeggook.com"],
+    login: DOMEGGOOK_LOGIN,
+    send: send4,
+    read: read4
+  });
+
   // extensions/src/sites/domeggook/registration.ts
   var DOMEGGOOK_REGISTRATION_FORM = {
     label: "\uB3C4\uB9E4\uAFB9",
@@ -12504,6 +14322,9 @@ var KidItemRuntime = (() => {
     login: DOMEGGOOK_LOGIN,
     form: DOMEGGOOK_REGISTRATION_FORM
   });
+
+  // extensions/src/sites/gmarket/availability.ts
+  registerEsmAvailability("gmarket", "\uC9C0\uB9C8\uCF13", "gmkt");
 
   // extensions/src/sites/gmarket/registration.ts
   var GMARKET_REGISTRATION_FORM = {
@@ -12665,7 +14486,7 @@ var KidItemRuntime = (() => {
       main: [GS_SHOP_ORDERS_FILE],
       displayName: "GS\uC0F5"
     }).catch(() => null);
-    async function read(page, onAttention) {
+    async function read13(page, onAttention) {
       let waited = false;
       const stillWalled = async (value) => {
         let url;
@@ -12703,7 +14524,7 @@ var KidItemRuntime = (() => {
     }
     return {
       readOrders(input = {}) {
-        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read(page, input.onAttention), signIn ? { signIn } : {});
+        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read13(page, input.onAttention), signIn ? { signIn } : {});
       }
     };
   }
@@ -13057,6 +14878,150 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/icecream-mall/availability.ts
+  var ORIGIN10 = "https://po.i-screammall.co.kr";
+  var PAGE_URL5 = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
+  var VIEW_PATH = "/goods/goodsMgmt.goodsMgmtView.do";
+  var LIST_PATH3 = "/goods/goodsMgmt.getGoodsList.do";
+  var SAVE_PATH2 = "/goods/goodsMgmtPopup.modifyGoodsSaleState.do";
+  var BATCH_SIZE3 = 100;
+  var PACE_MS6 = 700;
+  var RECHECK_MS3 = 2e3;
+  var RECHECK_TIMES3 = 3;
+  var LABEL5 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0";
+  var LOGGED_OUT4 = `${LABEL5} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var STATUS_WORDS = { 20: "\uD488\uC808", 40: "\uD310\uB9E4\uC885\uB8CC" };
+  async function readRows3(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < codes.length; start += BATCH_SIZE3) {
+      if (start > 0) await context.sleep(PACE_MS6);
+      const answer = await run("icecreamRowsOnPage", [VIEW_PATH, LIST_PATH3, codes.slice(start, start + BATCH_SIZE3)]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
+      for (const row of answer.rows) if (row?.goodsNo) rows.set(row.goodsNo, row);
+    }
+    return { rows };
+  }
+  async function send5(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "10" : "20";
+    const from = resume ? "20" : "10";
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{5,15}$/.test(code2));
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL5} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN10, PAGE_URL5, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows3(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT4 };
+      if (!before.rows) return { success: false, error: `${LABEL5} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed8 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL5}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const ended = found.filter((no) => !["10", "20"].includes(rows.get(no).saleStatCd)).length;
+      if (resume && ended > 0) {
+        failed8 += ended;
+        warnings.push(`${ended}\uAC74\uC740 ${LABEL5}\uC5D0\uC11C \uD310\uB9E4\uC885\uB8CC\uB41C \uC0C1\uD488\uC774\uB77C \uB418\uC0B4\uB9AC\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      if (!resume) already += ended;
+      const movable = found.filter((no) => rows.get(no).saleStatCd === from);
+      already += found.filter((no) => rows.get(no).saleStatCd === wanted).length;
+      const reserved = resume ? movable.filter((no) => rows.get(no).saleMethCd === "20") : [];
+      if (reserved.length > 0) {
+        failed8 += reserved.length;
+        warnings.push(`${reserved.length}\uAC74\uC740 \uC608\uC57D\uC0C1\uD488\uC774\uB77C ${LABEL5} \uD654\uBA74\uB3C4 \uD310\uB9E4\uC911\uC73C\uB85C \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD569\uB2C8\uB2E4.`);
+      }
+      const targets = movable.filter((no) => !reserved.includes(no));
+      const groups = /* @__PURE__ */ new Map();
+      for (const no of targets) {
+        const method = String(rows.get(no).saleMethCd ?? "");
+        if (!groups.has(method)) groups.set(method, []);
+        groups.get(method).push(no);
+      }
+      const accepted = [];
+      let processed = 0;
+      for (const group of groups.values()) {
+        for (let start = 0; start < group.length; start += BATCH_SIZE3) {
+          const slice = group.slice(start, start + BATCH_SIZE3);
+          const list2 = slice.map((no) => ({ goodsNo: no, saleStatCd: rows.get(no).saleStatCd, itmSaleStatCd: wanted, soutCausCd: "12", saleStatChgCausCd: null }));
+          const answer = await run("icecreamSaveOnPage", [SAVE_PATH2, list2]);
+          if (answer?.loggedOut) {
+            halt = LOGGED_OUT4;
+            left = targets.length - processed;
+            return null;
+          }
+          processed += slice.length;
+          if (answer?.status !== 200 || answer.succeeded !== true) {
+            failed8 += slice.length;
+            const reason = answer?.message ? `: ${answer.message}` : "";
+            warnings.push(`${LABEL5}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
+          } else {
+            sent += slice.length;
+            accepted.push(...slice);
+          }
+          await context.sleep(PACE_MS6);
+        }
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES3; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS3);
+        const after = await readRows3(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((no) => after.rows.get(no)?.saleStatCd === wanted).length;
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL5}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC815\uBCF4 \uAD00\uB9AC\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL5} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uC815\uBCF4 \uAD00\uB9AC\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read5(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{5,15}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL5} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN10, PAGE_URL5, async (run) => {
+      const result = await readRows3(context, run, products);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT4 };
+      if (!result.rows) return { success: false, error: `${LABEL5} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => ({
+        code: no,
+        options: [flagOption(no, rows.get(no).saleStatCd === "10", STATUS_WORDS[String(rows.get(no).saleStatCd)])]
+      }));
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "icecream-mall",
+    displayName: LABEL5,
+    guard: availabilityGuard(ICECREAM_PAGE_GUARD, LABEL5),
+    dialogHosts: ["po.i-screammall.co.kr"],
+    login: ICECREAM_LOGIN,
+    send: send5,
+    read: read5
+  });
+
   // extensions/src/sites/icecream-mall/registration.ts
   var ICECREAM_MALL_REGISTRATION_FORM = {
     label: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
@@ -13154,6 +15119,200 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "kakao", create: (deps) => createKakaoListings(deps.tabs) });
+
+  // extensions/src/sites/kakao/availability.ts
+  var ORIGIN11 = "https://shopping-seller.kakao.com";
+  var PAGE_URL6 = "https://shopping-seller.kakao.com/product/store-seller/list";
+  var LIST_PATH4 = "/api/tstore/products";
+  var GRID_PATH = "/api/tstore/products/grid/columns";
+  var RESUME_QUANTITY = 999;
+  var PACE_MS7 = 400;
+  var LABEL6 = "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4";
+  var LOGGED_OUT5 = `${LABEL6} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  async function readProduct(run, productId2) {
+    const answer = await run("requestOnPage", [`${LIST_PATH4}?productIds=${encodeURIComponent(productId2)}&size=1&page=0`, "GET", null, null]);
+    if (answer.status === 401 || answer.status === 403 || /login|xauth|accounts\.kakao/i.test(`${answer.url ?? ""} ${answer.preview ?? ""}`)) return { loggedOut: true };
+    if (answer.status !== 200 || !Array.isArray(answer.json?.contents)) return { error: `HTTP ${answer.status}` };
+    return { product: answer.json.contents.find((row) => String(row.id) === String(productId2)) || null };
+  }
+  var hasOptions = (product) => Boolean(product.optionSetting && product.optionSetting !== "\uBBF8\uC124\uC815");
+  async function send6(context, input) {
+    const { codes, resume } = input;
+    const quantity = resume ? RESUME_QUANTITY : 0;
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{1,15}$/.test(code2));
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let withOptions = 0;
+    const halted = await withSellerPage(context, ORIGIN11, PAGE_URL6, async (run) => {
+      const targets = [];
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(PACE_MS7);
+        const read13 = await readProduct(run, products[index]);
+        if (read13.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!read13.product) {
+          failed8 += 1;
+          warnings.push(`${products[index]}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read13.error ? `(${read13.error})` : ""}.`);
+          continue;
+        }
+        if (hasOptions(read13.product)) {
+          withOptions += 1;
+          failed8 += 1;
+          continue;
+        }
+        const stock = Number(read13.product.stockQuantity);
+        if (!(resume ? stock === 0 : stock !== 0)) {
+          already += 1;
+          continue;
+        }
+        targets.push(read13.product);
+      }
+      if (targets.length === 0) return null;
+      const edits = targets.map((product) => ({
+        name: product.name,
+        salePrice: product.salePrice,
+        storeManagementCode: product.storeManagementCode ?? "",
+        stockQuantity: quantity,
+        productId: product.id,
+        displayStatus: product.displayStatusType
+      }));
+      const answer = await run("requestOnPage", [GRID_PATH, "PUT", "application/json", JSON.stringify(edits)]);
+      if (answer.status < 200 || answer.status >= 300) {
+        failed8 += targets.length;
+        const reason = answer.json?.message || answer.json?.errorMessage || "";
+        warnings.push(`${LABEL6}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
+        return null;
+      }
+      const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
+      sent += counted ?? targets.length;
+      if (counted !== null && counted < targets.length) {
+        failed8 += targets.length - counted;
+        warnings.push(`${LABEL6}\uC774 ${targets.length}\uAC74 \uC911 ${counted}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      for (const product of targets) {
+        await context.sleep(PACE_MS7);
+        const after = await readProduct(run, String(product.id));
+        if (after.product && Number(after.product.stockQuantity) === quantity) confirmed += 1;
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC788\uB294 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL6}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function sendPrice(context, items) {
+    const warnings = [];
+    const valid = items.filter((item) => /^\d{1,15}$/.test(item.code));
+    let failed8 = items.length - valid.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let withOptions = 0;
+    let submissionAttempted = false;
+    const results = [];
+    const halted = await withSellerPage(context, ORIGIN11, PAGE_URL6, async (run, page) => {
+      const targets = [];
+      for (let index = 0; index < valid.length; index += 1) {
+        if (index > 0) await context.sleep(PACE_MS7);
+        const item = valid[index];
+        const read13 = await readProduct(run, item.code);
+        if (read13.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!read13.product) {
+          failed8 += 1;
+          warnings.push(`${item.code}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read13.error ? `(${read13.error})` : ""}.`);
+          continue;
+        }
+        if (hasOptions(read13.product)) {
+          withOptions += 1;
+          failed8 += 1;
+          continue;
+        }
+        const current = priceNumber(read13.product.salePrice);
+        if (item.ifPrice !== null && current !== item.ifPrice) {
+          failed8 += 1;
+          warnings.push(`${item.code}: ${LABEL6} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${Number.isFinite(current) ? `${current.toLocaleString("ko-KR")}\uC6D0` : "\uBAA8\uB974\uB294 \uAC12"}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
+          continue;
+        }
+        targets.push({ product: read13.product, price: item.price });
+      }
+      if (targets.length === 0) return null;
+      const edits = targets.map(({ product, price: price2 }) => ({
+        name: product.name,
+        salePrice: typeof product.salePrice === "number" ? price2 : String(price2),
+        storeManagementCode: product.storeManagementCode ?? "",
+        stockQuantity: product.stockQuantity,
+        productId: product.id,
+        displayStatus: product.displayStatusType
+      }));
+      submissionAttempted = true;
+      const answer = await run("requestOnPage", [GRID_PATH, "PUT", "application/json", JSON.stringify(edits)]);
+      if (answer.status < 200 || answer.status >= 300) {
+        failed8 += targets.length;
+        const reason = answer.json?.message || answer.json?.errorMessage || "";
+        warnings.push(`${LABEL6}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
+        return null;
+      }
+      const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
+      sent += counted ?? targets.length;
+      if (counted !== null && counted < targets.length) {
+        failed8 += targets.length - counted;
+        warnings.push(`${LABEL6}\uC774 ${targets.length}\uAC74 \uC911 ${counted}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      for (const { product, price: price2 } of targets) {
+        await context.sleep(PACE_MS7);
+        const after = await readProduct(run, String(product.id));
+        const now = after.product ? priceNumber(after.product.salePrice) : null;
+        const before = priceNumber(product.salePrice);
+        const ok = now === price2;
+        if (ok) confirmed += 1;
+        const observedUrl = after.product && String(after.product.salePrice ?? "").trim() !== "" && Number.isFinite(now) ? await observedUrlOf(page, ORIGIN11) : null;
+        results.push({
+          code: String(product.id),
+          before: Number.isFinite(before) ? before : null,
+          after: now !== null && Number.isFinite(now) ? now : null,
+          confirmed: ok,
+          ...observedUrl ? { observedUrl } : {}
+        });
+      }
+      return null;
+    });
+    if (halted) return { ...halted, submissionAttempted };
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC788\uB294 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uAC00\uACA9\uC774\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL6}\uC5D0\uC11C \uC635\uC158 \uAC00\uACA9\uC744 \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    return { success: true, sent, failed: failed8, confirmed, results, warnings, submissionAttempted };
+  }
+  async function read6(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,15}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL6} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN11, PAGE_URL6, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(PACE_MS7);
+        const result = await readProduct(run, products[index]);
+        if (result.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!result.product) {
+          missing.push(products[index]);
+          continue;
+        }
+        found.push({ code: products[index], options: [{ optionCode: String(result.product.id), stock: Number(result.product.stockQuantity), rocket: false }] });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kakao",
+    displayName: LABEL6,
+    guard: availabilityGuard(KAKAO_LISTINGS_GUARD, LABEL6),
+    dialogHosts: ["shopping-seller.kakao.com"],
+    send: send6,
+    read: read6,
+    sendPrice
+  });
 
   // extensions/src/sites/kakao/registration.ts
   var KAKAO_REGISTER_FILE = "content/page-call/kakao-register.js";
@@ -13426,6 +15585,232 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidsnote/availability.ts
+  var ORIGIN12 = "https://shop.kidsnote.com";
+  var PAGE_URL7 = "https://shop.kidsnote.com/_manage/?body=2010";
+  var LIST_PATH5 = "/_manage/";
+  var SAVE_PATH3 = "/_manage/";
+  var PAGE_SIZE3 = 100;
+  var MAX_PAGES2 = 60;
+  var PAGE_PACE_MS = 200;
+  var PACE_MS8 = 700;
+  var RECHECK_MS4 = 2e3;
+  var RECHECK_TIMES4 = 2;
+  var LABEL7 = "\uD0A4\uC988\uB178\uD2B8";
+  var LOGGED_OUT6 = `${LABEL7} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var KIDSNOTE_PRICE_NOTE = "\uD0A4\uC988\uB178\uD2B8\uB294 \uAC00\uACA9\uC744 \uBC14\uAFB8\uBA74 \uBCF8\uC0AC \uC2B9\uC778 \uC804\uAE4C\uC9C0 \uADF8 \uC0C1\uD488 \uD310\uB9E4\uAC00 \uBA48\uCDA5\uB2C8\uB2E4.";
+  async function readRows4(context, run, codes, withForm, formId = "edt_layer_4") {
+    const wanted = new Set(codes);
+    const rows = /* @__PURE__ */ new Map();
+    let form = null;
+    for (let page = 1; page <= MAX_PAGES2; page += 1) {
+      if (page > 1) await context.sleep(PAGE_PACE_MS);
+      const answer = await run("kidsnoteListOnPage", [LIST_PATH5, page, PAGE_SIZE3, Boolean(withForm && page === 1), formId]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
+      if (withForm && page === 1) form = answer.form;
+      for (const row of answer.rows) if (wanted.has(row.pno)) rows.set(row.pno, row);
+      if (answer.rows.length < PAGE_SIZE3 || rows.size >= wanted.size) break;
+    }
+    return { rows, form };
+  }
+  async function send7(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "\uC815\uC0C1" : "\uD488\uC808";
+    const from = resume ? "\uD488\uC808" : "\uC815\uC0C1";
+    const value = resume ? "2" : "3";
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{1,10}$/.test(code2));
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows4(context, run, products, true);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT6 };
+      if (!before.rows) return { success: false, error: `${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const form = before.form ?? [];
+      const names = new Set(form.map(([name]) => name));
+      if (!["body", "nums", "exec", "where", "change_stat"].every((name) => names.has(name))) {
+        return { success: false, error: `${LABEL7} \uC0C1\uD0DC/\uB178\uCD9C\uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
+      }
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed8 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const hidden = found.filter((no) => ![from, wanted].includes(rows.get(no).stat)).length;
+      if (resume && hidden > 0) {
+        failed8 += hidden;
+        warnings.push(`${hidden}\uAC74\uC740 ${LABEL7}\uC5D0\uC11C \uC228\uAE40(\uB610\uB294 \uB2E4\uB978 \uC0C1\uD0DC)\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      if (!resume) already += hidden;
+      const targets = found.filter((no) => rows.get(no).stat === from);
+      already += found.filter((no) => rows.get(no).stat === wanted).length;
+      const accepted = [];
+      let answered = null;
+      for (let start = 0; start < targets.length; start += PAGE_SIZE3) {
+        const group = targets.slice(start, start + PAGE_SIZE3);
+        const pairs = form.map(([name, current]) => {
+          if (name === "nums") return [name, group.map((no) => `@${no}`).join("")];
+          if (name === "where") return [name, "1"];
+          if (name === "change_stat") return [name, value];
+          return [name, current];
+        });
+        const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH3, pairs]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT6;
+          left = targets.length - start;
+          return null;
+        }
+        if (answer?.alert) answered = answer.alert;
+        if (answer?.status !== 200) {
+          failed8 += group.length;
+          warnings.push(`${LABEL7}\uC774 \uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
+        } else {
+          sent += group.length;
+          accepted.push(...group);
+        }
+        await context.sleep(PACE_MS8);
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES4; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS4);
+        const after = await readRows4(context, run, accepted, false);
+        if (!after.rows) continue;
+        seen = accepted.filter((no) => after.rows.get(no)?.stat === wanted).length;
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL7}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD310\uB9E4 \uC0C1\uD488 \uB0B4\uC5ED\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) {
+          const said = answered ? ` \uBAB0 \uB2F5: "${answered}"` : "";
+          warnings.push(`${LABEL7} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4.${said}`);
+        }
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function sendPrice2(context, items) {
+    const warnings = [KIDSNOTE_PRICE_NOTE];
+    const valid = items.filter((item) => /^\d{1,10}$/.test(item.code));
+    let failed8 = items.length - valid.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let submissionAttempted = false;
+    const results = [];
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run, page) => {
+      if (valid.length === 0) return null;
+      const before = await readRows4(context, run, valid.map((item) => item.code), true, "edt_layer_2");
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT6 };
+      if (!before.rows) return { success: false, error: `${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const form = before.form ?? [];
+      const names = new Set(form.map(([name]) => name));
+      const exec = form.find(([name]) => name === "exec")?.[1];
+      if (!["body", "nums", "exec", "where", "prc_chg_type", "o3", "replace_prc"].every((name) => names.has(name)) || exec !== "sell_prc") {
+        return { success: false, error: `${LABEL7} \uAC00\uACA9 \uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
+      }
+      const byPrice = /* @__PURE__ */ new Map();
+      for (const item of valid) {
+        const row = rows.get(item.code);
+        if (!row) {
+          failed8 += 1;
+          warnings.push(`${item.code}: ${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+          continue;
+        }
+        if (item.ifPrice !== null && row.price !== item.ifPrice) {
+          failed8 += 1;
+          warnings.push(`${item.code}: ${LABEL7} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${row.price === null ? "\uBAA8\uB974\uB294 \uAC12" : `${row.price.toLocaleString("ko-KR")}\uC6D0`}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
+          continue;
+        }
+        byPrice.set(item.price, [...byPrice.get(item.price) || [], { code: item.code, before: row.price }]);
+      }
+      const accepted = [];
+      for (const [price2, group] of byPrice) {
+        for (let start = 0; start < group.length; start += PAGE_SIZE3) {
+          const chunk = group.slice(start, start + PAGE_SIZE3);
+          const pairs = form.map(([name, current]) => {
+            if (name === "nums") return [name, chunk.map((entry) => `@${entry.code}`).join("")];
+            if (name === "where") return [name, "1"];
+            if (name === "prc_chg_type") return [name, "2"];
+            if (name === "o3") return [name, "sell_prc"];
+            if (name === "replace_prc") return [name, String(price2)];
+            return [name, current];
+          });
+          submissionAttempted = true;
+          const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH3, pairs]);
+          if (answer?.loggedOut) return { success: false, error: LOGGED_OUT6 };
+          if (answer?.status !== 200) {
+            failed8 += chunk.length;
+            warnings.push(`${LABEL7}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
+          } else {
+            sent += chunk.length;
+            accepted.push(...chunk.map((entry) => ({ ...entry, price: price2 })));
+          }
+          await context.sleep(PACE_MS8);
+        }
+      }
+      if (accepted.length === 0) return null;
+      let after = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES4; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS4);
+        after = await readRows4(context, run, accepted.map((entry) => entry.code), false);
+        if (after.rows && accepted.every((entry) => after.rows.get(entry.code)?.price === entry.price)) break;
+      }
+      for (const entry of accepted) {
+        const now = after?.rows?.get(entry.code)?.price ?? null;
+        const ok = now === entry.price;
+        if (ok) confirmed += 1;
+        const observedUrl = typeof now === "number" && Number.isFinite(now) ? await observedUrlOf(page, ORIGIN12) : null;
+        results.push({ code: entry.code, before: entry.before, after: now, confirmed: ok, ...observedUrl ? { observedUrl } : {} });
+      }
+      return null;
+    });
+    if (halted) return { ...halted, submissionAttempted };
+    return { success: true, sent, failed: failed8, confirmed, results, warnings, submissionAttempted };
+  }
+  async function read7(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,10}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL7} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+      const result = await readRows4(context, run, products, false);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT6 };
+      if (!result.rows) return { success: false, error: `${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [flagOption(no, rows.get(no).stat === "\uC815\uC0C1", rows.get(no).stat)] }));
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kidsnote",
+    displayName: LABEL7,
+    guard: availabilityGuard(KIDSNOTE_PAGE_GUARD, LABEL7),
+    dialogHosts: ["shop.kidsnote.com"],
+    login: KIDSNOTE_LOGIN,
+    send: send7,
+    read: read7,
+    sendPrice: sendPrice2
+  });
+
   // extensions/src/sites/kidsnote/registration.ts
   var KIDSNOTE_REGISTER_FILE = "content/page-call/kidsnote-register.js";
   var REGISTER_ORIGIN = "https://shop.kidsnote.com";
@@ -13562,6 +15947,119 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kkomangse/availability.ts
+  var ORIGIN13 = "https://nstore.edupre.co.kr";
+  var PAGE_URL8 = "https://nstore.edupre.co.kr/subAdmin/_product_mass.view.php";
+  var VIEW_PATH2 = "/subAdmin/_product_mass.view.php";
+  var CHANGE_PATH = "/subAdmin/_product_mass.pro.php";
+  var RESUME_STOCK = 999;
+  var PACE_MS9 = 700;
+  var READ_PACE_MS = 400;
+  var LABEL8 = "\uAF2C\uB9DD\uC138";
+  var LOGGED_OUT7 = `${LABEL8} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isZero = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
+  async function send8(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? String(RESUME_STOCK) : "0";
+    const warnings = [];
+    let sent = 0;
+    let failed8 = 0;
+    let confirmed = 0;
+    let already = 0;
+    let missing = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
+      for (let index = 0; index < codes.length; index += 1) {
+        const code2 = codes[index];
+        if (index > 0) await context.sleep(PACE_MS9);
+        const row = await run("kkomangseRowOnPage", [VIEW_PATH2, code2]);
+        if (row?.loggedOut) {
+          halt = LOGGED_OUT7;
+          left = codes.length - index;
+          return null;
+        }
+        if (!row?.found) {
+          if (row?.error) {
+            failed8 += 1;
+            warnings.push(`${code2}: ${LABEL8} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).`);
+          } else {
+            missing += 1;
+          }
+          continue;
+        }
+        const soldOut = isZero(row.stock);
+        if (resume ? !soldOut : soldOut) {
+          already += 1;
+          continue;
+        }
+        if (!["Y", "N"].includes(row.view) || !["Y", "N"].includes(row.stockControl)) {
+          failed8 += 1;
+          warnings.push(`${code2}: ${LABEL8} \uC124\uC815 \uD654\uBA74\uC5D0\uC11C \uB178\uCD9C \xB7 \uC7AC\uACE0\uAD00\uB9AC \uAC12\uC744 \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+          continue;
+        }
+        const body = new URLSearchParams([
+          ["_mode", "view_direct_change"],
+          ["pcode", code2],
+          ["_view", row.view],
+          ["_stock", wanted],
+          ["_stock_control", row.stockControl],
+          ["_kc_yn", row.kcYn],
+          ["_kc_num", row.kcNum],
+          ["_kc_date", row.kcDate]
+        ]);
+        const answer = await run("requestOnPage", [CHANGE_PATH, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(), { "X-Requested-With": "XMLHttpRequest" }]);
+        if (answer.status < 200 || answer.status >= 300 || answer.json?.res !== "success") {
+          failed8 += 1;
+          warnings.push(`${code2}: ${LABEL8}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          continue;
+        }
+        sent += 1;
+        const after = await run("kkomangseRowOnPage", [VIEW_PATH2, code2]);
+        if (after?.found && String(Number(after.stock)) === wanted) confirmed += 1;
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (missing > 0) {
+      failed8 += missing;
+      warnings.push(`${missing}\uAC74\uC740 ${LABEL8}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    }
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read8(context, codes) {
+    const products = [...new Set(codes)].slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL8} \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(READ_PACE_MS);
+        const row = await run("kkomangseRowOnPage", [VIEW_PATH2, products[index]]);
+        if (row?.loggedOut) return { success: false, error: LOGGED_OUT7 };
+        if (row?.error) return { success: false, error: `${LABEL8} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).` };
+        if (!row?.found) {
+          missing.push(products[index]);
+          continue;
+        }
+        found.push({ code: products[index], options: [{ optionCode: products[index], stock: isZero(row.stock) ? 0 : null, rocket: false }] });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kkomangse",
+    displayName: LABEL8,
+    guard: availabilityGuard(KKOMANGSE_PAGE_GUARD, LABEL8),
+    dialogHosts: ["nstore.edupre.co.kr"],
+    login: KKOMANGSE_LOGIN,
+    send: send8,
+    read: read8
+  });
 
   // extensions/src/sites/kkomangse/registration.ts
   var KKOMANGSE_REGISTRATION_FORM = {
@@ -13790,6 +16288,179 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/lotte-on/availability.ts
+  var ORIGIN14 = "https://store.lotteon.com";
+  var PAGE_URL9 = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var API = "https://soapi.lotteon.com";
+  var LIST_PATH6 = "/soapi/v1/product/information/selectProductList";
+  var UPDATE_PATH = "/soapi/v1/product/registration/updateProductBatch";
+  var BATCH_SIZE4 = 100;
+  var PACE_MS10 = 700;
+  var RECHECK_MS5 = 3e3;
+  var RECHECK_TIMES5 = 8;
+  var SETTLE_TIMES = 4;
+  var LABEL9 = "\uB86F\uB370ON";
+  var LOGGED_OUT8 = `${LABEL9} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var STATUS_WORDS2 = { SOUT: "\uD488\uC808", STP: "\uD310\uB9E4\uC911\uC9C0", END: "\uD310\uB9E4\uC885\uB8CC" };
+  var isProductNo2 = (code2) => /^LO\d{4,20}$/.test(code2);
+  async function readRows5(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < codes.length; start += BATCH_SIZE4) {
+      if (start > 0) await context.sleep(PACE_MS10);
+      const group = codes.slice(start, start + BATCH_SIZE4);
+      const answer = await run("lotteonPostOnPage", [`${API}${LIST_PATH6}`, { spdNo: group.join("\n"), pageNo: 1, rowsPerPage: BATCH_SIZE4 }, true], "main");
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (answer?.status !== 200 || answer.returnCode !== "SUCCESS" || !Array.isArray(answer.rows)) {
+        return { error: `HTTP ${answer?.status ?? 0}${answer?.returnCode ? ` ${answer.returnCode}` : ""}` };
+      }
+      for (const row of answer.rows) if (row?.spdNo) rows.set(String(row.spdNo), row);
+    }
+    return { rows };
+  }
+  function batchCounts(json) {
+    const data = Array.isArray(json?.data) ? json.data : null;
+    if (!data || data.length === 0) return null;
+    try {
+      const last = typeof data[data.length - 1] === "string" ? JSON.parse(data[data.length - 1]) : data[data.length - 1];
+      const successCnt = Number(last?.successCnt);
+      const failCnt = Number(last?.failCnt);
+      return Number.isFinite(successCnt) || Number.isFinite(failCnt) ? { successCnt: Number.isFinite(successCnt) ? successCnt : null, failCnt: Number.isFinite(failCnt) ? failCnt : 0 } : null;
+    } catch {
+      return null;
+    }
+  }
+  async function send9(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "SALE" : "SOUT";
+    const from = resume ? "SOUT" : "SALE";
+    const warnings = [];
+    const products = codes.filter(isProductNo2);
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL9} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows5(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT8 };
+      if (!before.rows) return { success: false, error: `${LABEL9} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed8 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL9}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const locked = found.filter((no) => !["SALE", "SOUT"].includes(rows.get(no).slStatCd));
+      if (resume && locked.length > 0) {
+        failed8 += locked.length;
+        warnings.push(`${locked.length}\uAC74\uC740 ${LABEL9}\uC774 \uD310\uB9E4\uC911\uC9C0 \xB7 \uD310\uB9E4\uC885\uB8CC\uD55C \uC0C1\uD488\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      if (!resume) already += locked.length;
+      let targets = found.filter((no) => rows.get(no).slStatCd === from);
+      let settled = found.filter((no) => rows.get(no).slStatCd === wanted);
+      for (let attempt = 0; attempt < SETTLE_TIMES && settled.length > 0; attempt += 1) {
+        await context.sleep(RECHECK_MS5);
+        const again = await readRows5(context, run, settled);
+        if (!again.rows) break;
+        const flipped = settled.filter((no) => again.rows.get(no)?.slStatCd === from);
+        targets = [...targets, ...flipped];
+        settled = settled.filter((no) => !flipped.includes(no));
+      }
+      already += settled.length;
+      for (let start = 0; start < targets.length; start += BATCH_SIZE4) {
+        const group = targets.slice(start, start + BATCH_SIZE4);
+        const params = group.map((no) => {
+          const row = rows.get(no);
+          return {
+            spdNo: no,
+            trNo: row.trNo,
+            lrtrNo: row.lrtrNo,
+            trGrpCd: row.trGrpCd,
+            dvPdTypCd: row.dvPdTypCd,
+            code: "07",
+            ctrtTypCd: "all",
+            dvProcTypCd: "all",
+            dmstOvsDvDvsCd: "all",
+            reqTxt: "spdSlStatCd",
+            spdSlStatCd: wanted
+          };
+        });
+        const answer = await run("lotteonPostOnPage", [`${API}${UPDATE_PATH}`, params, false], "main");
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT8;
+          left = targets.length - start;
+          return null;
+        }
+        if (answer?.status !== 200 || answer.json?.returnCode && answer.json.returnCode !== "SUCCESS") {
+          failed8 += group.length;
+          const reason = answer?.json?.message ? `: ${String(answer.json.message).slice(0, 120)}` : "";
+          warnings.push(`${LABEL9}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
+          continue;
+        }
+        const counts = batchCounts(answer.json);
+        const ok = Math.max(0, Math.min(counts?.successCnt ?? group.length - (counts?.failCnt ?? 0), group.length));
+        sent += ok;
+        if (ok < group.length) {
+          failed8 += group.length - ok;
+          warnings.push(`${LABEL9}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+        }
+        await context.sleep(PACE_MS10);
+      }
+      if (sent === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES5; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS5);
+        const after = await readRows5(context, run, targets);
+        if (!after.rows) continue;
+        seen = targets.filter((no) => after.rows.get(no)?.slStatCd === wanted).length;
+        if (seen >= sent) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL9}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += Math.min(seen, sent);
+        if (seen < sent) warnings.push(`${LABEL9} \uC0C1\uD488 \uC870\uD68C\uAC00 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB97C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read9(context, codes) {
+    const products = [...new Set(codes)].filter(isProductNo2).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL9} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
+      const result = await readRows5(context, run, products);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT8 };
+      if (!result.rows) return { success: false, error: `${LABEL9} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => {
+        const status = String(rows.get(no).slStatCd);
+        return { code: no, options: [flagOption(no, status === "SALE", STATUS_WORDS2[status])] };
+      });
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "lotte-on",
+    displayName: LABEL9,
+    guard: availabilityGuard(LOTTE_ON_PAGE_GUARD, LABEL9),
+    dialogHosts: ["store.lotteon.com"],
+    login: LOTTE_ON_LOGIN,
+    send: send9,
+    read: read9
+  });
+
   // extensions/src/sites/lotte-on/registration.ts
   var LOTTE_ON_REGISTER_FILE = "content/page-call/lotte-on-register.js";
   var encoder2 = new TextEncoder();
@@ -13907,9 +16578,26 @@ var KidItemRuntime = (() => {
     create: (deps, lease) => ({
       writer(mallKey) {
         const definition = mallWriterFor(mallKey);
-        if (!definition) return null;
-        const context = mallWriteContext(definition, deps, lease);
-        return { fill: (input) => fillRegistration(definition, context, input) };
+        const availability = mallAvailabilityFor(mallKey);
+        if (!definition && !availability) return null;
+        const handle = {};
+        if (definition) {
+          const context = mallWriteContext(definition, deps, lease);
+          handle.fill = (input) => fillRegistration(definition, context, input);
+        }
+        if (availability) {
+          const context = availabilityContext(availability, deps, lease);
+          handle.availability = (input) => runAvailability(availability, context, input);
+          if (availability.sendPrice) handle.price = (input) => sendPriceOrThrow(availability, context, input);
+        }
+        return handle;
+      },
+      /** 판매 상태 읽기(`channels.mall_availability_read`) — 읽기가 있는 몰만. */
+      reader(mallKey) {
+        const availability = mallAvailabilityFor(mallKey);
+        if (!availability?.read) return null;
+        const context = availabilityContext(availability, deps, lease);
+        return { read: (codes) => readAvailabilityOrThrow(availability, context, codes) };
       }
     })
   });
@@ -13973,6 +16661,31 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "onch", create: (deps, lease) => createOnchSite(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/onch/availability.ts
+  var ORIGIN15 = "https://www.onch3.co.kr";
+  var PATH = "/access/product_access.php?ubr=option_state_modi";
+  var LABEL10 = "\uC628\uCC44\uB110";
+  async function send10(context, input) {
+    const body = input.resume ? { prd_code_str: input.codes.join("/"), sec: "1", comment: "\uC7AC\uC785\uACE0" } : { prd_code_str: input.codes.join("/"), sec: "4", comment: "\uC7AC\uACE0 \uC18C\uC9C4" };
+    const answer = await postForm(context.fetch, ORIGIN15, PATH, Object.entries(body));
+    if (answer.loggedOut) return { success: false, error: `${LABEL10} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
+    return {
+      success: true,
+      sent: answer.accepted ? input.codes.length : 0,
+      failed: answer.accepted ? 0 : input.codes.length,
+      requestOnly: true,
+      warnings: [`${LABEL10}\uC740 \uAD00\uB9AC\uC790 \uC2B9\uC778\uC744 \uAC70\uCE69\uB2C8\uB2E4 \u2014 \uBCF4\uB0B8 \uAC83\uC774 \uACE7 \uBC18\uC601\uC740 \uC544\uB2D9\uB2C8\uB2E4.`]
+    };
+  }
+  registerMallAvailability({
+    mallKey: "onch",
+    displayName: LABEL10,
+    guard: availabilityGuard(ONCH_PAGE_GUARD, LABEL10),
+    dialogHosts: ["onch3.co.kr"],
+    login: ONCH_LOGIN,
+    send: send10
+  });
 
   // extensions/src/sites/onch/registration.ts
   var ONCH_REGISTRATION_FORM = {
@@ -14233,7 +16946,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/sabangnet/index.ts
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
-  var PAGE_URL = `${SABANGNET_ORIGIN}/`;
+  var PAGE_URL10 = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
   var NAVIGATION_TIMEOUT_MS12 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
@@ -14254,12 +16967,12 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
+        await next.navigate(PAGE_URL10, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
         return next;
       })();
       return tab;
     }
-    async function read(query, currentPage) {
+    async function read13(query, currentPage) {
       if (pagesRead > 0) await sleep(SABANGNET_PAGE_DELAY_MS);
       pagesRead += 1;
       const answer = await callPage(await page(), "sabangnet.mallListingPage", { ...query, currentPage }, {
@@ -14272,27 +16985,27 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL10 });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
-            url: PAGE_URL,
+            url: PAGE_URL10,
             reason: "http",
             bodyHead: null
           });
         case "contract_drift":
           throw new RuntimeError(MALL_CONTRACT_CHANGED5, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
         case "timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL10, reason: "timeout", bodyHead: null });
         default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "network", bodyHead: null });
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL10, reason: "network", bodyHead: null });
       }
     }
     return {
       /** "쇼핑몰상품수정" 목록 한 쪽(1부터). 실패 이력 줄은 뺀다. `total`은 사방넷이 알린 전체 송신 기록 수. */
       async mallListingPage(query, currentPage) {
         try {
-          return await read(query, currentPage);
+          return await read13(query, currentPage);
         } catch (error) {
           if (leftForOperator(error)) keepOpen = true;
           throw error;
@@ -14361,13 +17074,13 @@ var KidItemRuntime = (() => {
   var REQUEST_TIMEOUT_MS2 = 45e3;
   var MAX_ROWS = 2e4;
   var MAX_BYTES = 10 * 1024 * 1024;
-  var CALL_TIMEOUT_MS3 = REQUEST_TIMEOUT_MS2 + 1e3;
+  var CALL_TIMEOUT_MS4 = REQUEST_TIMEOUT_MS2 + 1e3;
   function createSellpiaInventory(tabs) {
     return {
       inventory() {
         return withFreshTab(tabs, SELLPIA_INVENTORY_URL, async (page) => {
           const answer = await callPage(page, "sellpia.inventory", { timeoutMs: REQUEST_TIMEOUT_MS2, maxRows: MAX_ROWS, maxBytes: MAX_BYTES }, {
-            timeoutMs: CALL_TIMEOUT_MS3,
+            timeoutMs: CALL_TIMEOUT_MS4,
             guard: SELLPIA_PAGE_GUARD,
             main: [SELLPIA_INVENTORY_FILE],
             displayName: "\uC140\uD53C\uC544"
@@ -14404,13 +17117,13 @@ var KidItemRuntime = (() => {
     return {
       productProfit(input, onProgress) {
         return withFreshTab(tabs, SELLPIA_PROFIT_URL, async (page) => {
-          const baseline = await readRows(page, { start: input.start, end: input.end, purchaseStart: input.start, purchaseEnd: input.end });
+          const baseline = await readRows6(page, { start: input.start, end: input.end, purchaseStart: input.start, purchaseEnd: input.end });
           const periods = [];
           for (const period of input.periods) {
             input.signal?.throwIfAborted();
             periods.push({
               yearMonth: period.yearMonth,
-              rows: await readRows(page, { start: input.start, end: input.end, purchaseStart: period.from, purchaseEnd: period.to })
+              rows: await readRows6(page, { start: input.start, end: input.end, purchaseStart: period.from, purchaseEnd: period.to })
             });
             await onProgress?.(periods.length, input.periods.length);
           }
@@ -14419,7 +17132,7 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  async function readRows(page, args) {
+  async function readRows6(page, args) {
     const answer = await callPage(page, "sellpia.profitRows", args, {
       timeoutMs: QUERY_TIMEOUT_MS2,
       guard: SELLPIA_PAGE_GUARD,
@@ -14592,6 +17305,201 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
+
+  // extensions/src/sites/smartstore/availability.ts
+  var ORIGIN16 = "https://sell.smartstore.naver.com";
+  var PAGE_URL11 = "https://sell.smartstore.naver.com/#/products/origin-list";
+  var SEARCH_PATH2 = "/api/products/list/search";
+  var UPDATE_PATH2 = "/api/products/bulk-update?_action=updateProductStatusType";
+  var PROGRESS_PATH = "/api/products/bulk-update?_action=getBulkUpdateProgressResult";
+  var BATCH_SIZE5 = 50;
+  var PACE_MS11 = 700;
+  var RECHECK_MS6 = 2e3;
+  var RECHECK_TIMES6 = 3;
+  var PROGRESS_WAITS_MS = [1e3, 1e3, 1e3, 3e3, 3e3, 3e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3];
+  var LABEL11 = "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4";
+  var LOGGED_OUT9 = `${LABEL11}\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var NAVER_WORDS = { OUTOFSTOCK: "\uD488\uC808", SUSPENSION: "\uD310\uB9E4\uC911\uC9C0", WAIT: "\uD310\uB9E4\uB300\uAE30", CLOSE: "\uD310\uB9E4\uC885\uB8CC", PROHIBITION: "\uD310\uB9E4\uAE08\uC9C0" };
+  async function readRows7(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (const keywordType of ["CHANNEL_PRODUCT_NO", "PRODUCT_NO"]) {
+      const left = codes.filter((code2) => !rows.has(code2));
+      for (let start = 0; start < left.length; start += BATCH_SIZE5) {
+        const group = left.slice(start, start + BATCH_SIZE5);
+        const answer = await run("smartstoreApiOnPage", ["search", SEARCH_PATH2, {
+          searchKeywordType: keywordType,
+          searchKeyword: group.join(","),
+          searchOrderType: "REG_DATE",
+          page: 0,
+          size: Math.max(20, group.length)
+        }], "main");
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.rows)) return { error: answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}` };
+        for (const row of answer.rows) {
+          for (const code2 of group) if (row.id === code2 || row.channelProductNos.includes(code2)) rows.set(code2, row);
+        }
+        await context.sleep(PACE_MS11);
+      }
+    }
+    return { rows };
+  }
+  async function send11(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "SALE" : "SUSPENSION";
+    const warnings = [];
+    const products = [...new Set(codes)].filter((code2) => /^\d{6,15}$/.test(code2));
+    let failed8 = codes.length - products.length;
+    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL11} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN16, PAGE_URL11, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows7(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT9 };
+      if (!before.rows) return { success: false, error: `${LABEL11} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((code2) => rows.has(code2));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed8 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL11}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const stat = (code2) => rows.get(code2).productStatusType;
+      let targets;
+      if (resume) {
+        targets = found.filter((code2) => stat(code2) === "SUSPENSION");
+        already += found.filter((code2) => stat(code2) === "SALE").length;
+        const other = found.filter((code2) => !["SALE", "SUSPENSION"].includes(stat(code2))).length;
+        if (other > 0) {
+          failed8 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL11}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uD310\uB9E4\uB300\uAE30 \xB7 \uD310\uB9E4\uC885\uB8CC \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+      } else {
+        targets = found.filter((code2) => stat(code2) === "SALE");
+        already += found.length - targets.length;
+      }
+      const origin = /* @__PURE__ */ new Map();
+      for (const code2 of targets) origin.set(rows.get(code2).id, code2);
+      const originNos = [...origin.keys()];
+      const accepted = [];
+      for (let start = 0; start < originNos.length; start += BATCH_SIZE5) {
+        const group = originNos.slice(start, start + BATCH_SIZE5);
+        const answer = await run("smartstoreApiOnPage", ["status", UPDATE_PATH2, {
+          productNos: group.map((no) => /^\d{1,15}$/.test(no) ? Number(no) : no),
+          productStatusType: wanted,
+          productBulkUpdateType: wanted
+        }], "main");
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT9;
+          left = originNos.length - start;
+          return null;
+        }
+        if (answer?.state !== "STARTED") {
+          failed8 += group.length;
+          const said = answer?.state === "ALREADY_PROGRESS" ? "\uC774\uBBF8 \uC218\uC815\uC911\uC778 \uC0C1\uD488\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694." : answer?.state === "BUSY" ? "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4\uC5D0 \uC9C4\uD589\uC911 \uC791\uC5C5\uC774 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694." : answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
+          warnings.push(`${LABEL11}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+          continue;
+        }
+        let result = null;
+        for (const waitMs of PROGRESS_WAITS_MS) {
+          await context.sleep(waitMs);
+          const progress4 = await run("smartstoreApiOnPage", ["progress", PROGRESS_PATH, null], "main");
+          if (progress4?.loggedOut) {
+            sent += group.length;
+            accepted.push(...group.map((no) => origin.get(no)));
+            halt = LOGGED_OUT9;
+            left = originNos.length - start - group.length;
+            return null;
+          }
+          if (progress4?.completed === true) {
+            result = progress4;
+            break;
+          }
+          if (progress4?.completed === null || progress4?.state === "ALREADY_PROGRESS") break;
+        }
+        if (!result) {
+          warnings.push(`${LABEL11} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uB97C \uB05D\uAE4C\uC9C0 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+          accepted.push(...group.map((no) => origin.get(no)));
+          sent += group.length;
+          continue;
+        }
+        if (result.errorMessage) {
+          failed8 += group.length;
+          warnings.push(`${LABEL11}: ${result.errorMessage}`);
+          continue;
+        }
+        const successIds = Array.isArray(result.successIds) ? result.successIds.map(String) : null;
+        if (successIds && !group.some((no) => successIds.includes(String(no)))) {
+          warnings.push(`${LABEL11} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uAC00 \uC774 \uBB36\uC74C\uACFC \uB9DE\uC9C0 \uC54A\uC544 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+          accepted.push(...group.map((no) => origin.get(no)));
+          sent += group.length;
+          continue;
+        }
+        const ok = successIds ? group.filter((no) => successIds.includes(String(no))) : group;
+        sent += ok.length;
+        accepted.push(...ok.map((no) => origin.get(no)));
+        if (ok.length < group.length) {
+          failed8 += group.length - ok.length;
+          const said = result.failures?.length ? ` \u2014 ${result.failures.join(" / ")}` : "";
+          warnings.push(`${LABEL11}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok.length}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${said}.`);
+        }
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES6; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS6);
+        const after = await readRows7(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((code2) => after.rows.get(code2)?.productStatusType === wanted).length;
+        if (resume) {
+          const outOfStock = accepted.filter((code2) => after.rows.get(code2)?.productStatusType === "OUTOFSTOCK").length;
+          if (outOfStock > 0 && attempt === RECHECK_TIMES6) warnings.push(`${outOfStock}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 ${LABEL11}\uC774 \uD310\uB9E4\uC911 \uB300\uC2E0 \uD488\uC808\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.`);
+        }
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL11}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL11} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read10(context, codes) {
+    const valid = [...new Set(codes)].filter((code2) => /^\d{6,15}$/.test(code2)).slice(0, READ_LIMIT);
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL11} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN16, PAGE_URL11, async (run) => {
+      const result = await readRows7(context, run, valid);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT9 };
+      if (!result.rows) return { success: false, error: `${LABEL11} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = valid.filter((code2) => rows.has(code2)).map((code2) => {
+        const stat = String(rows.get(code2).productStatusType);
+        return { code: code2, options: [flagOption(code2, stat === "SALE", stat === "SALE" ? null : NAVER_WORDS[stat] || "\uD310\uB9E4\uC911\uC9C0")] };
+      });
+      missing = valid.filter((code2) => !rows.has(code2));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "smartstore",
+    displayName: LABEL11,
+    guard: availabilityGuard(SMARTSTORE_LISTINGS_GUARD, LABEL11),
+    dialogHosts: ["sell.smartstore.naver.com"],
+    send: send11,
+    read: read10
+  });
 
   // extensions/src/sites/smartstore/registration.ts
   var SMARTSTORE_REGISTER_FILE = "content/page-call/smartstore-register.js";
@@ -14844,6 +17752,128 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/teacher-mall/availability.ts
+  var ORIGIN17 = "https://shop.teacherville.co.kr";
+  var PAGE_URL12 = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
+  var BATCH_PATH = "/selleradmin/goods/batch_modify";
+  var SAVE_PATH4 = "/selleradmin/goods_process/batch_goods_modify";
+  var CATALOG_PATH = "/selleradmin/goods/catalog";
+  var RESUME_STOCK2 = 999;
+  var PACE_MS12 = 700;
+  var READ_PACE_MS2 = 400;
+  var LABEL12 = "\uD2F0\uCCD0\uBAB0";
+  var LOGGED_OUT10 = `${LABEL12} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isZero2 = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
+  async function send12(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? String(RESUME_STOCK2) : "0";
+    const expectedState = resume ? "\uC815\uC0C1" : "\uD488\uC808";
+    const warnings = [];
+    let sent = 0;
+    let failed8 = 0;
+    let confirmed = 0;
+    let already = 0;
+    let missing = 0;
+    let withOptions = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
+      for (let index = 0; index < codes.length; index += 1) {
+        const code2 = codes[index];
+        if (index > 0) await context.sleep(PACE_MS12);
+        const form = await run("teacherBatchFormOnPage", [BATCH_PATH, code2]);
+        if (form?.loggedOut) {
+          halt = LOGGED_OUT10;
+          left = codes.length - index;
+          return null;
+        }
+        if (!form?.found) {
+          if (form?.error) {
+            failed8 += 1;
+            warnings.push(`${code2}: ${LABEL12} \uC77C\uAD04 \uC5C5\uB370\uC774\uD2B8 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).`);
+          } else {
+            missing += 1;
+          }
+          continue;
+        }
+        if (form.stocks.length !== 1) {
+          withOptions += 1;
+          failed8 += 1;
+          continue;
+        }
+        const [[option, stock]] = form.stocks;
+        const soldOut = isZero2(stock);
+        if (resume ? !soldOut : soldOut) {
+          already += 1;
+          continue;
+        }
+        const pairs = form.pairs.map(([name, value]) => [name, name === `stock[${option}]` ? wanted : value]);
+        for (const pair of form.search) pairs.push(pair);
+        const answer = await run("requestOnPage", [SAVE_PATH4, "POST", "application/x-www-form-urlencoded; charset=UTF-8", new URLSearchParams(pairs).toString()]);
+        if (answer.status < 200 || answer.status >= 400 || /login|로그인/i.test(`${answer.url || ""}`)) {
+          failed8 += 1;
+          warnings.push(`${code2}: ${LABEL12}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          continue;
+        }
+        sent += 1;
+        const after = await run("teacherBatchFormOnPage", [BATCH_PATH, code2]);
+        const status = await run("teacherCatalogStatusOnPage", [CATALOG_PATH, code2]);
+        const stockChanged = after?.found && after.stocks.length === 1 && String(Number(after.stocks[0][1])) === wanted;
+        if (status?.approval === "\uBBF8\uC2B9\uC778") {
+          warnings.push(`${code2}: ${LABEL12} \uC2B9\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4(\uBBF8\uC2B9\uC778) \u2014 \uD2F0\uCCD0\uBAB0\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        } else if (stockChanged) {
+          confirmed += 1;
+          if (status?.found && status.state && status.state !== expectedState) {
+            warnings.push(`${code2}: \uC7AC\uACE0\uB294 \uBC14\uB00C\uC5C8\uB294\uB370 ${LABEL12} \uC0C1\uD488\uBAA9\uB85D \uC0C1\uD0DC\uAC00 \uC544\uC9C1 '${status.approval || ""}${status.state}'\uC785\uB2C8\uB2E4.`);
+          }
+        }
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (missing > 0) {
+      failed8 += missing;
+      warnings.push(`${missing}\uAC74\uC740 ${LABEL12}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    }
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC5EC\uB7FF\uC778 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL12}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read11(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL12} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(READ_PACE_MS2);
+        const form = await run("teacherBatchFormOnPage", [BATCH_PATH, products[index]]);
+        if (form?.loggedOut) return { success: false, error: LOGGED_OUT10 };
+        if (form?.error) return { success: false, error: `${LABEL12} \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).` };
+        if (!form?.found || form.stocks.length === 0) {
+          missing.push(products[index]);
+          continue;
+        }
+        found.push({
+          code: products[index],
+          options: form.stocks.map(([option, stock]) => ({ optionCode: option, stock: isZero2(stock) ? 0 : null, rocket: false }))
+        });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "teacher-mall",
+    displayName: LABEL12,
+    guard: availabilityGuard(TEACHER_MALL_PAGE_GUARD, LABEL12),
+    dialogHosts: ["shop.teacherville.co.kr"],
+    login: TEACHER_MALL_LOGIN,
+    send: send12,
+    read: read11
+  });
 
   // extensions/src/sites/teacher-mall/registration.ts
   var TEACHER_MALL_REGISTRATION_FORM = {
@@ -15214,7 +18244,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText5(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText6(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -15224,7 +18254,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText5(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText6(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -15530,7 +18560,7 @@ var KidItemRuntime = (() => {
     const number3 = Number(value);
     return Number.isInteger(number3) && number3 >= 0 ? number3 : null;
   }
-  function requiredText5(value, name) {
+  function requiredText6(value, name) {
     const text8 = typeof value === "string" ? value.trim() : "";
     if (!text8) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
     return text8;
@@ -15545,10 +18575,10 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/index.ts
-  var ORIGIN5 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN5}/tenants/seller-web/excel/request/download`;
+  var ORIGIN18 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN18}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN18}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN18}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -15570,16 +18600,16 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN5,
+    origin: ORIGIN18,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN5, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN18, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
-    async function readJson(url, init, notFoundIsAnswer = false) {
+    async function readJson2(url, init, notFoundIsAnswer = false) {
       for (let attempt = 0; ; attempt += 1) {
         try {
           return await caller.json(url, init);
@@ -15599,7 +18629,7 @@ var KidItemRuntime = (() => {
       body: JSON.stringify(body),
       requireXsrf
     });
-    const searchJson = (body) => readJson(SEARCH_URL, {
+    const searchJson = (body) => readJson2(SEARCH_URL, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(body)
@@ -15625,7 +18655,7 @@ var KidItemRuntime = (() => {
        * (details `status`·`reason`·`bodyHead`)를 넘긴다 — 건너뛸지는 수집기가 정한다.
        */
       async productDetail(externalProductId) {
-        const body = await readJson(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, void 0, true);
+        const body = await readJson2(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, void 0, true);
         if (body === NOT_FOUND) return null;
         let product;
         try {
@@ -15850,6 +18880,244 @@ var KidItemRuntime = (() => {
     }
   });
 
+  // extensions/src/sites/wing/availability.ts
+  var ORIGIN19 = "https://wing.coupang.com";
+  var LABEL13 = "\uCFE0\uD321 \uC719";
+  var ITEMS_PATH = "/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/";
+  var ITEMS_QUERY = "hasProgressiveDiscountRule=true&queryNonVariationJustificationProof=true&queryMpnProof=true";
+  var CHANGE_PATH2 = "/tenants/seller-web/vendorinventory/stock-manager/remain-change/request";
+  var RESUME_QUANTITY2 = 999;
+  var PRODUCT_PACE_MS = 400;
+  var PACE_MS13 = 700;
+  var RATE_LIMIT_WAITS_MS = [5e3, 15e3, 3e4];
+  var RECHECK_MS7 = 1500;
+  function wingListUrl(keyword2 = "") {
+    return `${ORIGIN19}/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=${encodeURIComponent(keyword2)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1`;
+  }
+  function wingTools(context, run) {
+    const inPage = async (path, method, contentType, body) => {
+      for (let attempt = 0; ; attempt += 1) {
+        const answer = await run("requestOnPage", [path, method, contentType, body]);
+        if (answer.status !== 429 || attempt >= RATE_LIMIT_WAITS_MS.length) return answer;
+        await context.sleep(RATE_LIMIT_WAITS_MS[attempt]);
+      }
+    };
+    const readItems2 = async (product) => {
+      const answer = await inPage(`${ITEMS_PATH}${product}?${ITEMS_QUERY}`, "GET", null, null);
+      if (answer.status === 200 && answer.json?.success === true && Array.isArray(answer.json.data)) return { items: answer.json.data };
+      return {
+        status: answer.status,
+        rateLimited: answer.status === 429,
+        loggedOut: answer.status !== 429 && /login|로그인|xauth/i.test(`${answer.url ?? ""} ${answer.preview ?? ""}`)
+      };
+    };
+    const readIdentity = async (expected) => await run("wingIdentityOnPage", [expected]) ?? { ok: false };
+    return { inPage, readItems: readItems2, readIdentity };
+  }
+  function withWingPage(context, work) {
+    return withSellerPage(context, ORIGIN19, wingListUrl(), (run) => work(run), { isolated: [WING_IDENTITY_FILE] });
+  }
+  var isOptionId = (code2) => /^\d{1,15}$/.test(code2);
+  function observedNormalOptions(items, selected) {
+    return items.filter((item) => selected.has(String(item.vendorItemId)) && item.registrationType === "NORMAL" && (typeof item.stockQuantity === "number" || typeof item.stockQuantity === "string" && /^\d+$/.test(item.stockQuantity)) && Number.isSafeInteger(Number(item.stockQuantity)) && Number(item.stockQuantity) >= 0).map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: false }));
+  }
+  async function send13(context, input) {
+    const { codes, options, resume, expectedProviderAccountId } = input;
+    if (expectedProviderAccountId !== null && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedProviderAccountId)) {
+      return { success: false, error: "Wing \uC2E4\uD589\uC758 \uACC4\uC815 \uC2DD\uBCC4\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
+    }
+    const quantity = resume ? RESUME_QUANTITY2 : 0;
+    const warnings = [];
+    const observed = [];
+    let providerAccountId = null;
+    const products = codes.filter(isOptionId);
+    const invalid2 = codes.length - products.length;
+    if (invalid2 > 0) warnings.push(`${invalid2}\uAC74\uC740 ${LABEL13} \uB4F1\uB85D\uC0C1\uD488ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let failed8 = invalid2;
+    let confirmed = 0;
+    let already = 0;
+    let rocket = 0;
+    let stoppedAt = null;
+    let blockedOnSend = 0;
+    let loggedOutAt = null;
+    const wantedOf = (product) => {
+      const list2 = options?.[product];
+      if (!Array.isArray(list2) || list2.length === 0) return null;
+      return new Set(list2.map(String).filter(isOptionId));
+    };
+    const badOptionsOf = (product) => Array.isArray(options?.[product]) ? options[product].map(String).filter((code2) => !isOptionId(code2)).length : 0;
+    const isTarget = (item) => resume ? Number(item.stockQuantity) === 0 : Number(item.stockQuantity) !== 0;
+    const halted = await withWingPage(context, async (run) => {
+      const { inPage, readItems: readItems2, readIdentity } = wingTools(context, run);
+      for (let index = 0; index < products.length; index += 1) {
+        const product = products[index];
+        if (index > 0) await context.sleep(PRODUCT_PACE_MS);
+        const wanted = wantedOf(product);
+        const badOptions = badOptionsOf(product);
+        if (badOptions > 0) {
+          failed8 += badOptions;
+          warnings.push(`${product}: \uC635\uC158\uCF54\uB4DC ${badOptions}\uAC1C\uAC00 ${LABEL13} \uC635\uC158ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+        }
+        if (wanted && wanted.size === 0) continue;
+        const identity2 = expectedProviderAccountId ? await readIdentity(expectedProviderAccountId) : null;
+        if (expectedProviderAccountId && (!identity2?.ok || identity2.vendorId !== expectedProviderAccountId)) {
+          if (sent === 0) return { success: false, error: "Wing \uACC4\uC815\uC774 \uC2E4\uD589\uC5D0 \uC9C0\uC815\uB41C \uACC4\uC815\uACFC \uB2E4\uB974\uAC70\uB098 \uD655\uC778\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." };
+          failed8 += products.length - index;
+          warnings.push("Wing \uACC4\uC815\uC774 \uBC14\uB00C\uC5B4 \uB0A8\uC740 \uC804\uC1A1\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+          break;
+        }
+        const read13 = await readItems2(product);
+        if (!read13.items) {
+          if (read13.loggedOut) {
+            if (sent === 0) return { success: false, error: `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.` };
+            loggedOutAt = index;
+            break;
+          }
+          if (read13.rateLimited) {
+            stoppedAt = index;
+            break;
+          }
+          failed8 += wanted ? wanted.size : 1;
+          warnings.push(`${product}: ${LABEL13} \uC635\uC158 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${read13.status}).`);
+          continue;
+        }
+        const items = read13.items.filter((item) => !wanted || wanted.has(String(item.vendorItemId)));
+        if (!wanted && read13.items.length === 0) {
+          failed8 += 1;
+          warnings.push(`${product}: ${LABEL13} \uC635\uC158 \uBAA9\uB85D\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`);
+          continue;
+        }
+        if (wanted) {
+          const missing = [...wanted].filter((code2) => !read13.items.some((item) => String(item.vendorItemId) === code2));
+          if (missing.length > 0) {
+            failed8 += missing.length;
+            warnings.push(`${product}: \uC635\uC158 ${missing.length}\uAC1C\uAC00 ${LABEL13}\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+          }
+        }
+        const editable = items.filter((item) => item.registrationType !== "RFM");
+        rocket += items.length - editable.length;
+        const targets = editable.filter(isTarget);
+        already += editable.length - targets.length;
+        const selected = new Set(items.map((item) => String(item.vendorItemId)));
+        const recordEvidence = async (reread) => {
+          if (!identity2?.ok || !reread) return;
+          const after2 = await readIdentity(expectedProviderAccountId);
+          if (!after2?.ok || after2.vendorId !== identity2.vendorId) return;
+          providerAccountId = after2.vendorId ?? null;
+          observed.push({ code: product, options: observedNormalOptions(reread, selected) });
+        };
+        if (targets.length === 0) {
+          await recordEvidence(read13.items);
+          continue;
+        }
+        const dtos = targets.map((item) => ({ vendorInventoryItemId: item.vendorInventoryItemId, vendorItemId: item.vendorItemId, inventoryQuantity: quantity }));
+        const answer = await inPage(CHANGE_PATH2, "POST", "application/x-www-form-urlencoded; charset=UTF-8", `stockManageItems=${encodeURIComponent(JSON.stringify({ dtos }))}`);
+        if (answer.status === 429) {
+          failed8 += targets.length;
+          blockedOnSend = 1;
+          stoppedAt = index + 1;
+          break;
+        }
+        const results = Array.isArray(answer.json) ? answer.json : null;
+        if (answer.status < 200 || answer.status >= 300 || !results) {
+          failed8 += targets.length;
+          warnings.push(`${product}: ${LABEL13}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          continue;
+        }
+        const ok = new Set(results.filter((entry) => entry && entry.success === true).map((entry) => String(entry.vendorItemId)));
+        const okCount = targets.filter((item) => ok.has(String(item.vendorItemId))).length;
+        sent += okCount;
+        failed8 += targets.length - okCount;
+        if (okCount < targets.length) {
+          const reasons = [...new Set(results.filter((entry) => entry && entry.success !== true).map((entry) => String(entry.message || "").trim()).filter(Boolean))].slice(0, 2);
+          warnings.push(`${product}: ${targets.length - okCount}\uAC1C \uC635\uC158\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${reasons.length ? ` \u2014 ${reasons.join(" / ").slice(0, 160)}` : ""}.`);
+        }
+        const countChanged = (list2) => {
+          const changed = new Set(list2.filter((item) => Number(item.stockQuantity) === quantity).map((item) => String(item.vendorItemId)));
+          return targets.filter((item) => changed.has(String(item.vendorItemId))).length;
+        };
+        let after = await readItems2(product);
+        let seen = after.items ? countChanged(after.items) : 0;
+        if (after.items && seen < okCount) {
+          await context.sleep(RECHECK_MS7);
+          after = await readItems2(product);
+          if (after.items) seen = Math.max(seen, countChanged(after.items));
+        }
+        confirmed += seen;
+        await recordEvidence(after.items);
+        await context.sleep(PACE_MS13);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (stoppedAt !== null) {
+      const rest = products.slice(stoppedAt);
+      failed8 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+      warnings.push(`${LABEL13}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uC0C1\uD488 ${rest.length + blockedOnSend}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+    }
+    if (loggedOutAt !== null) {
+      const rest = products.slice(loggedOutAt);
+      failed8 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+      warnings.push(`${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB824 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 ${rest.length}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+    }
+    return {
+      success: true,
+      // 이미 원하는 재고인 옵션은 보낼 것이 없었을 뿐 끝난 일이다.
+      sent: sent + already,
+      failed: failed8,
+      confirmed: confirmed + already,
+      already,
+      rocket,
+      requestOnly: false,
+      warnings,
+      observed,
+      providerAccountId,
+      observedUrl: null,
+      ...stoppedAt !== null ? { stopped: "rate_limited" } : loggedOutAt !== null ? { stopped: "logged_out" } : {}
+    };
+  }
+  async function read12(context, codes) {
+    const products = [...new Set(codes)].filter(isOptionId).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL13} \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withWingPage(context, async (run) => {
+      const { readItems: readItems2 } = wingTools(context, run);
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(PRODUCT_PACE_MS);
+        const product = products[index];
+        const result = await readItems2(product);
+        if (!result.items) {
+          if (result.loggedOut) return { success: false, error: `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
+          if (result.rateLimited) return { success: false, error: `${LABEL13}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.` };
+          missing.push(product);
+          continue;
+        }
+        if (result.items.length === 0) {
+          missing.push(product);
+          continue;
+        }
+        found.push({
+          code: product,
+          options: result.items.map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: item.registrationType === "RFM" }))
+        });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "coupang",
+    displayName: LABEL13,
+    guard: { ...WING_WRITE_GUARD, loginMessage: "\uCFE0\uD321 \uC719 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694." },
+    dialogHosts: ["wing.coupang.com"],
+    login: WING_LOGIN,
+    send: send13,
+    read: read12
+  });
+
   // extensions/src/sites/wing/vendor-identity.ts
   var WING_VENDOR_IDENTITY_UNAVAILABLE = "WING_VENDOR_IDENTITY_UNAVAILABLE";
   var WING_VENDOR_IDENTITY_AMBIGUOUS = "WING_VENDOR_IDENTITY_AMBIGUOUS";
@@ -15884,7 +19152,7 @@ var KidItemRuntime = (() => {
   var WING_ORIGIN = "https://wing.coupang.com";
   var WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
   var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN}/tenants/seller-price-management`;
-  var PAGE_SIZE2 = 1e3;
+  var PAGE_SIZE4 = 1e3;
   var EMPTY_PAGE_SIZE = 10;
   var WING_ITEMWINNER_CALLER = {
     minIntervalMs: 1e3,
@@ -15907,7 +19175,7 @@ var KidItemRuntime = (() => {
       vendorItemStatus: "ON_SALE",
       itemWinnerStatus: "ALL",
       rodBadge: "ALL",
-      pageSize: PAGE_SIZE2,
+      pageSize: PAGE_SIZE4,
       page: 0,
       searchPresets: null,
       isTopGMV: null
@@ -15932,7 +19200,7 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(WING_ITEMWINNER_PAGE_LIMIT_REACHED, `\uD310\uB9E4\uC911 \uC0C1\uD488\uC774 ${WING_ITEMWINNER_MAX_ITEMS}\uAC1C\uB97C \uB118\uC5B4 \uC544\uC774\uD15C\uC704\uB108\uB97C \uD55C \uBC88\uC5D0 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { totalSize });
     }
     const rows = body.result;
-    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE2 && totalPages === 1 && rows.length === totalSize;
+    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE4 && totalPages === 1 && rows.length === totalSize;
     if (!complete) throw failed6("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
     const normalized = rows.map(normalizeRow);
     if (new Set(normalized.map((row) => row.vendorItemId)).size !== normalized.length) {
@@ -15993,18 +19261,18 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN6 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN6}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN20 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN20}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS3 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN6,
+    origin: ORIGIN20,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN6, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN20, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {
@@ -16584,8 +19852,8 @@ var KidItemRuntime = (() => {
     if (input.signal.aborted) local.abort(input.signal.reason);
     else input.signal.addEventListener("abort", onAbort, { once: true });
     let writes = Promise.resolve();
-    const write = (send) => {
-      const next = writes.then(send);
+    const write = (send14) => {
+      const next = writes.then(send14);
       writes = next.catch(() => void 0);
       return next;
     };
@@ -16961,7 +20229,7 @@ var KidItemRuntime = (() => {
   function mallWriteSiteCapability(mallKey) {
     return `mallWriteSite.${mallKey}`;
   }
-  function mallWriteCapabilities(writers2 = registeredMallWriters()) {
+  function mallWriteCapabilities(writers2 = [...registeredMallWriters(), ...registeredMallAvailability()]) {
     return Object.fromEntries(writers2.map((writer) => [mallWriteSiteCapability(writer.mallKey), true]));
   }
 

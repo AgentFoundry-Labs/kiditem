@@ -5,7 +5,7 @@ import { OPERATION_STATUSES } from '@kiditem/shared/operation';
 import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
 
 /** 쓰기 모듈이 있는 몰(KID-256). */
-const MALL_WRITE_SITES = ['11st', 'always', 'art09', 'boribori', 'coupang', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kakao', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall'];
+const MALL_WRITE_SITES = ['11st', 'always', 'art09', 'auction', 'boribori', 'coupang', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kakao', 'kidkids', 'kidsnote', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall'];
 
 // 커밋된 번들(서비스워커가 싣는 바로 그 파일)을 classic script 처럼 실행한다.
 // `extension:check` 가 이 파일이 src 의 새 빌드와 바이트까지 같은지 따로 본다.
@@ -45,6 +45,7 @@ describe('committed runtime bundle', () => {
       'analytics.sellpia_product_profitability',
       'analytics.sellpia_sales',
       'channels.mall_admin_listings',
+      'channels.mall_availability_read',
       'channels.registration',
       'channels.sabangnet_mall_listings',
       'channels.sellpia_manual_match',
