@@ -483,6 +483,7 @@ model ChannelAdCampaign {
   servingStatus    String?   @map("serving_status")
   budget           Int?
   budgetType       String?   @map("budget_type")
+  /// 광고센터 원문 숫자 그대로. 광고센터 원문 단위, 실측 미확정(KID-371 QA에서 확인).
   roasTarget       Decimal?  @map("roas_target") @db.Decimal(12, 4)
   adSelectionType  String?   @map("ad_selection_type")
   totalAdCount     Int?      @map("total_ad_count")
