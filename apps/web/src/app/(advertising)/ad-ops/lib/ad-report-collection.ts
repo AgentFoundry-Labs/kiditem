@@ -27,8 +27,6 @@ const RUNNING_POLL_MS = 2_000;
 const RECENT_LIMIT = 5;
 const OPERATIONS_PATH = `/api/operations?kinds=${AD_REPORT_KIND}&limit=${RECENT_LIMIT}`;
 
-export const adReportOperationsQueryKey = [...queryKeys.ads.all, 'ad-report-operations'] as const;
-
 const PlanSchema = z.object({ startDate: z.string(), endDate: z.string() }).passthrough();
 
 /** 가장 최근 광고 보고서 실행(끝났거나 도는 것). */
@@ -57,9 +55,9 @@ export const adReportCollection: CollectionSourceAdapter<OperationListResponse> 
   sourceKey: AD_REPORT_KIND,
   label: '광고 보고서',
   statusQuery: collectionSourceStatusQueryOptions<OperationListResponse, Error, OperationListResponse, QueryKey>({
-    queryKey: adReportOperationsQueryKey,
+    queryKey: queryKeys.ads.adReportOperations(),
     queryFn: async ({ client }) => {
-      const operations = await refreshedOperations(client, adReportOperationsQueryKey, OPERATIONS_PATH);
+      const operations = await refreshedOperations(client, queryKeys.ads.adReportOperations(), OPERATIONS_PATH);
       // 광고센터는 쿠팡 윙과 같은 저장 자격으로 로그인한다. 그 자격이 거절됐으면 윙 자동 로그인을 멈춘다(계정 잠금 방지, KID-377).
       if (operations[0]) noteOperationLoginFailureForMall(WING_LOGIN_MALL_KEY, operations[0]);
       return { operations };

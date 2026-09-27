@@ -5,7 +5,6 @@ import { apiClient } from '@/lib/api-client';
 import { detectBrowserCollectionExtensionIds, detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { AdReportCollection } from './AdReportCollection';
-import { adReportOperationsQueryKey } from '../lib/ad-report-collection';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({
@@ -218,11 +217,11 @@ describe('AdReportCollection', () => {
     const invalidated = () => client.getQueryState(queryKeys.ads.extensionStatus())?.isInvalidated ?? false;
     expect(await screen.findByRole('button', { name: '광고 보고서 수집' })).toBeEnabled();
 
-    await act(() => client.refetchQueries({ queryKey: adReportOperationsQueryKey }));
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.adReportOperations() }));
     expect(invalidated()).toBe(false);
 
     operations = [operation('succeeded', { id: NEXT_OPERATION_ID, operationResult: result() }), operation('succeeded', { operationResult: result() })];
-    await act(() => client.refetchQueries({ queryKey: adReportOperationsQueryKey }));
+    await act(() => client.refetchQueries({ queryKey: queryKeys.ads.adReportOperations() }));
 
     await waitFor(() => expect(invalidated()).toBe(true));
   });
