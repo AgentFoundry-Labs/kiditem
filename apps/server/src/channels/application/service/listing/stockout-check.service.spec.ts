@@ -6,7 +6,7 @@ import type { StockoutSubject } from '../../port/out/persistence/stockout-check.
 
 const option = (id: string, capacity: number | null = 0) => ({ id, externalOptionId: id, status: 'active', registrationType: 'NORMAL', capacity, safetyStock: 0, compositionUnconfirmed: false });
 const subject = (patch: Partial<StockoutSubject> = {}): StockoutSubject => ({ listingId: 'listing', channelAccountId: 'account', externalListingId: 'external', channel: 'coupang', status: 'active', salesProduct: null, activeExecutions: [], options: [option('a')], ...patch });
-const adapters = new ChannelAdapterRegistryAdapter(new CoupangChannelAdapter({ preflightExternalProductRegistration: vi.fn() }, { isBlocked: () => true, upload: vi.fn() }));
+const adapters = new ChannelAdapterRegistryAdapter(new CoupangChannelAdapter({ preflightExternalProductRegistration: vi.fn() }));
 const preview = (row: StockoutSubject) => new StockoutCheckService({ readSubjects: vi.fn(async () => [row]) }, adapters).preview('org', ['listing']);
 
 // 송신은 `channels.registration` 의 sold_out 묶음 실행이다(KID-364). 여기서는 미리보기 판정만 본다.

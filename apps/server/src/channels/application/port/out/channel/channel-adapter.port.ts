@@ -1,6 +1,5 @@
 import type { RegistrationMallInput, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
-import type { RepresentativeImageRunnerPort } from '../automation/representative-image-runner.port';
 
 export const CHANNEL_ADAPTER_REGISTRY_PORT = Symbol('CHANNEL_ADAPTER_REGISTRY_PORT');
 
@@ -79,8 +78,6 @@ export interface ChannelAdapter {
    * 덮을 것이 없는 몰은 받은 것을 그대로 돌려준다.
    */
   freezeForm(form: Record<string, unknown> | null, adapterPayload: Readonly<Record<string, unknown>>): Record<string, unknown> | null;
-  /** 대표이미지 반영을 지원하면 runner, 아니면 null(registry `representativeImage` 와 같아야 한다). */
-  readonly representativeImage: RepresentativeImageRunnerPort | null;
   /** 품절 · 재개 실행이 이 몰 옵션을 보낼 수 있는가(`AvailabilityOptionKind`). */
   availabilityOption(option: { registrationType: string | null }): AvailabilityOptionKind;
 }

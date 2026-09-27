@@ -1,12 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { PrepareAdapterPayloadInput } from '../../../../application/port/out/channel/channel-adapter.port';
-import type { RepresentativeImageRunnerPort } from '../../../../application/port/out/automation/representative-image-runner.port';
 import { CoupangChannelAdapter } from './coupang-channel.adapter';
 
 const SKU_ID = '0b9f3a52-6a0e-4d37-9c55-6f0a3f1c2d10';
 const TX = {} as OwnerTransaction;
-const runner: RepresentativeImageRunnerPort = { isBlocked: () => false, upload: vi.fn() };
 const account = (vendorId: string | null = 'A00012345', externalAccountId: string | null = null) =>
   ({ id: 'acc-1', channel: 'coupang', vendorId, externalAccountId });
 const evidence = (input: Partial<{ providerAccountId: string | null; observedUrl: string | null; externalListingId: string | null }> = {}) => ({
@@ -41,16 +39,16 @@ function payloadInput(input: Partial<PrepareAdapterPayloadInput> = {}): PrepareA
 }
 
 describe('CoupangChannelAdapter', () => {
-  it('is the channel that answers by vendor id and carries the representative image runner', () => {
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
-    expect(adapter).toMatchObject({ channel: 'coupang', representativeImage: runner });
+  it('is the channel that answers by vendor id', () => {
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() });
+    expect(adapter).toMatchObject({ channel: 'coupang' });
     expect(adapter.providerAccountId(account(' A00012345 '))).toBe('A00012345');
     expect(adapter.providerAccountId(account(null, 'legacy-vendor'))).toBe('legacy-vendor');
     expect(adapter.providerAccountId(account(null, null))).toBeNull();
   });
 
   it('accepts only the vendor frozen at preparation, the wing.coupang.com origin and a numeric listing id', () => {
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() });
     const decide = (input: Parameters<typeof evidence>[0]) => adapter.validateConfirmationEvidence('A00012345', evidence(input));
     expect(decide({ observedUrl: 'https://wing.coupang.com/vendor-inventory/list?x=1' })).toEqual({ ok: true });
     expect(decide({ observedUrl: 'https://www.coupang.com/vp/products/1' })).toEqual({ ok: false, reason: 'untrusted_url' });
@@ -62,7 +60,7 @@ describe('CoupangChannelAdapter', () => {
   });
 
   it('sends seller stock only for normal options, refuses Rocket Growth options and waits on an unknown type', () => {
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() });
     expect(adapter.availabilityOption({ registrationType: 'NORMAL' })).toBe('sendable');
     expect(adapter.availabilityOption({ registrationType: 'RFM' })).toBe('excluded');
     expect(adapter.availabilityOption({ registrationType: null })).toBe('unknown');
@@ -70,7 +68,7 @@ describe('CoupangChannelAdapter', () => {
 
   it('freezes the Wing product, the Sellpia match and the option KID as the vendor item code for a register', async () => {
     const run = preflight();
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: run }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: run });
     await expect(adapter.prepareAdapterPayload(TX, payloadInput())).resolves.toEqual({
       wingProduct: {
         sellerProductName: '윙 등록명',
@@ -95,7 +93,7 @@ describe('CoupangChannelAdapter', () => {
 
   it('lets the Sellpia preflight suggest the match when the operator picked none', async () => {
     const run = preflight();
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: run }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: run });
     await adapter.prepareAdapterPayload(TX, payloadInput({ adapterValues: {}, registrationInput: { mallCategory: null, mallFields: {}, adapter: {} } }));
     expect(run).toHaveBeenCalledWith({
       organizationId: 'org-1', channelAccountId: 'acc-1', channelListingOptionId: 'sp-1',
@@ -105,13 +103,13 @@ describe('CoupangChannelAdapter', () => {
 
   it('freezes nothing for a kind that is not a registration', async () => {
     const run = preflight();
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: run }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: run });
     await expect(adapter.prepareAdapterPayload(TX, payloadInput({ kind: 'sold_out' }))).resolves.toEqual({});
     expect(run).not.toHaveBeenCalled();
   });
 
   it('refuses a registration without a vendor identity, with several options or with an unissued KID', async () => {
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() });
     await expect(adapter.prepareAdapterPayload(TX, payloadInput({ account: account(null, null) })))
       .rejects.toThrow('vendor identity');
     await expect(adapter.prepareAdapterPayload(TX, payloadInput({
@@ -122,7 +120,7 @@ describe('CoupangChannelAdapter', () => {
     }))).rejects.toThrow('KID');
   });
   it('lays the frozen WING values and image over the web form, and refuses a product already on this account (KID-364)', () => {
-    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() });
     const form = {
       categoryCell: '웹 카테고리', productName: '웹 노출명', sellerProductName: '웹 등록명', brand: 'kiditem',
       variants: [{ purchaseOptions: [{ type: '색상', value: '단일' }], stock: 999, salePrice: 12900, representativeImageUrl: 'https://img/web.png' }],

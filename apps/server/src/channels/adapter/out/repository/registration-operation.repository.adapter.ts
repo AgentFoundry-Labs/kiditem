@@ -272,7 +272,7 @@ export class RegistrationOperationRepositoryAdapter implements RegistrationOpera
         // 옵션 단위 몰은 가리킨 옵션만(리스팅으로 가리키면 살아 있는 옵션 전부) 얼리고, 얼린 옵션 가운데 몰이 판매자 재고를
         // 받지 않는 것이 있으면 거절한다. 리스팅 단위 몰은 리스팅 전체를 바꾸므로 살아 있는 옵션 전부를 얼린다.
         const options = selection === 'all' || !byOption ? listing.options : listing.options.filter((option) => selection.has(option.id));
-        if (byOption) assertAvailabilityOptionSupport(adapter, options, 'CHANNELS_PREFLIGHT_FAILED');
+        if (byOption) assertAvailabilityOptionSupport(adapter, options);
         return {
           channelListingId: listing.id,
           externalListingId: listing.externalId,
@@ -417,12 +417,10 @@ function optionRegistrationType(rawJson: Prisma.JsonValue | null): string | null
 function assertAvailabilityOptionSupport(
   adapter: ChannelAdapter,
   options: Array<{ externalOptionId: string; rawJson: Prisma.JsonValue | null }>,
-  /** 준비 때는 송신 전 점검 실패, 얼린 뒤 다시 볼 때는 준비 후 변경(409)으로 답한다. */
-  refusal: 'CHANNELS_PREFLIGHT_FAILED' | 'CHANNELS_EXECUTION_STALE',
 ): void {
-  if (options.length === 0) throw new KiditemError(refusal, { details: { reason: 'NO_ACTIVE_OPTIONS' } });
+  if (options.length === 0) throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'NO_ACTIVE_OPTIONS' } });
   if (options.some((option) => adapter.availabilityOption({ registrationType: optionRegistrationType(option.rawJson) }) === 'excluded')) {
-    throw new KiditemError(refusal, { details: { reason: 'OPTION_REFUSES_SELLER_STOCK' } });
+    throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'OPTION_REFUSES_SELLER_STOCK' } });
   }
 }
 

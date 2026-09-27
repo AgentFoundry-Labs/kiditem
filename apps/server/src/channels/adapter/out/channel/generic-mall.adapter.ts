@@ -10,10 +10,9 @@ import { decideConfirmationEvidence, trimmed } from './channel-evidence';
 
 /**
  * 전용 어댑터가 없는 몰(KID-321). 몰이 보는 계정 식별자는 계정의 `externalAccountId`, 관리자 화면은
- * `MALL_ADMIN_LISTING_READERS` 의 origin 이고, 실행 준비에 얼릴 몰 사실도 대표이미지 runner 도 없다.
+ * `MALL_ADMIN_LISTING_READERS` 의 origin 이고, 실행 준비에 얼릴 몰 사실이 없다.
  */
 export class GenericMallChannelAdapter implements ChannelAdapter {
-  readonly representativeImage = null;
   private readonly adminOrigin: string | null;
 
   constructor(readonly channel: string) {

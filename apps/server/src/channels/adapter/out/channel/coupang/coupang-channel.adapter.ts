@@ -13,10 +13,8 @@ import {
   CHANNEL_REGISTRATION_PORT,
   type ChannelRegistrationPort,
 } from '../../../../application/port/in/registration/channel-registration.port';
-import type { RepresentativeImageRunnerPort } from '../../../../application/port/out/automation/representative-image-runner.port';
 import { decideConfirmationEvidence } from '../channel-evidence';
 import { resolveCoupangVendorId } from '../../../../domain/account/coupang-account-identity';
-import { CoupangRepresentativeImageRunnerAdapter } from './representative-image-runner.adapter';
 
 export const COUPANG_CHANNEL_KEY = 'coupang';
 const WING_ADMIN_ORIGIN = 'https://wing.coupang.com';
@@ -31,7 +29,6 @@ const WING_LISTING_ID_PATTERN = /^\d{6,20}$/;
  *  - 등록 준비는 셀피아 매칭을 하고, 대상의 `adapter.coupang.wingProduct` 와 판매 상품으로 WING 상품
  *    문서를 만들어 얼린다(업체상품코드 = 선택한 옵션의 KID).
  *  - 옵션 판매 방식이 `NORMAL` 인 옵션만 판매자 재고를 받는다 — 로켓그로스(`RFM`)는 받지 않는다.
- *  - 대표이미지는 개발 서버 Playwriter runner 로 WING 상품 수정 화면에 넣는다.
  */
 @Injectable()
 export class CoupangChannelAdapter implements ChannelAdapter {
@@ -40,8 +37,6 @@ export class CoupangChannelAdapter implements ChannelAdapter {
   constructor(
     @Inject(CHANNEL_REGISTRATION_PORT)
     private readonly registration: Pick<ChannelRegistrationPort, 'preflightExternalProductRegistration'>,
-    @Inject(CoupangRepresentativeImageRunnerAdapter)
-    readonly representativeImage: RepresentativeImageRunnerPort,
   ) {}
 
   providerAccountId(account: ChannelAccountIdentity): string | null {

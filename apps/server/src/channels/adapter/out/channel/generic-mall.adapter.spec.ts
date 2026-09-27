@@ -9,7 +9,7 @@ const evidence = (input: Partial<{ providerAccountId: string | null; observedUrl
 describe('GenericMallChannelAdapter', () => {
   it('answers the external account id and no mall payload or image runner', async () => {
     const adapter = new GenericMallChannelAdapter('kidkids');
-    expect(adapter).toMatchObject({ channel: 'kidkids', representativeImage: null });
+    expect(adapter).toMatchObject({ channel: 'kidkids' });
     expect(adapter.providerAccountId(account(' seller-9 '))).toBe('seller-9');
     expect(adapter.providerAccountId(account())).toBeNull();
     await expect(adapter.prepareAdapterPayload()).resolves.toEqual({});

@@ -1,7 +1,6 @@
 import { CHANNEL_ADAPTER_REGISTRY_PORT } from '../application/port/out/channel/channel-adapter.port';
 import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-adapter-registry.adapter';
 import { CoupangChannelAdapter } from '../adapter/out/channel/coupang/coupang-channel.adapter';
-import { CoupangRepresentativeImageRunnerAdapter } from '../adapter/out/channel/coupang/representative-image-runner.adapter';
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from '../application/port/out/content/registrable-thumbnail.port';
 import { THUMBNAIL_EXECUTION_PERSISTENCE_PORT } from '../application/port/out/persistence/thumbnail-execution.persistence.port';
@@ -265,7 +264,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expectBinding(providers, MALL_PUBLISHING_PORT, MallPublishingService);
     // 몰마다 다른 것은 채널 어댑터 registry 하나가 답하고, 대표이미지 runner 도 거기서 온다(KID-321).
     expectBinding(providers, CHANNEL_ADAPTER_REGISTRY_PORT, ChannelAdapterRegistryAdapter);
-    expect(providers).toEqual(expect.arrayContaining([CoupangChannelAdapter, CoupangRepresentativeImageRunnerAdapter]));
+    expect(providers).toEqual(expect.arrayContaining([CoupangChannelAdapter]));
     expectFactoryBinding(providers, ThumbnailExecutionService, [
       CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT,
     ]);
