@@ -22,7 +22,11 @@ import { zIsoDate } from './common.js';
  * `prepared`(KID-358): owner가 자기 트랜잭션 안에서 만들어 두고 나중에 워커나 확장이 claim하는 실행.
  * 잠금은 prepare 때 잡혀 terminal까지 유지된다. 재시도는 `executing → prepared`.
  */
-export const OPERATION_STATUSES = ['prepared', 'executing', 'succeeded', 'failed', 'cancelled'] as const;
+/**
+ * `reconciling`(KID-364): 확장이 몰에 제출했지만 외부 결과(리스팅 id)를 그 자리에서 읽지 못한 등록 실행. 임대는 없고
+ * (`expiresAt` null) 잠금과 청크는 유지되며, owner의 확인(succeeded/failed)이나 운영자 취소로만 끝난다.
+ */
+export const OPERATION_STATUSES = ['prepared', 'executing', 'reconciling', 'succeeded', 'failed', 'cancelled'] as const;
 export const OperationStatusSchema = z.enum(OPERATION_STATUSES);
 export type OperationStatus = z.infer<typeof OperationStatusSchema>;
 

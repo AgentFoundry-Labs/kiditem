@@ -4092,7 +4092,7 @@ var KidItemRuntime = (() => {
   });
 
   // packages/shared/src/schemas/operation.ts
-  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
+  var OPERATION_STATUSES = ["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"];
   var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
   var OPERATION_OUTCOMES = ["succeeded", "failed"];
   var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
@@ -4683,6 +4683,135 @@ var KidItemRuntime = (() => {
     periodSummary: WingTrafficPeriodSummarySchema.nullable(),
     coverage: AdTrafficSourceCoverageSchema,
     reconciliation: AdTrafficSourceReconciliationSchema
+  }).strict();
+  var AD_SETTLEMENT_DOMAINS = ["SELLER", "RETAIL"];
+  var AdSettlementDomainSchema = external_exports.enum(AD_SETTLEMENT_DOMAINS);
+  var adCalendarDate = external_exports.string().date();
+  var adMoney = external_exports.number().int().safe();
+  var adCount = external_exports.number().int().nonnegative().safe();
+  var AdReportScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    startDate: adCalendarDate.optional(),
+    endDate: adCalendarDate.optional()
+  }).strict().refine((scope) => !scope.startDate || !scope.endDate || scope.startDate <= scope.endDate, {
+    message: "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4",
+    path: ["endDate"]
+  });
+  var AdReportPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    vendorId: external_exports.string().min(1).nullable(),
+    startDate: adCalendarDate,
+    endDate: adCalendarDate,
+    settlementDomains: external_exports.array(AdSettlementDomainSchema).min(1),
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var AdReportCampaignSchema = external_exports.object({
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    name: external_exports.string(),
+    isActive: external_exports.boolean(),
+    status: external_exports.string().nullable(),
+    servingStatus: external_exports.string().nullable(),
+    budget: adMoney.nullable(),
+    budgetType: external_exports.string().nullable(),
+    roasTarget: external_exports.number().finite().nullable(),
+    /** 자동 선택(AI스마트광고) 여부 등 광고 선택 방식. 광고센터 `objective`/`adSelectionType` 원문. */
+    adSelectionType: external_exports.string().nullable(),
+    adGroups: external_exports.array(external_exports.object({ adGroupId: external_exports.string().regex(/^[1-9]\d*$/), name: external_exports.string() }).strict()),
+    totalAdCount: adCount.nullable()
+  }).strict();
+  var AdReportAdSchema = external_exports.object({
+    adId: external_exports.string().regex(/^[1-9]\d*$/),
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/),
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    isActive: external_exports.boolean().nullable(),
+    status: external_exports.string().nullable()
+  }).strict();
+  var AdReportProductRowSchema = external_exports.object({
+    date: adCalendarDate,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    campaignName: external_exports.string(),
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/),
+    adGroupName: external_exports.string(),
+    /** 광고한 옵션. */
+    advertisedVendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** 실제 팔린 옵션(halo 행에서 다르다). */
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    placementGroup: external_exports.string(),
+    impressions: adCount,
+    clicks: adCount,
+    spend: adMoney,
+    orders: adCount,
+    units: adCount,
+    revenue: adMoney
+  }).strict();
+  var AdReportKeywordRowSchema = external_exports.object({
+    date: adCalendarDate,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    adGroupName: external_exports.string(),
+    advertisedVendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** 비검색 행은 빈 문자열. */
+    keyword: external_exports.string(),
+    impressions: adCount,
+    clicks: adCount,
+    spend: adMoney,
+    orders: adCount,
+    units: adCount,
+    revenue: adMoney
+  }).strict();
+  var AdReportSettlementRowSchema = external_exports.object({
+    date: adCalendarDate,
+    settlementDomain: AdSettlementDomainSchema,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    campaignName: external_exports.string().nullable(),
+    /** 집행액(`deliveredAdcost`). */
+    deliveredSpend: adMoney,
+    /** 청구액(`billableAmount`: 일예산 초과분 제외·조정 반영, VAT 전). */
+    billedSpend: adMoney,
+    promotionAdjustment: adMoney,
+    billableAdjustment: adMoney
+  }).strict();
+  var AdReportPeriodSchema = external_exports.object({
+    startDate: adCalendarDate,
+    endDate: adCalendarDate,
+    capturedAt: external_exports.string().datetime({ offset: true }),
+    vendorId: external_exports.string().min(1).nullable(),
+    reports: external_exports.array(external_exports.object({
+      granularity: external_exports.enum(["vendorItem", "keyword"]),
+      reportId: external_exports.string().min(1),
+      requestedAt: external_exports.string().datetime({ offset: true }),
+      completedAt: external_exports.string().datetime({ offset: true }),
+      rowCount: adCount,
+      isLargeReport: external_exports.boolean()
+    }).strict()).min(2),
+    campaignCount: adCount,
+    adCount
+  }).strict();
+  var AdReportReconciliationWarningSchema = external_exports.object({
+    date: adCalendarDate,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    reportSpend: adMoney,
+    settlementSpend: adMoney
+  }).strict();
+  var AdReportResultSchema = external_exports.object({
+    startDate: adCalendarDate,
+    endDate: adCalendarDate,
+    confirmedEndDate: adCalendarDate,
+    productRowCount: adCount,
+    keywordRowCount: adCount,
+    campaignCount: adCount,
+    adCount,
+    settlementRowCount: adCount,
+    /** 창 안 집행액·청구액 합(원). */
+    spendTotal: adMoney,
+    billedTotal: adMoney,
+    /** 보고서에만 있어 `billedSpend = spend`로 넣은 캠페인×일 수("정산 미확인" 경고). */
+    unsettledCampaignDays: adCount,
+    /** 정산에만 있어 계정 조정으로 넣은 행 수. */
+    accountAdjustmentRows: adCount,
+    warnings: external_exports.array(AdReportReconciliationWarningSchema)
   }).strict();
 
   // extensions/src/collectors/collector.ts
@@ -5398,6 +5527,86 @@ var KidItemRuntime = (() => {
   };
   registerCollector(sellpiaSalesCollector);
 
+  // packages/shared/src/operation-lifecycle.ts
+  var OPERATION_STATUSES2 = [
+    "prepared",
+    "executing",
+    "reconciling",
+    "succeeded",
+    "failed",
+    "cancelled"
+  ];
+  var PROVIDER_OUTCOMES = [
+    "not_attempted",
+    "uncertain",
+    "succeeded",
+    "definitive_failure"
+  ];
+  var OperationStatusSchema2 = external_exports.enum(OPERATION_STATUSES2);
+  var ProviderOutcomeSchema = external_exports.enum(PROVIDER_OUTCOMES);
+
+  // packages/shared/src/registration-execution.ts
+  var TARGET_EXECUTION_KINDS = ["register", "update", "sold_out", "resume", "composition_change"];
+
+  // packages/shared/src/thumbnail-execution.ts
+  var THUMBNAIL_UPDATE_EXECUTION_KIND = "thumbnail_update";
+  var ThumbnailExecutionPrepareRequestSchema = external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    /** 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
+    assetId: external_exports.string().uuid().optional(),
+    /** 판매상품에 쿠팡 listing 이 여럿일 때만 고른다. */
+    channelListingId: external_exports.string().uuid().optional()
+  }).strict();
+  var ThumbnailExecutionImageSchema = external_exports.object({
+    dataUrl: external_exports.string().min(1),
+    filename: external_exports.string().min(1),
+    mimeType: external_exports.string().min(1)
+  }).strict();
+  var ThumbnailExecutionPrepareResponseSchema = external_exports.object({
+    executionId: external_exports.string().uuid(),
+    salesProductId: external_exports.string().uuid(),
+    assetId: external_exports.string().uuid(),
+    productName: external_exports.string().min(1),
+    image: ThumbnailExecutionImageSchema
+  }).strict();
+  var ThumbnailExecutionReportRequestSchema = external_exports.discriminatedUnion("outcome", [
+    external_exports.object({
+      outcome: external_exports.literal("uploaded_pending_save"),
+      screenshotUrl: external_exports.string().trim().min(1).max(2048).optional(),
+      externalId: external_exports.string().trim().min(1).max(120).optional()
+    }).strict(),
+    external_exports.object({ outcome: external_exports.literal("definitive_failure"), error: external_exports.string().trim().min(1).max(2e3) }).strict(),
+    external_exports.object({ outcome: external_exports.literal("uncertain"), error: external_exports.string().trim().min(1).max(2e3) }).strict()
+  ]);
+  var ThumbnailExecutionResultSchema = external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    assetId: external_exports.string().uuid(),
+    executionId: external_exports.string().uuid(),
+    success: external_exports.boolean(),
+    status: OperationStatusSchema2,
+    screenshotPath: external_exports.string().nullable(),
+    error: external_exports.string().optional()
+  }).strict();
+  var ThumbnailExecutionListingChoiceSchema = external_exports.object({
+    channelListingId: external_exports.string().uuid(),
+    channelName: external_exports.string().nullable(),
+    channelAccountName: external_exports.string(),
+    externalId: external_exports.string()
+  }).strict();
+  var ThumbnailExecutionStatusQuerySchema = external_exports.object({
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(200)
+  }).strict();
+  var ThumbnailExecutionStatusSchema = external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    assetId: external_exports.string().uuid(),
+    executionId: external_exports.string().uuid(),
+    status: OperationStatusSchema2,
+    providerOutcome: ProviderOutcomeSchema,
+    checkedAt: zIsoDate.nullable(),
+    error: external_exports.string().nullable(),
+    screenshotPath: external_exports.string().nullable()
+  }).strict();
+
   // packages/shared/src/schemas/channels-operations.ts
   var SABANGNET_MALL_LISTINGS_KIND = "channels.sabangnet_mall_listings";
   var MALL_ADMIN_LISTINGS_KIND = "channels.mall_admin_listings";
@@ -5423,6 +5632,78 @@ var KidItemRuntime = (() => {
   var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var CHANNELS_OPERATION_CAPABILITY = "channelsOperationKindsV1";
+  var REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, THUMBNAIL_UPDATE_EXECUTION_KIND];
+  var RegistrationExecutionKindSchema = external_exports.enum(REGISTRATION_EXECUTION_KINDS);
+  var RegistrationScopeSchema = external_exports.object({
+    executionKind: RegistrationExecutionKindSchema,
+    /** register·update·composition_change·sold_out·resume: 등록 대상. thumbnail_update: 판매 상품(`salesProductId`). */
+    registrationTargetId: external_exports.string().uuid().optional(),
+    salesProductId: external_exports.string().uuid().optional(),
+    channelListingId: external_exports.string().uuid().optional(),
+    expectedVersion: external_exports.number().int().positive().optional(),
+    idempotencyKey: external_exports.string().trim().min(1).max(200),
+    submit: external_exports.boolean().default(false),
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean().optional(),
+    optionTransitions: external_exports.array(external_exports.object({
+      channelListingOptionId: external_exports.string().uuid(),
+      salesProductOptionId: external_exports.string().uuid()
+    }).strict()).max(1e3).optional(),
+    /** thumbnail_update만: 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
+    assetId: external_exports.string().uuid().optional()
+  }).strict().refine(
+    (scope) => scope.executionKind === "thumbnail_update" ? scope.salesProductId !== void 0 : scope.registrationTargetId !== void 0,
+    { message: "\uB4F1\uB85D \uB300\uC0C1(\uB610\uB294 \uC378\uB124\uC77C\uC740 \uD310\uB9E4 \uC0C1\uD488)\uC774 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["registrationTargetId"] }
+  );
+  var RegistrationPlanSchema = external_exports.object({
+    executionKind: RegistrationExecutionKindSchema,
+    mallKey: external_exports.string().min(1).max(64),
+    channelAccountId: external_exports.string().uuid(),
+    registrationTargetId: external_exports.string().uuid().nullable(),
+    salesProductId: external_exports.string().uuid().nullable(),
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().min(1).nullable(),
+    /** 몰 세션의 판매자 식별자와 대조한다(Wing `vendorId`, 몰 `providerAccountId`). 없으면 대조 생략. */
+    expectedProviderAccountId: external_exports.string().min(1).nullable(),
+    submit: external_exports.boolean(),
+    payloadHash: external_exports.string().min(1),
+    payload: external_exports.record(external_exports.string(), external_exports.unknown()),
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var RegistrationFillSchema = external_exports.object({
+    steps: external_exports.array(external_exports.string()),
+    warnings: external_exports.array(external_exports.string()),
+    manualSteps: external_exports.array(external_exports.string()),
+    /** 몰이 띄운 대화상자 문장(가드가 기록한 것). */
+    dialogs: external_exports.array(external_exports.string())
+  }).strict();
+  var RegistrationEvidenceSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    externalListingId: external_exports.string().trim().min(1).nullable(),
+    observedUrl: external_exports.string().url().nullable(),
+    providerAccountId: external_exports.string().nullable(),
+    observedStatus: external_exports.string().nullable(),
+    message: external_exports.string().nullable(),
+    options: external_exports.array(external_exports.object({
+      salesProductOptionId: external_exports.string().uuid(),
+      externalOptionId: external_exports.string().trim().min(1),
+      sellerSku: external_exports.string().nullable()
+    }).strict())
+  }).strict();
+  var REGISTRATION_MALL_OUTCOMES = ["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"];
+  var RegistrationMallOutcomeSchema = external_exports.enum(REGISTRATION_MALL_OUTCOMES);
+  var RegistrationResultSchema = external_exports.object({
+    providerOutcome: ProviderOutcomeSchema,
+    mallOutcome: RegistrationMallOutcomeSchema,
+    submitted: external_exports.boolean(),
+    submitSkipped: external_exports.string().nullable(),
+    externalListingId: external_exports.string().nullable(),
+    mallMessage: external_exports.string().nullable(),
+    fill: RegistrationFillSchema,
+    evidence: RegistrationEvidenceSchema.nullable()
+  }).strict();
 
   // packages/shared/src/schemas/mall-admin-listings.ts
   var MALL_ADMIN_LISTINGS_SOURCE_TYPE = "mall_admin_listings";

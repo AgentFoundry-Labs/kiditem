@@ -719,3 +719,198 @@ export function dailyTrafficFactSource(metaJson: unknown): DailyTrafficFactSourc
   // 표식 이전에 쓴 행은 Wing 이름공간을 갖는다.
   return jsonRecord(root['wing.traffic']) !== null || root.source === 'wing.traffic' ? 'wing' : null;
 }
+
+// H′-a — 광고 보고서 kind(KID-367 설계 → KID-371 expand). 광고센터 보고서 2개(상품·키워드) + 정산을 한 실행으로 받아
+// 광고 원장 5표에 쓴다. 옛 표·리더는 이 조각에서 건드리지 않는다(삭제는 KID-373).
+
+export const AD_REPORT_KIND = 'advertising.ad_report' as const;
+/** 이 kind를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 웹이 시작 전에 본다. */
+export const ADVERTISING_AD_REPORT_OPERATION_CAPABILITY = 'advertisingAdReportOperationKindV1' as const;
+/** 기본 창 = [어제−14, 어제](15일). 과거 달 채우기는 같은 kind를 창 한 달로 부른다. */
+export const AD_REPORT_DEFAULT_WINDOW_DAYS = 15;
+/** 정산 조회(`getDailySettlementByCampaigns`) 상한이 31일이라 한 실행의 창도 31일까지. */
+export const AD_REPORT_MAX_WINDOW_DAYS = 31;
+/** 정산 영역. 둘 다 한 번씩 읽는다(KID-367). */
+export const AD_SETTLEMENT_DOMAINS = ['SELLER', 'RETAIL'] as const;
+export const AdSettlementDomainSchema = z.enum(AD_SETTLEMENT_DOMAINS);
+export type AdSettlementDomain = z.infer<typeof AdSettlementDomainSchema>;
+
+/**
+ * 잠금 키 `resource:ad-center:<channelAccountId>`(2026-09-25 16:34 결정): 광고센터는 Wing과 다른 로그인·탭이라
+ * 카탈로그 kind의 `account:<id>`를 잡지 않는다. 사이트 이름은 키의 둘째 마디와 같은 `ad-center`여야 탭이 열린다.
+ */
+export const AD_CENTER_SITE = 'ad-center' as const;
+export function adCenterLockKey(channelAccountId: string): OperationLockKey {
+  return resourceLockKey(AD_CENTER_SITE, channelAccountId);
+}
+
+const adCalendarDate = z.string().date();
+const adMoney = z.number().int().safe();
+const adCount = z.number().int().nonnegative().safe();
+
+/** 시작: 쿠팡 계정 하나와 (선택) KST 날짜 창. 비우면 plan이 기본 15일 창을 정한다. */
+export const AdReportScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  startDate: adCalendarDate.optional(),
+  endDate: adCalendarDate.optional(),
+}).strict().refine((scope) => !scope.startDate || !scope.endDate || scope.startDate <= scope.endDate, {
+  message: '시작일이 종료일보다 늦습니다',
+  path: ['endDate'],
+});
+export type AdReportScope = z.infer<typeof AdReportScopeSchema>;
+
+/** owner plan(확장 collector가 받는 것). `vendorId`는 광고센터 세션의 업체코드와 대조한다(없으면 대조 생략). */
+export const AdReportPlanSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  vendorId: z.string().min(1).nullable(),
+  startDate: adCalendarDate,
+  endDate: adCalendarDate,
+  settlementDomains: z.array(AdSettlementDomainSchema).min(1),
+  startedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type AdReportPlan = z.infer<typeof AdReportPlanSchema>;
+
+/** 청크 종류. 행 청크는 1MB 안쪽으로 잘라 보낸다(`AD_REPORT_ROWS_PER_CHUNK` 이하). */
+export const AD_REPORT_ROWS_PER_CHUNK = 1_500;
+export const AD_REPORT_CAMPAIGNS_CHUNK_KIND = 'ad_campaigns' as const;
+export const AD_REPORT_ADS_CHUNK_KIND = 'ad_ads' as const;
+export const AD_REPORT_PRODUCT_ROWS_CHUNK_KIND = 'ad_product_rows' as const;
+export const AD_REPORT_KEYWORD_ROWS_CHUNK_KIND = 'ad_keyword_rows' as const;
+export const AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND = 'ad_settlement_rows' as const;
+/** 창 전체의 증거 하나(보고서 id·생성 시각·행 수). 마지막에 한 번 보낸다. */
+export const AD_REPORT_PERIOD_CHUNK_KIND = 'ad_period' as const;
+
+/** 캠페인 현재 상태(`tetris-api/campaigns`). 보고서에만 있는 삭제 캠페인은 finalize가 보고서 행에서 이름만 채운다. */
+export const AdReportCampaignSchema = z.object({
+  campaignId: z.string().regex(/^[1-9]\d*$/),
+  name: z.string(),
+  isActive: z.boolean(),
+  status: z.string().nullable(),
+  servingStatus: z.string().nullable(),
+  budget: adMoney.nullable(),
+  budgetType: z.string().nullable(),
+  roasTarget: z.number().finite().nullable(),
+  /** 자동 선택(AI스마트광고) 여부 등 광고 선택 방식. 광고센터 `objective`/`adSelectionType` 원문. */
+  adSelectionType: z.string().nullable(),
+  adGroups: z.array(z.object({ adGroupId: z.string().regex(/^[1-9]\d*$/), name: z.string() }).strict()),
+  totalAdCount: adCount.nullable(),
+}).strict();
+export type AdReportCampaign = z.infer<typeof AdReportCampaignSchema>;
+
+/** 광고(상품) 현재 상태(`tetris-api/{groupId}/ads`, size 500·totalCount 페이지). */
+export const AdReportAdSchema = z.object({
+  adId: z.string().regex(/^[1-9]\d*$/),
+  campaignId: z.string().regex(/^[1-9]\d*$/),
+  adGroupId: z.string().regex(/^[1-9]\d*$/),
+  vendorItemId: z.string().regex(/^[1-9]\d*$/).nullable(),
+  isActive: z.boolean().nullable(),
+  status: z.string().nullable(),
+}).strict();
+export type AdReportAd = z.infer<typeof AdReportAdSchema>;
+
+/**
+ * 상품 보고서 행(chart-report NDJSON, granularity vendorItem, dateGroup daily). 전환은 14일 direct+halo 합
+ * (`*_14_days` direct+halo). 검색/비검색(`placement_group`) 두 행을 그대로 싣고 합산은 finalize가 한다.
+ */
+export const AdReportProductRowSchema = z.object({
+  date: adCalendarDate,
+  campaignId: z.string().regex(/^[1-9]\d*$/),
+  campaignName: z.string(),
+  adGroupId: z.string().regex(/^[1-9]\d*$/),
+  adGroupName: z.string(),
+  /** 광고한 옵션. */
+  advertisedVendorItemId: z.string().regex(/^[1-9]\d*$/),
+  /** 실제 팔린 옵션(halo 행에서 다르다). */
+  vendorItemId: z.string().regex(/^[1-9]\d*$/),
+  placementGroup: z.string(),
+  impressions: adCount,
+  clicks: adCount,
+  spend: adMoney,
+  orders: adCount,
+  units: adCount,
+  revenue: adMoney,
+}).strict();
+export type AdReportProductRow = z.infer<typeof AdReportProductRowSchema>;
+
+/** 키워드 보고서 행(granularity keyword, excludeIfNoClickCount). `adGroupId`는 상품 보고서에서 (캠페인, 그룹 이름)으로 맞춘다. */
+export const AdReportKeywordRowSchema = z.object({
+  date: adCalendarDate,
+  campaignId: z.string().regex(/^[1-9]\d*$/),
+  adGroupId: z.string().regex(/^[1-9]\d*$/).nullable(),
+  adGroupName: z.string(),
+  advertisedVendorItemId: z.string().regex(/^[1-9]\d*$/),
+  vendorItemId: z.string().regex(/^[1-9]\d*$/),
+  /** 비검색 행은 빈 문자열. */
+  keyword: z.string(),
+  impressions: adCount,
+  clicks: adCount,
+  spend: adMoney,
+  orders: adCount,
+  units: adCount,
+  revenue: adMoney,
+}).strict();
+export type AdReportKeywordRow = z.infer<typeof AdReportKeywordRowSchema>;
+
+/** 정산 캠페인×일(`getDailySettlementByCampaigns` items). 캠페인 없는 조정 행은 `campaignId` null(계정 광고비 조정). */
+export const AdReportSettlementRowSchema = z.object({
+  date: adCalendarDate,
+  settlementDomain: AdSettlementDomainSchema,
+  campaignId: z.string().regex(/^[1-9]\d*$/).nullable(),
+  campaignName: z.string().nullable(),
+  /** 집행액(`deliveredAdcost`). */
+  deliveredSpend: adMoney,
+  /** 청구액(`billableAmount`: 일예산 초과분 제외·조정 반영, VAT 전). */
+  billedSpend: adMoney,
+  promotionAdjustment: adMoney,
+  billableAdjustment: adMoney,
+}).strict();
+export type AdReportSettlementRow = z.infer<typeof AdReportSettlementRowSchema>;
+
+/** 창 전체의 증거: 어떤 보고서를 언제 만들어 몇 행을 읽었는가. 실행 결과 화면과 대조에 쓴다. */
+export const AdReportPeriodSchema = z.object({
+  startDate: adCalendarDate,
+  endDate: adCalendarDate,
+  capturedAt: z.string().datetime({ offset: true }),
+  vendorId: z.string().min(1).nullable(),
+  reports: z.array(z.object({
+    granularity: z.enum(['vendorItem', 'keyword']),
+    reportId: z.string().min(1),
+    requestedAt: z.string().datetime({ offset: true }),
+    completedAt: z.string().datetime({ offset: true }),
+    rowCount: adCount,
+    isLargeReport: z.boolean(),
+  }).strict()).min(2),
+  campaignCount: adCount,
+  adCount: adCount,
+}).strict();
+export type AdReportPeriod = z.infer<typeof AdReportPeriodSchema>;
+
+/** 캠페인×일 대조 경고: 보고서 광고비 합 vs 정산 집행액(1% 또는 1,000원 초과). 데이터는 그대로 반영한다(2026-09-25 15:56 결정). */
+export const AdReportReconciliationWarningSchema = z.object({
+  date: adCalendarDate,
+  campaignId: z.string().regex(/^[1-9]\d*$/),
+  reportSpend: adMoney,
+  settlementSpend: adMoney,
+}).strict();
+export type AdReportReconciliationWarning = z.infer<typeof AdReportReconciliationWarningSchema>;
+
+/** 실행 `result`(finalize가 쓴다). `confirmedEndDate`는 전날 보류 규칙 뒤의 창 끝(실행 창도 이것으로 좁힌다). */
+export const AdReportResultSchema = z.object({
+  startDate: adCalendarDate,
+  endDate: adCalendarDate,
+  confirmedEndDate: adCalendarDate,
+  productRowCount: adCount,
+  keywordRowCount: adCount,
+  campaignCount: adCount,
+  adCount: adCount,
+  settlementRowCount: adCount,
+  /** 창 안 집행액·청구액 합(원). */
+  spendTotal: adMoney,
+  billedTotal: adMoney,
+  /** 보고서에만 있어 `billedSpend = spend`로 넣은 캠페인×일 수("정산 미확인" 경고). */
+  unsettledCampaignDays: adCount,
+  /** 정산에만 있어 계정 조정으로 넣은 행 수. */
+  accountAdjustmentRows: adCount,
+  warnings: z.array(AdReportReconciliationWarningSchema),
+}).strict();
+export type AdReportResult = z.infer<typeof AdReportResultSchema>;

@@ -361,7 +361,7 @@ export class OperationService implements OperationPort {
         errorCode: null,
         errorMessage: null,
         result: finalized.result ?? request.result ?? null,
-        window,
+        window: narrowedWindow(window, finalized.window),
         finishedAt: now,
       });
       return { ok: { operation: toOperationView(closed) } };
@@ -496,4 +496,15 @@ function inProgress(holder: OperationRecord): KiditemConflictError {
     expiresAt: holder.expiresAt.toISOString(),
   };
   return new KiditemConflictError('OPERATION_IN_PROGRESS', { details: { ...details } });
+}
+
+/** owner finalize가 돌려준 창은 요청 창 안으로만 좁힐 수 있다(KID-371 전날 보류). 밖으로 나가면 요청 창을 지킨다. */
+function narrowedWindow(
+  requested: OperationWindow | null,
+  narrowed: OperationWindow | undefined,
+): OperationWindow | null {
+  if (!narrowed) return requested;
+  if (!requested) return narrowed;
+  if (narrowed.start < requested.start || narrowed.end > requested.end) return requested;
+  return narrowed;
 }

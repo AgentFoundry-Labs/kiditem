@@ -1,3 +1,4 @@
+import type { OperationStatus } from '@kiditem/shared/operation';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { AiDirectJob } from '../../../../domain/direct-job/ai-direct-job-operation';
 import type { AiDirectJobEnvelope, AiDirectJobType } from '../../../../domain/direct-job/ai-direct-job.schema';
@@ -13,7 +14,8 @@ export interface AiDirectJobRequest {
 /** 화면이 보는 job 상태(image_edit 조회·취소). */
 export interface AiDirectJobState {
   id: string;
-  status: 'prepared' | 'executing' | 'succeeded' | 'failed' | 'cancelled';
+  /** 실행 계약 상태 그대로(AI job은 `reconciling`을 쓰지 않지만 계약 열거를 좁혀 들지 않는다). */
+  status: OperationStatus;
   /** 결과를 받아 두었고 원장 반영만 남았다(옛 `projecting`). */
   resultSaved: boolean;
   result: Record<string, unknown> | null;
