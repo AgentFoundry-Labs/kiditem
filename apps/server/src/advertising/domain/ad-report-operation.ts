@@ -36,7 +36,7 @@ const KNOWN_CHUNK_KINDS = new Set<string>([
   AD_REPORT_PERIOD_CHUNK_KIND,
 ]);
 
-/** 상품 보고서가 광고그룹 id를 주지 않았고 캠페인 목록으로도 풀지 못한 행의 키 값. */
+/** 보고서가 광고그룹 id를 주지 않았고 캠페인 목록·상품 보고서로도 풀지 못한 행의 키 값(상품·키워드 표 공통). */
 export const UNKNOWN_AD_GROUP_ID = '';
 
 type Metrics = { impressions: number; clicks: number; spend: number; orders: number; units: number; revenue: number };
@@ -54,7 +54,7 @@ export type AdReportProductFact = Metrics & {
 export type AdReportKeywordFact = Metrics & {
   date: string;
   campaignId: string;
-  adGroupId: string | null;
+  adGroupId: string;
   optionId: string;
   keyword: string;
 };
@@ -102,7 +102,7 @@ export function adReportPlanWindow(scope: AdReportScope, closedDay: string): { s
  * 맞아야 한다(없으면 "보고서 행이 없습니다"). 증거가 있으면 행 0개도 측정한 0이다(KID-45) — 창의 옛 행을 지우고 성공한다. 창 끝은 전날 보류 규칙으로 정하고
  * (`confirmedAdReportEnd`), 확정 창 밖 행은 버린다. 상품 행은 (날짜, 캠페인, 광고그룹, 광고 옵션)으로, 키워드 행은
  * 거기에 키워드를 더해 합한다. 빈 광고그룹은 캠페인 목록과 상품 보고서의 (캠페인, 그룹 이름)으로 채우고, 그래도 없으면
- * 상품 행은 `''`, 키워드 행은 null로 둔다.
+ * 상품·키워드 행 모두 `''`로 둔다(unique 키가 NULL로 새지 않게).
  */
 export function completeAdReport(
   chunks: readonly OperationStagedChunk[],
@@ -168,8 +168,8 @@ export function completeAdReport(
   const keywords = new Map<string, AdReportKeywordFact>();
   for (const row of keywordRows) {
     if (!inWindow(row.date)) continue;
-    const adGroupId = resolveAdGroupId(row);
-    const key = [row.date, row.campaignId, adGroupId ?? '', row.advertisedVendorItemId, row.keyword].join(':');
+    const adGroupId = resolveAdGroupId(row) ?? UNKNOWN_AD_GROUP_ID;
+    const key = [row.date, row.campaignId, adGroupId, row.advertisedVendorItemId, row.keyword].join(':');
     const current = keywords.get(key);
     if (current) addMetrics(current, row);
     else keywords.set(key, { date: row.date, campaignId: row.campaignId, adGroupId, optionId: row.advertisedVendorItemId, keyword: row.keyword, ...metricsOf(row) });

@@ -444,8 +444,8 @@ model ChannelAdKeywordDailySnapshot {
   channelAccountId String   @map("channel_account_id") @db.Uuid
   date             DateTime @db.Date
   campaignId       String   @map("campaign_id")
-  /// 키워드 보고서에 없으면 상품 보고서에서 (캠페인, 그룹 이름)으로 채운다. 그래도 없으면 null.
-  adGroupId        String?  @map("ad_group_id")
+  /// 키워드 보고서에 없으면 캠페인 목록·상품 보고서에서 (캠페인, 그룹 이름)으로 채운다. 그래도 없으면 ''(상품 표와 같다).
+  adGroupId        String   @map("ad_group_id")
   optionId         String   @map("option_id")
   keyword          String
 

@@ -444,7 +444,11 @@ describe('advertising.ad_report owner over the operation contract + disposable P
         productRow({ date: day(0), campaignId: '77', campaignName: '지난 캠페인', adGroupId: null, adGroupName: '옛 그룹', spend: 30 }),
         productRow({ date: day(0), campaignId: '77', campaignName: '지난 캠페인', adGroupId: null, adGroupName: '옛 그룹', placementGroup: '비검색', spend: 20 }),
       ],
-      keywords: [keywordRow({ date: day(0), adGroupId: null, adGroupName: '그룹 가', keyword: '블록' })],
+      keywords: [
+        keywordRow({ date: day(0), adGroupId: null, adGroupName: '그룹 가', keyword: '블록' }),
+        keywordRow({ date: day(0), campaignId: '77', adGroupId: null, adGroupName: '옛 그룹', keyword: '인형' }),
+        keywordRow({ date: day(0), campaignId: '77', adGroupId: null, adGroupName: '옛 그룹', keyword: '인형', spend: 200 }),
+      ],
     });
     await finish(run).expect(200);
     const products = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: { campaignId: 'asc' } });
@@ -452,8 +456,9 @@ describe('advertising.ad_report owner over the operation contract + disposable P
       ['11', '101', 500],
       ['77', '', 50],
     ]);
-    const keywords = await prisma.channelAdKeywordDailySnapshot.findMany({ where: { organizationId: ORG } });
-    expect(keywords.map((row) => [row.keyword, row.adGroupId])).toEqual([['블록', '101']]);
+    // 키워드 행도 풀지 못한 광고그룹은 '' 한 칸으로 모인다(unique가 NULL로 새지 않게).
+    const keywords = await prisma.channelAdKeywordDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: { keyword: 'asc' } });
+    expect(keywords.map((row) => [row.keyword, row.adGroupId, row.spend])).toEqual([['블록', '101', 500], ['인형', '', 700]]);
   });
 
   it('refuses a one-day window on yesterday whose spend is still zero instead of storing a reversed window', async () => {
