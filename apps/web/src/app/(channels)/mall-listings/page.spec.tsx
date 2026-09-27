@@ -141,8 +141,9 @@ vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/sourci
   productsApi: { list: vi.fn() },
 }));
 
-vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-api', () => ({
-  prepareKidsnoteRegistration: prepareKidsnoteMock,
+vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api')>()),
+  prepareMallRegistration: prepareKidsnoteMock,
 }));
 
 vi.mock('../_shared/adapters/coupang-wing/wing-excel-export', () => ({

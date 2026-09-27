@@ -1,5 +1,4 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { prepareKidsnoteRegistration } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-api';
 import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   buildKidsnoteDisplayName,
@@ -11,7 +10,7 @@ import {
   type KidsnoteCategoryKey,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, publishItemSalesProductId } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
@@ -154,9 +153,8 @@ export const kidsnoteAdapter: MallPublishAdapter = {
 
   async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const categoryKey = values.category ?? KIDSNOTE_DEFAULT_CATEGORY;
-    const { draft } = item.source === 'sales_product'
-      ? await prepareRegistration(item, 'kidsnote')
-      : await prepareKidsnoteRegistration(publishItemSalesProductId(item));
+    // 판매상품이면 판매상품에서, 수집상품이면 다른 몰과 같은 초안(저장된 상세를 이미지 한 장으로)에서.
+    const { draft } = await prepareRegistration(item, 'kidsnote');
     // 폼을 채운 것은 등록이 아니다. 사람이 제출하고 몰이 승인해야 등록이다.
     return checkedMallForm(draft, kidsnoteFormFromDraft(draft, {
       ...(isCategoryKey(categoryKey) ? { category: categoryKey } : {}),
