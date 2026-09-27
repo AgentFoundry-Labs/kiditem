@@ -38,7 +38,13 @@ import {
   leaseExpiresAt,
 } from '../../domain/operation-fence';
 import { canonicalOwnerInputHash } from '../../../owner-idempotency-key';
-import type { OperationActor, OperationClaimed, OperationPort, OperationPrepareResult } from '../port/in/operation.port';
+import type {
+  OperationActor,
+  OperationClaimed,
+  OperationPort,
+  OperationPrepareResult,
+  OperationResolveInput,
+} from '../port/in/operation.port';
 import {
   OPERATION_REPOSITORY,
   type OperationClosure,
@@ -177,7 +183,7 @@ export class OperationService implements OperationPort {
   }
 
   /**
-   * 끝난 실행은 close가 잠금을 함께 지우므로 보유자는 executing 또는 prepared다. 임대가 끝난 executing은
+   * 끝난 실행은 close가 잠금을 함께 지우므로 보유자는 executing·prepared·reconciling이다(reconciling은 임대가 없어 만료되지 않는다). 임대가 끝난 executing은
    * 그 자리에서 만료 처분하고(재시도가 남으면 prepared로 돌아가 키를 계속 쥔다), 아직 쥐고 있으면 거절한다.
    */
   private async refuseHeldKeys(tx: OperationTransaction, organizationId: string, lockKeys: string[], now: Date) {
@@ -345,25 +351,67 @@ export class OperationService implements OperationPort {
         });
         return { ok: { operation: toOperationView(closed) } };
       }
-      const owner = this.owners.find(operation.kind);
-      if (!owner) throw new KiditemExternalError('INTERNAL_ERROR', { cause: `operation kind ${operation.kind} has no owner` });
-      const window = request.window ?? operation.window;
-      const finalized = await owner.finalize(await tx.stagedChunks(operation.id), window, {
-        tx: tx.ownerTransaction,
-        organizationId: input.organizationId,
-        operationId: operation.id,
-        plan: operation.plan ?? {},
-        attempts: operation.attempts,
-        maxAttempts: operation.maxAttempts,
-      });
-      const closed = await tx.close(input.organizationId, operation.id, {
-        status: 'succeeded',
-        errorCode: null,
-        errorMessage: null,
-        result: finalized.result ?? request.result ?? null,
-        window: narrowedWindow(window, finalized.window),
-        finishedAt: now,
-      });
+      if (request.outcome === 'reconciling') {
+        if (!this.owners.find(operation.kind)?.reconciles) {
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'reconciling_not_supported' } });
+        }
+        // KID-364: 몰에 제출했지만 외부 결과를 못 읽었다. 잠금·청크를 쥔 채 owner 확인을 기다린다(finalize 없음).
+        const held = await tx.hold(input.organizationId, operation.id, { result: request.result ?? {}, heldAt: now });
+        return { ok: { operation: toOperationView(held) } };
+      }
+      const closed = await this.finalizeAndClose(tx, operation, request.window ?? operation.window, request.result ?? null, now);
+      return { ok: { operation: toOperationView(closed) } };
+    });
+    return unwrap(outcome);
+  }
+
+  /** 성공 종료: owner `finalize`가 같은 트랜잭션에서 원장을 쓰고, 청크·잠금을 지우며 닫는다. */
+  private async finalizeAndClose(
+    tx: OperationTransaction,
+    operation: OperationRecord,
+    window: OperationWindow | null,
+    result: Record<string, unknown> | null,
+    now: Date,
+  ): Promise<OperationRecord> {
+    const owner = this.owners.find(operation.kind);
+    if (!owner) throw new KiditemExternalError('INTERNAL_ERROR', { cause: `operation kind ${operation.kind} has no owner` });
+    const finalized = await owner.finalize(await tx.stagedChunks(operation.id), window, {
+      tx: tx.ownerTransaction,
+      organizationId: operation.organizationId,
+      operationId: operation.id,
+      plan: operation.plan ?? {},
+      result,
+      attempts: operation.attempts,
+      maxAttempts: operation.maxAttempts,
+    });
+    return tx.close(operation.organizationId, operation.id, {
+      status: 'succeeded',
+      errorCode: null,
+      errorMessage: null,
+      result: finalized.result ?? result,
+      window: narrowedWindow(window, finalized.window),
+      finishedAt: now,
+    });
+  }
+
+  async resolve(input: OperationResolveInput): Promise<OperationFinishResponse> {
+    const outcome = await this.operations.transaction(async (tx): Promise<Deferred<OperationFinishResponse>> => {
+      const now = new Date();
+      const operation = await tx.lockOperation(input.organizationId, input.operationId);
+      if (!operation) return { notFound: true };
+      if (operation.status !== 'reconciling') return { reject: 'terminal', operationId: operation.id };
+      const result = { ...(operation.result ?? {}), ...(input.result ?? {}) };
+      if (input.outcome === 'failed') {
+        const closed = await this.closeFailed(tx, operation, {
+          status: 'failed',
+          errorCode: input.errorCode ?? 'UNKNOWN',
+          errorMessage: input.errorMessage ?? null,
+          result,
+          finishedAt: now,
+        });
+        return { ok: { operation: toOperationView(closed) } };
+      }
+      const closed = await this.finalizeAndClose(tx, operation, operation.window, result, now);
       return { ok: { operation: toOperationView(closed) } };
     });
     return unwrap(outcome);

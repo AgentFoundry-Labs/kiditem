@@ -339,9 +339,10 @@ function capabilityCatalogFindings(files) {
   const keys = capabilityFiles.flatMap(capabilityKeys);
   const sourcingCount = keys.filter((key) => key.startsWith("sourcing.")).length;
   const findings = [];
-  if (keys.length !== 16) {
+  // KID-364: 16 → 11. The five Channels mall-write capabilities left with the registration execution table.
+  if (keys.length !== 11) {
     findings.push(
-      "apps/server/src: Capability catalog must define exactly sixteen definitions (found " +
+      "apps/server/src: Capability catalog must define exactly eleven definitions (found " +
         keys.length +
         ")",
     );

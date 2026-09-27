@@ -1,78 +1,22 @@
 import type { StockoutCheckPort, StockoutCheckResult } from '../../port/in/listing/stockout-check.port';
 import type { StockoutCheckPersistencePort, StockoutSubject } from '../../port/out/persistence/stockout-check.persistence.port';
-import type { RegistrationExecutionRepositoryPort } from '../../port/out/repository/registration-execution.repository.port';
 import type { ChannelAdapter, ChannelAdapterRegistryPort } from '../../port/out/channel/channel-adapter.port';
-import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import type { ListingAvailabilitySnapshot } from '@kiditem/shared/sales-product';
-import { KiditemConflictError, KiditemError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { decideStockout } from '../../../domain/listing/stockout-policy';
 import { SalesProductDraftError, requireConfirmedPrice } from '../../../domain/sales-product/sales-product-draft';
 import type { SalesProductOptionSupplyStatus, SalesProductStatus } from '@kiditem/shared/sales-product';
 
-const POLICY = 'capacity_at_or_below_safety_stock' as const;
-
-/** Explicit stockout coordination; collection and stock recovery do not invoke this service. */
+/**
+ * 품절 후보 미리보기. 송신은 등록 실행(`channels.registration` 의 `sold_out`, 계정 리스팅 묶음)이 한다(KID-364) —
+ * 수집 · 재고 회복은 이 서비스를 부르지 않는다.
+ */
 export class StockoutCheckService implements StockoutCheckPort {
   constructor(private readonly persistence: StockoutCheckPersistencePort,
-    private readonly executions: Pick<RegistrationExecutionRepositoryPort, 'prepareListingAvailability' | 'findListingAvailabilityByKey'>,
     /** 옵션 단위 몰이 어느 옵션에 판매자 재고를 받는지는 채널 어댑터가 답한다(KID-321). */
     private readonly adapters: ChannelAdapterRegistryPort) {}
 
   async preview(organizationId: string, listingIds: readonly string[]): Promise<StockoutCheckResult[]> {
     return (await this.persistence.readSubjects(organizationId, listingIds)).map(subject => evaluate(subject, this.adapters.get(subject.channel)));
-  }
-
-  async prepare(organizationId: string, userId: string | null, input: { listingId: string; idempotencyKey: string }) {
-    const replay = await this.executions.findListingAvailabilityByKey({
-      organizationId, requestedByUserId: userId, idempotencyKey: input.idempotencyKey,
-    });
-    if (replay) {
-      if (replay.payload.channelListingId !== input.listingId
-        || replay.payload.kind !== 'sold_out' || replay.payload.stockoutPolicy !== POLICY) {
-        throw new KiditemConflictError('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT', { details: { reason: 'REQUEST_MISMATCH' } });
-      }
-      return replay;
-    }
-    const [subject] = await this.persistence.readSubjects(organizationId, [input.listingId]);
-    if (!subject) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
-    const result = evaluate(subject, this.adapters.get(subject.channel));
-    requireEligible(result);
-    return this.executions.prepareListingAvailability({
-      organizationId,
-      requestedByUserId: userId,
-      request: {
-        channelAccountId: result.channelAccountId,
-        externalListingId: result.externalListingId,
-        kind: 'sold_out',
-        stockoutPolicy: POLICY,
-        optionCodes: result.optionCodes,
-        idempotencyKey: input.idempotencyKey,
-      },
-    });
-  }
-
-  async assertEligible(transaction: OwnerTransaction, organizationId: string, snapshot: ListingAvailabilitySnapshot, executionId: string): Promise<void> {
-    if (snapshot.stockoutPolicy !== POLICY || snapshot.kind !== 'sold_out') {
-      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'STOCKOUT_POLICY_NOT_FROZEN' } });
-    }
-    const [subject] = await this.persistence.readSubjects(organizationId, [snapshot.channelListingId], transaction);
-    if (!subject) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
-    const result = evaluate(subject, this.adapters.get(subject.channel), executionId);
-    requireEligible(result);
-    if (result.channelAccountId !== snapshot.channelAccountId
-      || result.externalListingId !== snapshot.externalListingId
-      || result.channel !== snapshot.mallKey
-      || JSON.stringify(result.optionCodes) !== JSON.stringify([...snapshot.optionCodes].sort())) {
-      throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'STOCKOUT_TARGETS_CHANGED' } });
-    }
-  }
-}
-
-function requireEligible(result: StockoutCheckResult): void {
-  if (result.decision !== 'eligible') {
-    // 결정 이름(in_stock · active_execution · draft …)을 사유로 싣는다.
-    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: result.decision } });
   }
 }
 
@@ -97,7 +41,7 @@ function confirmedDraftPrice(subject: StockoutSubject): boolean {
   }
 }
 
-function evaluate(subject: StockoutSubject, adapter: ChannelAdapter, ownExecutionId?: string): StockoutCheckResult {
+function evaluate(subject: StockoutSubject, adapter: ChannelAdapter): StockoutCheckResult {
   const result: StockoutCheckResult = {
     listingId: subject.listingId, channelAccountId: subject.channelAccountId,
     externalListingId: subject.externalListingId, channel: subject.channel,
@@ -107,7 +51,7 @@ function evaluate(subject: StockoutSubject, adapter: ChannelAdapter, ownExecutio
   if (!capability) return { ...result, decision: 'unsupported' };
   // 등록 동결 · 몰 엑셀과 같은 게이트다 — 값이 확정되지 않은 초안은 몰에 아무것도 보내지 않는다.
   if (!confirmedDraftPrice(subject)) return { ...result, decision: 'draft' };
-  if (subject.activeExecutions.some(execution => execution.id !== ownExecutionId)) return { ...result, decision: 'active_execution' };
+  if (subject.activeExecutions.length > 0) return { ...result, decision: 'active_execution' };
   if (alreadyStopped(subject.status)) return { ...result, decision: 'already_sold_out' };
   if (subject.options.length === 0) return result;
   if (subject.options.every(option => alreadyStopped(option.status))) return { ...result, decision: 'already_sold_out' };

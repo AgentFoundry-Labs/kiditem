@@ -52,6 +52,8 @@ export function evaluateOperationFence(
   }
   // prepared는 아직 토큰을 내준 적이 없다(재시도로 돌아온 실행은 토큰이 바뀌었다).
   if (state.status === 'prepared') return { verdict: 'not_found' };
+  // reconciling(KID-364)은 확장의 몫이 끝났다: 임대가 없고 owner 확인이나 취소만 남는다. 토큰 쓰기는 끝난 실행처럼 거절한다.
+  if (state.status === 'reconciling') return { verdict: 'reject', reason: 'terminal', expire: false };
   if (isOperationTerminal(state.status)) {
     return { verdict: 'reject', reason: closedByExpiry(state) ? 'expired' : 'terminal', expire: false };
   }

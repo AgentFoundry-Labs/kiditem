@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   AVAILABILITY_EXECUTION_KINDS,
@@ -7,6 +6,8 @@ import {
   LISTING_SHAPING_EXECUTION_KINDS,
   type FrozenRegistrationFacts,
 } from '../../../domain/registration/registration-account-state';
+import { OPERATION_EXPIRED_ERROR_CODE, OPERATION_EXPIRED_ERROR_MESSAGE } from '../../../../common/operation/domain/operation-fence';
+import { frozenSnapshot, readRegistrationOperations, type RegistrationOperationFact } from '../repository/registration-operation-facts';
 import type {
   RegistrationStateAccountFacts,
   RegistrationStateExecutionFact,
@@ -44,12 +45,12 @@ type AvailabilityRow = {
 };
 
 /**
- * 등록 상태 reader 의 Channels 행 읽기(KID-320). `product_registration_executions` 를 owner 영속 어댑터 자리
- * (`adapter/out/persistence`)에서 읽기만 한다 — 쓰기 권한은 없다. 판정은 `RegistrationStateService` 가 도메인 규칙으로 한다.
+ * 등록 상태 reader 의 Channels 행 읽기(KID-320). 등록 실행은 `channels.registration` 실행이고(KID-364) 실행 계약의 읽기
+ * 함수로만 읽는다 — 옛 등록 실행 표는 읽지 않는다. 판정은 `RegistrationStateService` 가 도메인 규칙으로 한다.
  *
  * 상품 수와 무관하게 쿼리 일곱 번이다 — 상품 · 설정 · 리스팅 · 계정, 그리고 대상별 최신 등록성 실행,
  * 대상별 마지막 성공 문서 전송 실행(register · composition_change)이 얼린 값, (대상 · 리스팅)별 최신 가용성 실행을
- * `DISTINCT ON` 으로 한 번씩. 리스팅은 계정마다 가장 최근 것을 활성 여부와 상관없이 읽는다 — 2026-09-23 사용자 결정
+ * 실행 계약의 읽기 함수로 한 번씩(최신 하나는 시작 역순에서 고른다). 리스팅은 계정마다 가장 최근 것을 활성 여부와 상관없이 읽는다 — 2026-09-23 사용자 결정
  * "비활성화는 등록된 상태에서 내린 것".
  */
 @Injectable()
@@ -144,54 +145,110 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
     return result;
   }
 
-  private readLatestListingShaping(organizationId: string, targetIds: readonly string[]): Promise<ExecutionRow[]> {
-    if (targetIds.length === 0) return Promise.resolve([]);
-    return this.prisma.$queryRaw<ExecutionRow[]>(Prisma.sql`
-      SELECT DISTINCT ON (registration_target_id)
-        id::text AS id,
-        registration_target_id::text AS registration_target_id,
-        execution_kind, status, provider_outcome, created_at, completed_at
-      FROM product_registration_executions
-      WHERE organization_id = ${organizationId}::uuid
-        AND registration_target_id = ANY(${[...targetIds]}::uuid[])
-        AND execution_kind IN (${Prisma.join([...LISTING_SHAPING_EXECUTION_KINDS])})
-      ORDER BY registration_target_id, created_at DESC, id DESC
-    `);
+  /** 대상별 최신 등록성 실행(register · update · composition_change). */
+  private async readLatestListingShaping(organizationId: string, targetIds: readonly string[]): Promise<ExecutionRow[]> {
+    if (targetIds.length === 0) return [];
+    const operations = await readRegistrationOperations(this.prisma, {
+      organizationId,
+      planContainsAny: targetIds.flatMap((registrationTargetId) =>
+        LISTING_SHAPING_EXECUTION_KINDS.map((executionKind) => ({ registrationTargetId, executionKind }))),
+      excludeFillOnly: true,
+      latestPer: 'registrationTargetId',
+      plan: { payloadKeys: [] },
+    });
+    return operations.map((operation) => ({
+      id: operation.id,
+      registration_target_id: operation.plan.registrationTargetId!,
+      execution_kind: operation.plan.executionKind,
+      // 제출하던 실행이 브라우저를 잃고 임대로 끝났으면 몰에 올라갔을 수 있다 — 실패가 아니라 확인 대기로 읽는다(중복 등록 방지).
+      status: lapsedWhileSubmitting(operation) ? 'reconciling' : operation.status,
+      provider_outcome: lapsedWhileSubmitting(operation) ? 'uncertain' : providerOutcomeOf(operation),
+      created_at: operation.startedAt,
+      completed_at: operation.finishedAt,
+    }));
   }
 
-  private readLastSucceededFrozen(organizationId: string, targetIds: readonly string[]): Promise<FrozenRow[]> {
-    if (targetIds.length === 0) return Promise.resolve([]);
-    return this.prisma.$queryRaw<FrozenRow[]>(Prisma.sql`
-      SELECT DISTINCT ON (registration_target_id)
-        registration_target_id::text AS registration_target_id,
-        submission_payload_json->>'targetVersion' AS target_version,
-        submission_payload_json#>>'{product,version}' AS product_version,
-        submission_payload_json#>>'{detailPage,revisionId}' AS detail_page_revision_id,
-        submission_payload_json#>>'{adapterPayload,representativeImage,assetId}' AS representative_image_asset_id
-      FROM product_registration_executions
-      WHERE organization_id = ${organizationId}::uuid
-        AND registration_target_id = ANY(${[...targetIds]}::uuid[])
-        AND execution_kind IN (${Prisma.join([...DOCUMENT_BASELINE_EXECUTION_KINDS])})
-        AND status = 'succeeded'
-      ORDER BY registration_target_id, created_at DESC, id DESC
-    `);
+  /** 대상별 마지막 성공 문서 전송 실행(register · composition_change)이 얼린 값. */
+  private async readLastSucceededFrozen(organizationId: string, targetIds: readonly string[]): Promise<FrozenRow[]> {
+    if (targetIds.length === 0) return [];
+    const operations = await readRegistrationOperations(this.prisma, {
+      organizationId,
+      planContainsAny: targetIds.flatMap((registrationTargetId) =>
+        DOCUMENT_BASELINE_EXECUTION_KINDS.map((executionKind) => ({ registrationTargetId, executionKind }))),
+      statuses: ['succeeded'],
+      excludeFillOnly: true,
+      latestPer: 'registrationTargetId',
+    });
+    return operations.map((operation) => {
+      const snapshot = frozenSnapshot(operation.plan) ?? {};
+      return {
+        registration_target_id: operation.plan.registrationTargetId!,
+        target_version: textOf(snapshot.targetVersion),
+        product_version: textOf(field(snapshot.product, 'version')),
+        detail_page_revision_id: textOf(field(snapshot.detailPage, 'revisionId')),
+        representative_image_asset_id: textOf(field(field(snapshot.adapterPayload, 'representativeImage'), 'assetId')),
+      };
+    });
   }
 
-  private readLatestAvailability(organizationId: string, targetIds: readonly string[], listingIds: readonly string[]): Promise<AvailabilityRow[]> {
-    if (targetIds.length === 0 && listingIds.length === 0) return Promise.resolve([]);
-    return this.prisma.$queryRaw<AvailabilityRow[]>(Prisma.sql`
-      SELECT DISTINCT ON (registration_target_id, channel_listing_id)
-        registration_target_id::text AS registration_target_id,
-        channel_listing_id::text AS channel_listing_id,
-        channel_account_id::text AS channel_account_id,
-        execution_kind, status, created_at
-      FROM product_registration_executions
-      WHERE organization_id = ${organizationId}::uuid
-        AND (registration_target_id = ANY(${[...targetIds]}::uuid[]) OR channel_listing_id = ANY(${[...listingIds]}::uuid[]))
-        AND execution_kind IN (${Prisma.join([...AVAILABILITY_EXECUTION_KINDS])})
-      ORDER BY registration_target_id, channel_listing_id, created_at DESC, id DESC
-    `);
+  /** (대상 · 리스팅)별 최신 가용성 실행. 품절 · 재개는 계정의 리스팅 묶음이라 리스팅마다 한 줄로 편다(KID-364). */
+  private async readLatestAvailability(organizationId: string, _targetIds: readonly string[], listingIds: readonly string[]): Promise<AvailabilityRow[]> {
+    if (listingIds.length === 0) return [];
+    const operations = await readRegistrationOperations(this.prisma, {
+      organizationId,
+      planContainsAny: listingIds.map((channelListingId) => ({ payload: { listings: [{ channelListingId }] } })),
+      excludeFillOnly: true,
+      plan: { payloadKeys: ['listings'] },
+    });
+    const wanted = new Set(listingIds);
+    const rows: AvailabilityRow[] = [];
+    const seen = new Set<string>();
+    for (const operation of operations) {
+      if (!(AVAILABILITY_EXECUTION_KINDS as readonly string[]).includes(operation.plan.executionKind)) continue;
+      const listings = field(operation.plan.payload, 'listings');
+      if (!Array.isArray(listings)) continue;
+      for (const listing of listings) {
+        const channelListingId = textOf(field(listing, 'channelListingId'));
+        if (!channelListingId || !wanted.has(channelListingId) || seen.has(channelListingId)) continue;
+        seen.add(channelListingId);
+        rows.push({
+          registration_target_id: null,
+          channel_listing_id: channelListingId,
+          channel_account_id: operation.plan.channelAccountId,
+          execution_kind: operation.plan.executionKind,
+          status: operation.status,
+          created_at: operation.startedAt,
+        });
+      }
+    }
+    return rows;
   }
+}
+
+/** `submit` 이 허락된 문서 실행이 결과 보고 없이 임대 만료로 끝났다(계약의 만료 코드 · 문장). */
+function lapsedWhileSubmitting(operation: RegistrationOperationFact): boolean {
+  return operation.plan.submit && operation.status === 'failed'
+    && operation.errorCode === OPERATION_EXPIRED_ERROR_CODE && operation.errorMessage === OPERATION_EXPIRED_ERROR_MESSAGE;
+}
+
+/** 실행 `result.providerOutcome`(확장 · owner 가 적은 것). 없으면 상태로 비춘다. */
+function providerOutcomeOf(operation: RegistrationOperationFact): string {
+  const value = operation.result.providerOutcome;
+  if (typeof value === 'string') return value;
+  if (operation.status === 'succeeded') return 'succeeded';
+  if (operation.status === 'failed') return 'definitive_failure';
+  if (operation.status === 'executing' || operation.status === 'reconciling') return 'uncertain';
+  return 'not_attempted';
+}
+
+function field(value: unknown, key: string): unknown {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>)[key] : undefined;
+}
+
+function textOf(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number') return String(value);
+  return null;
 }
 
 function toTarget(row: { id: string; version: number; selectedThumbnailAssetId: string | null; selectedDetailPageRevisionId: string | null }): RegistrationStateTargetFact {

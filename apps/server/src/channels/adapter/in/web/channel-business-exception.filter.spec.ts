@@ -16,7 +16,7 @@ import { ListingException } from '../../../application/exception/listing.excepti
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { ChannelListingController } from './listing/channel-listing.controller';
 import { RegistrationTargetController } from './registration-target.controller';
-import { RegistrationTargetExecutionController } from './registration-target-execution.controller';
+import { RegistrationOperationController } from './registration-operation.controller';
 
 function responseHost() {
   const json = vi.fn();
@@ -72,7 +72,7 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
   it('is registered once globally in main.ts, so channel controllers carry no local copy', () => {
     const main = readFileSync(resolve(__dirname, '../../../../main.ts'), 'utf8');
     expect(main).toMatch(/useGlobalFilters\(new GlobalExceptionFilter\(\), new ChannelBusinessExceptionFilter\(\)\)/);
-    for (const controller of [ChannelListingController, RegistrationTargetController, RegistrationTargetExecutionController]) {
+    for (const controller of [ChannelListingController, RegistrationTargetController, RegistrationOperationController]) {
       expect(Reflect.getMetadata('__exceptionFilters__', controller), controller.name).toBeUndefined();
     }
   });

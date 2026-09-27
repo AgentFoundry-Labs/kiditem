@@ -214,6 +214,8 @@ export const MallListingMatrixCellSchema = z.object({
   /** 몰이 준 원문 상태. 우리 어휘로 접기 전 값이라 툴팁에 그대로 쓴다. */
   rawStatus: z.string().nullable(),
   externalId: z.string().nullable(),
+  /** 이 칸의 리스팅(`ChannelListing.id`). 칸 단위 품절 · 재개 실행이 가리킨다(KID-364). 리스팅이 없는 칸은 null. */
+  channelListingId: z.string().uuid().nullable().default(null),
   /** 몰 매장의 상품 페이지 주소. 확인한 규칙이 있는 몰만 — 모르면 null(옛 API 는 이 칸이 없다). */
   productUrl: z.string().nullable().default(null),
   warning: z.string().nullable(),

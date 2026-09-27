@@ -1,3 +1,4 @@
+import { seedRegistrationOperation } from './registration-operation-seeds';
 import { untouchedRegistrationStates } from '../../test-helpers/sales-product-draft-port';
 import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
@@ -241,10 +242,10 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     const target = await prisma.registrationTarget.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, salesProductId: admitted.salesProductId, channelAccountId: account.id, registrationInput: {},
     } });
-    await prisma.productRegistrationExecution.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, channelAccountId: account.id,
-      executionKind: 'register', idempotencyKey: randomUUID(), requestHash: 'hash', status: 'executing',
-    } });
+    await seedRegistrationOperation(prisma, {
+      executionKind: 'register', mallKey: 'coupang', registrationTargetId: target.id, salesProductId: admitted.salesProductId,
+      channelAccountId: account.id, payload: { snapshot: null, form: {} }, status: 'executing',
+    });
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
       code: 'CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', kind: 'conflict', details: { reason: 'live_execution' },

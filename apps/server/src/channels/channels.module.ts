@@ -93,11 +93,8 @@ import { MALL_PUBLISHING_REPOSITORY_PORT } from './application/port/out/reposito
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
-import { ChannelsRepresentativeImageCapabilityAdapter } from './adapter/in/agent/channels-representative-image-capability.adapter';
-import { CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT } from './application/port/in/capability/representative-image.port';
 import { ThumbnailExecutionController } from './adapter/in/web/thumbnail-execution.controller';
 import { ThumbnailExecutionPersistenceAdapter } from './adapter/out/persistence/thumbnail-execution.persistence.adapter';
-import { CoupangRepresentativeImageRunnerAdapter } from './adapter/out/channel/coupang/representative-image-runner.adapter';
 import { RegistrableThumbnailAdapter } from './adapter/out/content/registrable-thumbnail.adapter';
 import { ThumbnailExecutionService } from './application/service/registration/thumbnail-execution.service';
 import { CHANNELS_THUMBNAIL_EXECUTION_PORT } from './application/port/in/thumbnail-execution.port';
@@ -176,10 +173,8 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     { provide: CHANNEL_PRODUCT_AVAILABILITY_PORT, useExisting: ProductAvailabilityAdapter },
     ChannelsProductMappingGenerationAdapter,
     { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
-    ChannelsRepresentativeImageCapabilityAdapter,
     // 대표이미지 몰 반영 실행(thumbnail_update). Content 는 승인 사진만 준다.
     ThumbnailExecutionPersistenceAdapter,
-    CoupangRepresentativeImageRunnerAdapter,
     RegistrableThumbnailAdapter,
     { provide: THUMBNAIL_EXECUTION_PERSISTENCE_PORT, useExisting: ThumbnailExecutionPersistenceAdapter },
     // 채널 어댑터(KID-321): 몰마다 다른 것 — 계정 식별자 · 확인 증거 · 준비 때 얼릴 몰 사실 · 대표이미지 runner.
@@ -187,7 +182,7 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     ChannelAdapterRegistryAdapter,
     { provide: CHANNEL_ADAPTER_REGISTRY_PORT, useExisting: ChannelAdapterRegistryAdapter },
     { provide: CHANNEL_REGISTRABLE_THUMBNAIL_PORT, useExisting: RegistrableThumbnailAdapter },
-    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, CHANNEL_ADAPTER_REGISTRY_PORT, CHANNEL_INTEGRITY_PORT] },
+    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT] },
     { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,
@@ -210,7 +205,6 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
       provide: CHANNEL_REGISTRATION_PORT,
       useExisting: ChannelRegistrationService,
     },
-    { provide: CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT, useExisting: ChannelsRepresentativeImageCapabilityAdapter },
     {
       provide: ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT,
       useExisting: RocketSellpiaMatchingCsvImportRepositoryAdapter,
@@ -271,9 +265,9 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     ChannelCatalogModule,
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNEL_REGISTRATION_PORT,
-    CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
     CHANNEL_ADAPTER_REGISTRY_PORT,
     CHANNEL_REGISTRABLE_THUMBNAIL_PORT,
+    CHANNELS_THUMBNAIL_EXECUTION_PORT,
   ],
 })
 export class ChannelsModule {}

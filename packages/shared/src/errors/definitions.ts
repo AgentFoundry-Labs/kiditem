@@ -151,6 +151,8 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_SALES_PRODUCT_NOT_SELLING: def('channels', 'precondition', '판매 중인 판매상품이 아닙니다. 판매상품 상태를 확인한 뒤 다시 시도해 주세요.'),
   CHANNELS_REGISTRATION_TARGET_NOT_FOUND: def('channels', 'not_found', '등록 설정을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   CHANNELS_REGISTRATION_TARGET_STALE: def('channels', 'conflict', '등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  // KID-364: 운영자가 reconciling 등록 실행을 몰에 없다고 닫은 실행의 errorCode. 던지지 않고 알림 · 화면 라벨로 쓴다.
+  CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL: def('channels', 'not_found', '운영자가 몰에서 등록되지 않았다고 확인했습니다.'),
   CHANNELS_EXECUTION_NOT_FOUND: def('channels', 'not_found', '몰 작업 기록을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   CHANNELS_EXECUTION_FENCE_LOST: def('channels', 'conflict', '이 몰 작업은 더 이상 이 요청이 진행할 수 없습니다. 새로고침한 뒤 다시 시작해 주세요.'),
   CHANNELS_EXECUTION_TERMINAL: def('channels', 'conflict', '이미 끝난 몰 작업입니다. 새로고침해 결과를 확인해 주세요.'),

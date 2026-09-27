@@ -1,7 +1,6 @@
 import { CHANNEL_ADAPTER_REGISTRY_PORT } from '../application/port/out/channel/channel-adapter.port';
 import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-adapter-registry.adapter';
 import { CoupangChannelAdapter } from '../adapter/out/channel/coupang/coupang-channel.adapter';
-import { CoupangRepresentativeImageRunnerAdapter } from '../adapter/out/channel/coupang/representative-image-runner.adapter';
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 import { CHANNEL_REGISTRABLE_THUMBNAIL_PORT } from '../application/port/out/content/registrable-thumbnail.port';
 import { THUMBNAIL_EXECUTION_PERSISTENCE_PORT } from '../application/port/out/persistence/thumbnail-execution.persistence.port';
@@ -81,7 +80,6 @@ import { SalesProductMallSheetService } from '../application/service/sales-produ
 import { SalesProductCoupangCatalogService } from '../application/service/sales-product/sales-product-coupang-catalog.service';
 import { CoupangWingInventoryExportController } from '../adapter/in/web/coupang-wing-inventory-export.controller';
 import { CoupangWingRegistrationExportController } from '../adapter/in/web/coupang-wing-registration-export.controller';
-import { CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT } from '../application/port/in/capability/representative-image.port';
 import { CHANNEL_DASHBOARD_PORT } from '../application/port/in/listing/channel-dashboard.port';
 import { CHANNEL_OPTION_RECIPE_CANDIDATE_PORT } from '../application/port/in/listing/channel-option-recipe-candidate.port';
 import { CHANNEL_PRODUCT_MATCHING_PORT } from '../application/port/in/listing/channel-product-matching.port';
@@ -148,7 +146,6 @@ describe('ChannelsModule canonical owner wiring', () => {
     expect(exports_).toEqual(expect.arrayContaining([
       CHANNEL_SKU_AVAILABILITY_PORT,
       CHANNEL_REGISTRATION_PORT,
-      CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
       CHANNEL_ADAPTER_REGISTRY_PORT,
     ]));
 
@@ -267,9 +264,9 @@ describe('ChannelsModule canonical owner wiring', () => {
     expectBinding(providers, MALL_PUBLISHING_PORT, MallPublishingService);
     // 몰마다 다른 것은 채널 어댑터 registry 하나가 답하고, 대표이미지 runner 도 거기서 온다(KID-321).
     expectBinding(providers, CHANNEL_ADAPTER_REGISTRY_PORT, ChannelAdapterRegistryAdapter);
-    expect(providers).toEqual(expect.arrayContaining([CoupangChannelAdapter, CoupangRepresentativeImageRunnerAdapter]));
+    expect(providers).toEqual(expect.arrayContaining([CoupangChannelAdapter]));
     expectFactoryBinding(providers, ThumbnailExecutionService, [
-      CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, CHANNEL_ADAPTER_REGISTRY_PORT, CHANNEL_INTEGRITY_PORT,
+      CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT,
     ]);
     expectBinding(salesProductProviders, SABANGNET_PRODUCT_IMPORT_PORT, SabangnetProductImportService);
     expectBinding(salesProductProviders, SALES_PRODUCT_LINK_PORT, SalesProductLinkService);
