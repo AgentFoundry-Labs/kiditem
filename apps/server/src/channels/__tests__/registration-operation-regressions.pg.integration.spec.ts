@@ -192,12 +192,32 @@ describe('registration operation regressions carried over from the execution fen
         .rejects.toMatchObject(refused('CHANNELS_REGISTRATION_TARGET_NOT_FOUND'));
     });
 
+    it('confirms a generic mall register whose screen gives no seller id, and still refuses a different seller id', async () => {
+      const fixture = await createFixture(prisma, targets, { channel: 'kidkids' });
+      const begun = await register(fixture);
+      await expect(confirm(begun, { channelAccountId: fixture.accountId, providerAccountId: null, externalListingId: 'kk-no-seller' }))
+        .resolves.toMatchObject({ operation: { status: 'succeeded' } });
+      const other = await createFixture(prisma, targets, { channel: 'kidkids', externalAccountSuffix: '-other' });
+      const second = await register(other);
+      await expect(confirm(second, { channelAccountId: other.accountId, providerAccountId: 'someone-else', externalListingId: 'kk-other' }))
+        .rejects.toMatchObject({ ...refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'), details: { reason: 'account_mismatch' } });
+    });
+
     it('refuses a confirmation that names another mall account', async () => {
       const fixture = await createFixture(prisma, targets, { channel: 'kidkids' });
       const begun = await register(fixture);
       await expect(confirm(begun, { channelAccountId: randomUUID(), externalListingId: 'kk-1' }))
         .rejects.toMatchObject({ ...refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'), details: { reason: 'EVIDENCE_ACCOUNT_MISMATCH' } });
     });
+  });
+
+  it('keeps the scope submit for a price update even on a mall whose registration is not pressed by the browser (price send is not [등록])', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidsnote' });
+    const update = await begin({ executionKind: 'update', registrationTargetId: fixture.targetId, expectedVersion: 1, channelListingId: fixture.listingId, updateFields: ['salePrice'], submit: true });
+    expect(planOf(update).submit).toBe(true);
+    await operations.cancel(ORG, update.operation.id);
+    const registerPlan = planOf(await register(fixture, { channelListingId: fixture.listingId }));
+    expect(registerPlan.submit).toBe(false);
   });
 
   describe('freezing', () => {

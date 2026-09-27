@@ -313,8 +313,8 @@ export class AdKeywordSourceRepository {
           await this.failIn(
             tx,
             row,
-            'ADVERTISER_IDENTITY_MISMATCH',
-            operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE }),
+            'ADVERTISING_IDENTITY_MISMATCH',
+            operatorErrorText({ code: 'ADVERTISING_IDENTITY_MISMATCH', source: SOURCE }),
             terminalChecksum,
           ),
         );
@@ -499,8 +499,8 @@ export class AdKeywordSourceRepository {
           await this.failIn(
             tx,
             row,
-            'ADVERTISER_IDENTITY_MISMATCH',
-            operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE }),
+            'ADVERTISING_IDENTITY_MISMATCH',
+            operatorErrorText({ code: 'ADVERTISING_IDENTITY_MISMATCH', source: SOURCE }),
             manifestChecksum,
           ),
         );

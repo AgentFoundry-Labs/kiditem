@@ -4,6 +4,7 @@ import { AlertTriangle, Check, CircleDashed, Loader2, MinusCircle, X } from 'luc
 import { cn, formatNumber } from '@/lib/utils';
 import { collectManualSteps, summarizePublishRun } from '../lib/publish-plan';
 import type { PublishTask, PublishTaskStatus } from '../../_shared/use-mall-publish-run';
+import { RegistrationOperationResolution } from '../../_shared/RegistrationOperationResolution';
 
 const STATUS_META: Record<PublishTaskStatus, { label: string; tone: string; icon: typeof Check }> = {
   pending: { label: '대기', tone: 'text-slate-400', icon: CircleDashed },
@@ -22,7 +23,7 @@ interface StepDispatchProps {
 /**
  * 4단계 — 송신.
  *
- * 작업 하나가 한 줄이다. 확장이 [등록]을 누른 몰(ADR-0015)은 "몰이 받음 · 상품번호"까지, 누르지 않은 몰은 "폼 채움 —
+ * 작업 하나가 한 줄이다. 확장이 [등록]을 누른 몰(ADR-0019)은 "몰이 받음 · 상품번호"까지, 누르지 않은 몰은 "폼 채움 —
  * 사람이 등록"까지 말한다. 몰이 실제로 올렸는지는 재조회로만 알 수 있어, 그 전에는 등록됐다고 말하지 않는다.
  *
  * 사방넷 FAQ 원문: "실제 등록 성공 여부와 상관없이 '처리완료'로 변경됩니다."
@@ -72,6 +73,10 @@ export function StepDispatch({ tasks, running }: StepDispatchProps) {
                   {task.status === 'reconciling' ? (task.outcome?.manualSteps ?? []).map((step) => (
                     <p key={step} className="mt-1 text-xs text-amber-700">{step}</p>
                   )) : null}
+                  {/* 몰에 제출됐지만 등록상품ID를 못 읽은 실행 — 여기서 몰에서 읽은 ID로 확인하거나 닫는다(KID-218). */}
+                  {(task.operations ?? []).filter((read) => read.state === 'needs_confirmation').map((read) => (
+                    <RegistrationOperationResolution key={read.operation.id} className="mt-2" read={read} />
+                  ))}
                   {(task.outcome?.warnings ?? []).map((warning) => (
                     <p key={warning} className="mt-1 flex items-start gap-1 text-xs text-amber-600">
                       <AlertTriangle size={11} className="mt-0.5 flex-none" />

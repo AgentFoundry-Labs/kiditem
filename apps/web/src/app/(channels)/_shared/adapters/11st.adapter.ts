@@ -1,17 +1,17 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   ELEVENST_SALE_PERIOD,
   elevenstFormFromDraft,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/elevenst-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -126,11 +126,7 @@ export const elevenStAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, '11st');
     const form = elevenstFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
@@ -140,7 +136,6 @@ export const elevenStAdapter: MallPublishAdapter = {
       ...(values.categoryPath?.trim() ? { categoryPath: values.categoryPath.trim() } : {}),
       ...(values.deliveryTemplate?.trim() ? { deliveryTemplate: values.deliveryTemplate.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('11st', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

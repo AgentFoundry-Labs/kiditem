@@ -177,41 +177,24 @@ describe('sales product → mall draft', () => {
     expect(draft.notice.fields.사용연령).not.toBe('8세 이상');
   });
 
-  it('does not re-read live sales-product data for a target execution', async () => {
-    const liveProduct = product();
-    liveProduct.name = 'live edit after target freeze';
-    const targetProduct = product();
-    targetProduct.name = 'frozen target name';
+  it('등록 대상의 몰 문서(홍보문)를 초안에 싣는다 — 상품 사실은 판매상품에서 온다(KID-313)', async () => {
+    const live = product();
     const { salesProductApi } = await import('@/lib/sales-product-api');
-    vi.mocked(salesProductApi.get).mockResolvedValue(liveProduct as never);
+    const { contentWorkspacesApi } = await import('../../(product-pipeline)/product-pipeline/_shared/lib/content-workspaces-api');
+    vi.mocked(salesProductApi.get).mockResolvedValue(live as never);
+    vi.mocked(contentWorkspacesApi.getCurrentDetailHtml).mockResolvedValue(DETAIL_HTML);
 
-    const draft = await prepareRegistration({
-      candidateId: targetProduct.id,
-      name: targetProduct.name,
-      salePrice: targetProduct.options[0]!.salePrice,
-      thumbnailUrl: targetProduct.imageUrls[0] ?? null,
+    const { draft } = await prepareRegistration({
+      candidateId: live.id,
+      name: live.name,
+      salePrice: live.options[0]!.salePrice,
+      thumbnailUrl: live.imageUrls[0] ?? null,
       source: 'sales_product',
-      targetExecution: {
-        executionId: '55555555-5555-4555-8555-555555555555',
-        payloadHash: 'frozen-hash',
-        leaseToken: '66666666-6666-4666-8666-666666666666',
-        snapshot: {
-          targetId: '77777777-7777-4777-8777-777777777777',
-          targetVersion: 1,
-          channelAccountId: ACCOUNT,
-          kind: 'register',
-          channelListingId: null,
-          applyCompositionTemplate: false,
-          product: targetProduct,
-          detailPage: { revisionId: '88888888-8888-4888-8888-888888888888', html: DETAIL_HTML },
-          registrationInput: {},
-          adapterPayload: {},
-        },
-      },
+      registrationInput: { mallFields: { promoText: '오늘만 특가' }, name: '대상에 적힌 이름은 쓰지 않는다' },
     }, 'smartstore');
 
-    expect(salesProductApi.get).not.toHaveBeenCalled();
-    expect(draft.draft.displayName).toBe('frozen target name');
+    expect(draft.promoText).toBe('오늘만 특가');
+    expect(draft.displayName).toBe(live.name);
   });
 
   it('builds a sales-product item without a snapshot from the workspace\'s current detail, and fails only when that is empty', async () => {

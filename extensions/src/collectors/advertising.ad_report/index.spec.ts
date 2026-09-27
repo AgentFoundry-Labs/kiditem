@@ -304,10 +304,10 @@ describe('collectors/advertising.ad_report — 광고센터 보고서 2개 + 캠
     expect(calls.downloads).toEqual([]);
   });
 
-  it('광고센터 업체코드가 계획과 다르면 아무것도 만들지 않고 멈춘다(ADVERTISER_IDENTITY_MISMATCH)', async () => {
+  it('광고센터 업체코드가 계획과 다르면 아무것도 만들지 않고 멈춘다(ADVERTISING_IDENTITY_MISMATCH)', async () => {
     const { site, calls } = fakeAdCenter({ vendorId: 'A99999999' });
     await expect(collectAll(PLAN, site)).rejects.toMatchObject({
-      code: 'ADVERTISER_IDENTITY_MISMATCH',
+      code: 'ADVERTISING_IDENTITY_MISMATCH',
       details: { plannedVendorId: 'A00057379', observedVendorId: 'A99999999' },
     });
     expect(calls.requests).toEqual([]);

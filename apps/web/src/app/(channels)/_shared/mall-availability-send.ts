@@ -1,45 +1,37 @@
-import { z } from 'zod';
-import { ReportListingAvailabilityInputSchema } from '@kiditem/shared/sales-product';
 import {
-  detectOrderCollectionExtensionId,
-  detectOrderCollectionExtensionRuntime,
-  sendToExtension,
-} from '@/lib/extension-bridge';
+  CHANNELS_REGISTRATION_OPERATION_CAPABILITY,
+  MALL_AVAILABILITY_READ_KIND,
+  MALL_AVAILABILITY_READ_MAX_LISTINGS,
+  MallAvailabilityReadResultSchema,
+  type MallAvailabilityRow,
+} from '@kiditem/shared/channels-operations';
+import { isOperationTerminal, OperationFinishResponseSchema, type OperationView } from '@kiditem/shared/operation';
+import { apiClient } from '@/lib/api-client';
+import { noteOperationLoginFailureForMall, operationLoginOptions } from '@/lib/operation-login';
+import { requestOperationStart } from '@/lib/operation-start';
+import { attemptFailureText } from '@/lib/operator-error';
 import { mallStopBadge, type MallStopKind } from './mall-presentation';
-import type { ListingAvailabilityExecutionContext } from './listing-availability-execution-api';
+import {
+  newRegistrationIdempotencyKey,
+  RegistrationOperationInProgress,
+  startAfterOtherOperations,
+  startRegistrationOperation,
+  waitForRegistrationOperation,
+  type RegistrationOperationRead,
+} from './registration-operation';
 
 /**
- * 몰 품절·재개 송신 호출.
+ * 몰 품절·재개 송신과 지금 재고 읽기(KID-364).
  *
- * 확장이 기존 몰별 화면과 옵션 처리를 맡는다. 화면은 새 실행 lease를 함께 보내며,
- * `sent`는 전송 시도 건수일 뿐 실제 몰 반영의 증거가 아니다. 반영은 실제 몰 상태를
- * 다시 확인한 결과로 기록한다.
+ * 품절·재개는 등록 실행(`channels.registration`, sold_out·resume) 하나 = 몰 계정 하나의 리스팅 묶음이다(옛 일괄 품절과
+ * 같다, 2026-09-27 리더 결정). 잠금은 계정 + 리스팅마다라 같은 리스팅으로 두 번 보내지 않는다. 확장 몰 쓰기 모듈이 몰별
+ * 화면과 옵션 처리를 맡고, 반영은 몰을 다시 읽은 증거로 서버가 판정한다 — 보냈다는 것은 반영의 증거가 아니다.
+ * 지금 재고는 판매 상태 읽기 실행(`channels.mall_availability_read`)이다. 읽기만 하고 원장에 쓰지 않는다.
  */
 
-/** 목록을 읽고 몰마다 한 번씩 보낸다. 몰 관리자는 느리다. */
-const SEND_TIMEOUT_MS = 180_000;
-
-/** 지금 재고 읽기는 윙 상품목록을 뒤에서 열어 한 상품만 읽는다. 429 로 쉬는 시간까지 넉넉히. */
-const READ_TIMEOUT_MS = 90_000;
-
 /**
- * 확장에 한 번에 넘기는 상품 수. 없는 몰은 한 번에 넘긴다.
- *
- * 쿠팡 윙은 상품마다 윙을 세 번 부르고(읽기 · 보내기 · 다시 읽기) 쉬어 가며 보낸다. 253개를 한 번에 넘기면 3분 안에
- * 끝나지 않아 웹이 먼저 포기하고, 확장 서비스워커도 한 요청을 5분 넘게 붙잡지 못한다(2026-09-18: 20개쯤 보내고
- * 멈췄다). 나눠 보내고 사이사이 진행을 알린다. 꼬망세도 상품마다 설정 화면을 검색 · 저장 · 다시 검색한다.
- */
-const SEND_CHUNK: Partial<Record<string, number>> = {
-  coupang: 10, kakao: 20, kkomangse: 20, 'teacher-mall': 20,
-  // ESM 은 상품마다 한 번씩 보내고, 스마트스토어는 일괄변경 결과를 기다린다. 떠리몰은 묶음마다 보내고 다시 읽는다.
-  gmarket: 50, auction: 50, smartstore: 50, thirtymall: 50,
-};
-
-/**
- * 품절을 보낼 수 있는 몰.
- *
- * 확장 `mall-availability-send.js` 의 `SPECS` 와 같아야 한다. 여기 없는 몰은 화면에
- * 버튼이 서지 않는다 — 눌러도 아무 일이 안 일어나는 버튼을 만들지 않는다.
+ * 품절을 보낼 수 있는 몰(확장 몰 쓰기 모듈의 품절 sender가 있는 몰). 여기 없는 몰은 화면에 버튼이 서지 않는다 — 눌러도
+ * 아무 일이 안 일어나는 버튼을 만들지 않는다. 설치된 확장이 그 몰을 아는지는 시작할 때 `mallWriteSite.<key>`로 본다.
  */
 export const MALL_AVAILABILITY_SEND_MALLS = [
   'kkomangse', 'kidkids', 'onch', 'domeggook', 'coupang', 'kakao', 'always', 'art09', 'lotte-on', 'teacher-mall',
@@ -59,34 +51,12 @@ export const MALL_AVAILABILITY_PENDING: Readonly<Record<string, string>> = {};
 /** 길이 없는 몰에 공통으로 붙는 말. 사방넷을 대안으로 제시하지 않는다. */
 export const MALL_AVAILABILITY_NO_ROUTE = '이 몰 관리자의 품절 경로를 아직 뚫지 않았습니다.';
 
-/**
- * 이 몰을 지금 방식으로 보내는 확장만 가진 능력. 옛 확장이 옛 방식으로 몰에 쓰지 않게 막는다 — 1.2.16 전 확장은
- * 꼬망세를 페이지 전체(2,602줄) 재저장으로 보냈고, 재개 때 재고 칸에 "{stock}" 글자를 넣었다.
- */
-const SEND_REQUIRES_CAPABILITY: Partial<Record<string, string>> = {
-  kkomangse: 'mallAvailabilityKkomangseDirectV1',
-  // 1.2.18 전 확장은 아이스크림몰을 "경로가 더 필요합니다", 키즈노트를 "품절 경로를 아는 몰이 아닙니다"로 거절한다 —
-  // 새로고침하라고 먼저 말한다.
-  'icecream-mall': 'mallAvailabilityIcecreamSaleStateV1',
-  kidsnote: 'mallAvailabilityKidsnoteStateV1',
-  // 1.2.20 전 확장은 키드키즈를 틀린 값(commitType=use_flag)으로 목록 1쪽에서만 보냈다 — 보내지 않는다.
-  kidkids: 'mallAvailabilityKidkidsUseFlagV1',
-  // 1.2.19 전 확장은 지마켓 · 옥션 · 11번가 · 스마트스토어를 모른다.
-  gmarket: 'mallAvailabilityMarketsV1',
-  auction: 'mallAvailabilityMarketsV1',
-  '11st': 'mallAvailabilityMarketsV1',
-  smartstore: 'mallAvailabilityMarketsV1',
-  // 1.2.21 전 확장은 떠리몰 길이 없다.
-  thirtymall: 'mallAvailabilityThirtymallV1',
-};
-// 티쳐몰 · 롯데ON · 아트공구는 옛 확장이 모르는 몰이라 확장이 "품절 경로를 아는 몰이 아닙니다"로 거절한다.
-
 export function canSendMallAvailability(mallKey: string): mallKey is MallAvailabilitySendMall {
   return (MALL_AVAILABILITY_SEND_MALLS as readonly string[]).includes(mallKey);
 }
 
 /**
- * 지금 재고를 몰에서 바로 읽을 수 있는 몰. 확장 `READ_MALL_KEYS` 와 같아야 한다.
+ * 지금 재고를 몰에서 바로 읽을 수 있는 몰(확장 판매 상태 읽기 collector가 읽는 몰).
  *
  * 쿠팡 윙은 품절이어도 판매상태가 판매중(ON_SALE)이라, 가져온 상태만으로는 품절인지 모른다. 등록현황 칸의 창이
  * 열릴 때 윙 지금 재고를 읽어 보여 준다(사장님 2026-09-18: "이거 확인을 해줘봐").
@@ -118,50 +88,6 @@ export interface MallLiveOption {
   rocket: boolean;
   /** 못 사는 상태일 때 그 몰의 상태 글자(판매중지 · 품절 · 판매종료 · 숨김 …). 칸이 몰의 말 그대로 적는다. */
   state?: string;
-}
-
-interface ReadResponse {
-  success?: boolean;
-  products?: Array<{ code: string; options: MallLiveOption[] }>;
-  error?: string;
-}
-
-/** 몰 지금 재고를 읽는다. 읽기만 한다 — 몰에 아무것도 보내지 않는다. */
-export async function readMallAvailability(mallKey: string, mallProductCode: string): Promise<MallLiveOption[]> {
-  const products = await readMallAvailabilityMany(mallKey, [mallProductCode]);
-  const options = products.get(mallProductCode);
-  if (!options) throw new Error('이 상품을 몰에서 찾지 못했습니다.');
-  return options;
-}
-
-/**
- * 여러 상품의 몰 지금 재고를 한 번에 읽는다(등록현황 한 페이지). 몰에서 못 찾은 상품은 결과에 없다.
- * 읽기만 한다.
- */
-export async function readMallAvailabilityMany(
-  mallKey: string,
-  mallProductCodes: readonly string[],
-): Promise<Map<string, MallLiveOption[]>> {
-  const codes = [...new Set(mallProductCodes.map((code) => code.trim()).filter(Boolean))];
-  if (codes.length === 0) return new Map();
-  const extensionId = await detectOrderCollectionExtensionId();
-  if (!extensionId) throw new Error('확장프로그램이 필요합니다.');
-  let response: ReadResponse;
-  try {
-    response = await sendToExtension<ReadResponse>(
-      extensionId,
-      { action: 'readMallAvailability', mallKey, codes },
-      READ_TIMEOUT_MS,
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (/message port closed/i.test(message)) {
-      throw new Error('설치된 확장이 아직 지금 재고 읽기를 모릅니다. chrome://extensions 에서 KidItem 확장을 새로고침하세요.');
-    }
-    throw error;
-  }
-  if (response?.success !== true) throw new Error(response?.error ?? '지금 재고를 읽지 못했습니다.');
-  return new Map((response.products ?? []).map((entry) => [entry.code, entry.options]));
 }
 
 export interface MallLiveSummary {
@@ -251,37 +177,6 @@ export function summarizeLiveAvailability(options: readonly MallLiveOption[], ma
   };
 }
 
-const WingAvailabilityEvidenceSchema = z.object({
-  externalListingId: z.string().min(1),
-  providerAccountId: z.string().min(1),
-  observedOptionStocks: ReportListingAvailabilityInputSchema.shape.evidence.shape.observedOptionStocks.unwrap(),
-}).strict();
-export type WingAvailabilityEvidence = z.infer<typeof WingAvailabilityEvidenceSchema>;
-
-export interface MallAvailabilitySendResult {
-  wingEvidence?: WingAvailabilityEvidence[];
-  /** 몰에 실제로 보낸 건수. 반영됐다는 뜻은 아니다. */
-  sent: number;
-  failed: number;
-  /** 보낸 것이 관리자 승인 요청인 몰(온채널). 반영은 승인 뒤다. */
-  requestOnly: boolean;
-  /**
-   * 보낸 뒤 몰을 다시 읽어 원하는 상태로 확인된 건수(도매꾹). 다시 읽지 않는 몰은 `null` 이다.
-   */
-  confirmed: number | null;
-  warnings: string[];
-  /**
-   * 상품 하나를 몰 화면에 띄워 보냈을 때(`show`), 그 화면(쿠팡 윙 상품목록)에 바뀐 재고가 보였는가. 윙 상품목록은
-   * 늦게 따라온다 — false 면 재고는 바뀌었고 화면만 아직이다. 띄우지 않았으면 없다.
-   */
-  listShown?: boolean | null;
-}
-
-export interface MallAvailabilityOutcome {
-  outcome: 'succeeded' | 'attention' | 'failed';
-  reasonCode: 'mall_rechecked' | 'awaiting_mall_approval' | 'awaiting_mall_recheck';
-}
-
 /**
  * The extension uses a stable machine reason when it cannot match the mall's
  * option composition. Keep that reason out of operator-facing toasts while
@@ -295,198 +190,172 @@ export function translateMallAvailabilityWarning(warning: string): string {
     : '상품 구성을 확인하지 못했습니다. 몰에서 옵션 구성을 확인한 뒤 다시 시도하세요.';
 }
 
+// ── 품절 · 재개 ──────────────────────────────────────────────────────────────────
+
+/** 묶음 한 항목: 리스팅 하나(상품 전체) 또는 그 리스팅의 옵션들. 서버 plan이 외부 id·옵션으로 푼다. */
+export type MallAvailabilityItem =
+  | { channelListingId: string; channelListingOptionIds?: undefined }
+  | { channelListingId?: undefined; channelListingOptionIds: string[] };
+
+/** 한 실행이 담는 리스팅 수 상한(계약 scope `items`). 넘으면 화면이 나눠 시작한다. */
+export const MALL_AVAILABILITY_BATCH_MAX = MALL_AVAILABILITY_READ_MAX_LISTINGS;
+
+export interface MallAvailabilityRun {
+  /** 이 호출이 시작한 실행(잠금을 쥔 다른 실행은 기다렸다 제 것을 시작한다). */
+  operation: RegistrationOperationRead;
+  started: true;
+  message: null;
+}
+
+interface WaitOptions {
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
 /**
- * 보낸 결과를 관찰 기록 한 줄로. 몰을 다시 읽어 **보낸 것이 전부 확인된 것만** 성공이다 — 보냈다는
- * 것만으로는 `attention` 이다(반영은 몰 재조회가 답한다).
+ * 몰 계정 하나의 품절·재개 묶음을 실행 하나로 보낸다. 계정 잠금을 쥔 다른 실행이 있으면 끝날 때까지(최대 3분) 기다렸다
+ * 시작한다. 결과는 `reconciling`(몰에서 확인 필요)까지 기다린다.
  */
-export function availabilityOutcome(result: MallAvailabilitySendResult): MallAvailabilityOutcome {
-  const reasonCode = result.requestOnly ? 'awaiting_mall_approval' : 'awaiting_mall_recheck';
-  if (result.failed > 0) return { outcome: 'failed', reasonCode };
-  if (!result.requestOnly && result.confirmed !== null && result.sent > 0 && result.confirmed >= result.sent) {
-    return { outcome: 'succeeded', reasonCode: 'mall_rechecked' };
-  }
-  return { outcome: 'attention', reasonCode };
-}
-
-interface SendResponse {
-  wingEvidence?: unknown;
-  success?: boolean;
-  sent?: number;
-  failed?: number;
-  requestOnly?: boolean;
-  confirmed?: number;
-  /** 이미 원하는 재고였던 옵션 수(쿠팡 윙). 문장은 여기서 만든다 — 나눠 보내면 합쳐서 한 줄이어야 한다. */
-  already?: number;
-  /** 쿠팡 재고라 건너뛴 로켓그로스 옵션 수(쿠팡 윙). */
-  rocket?: number;
-  /** 몰이 막아 도중에 멈췄다(쿠팡 윙 429). 남은 상품은 보내지 않았다. */
-  stopped?: string;
-  listShown?: boolean | null;
-  warnings?: string[];
-  error?: string;
-}
-
-interface SendOptions {
-  resume?: boolean;
-  /** Server-issued execution fence; carried with the extension request. */
-  executionContext?: ListingAvailabilityExecutionContext;
-  /** 상품코드 → 그 상품의 품절 옵션코드. 옵션 단위로 보내는 몰(쿠팡 윙)만 쓴다. 없으면 상품 전체다. */
-  optionCodes?: Readonly<Record<string, readonly string[]>>;
-  /** 나눠 보내는 몰에서 한 묶음이 끝날 때마다. `done` 은 끝낸 상품 수다. */
-  onProgress?: (done: number, total: number) => void;
-  /**
-   * 등록현황 칸에서 상품 하나를 눌렀다. 확장이 그 상품의 몰 화면(쿠팡 윙은 그 상품을 검색한 상품목록)을 앞에 띄워
-   * 거기서 보내고, 바뀐 재고를 보여 준 채로 둔다(사장님 2026-09-18: "vendor-inventory/list 여기 가서 해야하잖아").
-   */
-  show?: boolean;
-}
-
 export async function sendMallAvailability(
-  mallKey: MallAvailabilitySendMall,
-  mallProductCodes: readonly string[],
-  options: SendOptions = {},
-): Promise<MallAvailabilitySendResult> {
-  const codes = [...new Set(mallProductCodes.map((code) => code.trim()).filter(Boolean))];
-  if (codes.length === 0) {
-    throw new Error('이 몰에는 보낼 상품코드가 없습니다.');
+  input: {
+    mallKey: string;
+    channelAccountId: string;
+    action: 'sold_out' | 'resume';
+    items: readonly MallAvailabilityItem[];
+    idempotencyKey?: string;
+  },
+  options: WaitOptions = {},
+): Promise<MallAvailabilityRun> {
+  if (input.items.length === 0) throw new Error('이 몰에는 보낼 상품이 없습니다.');
+  if (input.items.length > MALL_AVAILABILITY_BATCH_MAX) {
+    throw new Error(`한 번에 ${MALL_AVAILABILITY_BATCH_MAX}개까지 보냅니다. 나눠 보내 주세요.`);
   }
-
-  const extensionId = await detectOrderCollectionExtensionId();
-  if (!extensionId) {
-    throw new Error(
-      '확장프로그램이 필요합니다. extensions/kiditem-os 를 Chrome 에 로드하고 '
-      + '해당 몰 관리자에 로그인한 뒤 다시 시도하세요.',
-    );
-  }
-  const required = SEND_REQUIRES_CAPABILITY[mallKey];
-  if (required) {
-    const runtime = await detectOrderCollectionExtensionRuntime(1200, [required]);
-    if (runtime.status !== 'ready') {
-      throw new Error(
-        `설치된 KidItem 확장${runtime.status === 'incompatible' ? `(${runtime.version})` : ''}이 이 몰의 옛 방식입니다. `
-        + 'chrome://extensions 에서 확장을 새로고침한 뒤 이 페이지도 새로고침(F5)하고 다시 보내세요.',
-      );
-    }
-  }
-
-  const chunkSize = SEND_CHUNK[mallKey] ?? codes.length;
-  const optionCount = (list: readonly string[]) =>
-    list.reduce((sum, code) => sum + (options.optionCodes?.[code]?.length ?? 1), 0);
-  const total = { sent: 0, failed: 0, confirmed: 0, already: 0, rocket: 0, confirmedKnown: true, requestOnly: false };
-  let listShown: boolean | null | undefined;
-  const warnings: string[] = [];
-  const wingEvidence: WingAvailabilityEvidence[] = [];
-  for (let start = 0; start < codes.length; start += chunkSize) {
-    const chunk = codes.slice(start, start + chunkSize);
-    let response: SendResponse;
+  const idempotencyKey = input.idempotencyKey ?? newRegistrationIdempotencyKey(input.action);
+  // 같은 계정 잠금을 쥔 다른 실행(자동 읽기 · 다른 품절 묶음)은 끝날 때까지 기다린다 — 그 실행을 제 것으로 삼지 않는다.
+  const operationId = await startAfterOtherOperations<string>(async () => {
     try {
-      response = await sendChunk(extensionId, mallKey, chunk, options);
+      const { operationId: started } = await startRegistrationOperation({
+        mallKey: input.mallKey,
+        idempotencyKey,
+        scope: {
+          executionKind: input.action,
+          channelAccountId: input.channelAccountId,
+          items: input.items.map((item) => (item.channelListingId
+            ? { channelListingId: item.channelListingId }
+            : { channelListingOptionIds: [...(item.channelListingOptionIds ?? [])] })),
+        },
+      });
+      return { started };
     } catch (error) {
-      // 앞 묶음은 이미 몰에 갔다. 버리지 않고 멈춘 자리를 말한다.
-      if (start === 0) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      total.failed += optionCount(codes.slice(start));
-      warnings.push(`${codes.length}개 중 ${start}개까지 보내고 멈췄습니다 — ${message}`);
-      break;
+      if (error instanceof RegistrationOperationInProgress) return { busyWith: error.existingOperationId };
+      throw error;
     }
-    if (mallKey === 'coupang' && Array.isArray(response.wingEvidence)) {
-      for (const value of response.wingEvidence) {
-        const parsed = WingAvailabilityEvidenceSchema.safeParse(value);
-        if (parsed.success && chunk.includes(parsed.data.externalListingId)) wingEvidence.push(parsed.data);
-      }
-    }
-    total.sent += response.sent ?? 0;
-    total.failed += response.failed ?? 0;
-    total.already += response.already ?? 0;
-    total.rocket += response.rocket ?? 0;
-    total.requestOnly ||= response.requestOnly === true;
-    if (response.listShown !== undefined) listShown = response.listShown;
-    if (typeof response.confirmed === 'number') total.confirmed += response.confirmed;
-    else total.confirmedKnown = false;
-    warnings.push(...(response.warnings ?? []));
-    const done = Math.min(start + chunk.length, codes.length);
-    options.onProgress?.(done, codes.length);
-    if (response.stopped) {
-      // 몰이 막았다. 더 보내면 더 막힌다 — 남은 상품은 보내지 않은 채로 둔다.
-      total.failed += optionCount(codes.slice(done));
-      break;
-    }
-  }
+  }, options);
+  return { operation: await waitForRegistrationOperation(operationId, options), started: true, message: null };
+}
 
-  if (mallKey === 'coupang' && options.executionContext) {
-    const exactProof = codes.every((code) => {
-      const selected = options.optionCodes?.[code] ?? [];
-      const proofs = wingEvidence.filter((entry) => entry.externalListingId === code);
-      if (selected.length === 0 || proofs.length !== 1
-        || proofs[0].providerAccountId !== options.executionContext?.expectedProviderAccountId) return false;
-      const observations = proofs[0].observedOptionStocks;
-      const ids = new Set(observations.map((option) => option.externalOptionId));
-      return observations.length === selected.length && ids.size === selected.length
-        && selected.every((id) => ids.has(id))
-        && observations.every((option) => options.resume ? option.stock > 0 : option.stock === 0);
-    });
-    if (!exactProof || total.rocket > 0) total.confirmedKnown = false;
-  }
+// ── 지금 재고 읽기 ───────────────────────────────────────────────────────────────
 
-  const summary: string[] = [];
-  if (total.already > 0) {
-    // 재고로 품절을 거는 몰은 재고로, 판매상태로 거는 몰은 상태로 말한다.
-    summary.push(SOLD_OUT_FLAG_MALLS.has(mallKey)
-      ? `${total.already}개는 이미 ${options.resume ? '팔리고 있었습니다' : '살 수 없는 상태(품절 · 판매중지 등)였습니다'}.`
-      : `${total.already}개 옵션은 이미 ${options.resume ? '재고가 있었습니다' : '재고 0이었습니다'}.`);
-  }
-  if (total.rocket > 0) summary.push(`로켓그로스 옵션 ${total.rocket}개는 쿠팡 재고라 건너뛰었습니다.`);
+/**
+ * 읽기 실행 결과를 기다리며 그 실행 하나(`GET /api/operations/:id`)를 3초마다 읽는다.
+ *
+ * 읽기 폴링 예산(등록현황 한 화면, `use-mall-live-availability`): 페이지가 뜨면 읽을 수 있는 몰 열마다 읽기 실행 하나를
+ * 함께 시작한다(옛 훅과 같은 주기 — 페이지당 한 번, 같은 동시 수 — 몰 열 수). 실행마다 끝날 때까지 분당 20번 읽으므로
+ * 최악은 읽는 몰 15곳 × 20 = 분당 300회(탭 하나)이고, API 스로틀러 분당 600회(`api-application.module.ts`) 안이다. 끝난
+ * 실행과 떠난 화면(`signal`)의 실행은 더 읽지 않는다.
+ */
+const READ_POLL_MS = 3_000;
+/** 확장이 윙 상품목록을 뒤에서 열어 읽는다. 429로 쉬는 시간까지 넉넉히(옛 90초 + 시작). */
+const READ_WAIT_LIMIT_MS = 180_000;
+const READ_STILL_RUNNING = '지금 재고를 아직 읽는 중입니다. 잠시 뒤 다시 확인해 주세요.';
+const READ_FAILED = '지금 재고를 읽지 못했습니다.';
 
+async function waitForAvailabilityRead(operationId: string, options: WaitOptions): Promise<OperationView> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const deadline = now() + (options.timeoutMs ?? READ_WAIT_LIMIT_MS);
+  for (;;) {
+    // 기다리던 화면이 떠났으면(페이지 이동 · 언마운트) 더 읽지 않는다. 실행은 확장에서 끝까지 돈다.
+    options.signal?.throwIfAborted();
+    const { operation } = OperationFinishResponseSchema.parse(
+      await apiClient.get(`/api/operations/${encodeURIComponent(operationId)}`),
+    );
+    options.signal?.throwIfAborted();
+    if (operation.kind !== MALL_AVAILABILITY_READ_KIND) throw new Error(READ_FAILED);
+    if (isOperationTerminal(operation.status)) return operation;
+    if (now() >= deadline) throw new Error(READ_STILL_RUNNING);
+    await sleep(READ_POLL_MS);
+  }
+}
+
+function liveOption(row: MallAvailabilityRow): MallLiveOption {
+  const state = !row.available ? row.observedStatus?.trim() : undefined;
   return {
-    sent: total.sent,
-    failed: total.failed,
-    requestOnly: total.requestOnly,
-    confirmed: total.confirmedKnown ? total.confirmed : null,
-    warnings: [...summary, ...new Set(warnings)],
-    ...(mallKey === 'coupang' && wingEvidence.length > 0 ? { wingEvidence } : {}),
-    ...(listShown !== undefined ? { listShown } : {}),
+    optionCode: row.externalOptionId ?? row.externalListingId,
+    // 판매중이면 몰이 준 수(모르면 null), 못 사는 상태면 0 — 칸이 품절로 읽는다.
+    stock: row.available ? row.stock : 0,
+    // 로켓그로스 옵션은 쿠팡 재고다 — 칸이 품절로 세지 않는다.
+    rocket: row.rocket,
+    ...(state ? { state } : {}),
   };
 }
 
-async function sendChunk(
-  extensionId: string,
-  mallKey: MallAvailabilitySendMall,
-  codes: readonly string[],
-  options: SendOptions,
-): Promise<SendResponse> {
-  const optionCodes = options.optionCodes
-    ? Object.fromEntries(codes.flatMap((code) => (options.optionCodes?.[code] ? [[code, options.optionCodes[code]]] : [])))
-    : null;
-  let response: SendResponse;
-  try {
-    response = await sendToExtension<SendResponse>(
-      extensionId,
-      {
-        action: 'sendMallAvailability',
-        mallKey,
-        codes,
-        resume: options.resume === true,
-        ...(options.executionContext ? { executionContext: options.executionContext } : {}),
-        ...(optionCodes ? { options: optionCodes } : {}),
-        ...(options.show ? { show: true } : {}),
-      },
-      SEND_TIMEOUT_MS,
-    );
-  } catch (error) {
-    // 확장이 이 액션을 모르면 아무도 응답하지 않고 포트가 닫힌다. Chrome 원문은 원인을
-    // 알려주지 않으므로 실제 원인으로 바꿔 말한다.
-    const message = error instanceof Error ? error.message : String(error);
-    if (/message port closed/i.test(message)) {
-      throw new Error(
-        '설치된 확장이 아직 품절 송신을 모릅니다. chrome://extensions 에서 KidItem 확장을 '
-        + '새로고침한 뒤 이 페이지도 새로고침(F5)하고 다시 시도하세요.',
-      );
-    }
-    throw error;
-  }
+async function readChunk(
+  input: { mallKey: string; channelAccountId: string; codes: readonly string[]; automatic: boolean },
+  options: WaitOptions,
+): Promise<MallAvailabilityRow[]> {
+  const login = await operationLoginOptions(input.mallKey, { automatic: input.automatic });
+  // 같은 계정 잠금을 쥔 다른 실행(품절 · 다른 페이지 읽기)은 끝날 때까지 기다린다 — 그 결과를 빌려 쓰지 않는다.
+  const operationId = await startAfterOtherOperations<string>(async () => {
+    const outcome = await requestOperationStart(MALL_AVAILABILITY_READ_KIND, {
+      channelAccountId: input.channelAccountId,
+      mallKey: input.mallKey,
+      externalListingIds: [...input.codes],
+    }, { capability: CHANNELS_REGISTRATION_OPERATION_CAPABILITY, ...login });
+    if (outcome.outcome === 'refused') return { busyWith: outcome.existingOperationId ?? null };
+    if (!outcome.operationId) throw new Error(READ_FAILED);
+    return { started: outcome.operationId };
+  }, options);
+  const operation = await waitForAvailabilityRead(operationId, options);
+  // 저장 자격이 몰에서 거절됐으면 그 몰의 자동 로그인을 멈춘다(D10 — 거듭 두드리면 계정이 잠긴다).
+  if (operation.status === 'failed') noteOperationLoginFailureForMall(input.mallKey, operation);
+  if (operation.status !== 'succeeded') throw new Error(attemptFailureText(operation, MALL_AVAILABILITY_READ_KIND) ?? READ_FAILED);
+  const result = MallAvailabilityReadResultSchema.safeParse(operation.result);
+  if (!result.success) throw new Error(READ_FAILED);
+  return result.data.rows;
+}
 
-  if (response?.success !== true) {
-    throw new Error(response?.error ?? '품절을 보내지 못했습니다.');
+/**
+ * 여러 상품의 몰 지금 재고를 읽는다(등록현황 한 페이지). 몰에서 못 찾은 상품은 결과에 없다. 읽기만 한다.
+ * `automatic`: 화면이 스스로 읽는 것(페이지 자동 읽기)이면 자동 로그인 간격을 지킨다.
+ */
+export async function readMallAvailabilityMany(
+  input: { mallKey: string; channelAccountId: string; codes: readonly string[]; automatic?: boolean },
+  options: WaitOptions = {},
+): Promise<Map<string, MallLiveOption[]>> {
+  const codes = [...new Set(input.codes.map((code) => code.trim()).filter(Boolean))];
+  const products = new Map<string, MallLiveOption[]>();
+  for (let start = 0; start < codes.length; start += MALL_AVAILABILITY_READ_MAX_LISTINGS) {
+    const rows = await readChunk({
+      mallKey: input.mallKey,
+      channelAccountId: input.channelAccountId,
+      codes: codes.slice(start, start + MALL_AVAILABILITY_READ_MAX_LISTINGS),
+      automatic: input.automatic ?? false,
+    }, options);
+    for (const row of rows) products.set(row.externalListingId, [...(products.get(row.externalListingId) ?? []), liveOption(row)]);
   }
-  return response;
+  return products;
+}
+
+/** 상품 하나의 몰 지금 재고. 몰에 없으면 그렇게 말한다. */
+export async function readMallAvailability(
+  input: { mallKey: string; channelAccountId: string; code: string },
+  options: WaitOptions = {},
+): Promise<MallLiveOption[]> {
+  const products = await readMallAvailabilityMany({ ...input, codes: [input.code] }, options);
+  const found = products.get(input.code.trim());
+  if (!found) throw new Error('이 상품을 몰에서 찾지 못했습니다.');
+  return found;
 }

@@ -6,7 +6,6 @@ import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import {
   useAdoptThumbnail,
-  useClearRegistrationError,
   useMarkRegistrationNotApplied,
   useThumbnailExecutionStatuses,
   useThumbnailGallery,
@@ -69,15 +68,14 @@ describe('mall representative image executions', () => {
     expect(apiClient.get).toHaveBeenCalledWith(`/api/channels/thumbnail-executions?salesProductIds=${SP1},${SP2}`);
   });
 
-  it('clears the failure of a sales product and marks a checking execution as not applied', async () => {
-    vi.mocked(apiClient.delete).mockResolvedValue({ dismissed: true });
-    vi.mocked(apiClient.post).mockResolvedValue({ executionId: 'e1', success: false });
-    const { result } = renderHook(() => ({ clear: useClearRegistrationError(), notApplied: useMarkRegistrationNotApplied() }), { wrapper });
+  it('marks a checking execution as not applied by closing it (there is no local failure clear any more)', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue({});
+    const { result } = renderHook(() => ({ notApplied: useMarkRegistrationNotApplied() }), { wrapper });
 
-    await act(async () => { await result.current.clear.mutateAsync(SP1); });
     await act(async () => { await result.current.notApplied.mutateAsync('e1'); });
 
-    expect(apiClient.delete).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/failed/${SP1}`);
-    expect(apiClient.post).toHaveBeenCalledWith('/api/channels/thumbnail-executions/e1/not-applied', {});
+    expect(apiClient.delete).not.toHaveBeenCalled();
+    // 확인 중 실행을 "반영 안 됨"으로 닫는다 — 등록 실행 닫기(KID-364).
+    expect(apiClient.post).toHaveBeenCalledWith('/api/channels/registration-operations/e1/close', { reason: '운영자가 몰에서 확인: 반영되지 않음' });
   });
 });

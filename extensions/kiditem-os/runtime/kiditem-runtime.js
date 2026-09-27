@@ -4975,7 +4975,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/advertising.ad_report/index.ts
   var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
-  var ADVERTISER_IDENTITY_MISMATCH = "ADVERTISER_IDENTITY_MISMATCH";
+  var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
   var AD_REPORT_POLL_INTERVAL_MS = 5e3;
   var AD_REPORT_POLL_LIMIT_MS = 5 * 60 * 1e3;
   var AD_CENTER_PAGE_SIZE = 500;
@@ -4996,7 +4996,7 @@ var KidItemRuntime = (() => {
       if (plan.vendorId !== null) {
         vendorId2 = await site.readVendorId();
         if (vendorId2 !== plan.vendorId) {
-          throw new RuntimeError(ADVERTISER_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
             plannedVendorId: plan.vendorId,
             observedVendorId: vendorId2
           });

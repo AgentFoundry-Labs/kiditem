@@ -4,7 +4,8 @@ import { useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-import { registrationExecutionKeys } from '@/app/(channels)/_shared/registration-execution-api';
+import { registrationOperationKeys } from '@/app/(channels)/_shared/registration-operation';
+import { friendlyError } from '@/lib/api-error';
 import {
   canSendMallPrice,
   MALL_PRICE_SEND_NOTE,
@@ -104,12 +105,16 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       toast.error('몰 계정을 확인할 수 없어 가격을 보내지 않았습니다.');
       return;
     }
+    const salesProductOptionId = listing.options.length === 1 ? listing.options[0]?.salesProductOptionId : null;
+    if (!salesProductOptionId) {
+      toast.error('몰 옵션이 판매 옵션에 이어지지 않아 가격을 보내지 않았습니다.');
+      return;
+    }
     inFlight.current.add(listing.id);
     const key = `${listing.id}:${target?.id ?? 'common'}:${target?.version ?? 0}`;
     const idempotencyKey = requestKeys.current.get(key) ?? crypto.randomUUID();
     requestKeys.current.set(key, idempotencyKey);
     setSendStates((current) => ({ ...current, [listing.id]: { status: 'sending' } }));
-    let executionTargetId = target?.id;
     try {
       const result = await executeTargetMallPrice({
         salesProductId: product.id,
@@ -118,26 +123,23 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
         listingId: listing.id,
         mallKey: listing.mallKey,
         idempotencyKey,
+        salesProductOptionId,
       });
-      executionTargetId = result.execution.targetId;
-      const confirmed = result.decision?.confirmed === true;
-      const message = result.decision?.message ?? '이 상품의 전송 실행이 남아 있습니다. 등록 설정의 실행 기록에서 결과를 확인해주세요.';
-      if (result.execution.status === 'succeeded' || result.execution.status === 'failed') requestKeys.current.delete(key);
-      setSendStates((current) => ({ ...current, [listing.id]: {
-        status: result.decision?.outcome === 'not_submitted' ? 'failed' : 'done',
-        confirmed, after: result.decision?.after ?? null, message,
-      } }));
-      if (confirmed) toast.success(message);
-      else toast.warning(message);
+      // 끝난 실행(확인 · 실패)만 다음 보내기에 새 시작을 연다. 확인 필요 · 진행 중은 같은 키로 같은 실행을 돌려받는다.
+      if (result.confirmed || result.failed) requestKeys.current.delete(key);
+      setSendStates((current) => ({ ...current, [listing.id]: result.failed
+        ? { status: 'failed', message: result.message }
+        : { status: 'done', confirmed: result.confirmed, after: null, message: result.message } }));
+      if (result.confirmed) toast.success(result.message);
+      else if (result.failed) toast.error(result.message);
+      else toast.warning(result.message);
     } catch (error) {
-      const message = error instanceof Error ? error.message : '가격을 보내지 못했습니다.';
+      const message = friendlyError(error, '가격을 보내지 못했습니다.') ?? '가격을 보내지 못했습니다.';
       setSendStates((current) => ({ ...current, [listing.id]: { status: 'failed', message } }));
       toast.error(message);
     } finally {
       inFlight.current.delete(listing.id);
-      if (executionTargetId) {
-        void queryClient.invalidateQueries({ queryKey: registrationExecutionKeys.targetHistory(executionTargetId) });
-      }
+      void queryClient.invalidateQueries({ queryKey: registrationOperationKeys.all });
     }
   };
 

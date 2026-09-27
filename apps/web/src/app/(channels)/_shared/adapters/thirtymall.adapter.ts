@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   THIRTYMALL_COMMISSION_RATE,
   THIRTYMALL_DEFAULT_DISPLAY_CATEGORY,
@@ -11,13 +11,13 @@ import {
   thirtymallSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/thirtymall-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -158,11 +158,7 @@ export const thirtymallAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, 'thirtymall');
     const form = thirtymallFormFromDraft(draft, {
       quantity: parsePositive(values.quantity, 1),
@@ -170,7 +166,6 @@ export const thirtymallAdapter: MallPublishAdapter = {
       ...(values.displayCategory?.trim() ? { displayCategory: values.displayCategory.trim() } : {}),
       ...(values.manager?.trim() ? { manager: values.manager.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('thirtymall', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

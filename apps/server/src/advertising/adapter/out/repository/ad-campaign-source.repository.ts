@@ -401,8 +401,8 @@ export class AdCampaignSourceRepository {
             await this.failIn(
               tx,
               row,
-              'ADVERTISER_IDENTITY_MISMATCH',
-              operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE }),
+              'ADVERTISING_IDENTITY_MISMATCH',
+              operatorErrorText({ code: 'ADVERTISING_IDENTITY_MISMATCH', source: SOURCE }),
               checksum,
             ),
           )),
@@ -716,8 +716,8 @@ export class AdCampaignSourceRepository {
           await this.failIn(
             tx,
             row,
-            'ADVERTISER_IDENTITY_MISMATCH',
-            operatorErrorText({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: SOURCE }),
+            'ADVERTISING_IDENTITY_MISMATCH',
+            operatorErrorText({ code: 'ADVERTISING_IDENTITY_MISMATCH', source: SOURCE }),
             manifestChecksum,
           ),
         );

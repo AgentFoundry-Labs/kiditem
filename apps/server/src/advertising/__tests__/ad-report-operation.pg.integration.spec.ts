@@ -605,7 +605,7 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     const other = await beginRun();
     await collect(other, { products: [productRow({ date: day(0) })], vendorId: 'VENDOR-B' });
     expect((await finish(other).expect(409)).body).toMatchObject({
-      code: 'ADVERTISER_IDENTITY_MISMATCH',
+      code: 'ADVERTISING_IDENTITY_MISMATCH',
       message: '광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.',
     });
     await finish(other, { outcome: 'failed', errorCode: 'VALIDATION_FAILED' }).expect(200);

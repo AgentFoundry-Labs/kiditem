@@ -331,9 +331,6 @@ export class RegistrationOperationRepositoryAdapter implements RegistrationOpera
     if (!decision.ok && !tolerated) {
       throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: decision.reason } });
     }
-    if (!input.confirmedByOperator && input.evidence.providerAccountId === null && input.evidence.observedUrl === null) {
-      throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'TRUSTED_EVIDENCE_MISSING' } });
-    }
     const resolved = await resolveTargetConfirmationListing(tx, scope, input.snapshot, input.evidence, input.evidence.externalListingId);
     await applyTargetConfirmationRecipes(transaction, this.recipes, input.organizationId, input.snapshot, input.evidence, resolved);
     if (input.snapshot.kind === 'register') await this.completeFirstRegistration(transaction, input.organizationId, input.snapshot, resolved);

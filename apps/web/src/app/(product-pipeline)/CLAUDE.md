@@ -27,7 +27,8 @@ React Query + apiClient
   -> /api/ai/listing-thumbnails/*  (listing image evaluation)
   -> /api/thumbnail-editor/*
   -> /api/channels/listings/*
-  -> /api/channels/thumbnail-executions  (representative image upload: prepare, report, resend, applied/not-applied, listing choices, latest status)
+  -> /api/channels/thumbnail-executions  (representative image: listing choices, latest status only)
+  -> extension operation.start channels.registration (thumbnail_update) + /api/operations/:id  (upload run; applied/not-applied = /api/channels/registration-operations/:id/confirm|close)
 ```
 
 ## State Rules

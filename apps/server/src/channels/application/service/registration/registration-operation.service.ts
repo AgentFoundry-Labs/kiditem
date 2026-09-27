@@ -202,7 +202,8 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       channelListingId: planned.snapshot.channelListingId,
       externalListingId: planned.externalListingId,
       expectedProviderAccountId: planned.expectedProviderAccountId,
-      submit: scope.submit && registrationSubmitAllowed(planned.mallKey),
+      // 가격 보내기(update)는 [등록]이 아니다 — 품절 · 재개처럼 요청이 곧 동작이라 문서 관문을 거치지 않는다.
+      submit: kind === 'update' ? scope.submit : scope.submit && registrationSubmitAllowed(planned.mallKey),
     }, { snapshot: planned.snapshot, form }, lockKeys);
   }
 

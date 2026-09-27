@@ -19,8 +19,8 @@ describe('옮긴 kind의 실패 알림 표', () => {
   });
 
   it('광고센터 업체코드가 계정과 다르다는 확장 코드는 등록된 한국어 문장으로 보인다', () => {
-    expect(describeOperatorError({ code: 'ADVERTISER_IDENTITY_MISMATCH', source: 'advertising.ad_report' })).toEqual({
-      code: 'ADVERTISER_IDENTITY_MISMATCH',
+    expect(describeOperatorError({ code: 'ADVERTISING_IDENTITY_MISMATCH', source: 'advertising.ad_report' })).toEqual({
+      code: 'ADVERTISING_IDENTITY_MISMATCH',
       text: '광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.',
     });
   });

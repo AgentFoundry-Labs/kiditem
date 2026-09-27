@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { channelFormSpec, isChannelKey } from '@kiditem/shared/channel-registry';
+import { isChannelKey } from '@kiditem/shared/channel-registry';
 import {
   MALL_PUBLISH_ADAPTERS,
   MALL_REGISTRATION_ADAPTERS,
@@ -83,7 +83,7 @@ describe('몰 등록 어댑터 레지스트리', () => {
       expect(['form', 'sheet', 'api']).toContain(adapter.mode);
       expect(typeof adapter.preview).toBe('function');
       expect(typeof adapter.validate).toBe('function');
-      expect(typeof adapter.send).toBe('function');
+      expect(typeof adapter.buildForm).toBe('function');
       // 필수 칸은 기본값이 있거나 사람이 채워야 한다고 표시돼야 한다.
       for (const field of adapter.fields) {
         expect(field.label.length).toBeGreaterThan(0);
@@ -136,73 +136,26 @@ describe('목록 판매가 판정', () => {
 });
 
 /**
- * 폼 자동채움이 닿는 키는 반드시 확장 스펙에 있어야 한다.
- *
- * `fillMallRegistrationForm` 은 **저장된 아이디·비밀번호를 실어 보낸다.** 확장이 그 키의
- * 스펙을 못 찾으면 던지고 끝나지만(`mall-form-register.js` `specFor`), 그 전에 자격증명은
- * 이미 메시지에 실려 나간 뒤다. 타입은 채널 29개를 다 받으므로(레지스트리 행에서 "확장
- * 폼이 있는가"를 가려낼 수 없다) 여기서 값으로 잠근다.
- *
- * 확장 파일을 직접 읽는 이유: 웹 테스트가 확장을 목으로 대신하면 철자가 갈라진 그 순간을
- * 못 잡는다. 이 명세가 잡으려는 것이 정확히 그 순간이다.
+ * 등록 실행은 어댑터 몰 키로 그 몰의 확장 쓰기 사이트(`mallWriteSite.<key>`)와 저장 자격을 고른다(KID-364).
+ * 확장 쪽 사이트 목록은 런타임 capability가 답하고(없으면 시작을 거절), 여기서는 키가 채널 레지스트리 철자인지만
+ * 값으로 잠근다 — 번역표(옛 `gsshop`·`artgonggu` …)가 다시 생기지 않게.
  */
-describe('폼 자동채움 키 = 확장 스펙 키', () => {
-  const ADAPTER_DIR = path.resolve(__dirname);
-  const EXTENSION_FORM_REGISTER = path.resolve(
-    __dirname,
-    '../../../../../../../extensions/kiditem-os/background/orders/mall-form-register.js',
-  );
-
-  /** `const SPECS = { … };` 블록 안의 최상위 키들. */
-  function extensionSpecKeys(): string[] {
-    const source = readFileSync(EXTENSION_FORM_REGISTER, 'utf8');
-    const start = source.indexOf('const SPECS = ');
-    expect(start).toBeGreaterThanOrEqual(0);
-    const end = source.slice(start).search(/\n {2}\}[);]/);
-    expect(end).toBeGreaterThanOrEqual(0);
-    const block = source.slice(start, start + end);
-    const keys: string[] = [];
-    for (const match of block.matchAll(/^ {4}(?:"([^"]+)"|([A-Za-z0-9_$-]+)): (?:Object\.freeze\()?\{/gm)) {
-      keys.push(match[1] ?? match[2]!);
-    }
-    return keys;
-  }
-
-  /** 어댑터 파일에서 실제로 넘기는 첫 인자. 리터럴이라 값으로 읽는다. */
-  function formFillCalls(): { file: string; mallKey: string }[] {
-    return readdirSync(ADAPTER_DIR)
-      .filter((file) => file.endsWith('.adapter.ts'))
-      .flatMap((file) => {
-        const source = readFileSync(path.join(ADAPTER_DIR, file), 'utf8');
-        return [...source.matchAll(/fillMallRegistrationForm\(\s*'([^']+)'/g)]
-          .map((match) => ({ file, mallKey: match[1]! }));
-      });
-  }
-
-  it('⭐ 폼 자동채움을 부르는 어댑터의 키가 모두 확장 스펙에 있다', () => {
-    const specKeys = new Set(extensionSpecKeys());
-    const calls = formFillCalls();
-    expect(calls.length).toBeGreaterThan(0);
-    for (const call of calls) {
-      expect([call.file, channelFormSpec(call.mallKey), specKeys.has(channelFormSpec(call.mallKey))])
-        .toEqual([call.file, channelFormSpec(call.mallKey), true]);
+describe('어댑터 몰 키 = 채널 키', () => {
+  it('⭐ 모든 등록 어댑터의 몰 키가 채널 키다', () => {
+    for (const adapter of MALL_REGISTRATION_ADAPTERS) {
+      expect([adapter.mallKey, isChannelKey(adapter.mallKey)]).toEqual([adapter.mallKey, true]);
     }
   });
 
-  it('⭐ 어댑터는 제 몰 키로 부른다 — 다른 몰의 폼을 열지 않는다', () => {
-    const byKey = new Map(MALL_PUBLISH_ADAPTERS.map((adapter) => [adapter.mallKey, adapter]));
-    for (const call of formFillCalls()) {
-      const adapter = [...byKey.values()].find((entry) => entry.mallKey === call.mallKey);
-      expect([call.file, Boolean(adapter)]).toEqual([call.file, true]);
-    }
-  });
-
-  /** 확장 스펙 키는 모두 채널 키다 — 번역표가 다시 생기지 않는다. */
-  it('⭐ 확장 스펙 키가 모두 채널 키다', () => {
-    const keys = extensionSpecKeys();
-    expect(keys.length).toBeGreaterThan(0);
-    for (const key of keys) {
-      expect([key, isChannelKey(key)]).toEqual([key, true]);
+  it('⭐ 어댑터 소스가 확장을 직접 부르지 않는다 — 몰 쓰기는 등록 실행 하나로만 간다', () => {
+    const dir = path.resolve(__dirname);
+    const files = [
+      ...readdirSync(dir).filter((file) => file.endsWith('.adapter.ts')).map((file) => path.join(dir, file)),
+      path.join(dir, 'coupang-wing', 'coupang-wing.adapter.ts'),
+    ];
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8');
+      expect([file, /sendToExtension|fillMallRegistrationForm|registerTo\w+Form/.test(source)]).toEqual([file, false]);
     }
   });
 });

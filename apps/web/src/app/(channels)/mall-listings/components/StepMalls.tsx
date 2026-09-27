@@ -12,7 +12,7 @@ interface StepMallsProps {
   selected: ReadonlySet<string>;
   productCount: number;
   onToggle: (mallKey: string) => void;
-  /** 확장이 [등록]까지 누르는 몰(몰 계정 키, ADR-0015). 나머지는 폼만 채우고 사람이 등록한다. */
+  /** 확장이 [등록]까지 누를 수 있는 몰(몰 계정 키, ADR-0019). 나머지는 폼만 채우고 사람이 등록한다. */
   autoSubmitMalls: ReadonlySet<string>;
 }
 

@@ -10,8 +10,9 @@
   서고 단계마다 그 단계의 일을 아래로 적는다 — 미션은 첫 칸이다. 일·단계 상태는 코드가
   실제로 하는 일 기준이고, 숫자는 `/mall-channels` 와 같은 판정
   (`_shared/use-mall-capability-rows.ts`)을 읽는다.
-- 로그인 확인·테스트와 등록 폼 채움은 현재 브라우저 결과만 표시하고 DB 이력을 남기지 않는다.
-  실제 상품 제출은 등록 실행 원장으로 조회한다. 폼 채움·엑셀 생성은 등록 성공이 아니다.
+- 로그인 확인·테스트는 현재 브라우저 결과만 표시하고 DB 이력을 남기지 않는다. 몰 쓰기(등록 · 폼만 채우기 · 수정 ·
+  품절 · 재개 · 가격 · 대표이미지)는 모두 등록 실행(`channels.registration`)이고 `/mall-tasks`에서 조회한다. 폼 채움·엑셀
+  생성은 등록 성공이 아니다.
 - 쇼핑몰 알림판은 알림 저장소를 새로 만들지 않는다. 서버 알림은 전역 알림 쿼리
   (`/api/alerts`)에서 몰에서 일하는 원천(`sourceType`)의 실패 알림만 골라 읽고
   (`mall-home/lib/mall-alerts.ts`), 지금 상태 알림(로그인 정보 · 품절 후보 · 쿠팡
@@ -52,7 +53,8 @@
   등록 현황이 옵션 레시피로 원천 상품을 연결하기 때문이고, 억지로 합치면 둘 중 하나가 빈 표가 된다.
   화면은 몰을 하나도 모른다. 몰을 아는 것은 어댑터뿐이다.
 - `/mall-availability`: 일괄 품절·해제. 판정은 재고 도메인 것을 읽기만 한다.
-- `/mall-tasks`: 등록·품절 실행 기록을 한 표에서 상태로 본다.
+- `/mall-tasks`: 등록 실행 목록(`GET /api/operations?kinds=channels.registration`)을 한 표에서 상태로 보고, 확인 필요는
+  그 자리에서 닫는다.
 
 `/mall-settings`(쇼핑몰 계정)는 `app/(orders)/` 에 남아 있다. 그 화면은 몰 계정 행
 (`channel` = 몰 키, ADR-0012)의 로그인(`config.orderCollection`)을 편집하므로 Orders API 를
@@ -91,12 +93,14 @@
 몰을 늘리는 일은 그 파일 하나를 더하고 레지스트리에 등록하는 것이고, 화면·상태·
 버튼을 몰마다 새로 만들지 않는다.
 
-- 페이지와 컴포넌트는 확장도 몰 엔드포인트도 직접 부르지 않는다. 어댑터만 부른다.
+- 페이지와 컴포넌트는 확장도 몰 엔드포인트도 직접 부르지 않는다. 어댑터는 폼 지시(`buildForm`)만 만들고, 몰에 닿는
+  것은 등록 실행 하나다(`_shared/registration-operation.ts`, KID-364).
 - `kind: 'api'` 몰은 백엔드가 소유한다. 어댑터는 우리 API 를 부른다.
 - `extension_form` / `extension_excel` 몰은 브라우저가 소유한다. 몰 관리자 세션이
   브라우저에만 있어 백엔드가 대신 열 수 없다 — 이건 설계 선택이 아니라 제약이다.
-- 어댑터는 `ok`(보냈다)와 `confirmed`(등록됐다)를 따로 보고한다. 폼을 채운 것도
-  엑셀을 만든 것도 `confirmed` 가 아니다.
+- 등록 실행 결과는 보냈다와 확인됐다를 따로 말한다. 몰에 제출했지만 결과를 못 읽은 실행(`reconciling`)은 "확인 필요"
+  이고, 운영자가 몰에서 읽은 등록상품ID로 확인하거나 "등록되지 않음"으로 닫는다(`RegistrationOperationResolution`,
+  KID-218). 폼을 채운 것도 엑셀을 만든 것도 확인이 아니다.
 - 어댑터는 자기 입력칸을 `fields` 로 선언한다. 화면이 몰별 입력 폼을 하드코딩하지
   않는다. 값의 출처(`master`/`template`/`override`)를 함께 선언해 사람이 무엇이
   상품에서 오고 무엇이 이 몰 고정값인지 보게 한다.
@@ -108,19 +112,19 @@
 - "왜 이 몰에 못 보내는가" 는 `adapter.validate` 만이 답한다. 화면이 몰별 조건을 다시
   적으면 버튼은 열려 있는데 보내면 막히는(또는 그 반대의) 화면이 된다.
 - 승인제 몰(`requiresOperatorApproval`)은 확장이 제출하지 않는다. 폼만 채우고
-  사람이 누른다.
+  사람이 누른다. [등록]을 누를지는 확장 관문 한 곳이 정한다(ADR-0019) — `submit`은 첫 조건일 뿐이다.
 - 쿠팡 WING 도 폼 어댑터 하나다(`_shared/adapters/coupang-wing/`, KID-321). 사람이 계정 · 몰
   값을 정해야 하는 어댑터는 `confirmation` 을 선언하고, 화면은 공통 `RegistrationConfirmDialog`
   로만 묻는다. 몰 전용 값은 `adapterTargetInput` 으로 등록 대상에 저장한다.
-- [등록]은 등록 실행(`_shared/use-mall-publish-run.ts`) 안에서만 누른다(KID-322). 빠른 등록은
-  폼 채우기이고 등록됐다고 말하지 않는다.
+- [등록]은 등록 대상 실행(`_shared/use-mall-publish-run.ts` → `target-registration-execution.ts`)만 부탁한다(KID-322).
+  빠른 등록은 등록 대상 없이 폼만 채우는 등록 실행(`submit: false`)이고 등록됐다고 말하지 않는다.
 
 ## 경계 규칙
 
 - 이 그룹의 서버 호출은 `_shared/mall-publishing-api.ts` 를 통한다.
-- 채널 계정에 상품을 제출하는 호출만 예외로 `_shared/registration-execution-api.ts`
-  하나를 쓴다. 등록 마법사와 수집상품 화면의 등록 실행이 모두 이 파일을 지난다 — 등록 실행 울타리는
-  Channels 것이고 길이 하나여야 중복 제출을 막는다(ADR-0014). 폼만 채운 것은 울타리가
-  아니라 현재 실행 결과다.
+- 몰 쓰기는 예외로 `_shared/registration-operation.ts` 하나를 지난다 — 등록 실행 시작(`operation.start`,
+  등록 kind 표시 + `mallWriteSite.<key>`), 결과 대기, 확인·닫기(`/api/channels/registration-operations/:id/confirm|close`),
+  목록. 등록 마법사 · 수집상품 · 판매상품 · 품절 · 가격 · 대표이미지 화면이 모두 이 파일을 지난다. 잠금은 Channels
+  owner가 쥐고(ADR-0014) 같은 대상 · 리스팅으로 두 번 보내지 않는다.
 - 파괴적 동작(완전품절, 삭제)은 매니페스트가 허용한 경우에만 버튼이 활성화되고,
   강등된 경우 실제로 보낼 상태를 화면에 표시한다.
