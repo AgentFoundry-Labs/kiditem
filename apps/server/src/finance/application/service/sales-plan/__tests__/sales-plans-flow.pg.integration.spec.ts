@@ -22,9 +22,8 @@ import {
   setupChannelListing,
   seedOrderWithLineItems,
   seedCompletedOrderCollection,
-  seedAd,
-  seedCompletedAdSweepRun,
 } from '../../../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../../../test-helpers/ad-ledger-seeds';
 
 describe('Sales-plans flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -258,17 +257,15 @@ describe('Sales-plans flow (PG integration)', () => {
           }],
         });
       }
-      const runId = await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+        start: '2026-04-01', end: '2026-04-30',
       });
-      await seedAd(prisma, {
+      await seedListingAdDay(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: fixture.listing.listingId,
         date: '2026-04-10',
         spend: 2_000,
-        runId,
       });
       await seedCompletedOrderCollection(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
@@ -282,7 +279,8 @@ describe('Sales-plans flow (PG integration)', () => {
       expect(synced.actuals).toMatchObject({
         revenue: 30_000,
         orderCount: 2,
-        netProfit: 15_000,
+        // 2,000 billed ad spend costs 2,200 with VAT (KID-368).
+        netProfit: 14_800,
       });
       expect(synced.actuals?.observedAt).toBeInstanceOf(Date);
       // KID-85 follow-up P3-13: the server publishes achievement against each
@@ -365,18 +363,16 @@ describe('Sales-plans flow (PG integration)', () => {
           listingOptionId: fixture.listing.listingOptionId,
         }],
       });
-      const runId = await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-05-31' },
+        start: '2026-04-01', end: '2026-05-31',
       });
       for (const date of ['2026-04-30', '2026-05-01']) {
-        await seedAd(prisma, {
+        await seedListingAdDay(prisma, {
           organizationId: TEST_ORGANIZATION_ID,
           listingId: fixture.listing.listingId,
           date,
           spend: 0,
-          runId,
         });
       }
       await seedCompletedOrderCollection(prisma, {
@@ -435,29 +431,25 @@ describe('Sales-plans flow (PG integration)', () => {
           listingOptionId: foreignFixture.listing.listingOptionId,
         }],
       });
-      const foreignRunId = await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: OTHER_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+        start: '2026-04-01', end: '2026-04-30',
       });
-      await seedAd(prisma, {
+      await seedListingAdDay(prisma, {
         organizationId: OTHER_ORGANIZATION_ID,
         listingId: foreignFixture.listing.listingId,
         date: '2026-04-10',
         spend: 1_000_000,
-        runId: foreignRunId,
       });
-      const ownRunId = await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+        start: '2026-04-01', end: '2026-04-30',
       });
-      await seedAd(prisma, {
+      await seedListingAdDay(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: ownFixture.listing.listingId,
         date: '2026-04-10',
         spend: 0,
-        runId: ownRunId,
       });
       await seedCompletedOrderCollection(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
@@ -522,10 +514,9 @@ describe('Sales-plans flow (PG integration)', () => {
           }],
         });
       }
-      await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-04-14' },
+        start: '2026-04-01', end: '2026-04-14',
       });
       await seedCompletedOrderCollection(prisma, {
         organizationId: TEST_ORGANIZATION_ID,

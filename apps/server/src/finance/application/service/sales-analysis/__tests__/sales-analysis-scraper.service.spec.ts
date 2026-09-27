@@ -1,4 +1,3 @@
-import { profitCatalogTestReaders } from '../../../../../test-helpers/channel-fact-ports';
 import { NotFoundException } from '@nestjs/common';
 import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
@@ -6,7 +5,6 @@ import {
   readObservedOrderBounds,
   readObservedOrderCount,
 } from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
-import { readAdWindowFacts } from '../../../../../advertising/adapter/out/persistence/read/ad-target-facts';
 import { SalesAnalysisScraperService } from '../sales-analysis-scraper.service';
 
 vi.mock('../../../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
@@ -14,9 +12,8 @@ vi.mock('../../../../../orders/adapter/out/persistence/read/order-facts.reader',
   readObservedOrderCount: vi.fn(),
 }));
 
-vi.mock('../../../../../advertising/adapter/out/persistence/read/ad-target-facts', () => ({
-  readAdWindowFacts: vi.fn(),
-}));
+/** Advertising's ledger capability — an owner boundary this unit spec fakes. */
+const adLedger = { readAdCoverage: vi.fn() };
 
 const ORG = '00000000-0000-0000-0000-000000000001';
 const TX = { snapshot: 'orders' };
@@ -25,24 +22,13 @@ function asDate(iso: string): Date {
   return new Date(`${iso}T00:00:00.000Z`);
 }
 
-/** One business date the campaign sweep measured, as the ad reader returns it. */
-function measuredAdDay(businessDate: string) {
-  return {
-    businessDate,
-    spend: 0,
-    revenue: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    orders: 0,
-    conversionsObserved: true,
-  };
-}
-
+/** The dates the ad report measured, as Advertising's coverage read returns them. */
 function measureAds(dates: string[], observedAt: string | null = null) {
-  vi.mocked(readAdWindowFacts).mockResolvedValue({
-    days: dates.map(measuredAdDay),
+  adLedger.readAdCoverage.mockResolvedValue({
+    measuredDates: dates,
+    latestMeasuredDate: dates.at(-1) ?? null,
     observedAt: observedAt ? new Date(observedAt) : null,
+    activeAccountIds: [],
   });
 }
 
@@ -135,7 +121,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
   it('reports empty ranges when nothing has been ingested', async () => {
     const prisma = makePrisma();
     const trafficRead = makeTrafficRead();
-    const service = new SalesAnalysisScraperService(prisma, trafficRead, profitCatalogTestReaders(prisma as never).accounts);
+    const service = new SalesAnalysisScraperService(prisma, trafficRead, adLedger as never);
     const result = await service.getDataSources(ORG);
     expect(result.wing.dateCount).toBe(0);
     expect(result.ads.dateCount).toBe(0);
@@ -147,7 +133,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
   it('reads a missing Coupang account (CHANNELS_ACCOUNT_NOT_FOUND) as no Wing traffic', async () => {
     const prisma = makePrisma();
     const trafficRead = makeTrafficRead([], new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND'));
-    const service = new SalesAnalysisScraperService(prisma, trafficRead, profitCatalogTestReaders(prisma as never).accounts);
+    const service = new SalesAnalysisScraperService(prisma, trafficRead, adLedger as never);
     const result = await service.getDataSources(ORG);
     expect(result.wing.dateCount).toBe(0);
   });
@@ -166,7 +152,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
         observedAt.toISOString(),
       )),
     );
-    const service = new SalesAnalysisScraperService(makePrisma(), trafficRead, profitCatalogTestReaders(makePrisma() as never).accounts);
+    const service = new SalesAnalysisScraperService(makePrisma(), trafficRead, adLedger as never);
 
     const result = await service.getDataSources(ORG);
     expect(result.wing.firstDate).toBe('2026-04-18');
@@ -183,12 +169,12 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
     expect(result.ads.dateCount).toBe(2);
     expect(result.ads.lastSyncedAt).toBe(observedAt.toISOString());
     expect(result.ads.missingDates).toEqual(['2026-04-18']);
-    expect(readAdWindowFacts).toHaveBeenCalledWith(TX, { organizationId: ORG }, expect.objectContaining({ readProviderIdentities: expect.any(Function) }));
+    expect(adLedger.readAdCoverage).toHaveBeenCalledWith(expect.anything(), { organizationId: ORG });
     expect(trafficRead.readPublished).toHaveBeenCalledWith({ organizationId: ORG });
   });
 
   it('reports orders=0 with null range when no completed collection published an order', async () => {
-    const service = new SalesAnalysisScraperService(makePrisma(), makeTrafficRead(), profitCatalogTestReaders(makePrisma() as never).accounts);
+    const service = new SalesAnalysisScraperService(makePrisma(), makeTrafficRead(), adLedger as never);
     const result = await service.getDataSources(ORG);
     expect(result.orders).toEqual({ count: 0, firstDate: null, lastDate: null });
   });
@@ -201,14 +187,14 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
       to: new Date('2026-04-30T15:00:00.000Z'), // 2026-05-01 00:00 KST, exclusive
     });
     const prisma = makePrisma();
-    const service = new SalesAnalysisScraperService(prisma, makeTrafficRead(), profitCatalogTestReaders(prisma as never).accounts);
+    const service = new SalesAnalysisScraperService(prisma, makeTrafficRead(), adLedger as never);
 
     const result = await service.getDataSources(ORG);
 
     expect(result.orders).toEqual({ count: 3, firstDate: '2026-04-10', lastDate: '2026-04-30' });
     expect(readObservedOrderCount).toHaveBeenCalledWith(TX, ORG);
     expect(readObservedOrderBounds).toHaveBeenCalledWith(TX, ORG);
-    // One snapshot for the order facts; the ad reader reads in its own.
+    // One snapshot for the order facts; the ad coverage reads in its own.
     expect((prisma as unknown as { $transaction: ReturnType<typeof vi.fn> }).$transaction)
       .toHaveBeenCalledTimes(2);
   });

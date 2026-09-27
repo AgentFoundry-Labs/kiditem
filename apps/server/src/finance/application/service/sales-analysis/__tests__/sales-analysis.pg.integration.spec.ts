@@ -9,10 +9,9 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedAd,
-  seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
 } from '../../../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../../../test-helpers/ad-ledger-seeds';
 
 const prisma = makeTestPrisma();
 const service = new SalesAnalysisService(prisma as any, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as any as never).accounts, profitCatalogTestReaders(prisma as any as never).listings, profitCatalogTestReaders(prisma as any as never).recipes, profitCatalogTestReaders(prisma as any as never).content, advertisingLedgerTestReader(prisma as any as never));
@@ -212,7 +211,7 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'EMPTY-1', orderedAt: '2026-04-10T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: coup.optionId, listingOptionId: coup.listingOptionId }],
     });
-    await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: naver.listingId, date: '2026-04-15', spend: 500 });
+    await seedListingAdDay(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: naver.listingId, date: '2026-04-15', spend: 500 });
     await coverOrders();
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
     expect(result.channels).toHaveLength(1);
@@ -276,28 +275,27 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'ADS-MEASURED-2', orderedAt: '2026-04-11T00:00:00Z',
       lineItems: [{ quantity: 1, totalPrice: 8000, optionId: naver.optionId, listingOptionId: naver.listingOptionId }],
     });
-    const runId = await seedCompletedAdSweepRun(prisma, {
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: 1,
-      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+      start: '2026-04-01', end: '2026-04-30',
     });
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId: coup.listingId, date: '2026-04-15', spend: 2000, runId,
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: coup.listingId, date: '2026-04-15', spend: 2000,
     });
     await coverOrders();
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
-    // cost = purchase 5000 + order shipping 3000 + ad spend; a Rocket order
-    // carries no commission.
+    // cost = purchase 5000 + order shipping 3000 + ad cost (2000 billed × 1.1);
+    // a Rocket order carries no commission.
     expect(result.channels.find((c) => c.channel === 'coupang')).toMatchObject({
-      totalCost: 10000, totalProfit: 0, profitRate: 0,
+      totalCost: 10200, totalProfit: -200, profitRate: -2,
     });
     expect(result.channels.find((c) => c.channel === 'naver')).toMatchObject({
       totalCost: 8000, totalProfit: 0, profitRate: 0,
     });
     expect(result.totals).toMatchObject({
-      totalRevenue: 18000, totalCost: 18000, totalProfit: 0, profitRate: 0,
+      totalRevenue: 18000, totalCost: 18200, totalProfit: -200, profitRate: -1.1,
     });
     for (const basis of [result.basis.revenue, result.basis.adCost, result.basis.profit]) {
       expect(periodBasisStatus(basis)).toBe('complete');
@@ -478,22 +476,21 @@ describe('SalesAnalysisService.getAnalysis (PG integration)', () => {
       orderChannel: 'rocket',
       lineItems: [{ quantity: 1, totalPrice: 10000, optionId: option.id, listingOptionId: sold.listingOptionId }],
     });
-    const runId = await seedCompletedAdSweepRun(prisma, {
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: 1,
-      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+      start: '2026-04-01', end: '2026-04-30',
     });
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId: activeUnsold.listingId, date: '2026-04-15', spend: 2000, runId,
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: activeUnsold.listingId, date: '2026-04-15', spend: 2000,
     });
     await coverOrders();
 
     const result = await service.getAnalysis(TEST_ORGANIZATION_ID, '2026-04', AFTER_MONTHS);
 
     // Rocket order: purchase 5000, no commission or other cost, no shipping,
-    // plus the 2000 the coupang channel's active listing spent.
+    // plus the 2200 (2000 billed × 1.1) the coupang channel's active listing spent.
     expect(result.channels).toEqual([
-      expect.objectContaining({ channel: 'coupang', totalRevenue: 10000, totalCost: 7000, totalProfit: 3000 }),
+      expect.objectContaining({ channel: 'coupang', totalRevenue: 10000, totalCost: 7200, totalProfit: 2800 }),
     ]);
   });
 });

@@ -10,14 +10,13 @@ import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { ProfitLossService } from '../profit-loss.service';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
-  seedAd,
-  seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
   seedOrderWithLineItems,
   setupChannelListing,
   setupMaster,
   setupProductOption,
 } from '../../../../../test-helpers/finance-seeds';
+import { seedAdBillings, seedAdReportWindow, seedListingAdDay } from '../../../../../test-helpers/ad-ledger-seeds';
 import { seedSourceProduct } from '../../../../../test-helpers/inventory-seeds';
 import {
   makeTestPrisma,
@@ -255,10 +254,9 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
   ) => seedCompletedOrderCoverageRun(prisma, { organizationId, startDate, endDate });
 
   /** The campaign sweep declares it measured every April date. */
-  const coverAprilAds = (organizationId = TEST_ORGANIZATION_ID) => seedCompletedAdSweepRun(prisma, {
+  const coverAprilAds = (organizationId = TEST_ORGANIZATION_ID) => seedAdReportWindow(prisma, {
     organizationId,
-    generation: 1,
-    window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+    start: '2026-04-01', end: '2026-04-30',
   });
 
   const rowsFor = async (organizationId: string, year: number, month: number) =>
@@ -492,10 +490,10 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       externalOrderId: 'ZERO-ORD-1',
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
-    const runId = await coverAprilAds();
-    await seedAd(prisma, {
+    await coverAprilAds();
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: list.listing.id,
-      date: '2026-04-15', spend: 0, runId,
+      date: '2026-04-15', spend: 0,
     });
     await coverOrders();
 
@@ -623,30 +621,31 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       shippingPrice: 3_000,
       lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
     });
-    const runId = await coverAprilAds();
-    await seedAd(prisma, {
+    await coverAprilAds();
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: list.listing.id,
-      date: '2026-04-15', spend: 2_000, runId,
+      date: '2026-04-15', spend: 2_000,
     });
     await coverOrders();
 
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     expect(result.period).toBe('2026-04');
+    // Ad cost is the billed spend with VAT (KID-368): 2,000 × 1.1.
     expect(result.rows[0]).toMatchObject({
       cogs: 1_000, commission: 0, otherCost: 0, shippingCost: 3_000,
-      adCost: 2_000, netProfit: 14_000, profitRate: 70,
+      adCost: 2_200, netProfit: 13_800, profitRate: 69,
     });
     expect(result.totals).toEqual({
       revenue: 20_000,
       orderCount: 1,
-      cost: 6_000,
-      adCost: 2_000,
-      netProfit: 14_000,
-      profitRate: 70,
-      adCostRate: 10,
+      cost: 6_200,
+      adCost: 2_200,
+      netProfit: 13_800,
+      profitRate: 69,
+      adCostRate: 11,
       unallocatedAdCost: 0,
-      adCostGrainDifference: 0,
+      adAccountAdjustment: 0,
       unallocatedShipping: 0,
     });
     expect(result.basis.revenue).toMatchObject({
@@ -710,10 +709,9 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         externalOrderId: 'MID-MONTH-TODAY',
         lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 20_000 }],
       });
-      await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-04-14' },
+        start: '2026-04-01', end: '2026-04-14',
       });
       await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-15');
 
@@ -743,10 +741,9 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
         externalOrderId: 'AD-SHORT-CLOSED',
         lineItems: [{ listingOptionId: list.listingOption.id, optionId: list.option.id, totalPrice: 10_000 }],
       });
-      await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-04-01', endDate: '2026-04-13' },
+        start: '2026-04-01', end: '2026-04-13',
       });
       await coverOrders(TEST_ORGANIZATION_ID, '2026-04-01', '2026-04-14');
 
@@ -772,7 +769,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       expect(result.rows).toEqual([]);
       expect(result.totals).toEqual({
         revenue: null, orderCount: null, cost: null, adCost: null, netProfit: null, profitRate: null,
-        adCostRate: null, unallocatedAdCost: null, adCostGrainDifference: null, unallocatedShipping: null,
+        adCostRate: null, unallocatedAdCost: null, adAccountAdjustment: null, unallocatedShipping: null,
       });
       expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       // The effective window ends the day before it starts: zero closed days.
@@ -822,34 +819,34 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       shippingPrice: 500,
       lineItems: [{ listingOptionId: sold.listingOption.id, optionId: sold.option.id, totalPrice: 0 }],
     });
-    const runId = await coverAprilAds();
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId: sold.listing.id, date: '2026-04-15', spend: 2_000, runId,
+    await coverAprilAds();
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: sold.listing.id, date: '2026-04-15', spend: 2_000,
     });
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 1_000, runId,
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 1_000,
     });
     await coverOrders();
 
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     // The zero-revenue order has no revenue to weigh its shipping by, so its
-    // 500 stays out of the row; the unsold listing's 1,000 spend has no row.
+    // 500 stays out of the row; the unsold listing's 1,100 ad cost has no row.
     expect(result.rows).toEqual([
       expect.objectContaining({
-        listingId: sold.listing.id, cogs: 2_000, shippingCost: 3_000, adCost: 2_000, netProfit: 13_000,
+        listingId: sold.listing.id, cogs: 2_000, shippingCost: 3_000, adCost: 2_200, netProfit: 12_800,
       }),
     ]);
     expect(result.totals).toEqual({
       revenue: 20_000,
       orderCount: 2,
-      cost: 8_500,
-      adCost: 3_000,
-      netProfit: 11_500,
-      profitRate: 57.5,
-      adCostRate: 15,
-      unallocatedAdCost: 1_000,
-      adCostGrainDifference: 0,
+      cost: 8_800,
+      adCost: 3_300,
+      netProfit: 11_200,
+      profitRate: 56,
+      adCostRate: 16.5,
+      unallocatedAdCost: 1_100,
+      adAccountAdjustment: 0,
       unallocatedShipping: 500,
     });
   });
@@ -881,55 +878,44 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     expect(result.totals).toMatchObject({
       unallocatedShipping: 0,
       unallocatedAdCost: 0,
-      adCostGrainDifference: 0,
+      adAccountAdjustment: 0,
     });
   });
 
-  it('separates spend on a listing that sold nothing from the campaign and listing grain difference', async () => {
-    const sold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'GRAIN-SOLD');
-    const unsold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'GRAIN-UNSOLD');
+  it('publishes the account adjustment on its own line beside spend on a listing that sold nothing', async () => {
+    const sold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ADJ-SOLD');
+    const unsold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ADJ-UNSOLD');
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
       orderedAt: new Date('2026-04-15T00:00:00.000Z'),
-      externalOrderId: 'GRAIN-PAID',
+      externalOrderId: 'ADJ-PAID',
       lineItems: [{ listingOptionId: sold.listingOption.id, optionId: sold.option.id, totalPrice: 20_000 }],
     });
-    const runId = await coverAprilAds();
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId: sold.listing.id, date: '2026-04-15', spend: 2_000, runId,
+    await coverAprilAds();
+    const { operationId, channelAccountId } = await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: sold.listing.id, date: '2026-04-15', spend: 2_500, billedSpend: 2_000,
     });
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 400, runId,
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 400,
     });
-    // The campaign report of the same account-day is the account total: 2,600,
-    // 200 more than the product rows under it.
-    await prisma.channelAdTargetDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: sold.listing.channelAccountId,
-        channel: 'coupang',
-        businessDate: new Date('2026-04-15T00:00:00.000Z'),
-        targetType: 'product',
-        targetKey: 'campaign:grain',
-        campaignIdentity: 'campaign:grain',
-        sourceImportRunId: runId,
-        spend: 2_600,
-        adSpend: 2_600,
-        metaJson: { data: { granularity: 'campaign' } },
-      },
-    });
+    // Settlement the report could not attach to any campaign (campaign key '').
+    await seedAdBillings(prisma, [{
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, operationId,
+      date: '2026-04-15', campaignKey: '', billedSpend: 200,
+    }]);
     await coverOrders();
 
     const result = await service.findAll(TEST_ORGANIZATION_ID, 2026, 4, AFTER_MONTHS);
 
     expect(result.rows).toEqual([
-      expect.objectContaining({ listingId: sold.listing.id, adCost: 2_000 }),
+      expect.objectContaining({ listingId: sold.listing.id, adCost: 2_200 }),
     ]);
     expect(result.totals).toMatchObject({
-      adCost: 2_600,
-      // Listing-grain spend of the listing that sold nothing.
-      unallocatedAdCost: 400,
-      // Campaign-grain total minus listing-grain spend over every listing.
-      adCostGrainDifference: 200,
+      // (2,000 + 400 billed + 200 adjustment) × 1.1.
+      adCost: 2_860,
+      // Billed spend of the listing that sold nothing, with VAT.
+      unallocatedAdCost: 440,
+      // The adjustment row with VAT, part of adCost and carried by no row.
+      adAccountAdjustment: 220,
     });
   });
 
