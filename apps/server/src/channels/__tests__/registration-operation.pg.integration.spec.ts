@@ -348,8 +348,49 @@ describe('channels.registration owner over the operation contract + disposable P
     // 같은 계정의 몰 로그인을 쓰는 다른 실행(목록 수집 · 판매 상태 읽기)은 겹치지 않는다.
     const read = await begin({ channelAccountId: fixture.accountId, mallKey: 'kidkids', externalListingIds: ['provider-listing-1'] }, MALL_AVAILABILITY_READ_KIND).expect(409);
     expect(read.body).toMatchObject({ code: 'OPERATION_IN_PROGRESS' });
-    const done = await finish(begun.operation.id, begun.token, { outcome: 'succeeded', result: { ...submittedResult, providerOutcome: 'succeeded', mallOutcome: 'confirmed' } }).expect(200);
-    expect(done.body.operation).toMatchObject({ status: 'succeeded', lockKeys: [], result: { mallOutcome: 'confirmed' } });
+    const confirmed = { ...submittedResult, providerOutcome: 'succeeded', mallOutcome: 'confirmed' };
+    // 리스팅 단위 몰은 다시 읽은 리스팅 상태가 있어야 확인이다.
+    const listingEvidence = (values: Record<string, unknown>) => ({
+      ...evidence(begun, fixture, { externalListingId: 'provider-listing-1', options: [], observedStatus: null }), ...values,
+    });
+    await put(begun.operation.id, begun.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [listingEvidence({})]).expect(200);
+    const unread = await finish(begun.operation.id, begun.token, { outcome: 'succeeded', result: confirmed }).expect(409);
+    expect(unread.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'AVAILABILITY_STATUS_UNREAD' } });
+    await put(begun.operation.id, begun.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 2, [listingEvidence({ observedStatus: '품절' })]).expect(200);
+    const repeated = await finish(begun.operation.id, begun.token, { outcome: 'succeeded', result: confirmed }).expect(409);
+    expect(repeated.body.details).toMatchObject({ reason: 'EVIDENCE_REPEATED' });
+    const done = await finish(begun.operation.id, begun.token, { outcome: 'failed', errorCode: 'PROVIDER_ERROR' }).expect(200);
+    expect(done.body.operation).toMatchObject({ status: 'failed', lockKeys: [] });
+
+    const again = await beginOk({ executionKind: 'sold_out', channelAccountId: fixture.accountId, idempotencyKey: 'sold-out-2', submit: true, items: [{ channelListingId: fixture.listingId }] });
+    await put(again.operation.id, again.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [{ ...listingEvidence({ observedStatus: '품절' }), payloadHash: planOf(again).payloadHash }]).expect(200);
+    const sold = await finish(again.operation.id, again.token, { outcome: 'succeeded', result: confirmed }).expect(200);
+    expect(sold.body.operation).toMatchObject({ status: 'succeeded', result: { mallOutcome: 'confirmed' } });
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: fixture.listingId! } })).toMatchObject({ status: '품절' });
+  });
+
+  it('confirms an option-level sold-out only with a reread of every frozen option from the same seller', async () => {
+    const wing = await createFixture(prisma, targets, { listing: true, channel: 'coupang' });
+    const begun = await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-so', submit: true, items: [{ channelListingId: wing.listingId }] });
+    const confirmed = { ...submittedResult, providerOutcome: 'succeeded', mallOutcome: 'confirmed' };
+    const wingEvidence = (values: Record<string, unknown>) => ({
+      ...evidence(begun, wing, { externalListingId: 'provider-listing-1', options: [], observedUrl: 'https://wing.coupang.com/vendor-inventory/list' }), ...values,
+    });
+    await put(begun.operation.id, begun.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [wingEvidence({ observedOptions: [{ externalOptionId: 'provider-option-1', stock: 4, status: '판매중' }] })]).expect(200);
+    const stillOnSale = await finish(begun.operation.id, begun.token, { outcome: 'succeeded', result: confirmed }).expect(409);
+    expect(stillOnSale.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'OPTION_REREAD_MISMATCH' } });
+    await request(httpUrl).post(`/api/operations/${begun.operation.id}/cancel`).expect(200);
+
+    const other = await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-so-2', submit: true, items: [{ channelListingId: wing.listingId }] });
+    const reread = { observedOptions: [{ externalOptionId: 'provider-option-1', stock: 0, status: null }], payloadHash: planOf(other).payloadHash };
+    await put(other.operation.id, other.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [wingEvidence({ ...reread, providerAccountId: 'someone-else' })]).expect(200);
+    const foreign = await finish(other.operation.id, other.token, { outcome: 'succeeded', result: confirmed }).expect(409);
+    expect(foreign.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'account_mismatch' } });
+    await request(httpUrl).post(`/api/operations/${other.operation.id}/cancel`).expect(200);
+
+    const last = await beginOk({ executionKind: 'sold_out', channelAccountId: wing.accountId, idempotencyKey: 'wing-so-3', submit: true, items: [{ channelListingId: wing.listingId }] });
+    await put(last.operation.id, last.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [wingEvidence({ ...reread, payloadHash: planOf(last).payloadHash })]).expect(200);
+    await finish(last.operation.id, last.token, { outcome: 'succeeded', result: confirmed }).expect(200);
   });
 
   it('freezes only the asked options for an option-level mall, and every live option for a listing-level mall', async () => {

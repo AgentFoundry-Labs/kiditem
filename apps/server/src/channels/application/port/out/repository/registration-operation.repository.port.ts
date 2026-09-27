@@ -57,6 +57,12 @@ export interface RegistrationOperationRepositoryPort {
    * 몰이 확정한 등록(register · update · composition_change)을 finish 트랜잭션 안에서 반영한다: 증거 확인,
    * 리스팅 연결 · 생성, 옵션 연결, 구성 레시피, 첫 등록의 셀피아 레시피.
    */
+  /** 확인된 리스팅 단위 품절 · 재개: 몰이 다시 보여 준 리스팅 상태를 finish 트랜잭션 안에서 적는다. */
+  recordListingStatuses(transaction: OwnerTransaction, input: {
+    organizationId: string;
+    channelAccountId: string;
+    listings: ReadonlyArray<{ channelListingId: string; externalListingId: string; status: string }>;
+  }): Promise<void>;
   confirmTarget(transaction: OwnerTransaction, input: {
     organizationId: string;
     channelAccountId: string;

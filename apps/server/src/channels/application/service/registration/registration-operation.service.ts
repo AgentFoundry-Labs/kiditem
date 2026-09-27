@@ -50,6 +50,8 @@ import type {
   TargetExecutionIntent,
 } from '../../port/out/repository/registration-operation.repository.port';
 import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
+import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
+import { observedOptionConfirms } from '../../../domain/registration/availability-confirmation';
 
 /** 운영자가 몰에 없다고 닫은 등록 실행의 오류 코드(KID-218). */
 export const REGISTRATION_NOT_FOUND_ON_MALL_CODE = 'CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL' as const;
@@ -284,7 +286,8 @@ export class RegistrationOperationService implements RegistrationOperationPort {
     const reported = context.result ?? {};
     const reportedFill = RegistrationFillSchema.safeParse(reported.fill);
     const fill = chunks.some((chunk) => chunk.chunkKind === REGISTRATION_FILL_CHUNK_KIND) || !reportedFill.success ? readFill(chunks) : reportedFill.data;
-    const chunkEvidence = readEvidence(chunks, plan);
+    const evidences = readEvidences(chunks, plan);
+    const chunkEvidence = evidences.length === 1 ? evidences[0]! : null;
     const operator = readOperatorConfirmation(reported);
     const base = {
       submitted: typeof reported.submitted === 'boolean' ? reported.submitted : plan.submit,
@@ -292,9 +295,12 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       mallMessage: typeof reported.mallMessage === 'string' ? reported.mallMessage : null,
       fill,
     };
-    // 폼만 채움(빠른 등록, 또는 ADR-0019 관문이 [등록]을 거른 문서 실행): 증거도 리스팅 연결도 없고 대상은 미등록으로 남는다.
-    const fillOnly = DOCUMENT_KINDS.has(plan.executionKind) && operator === null
-      && (plan.registrationTargetId === null || reported.submitted === false || reported.mallOutcome === 'not_submitted');
+    // 폼만 채움(빠른 등록, 또는 ADR-0019 관문이 [등록]을 거른 문서 · 품절 · 재개 실행): 증거도 원장 쓰기도 없고 대상은 미등록,
+    // 리스팅은 그대로 남는다.
+    const availability = plan.executionKind === 'sold_out' || plan.executionKind === 'resume';
+    const fillOnly = (DOCUMENT_KINDS.has(plan.executionKind) || availability) && operator === null
+      && ((DOCUMENT_KINDS.has(plan.executionKind) && plan.registrationTargetId === null)
+        || reported.submitted === false || reported.mallOutcome === 'not_submitted');
     if (fillOnly) {
       return registrationResult({
         ...base,
@@ -303,6 +309,17 @@ export class RegistrationOperationService implements RegistrationOperationPort {
         mallOutcome: 'not_submitted',
         externalListingId: null,
         evidence: chunkEvidence,
+        channelListingId: null,
+      });
+    }
+    if (availability) {
+      await this.confirmAvailability(context, plan, evidences);
+      return registrationResult({
+        ...base,
+        providerOutcome: 'succeeded',
+        mallOutcome: 'confirmed',
+        externalListingId: null,
+        evidence: null,
         channelListingId: null,
       });
     }
@@ -335,6 +352,43 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       evidence: chunkEvidence ?? toEvidence(evidence, plan.payloadHash),
       channelListingId: confirmed.channelListingId,
     });
+  }
+
+  /**
+   * 품절 · 재개 묶음의 확인(리더 결정, KID-364): 리스팅마다 증거 하나가 있어야 하고 판매자 식별자는 문서 실행과 같이 대조한다.
+   * 옵션 단위 몰은 얼린 옵션마다 다시 읽은 값이 지시와 맞아야 하고, 리스팅 단위 몰은 다시 읽은 리스팅 상태가 있어야 하며 그 상태를
+   * 리스팅에 적는다(몰이 보고한 사실).
+   */
+  private async confirmAvailability(context: RegistrationFinalizeContext, plan: RegistrationPlan, evidences: RegistrationEvidence[]): Promise<void> {
+    const action = plan.executionKind as 'sold_out' | 'resume';
+    const payload = parseRegistrationPayload(action, plan.payload);
+    const byOption = getListingAvailabilityCapability(plan.mallKey, action)?.axis === 'option';
+    const adapter = this.adapters.get(plan.mallKey);
+    const statuses: Array<{ channelListingId: string; externalListingId: string; status: string }> = [];
+    for (const listing of payload.listings) {
+      const evidence = evidences.find((item) => item.externalListingId === listing.externalListingId);
+      if (!evidence) throw evidenceRejected('AVAILABILITY_EVIDENCE_MISSING');
+      const decision = adapter.validateConfirmationEvidence(plan.expectedProviderAccountId, {
+        providerAccountId: evidence.providerAccountId,
+        observedUrl: evidence.observedUrl,
+        // 몰 상품 id 는 얼린 리스팅과 같은지로 이미 맞췄다(옛 가용성 보고와 같다) — 형식은 다시 보지 않는다.
+        externalListingId: null,
+      });
+      if (!decision.ok) throw evidenceRejected(decision.reason);
+      if (byOption) {
+        const observed = new Map((evidence.observedOptions ?? []).map((option) => [option.externalOptionId, option]));
+        if (listing.options.some((option) => {
+          const reread = observed.get(option.externalOptionId);
+          return !reread || !observedOptionConfirms(action, reread);
+        })) throw evidenceRejected('OPTION_REREAD_MISMATCH');
+      } else {
+        if (!evidence.observedStatus) throw evidenceRejected('AVAILABILITY_STATUS_UNREAD');
+        statuses.push({ channelListingId: listing.channelListingId, externalListingId: listing.externalListingId, status: evidence.observedStatus });
+      }
+    }
+    if (statuses.length > 0) {
+      await this.repository.recordListingStatuses(context.tx, { organizationId: context.organizationId, channelAccountId: plan.channelAccountId, listings: statuses });
+    }
   }
 
   /**
@@ -396,19 +450,32 @@ function readFill(chunks: OperationStagedChunk[]): RegistrationFill {
   }), EMPTY_FILL);
 }
 
-/** 확장이 보낸 증거 하나(0~1개). 얼린 문서와 다른 해시의 증거는 이 실행의 것이 아니다. */
-function readEvidence(chunks: OperationStagedChunk[], plan: RegistrationPlan): RegistrationEvidence | null {
+/**
+ * 확장이 보낸 증거. 문서 실행은 0~1개, 품절 · 재개 묶음은 리스팅마다 하나. 모양이 틀리거나 같은 리스팅이 두 번이면 증거 거절,
+ * 얼린 문서와 다른 해시의 증거는 이 실행의 것이 아니다.
+ */
+function readEvidences(chunks: OperationStagedChunk[], plan: RegistrationPlan): RegistrationEvidence[] {
   const items = chunks.filter((chunk) => chunk.chunkKind === REGISTRATION_EVIDENCE_CHUNK_KIND).flatMap((chunk) => chunk.payload);
-  if (items.length === 0) return null;
-  if (items.length > 1) throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'EVIDENCE_REPEATED' } });
-  const evidence = RegistrationEvidenceSchema.parse(items[0]);
-  if (evidence.payloadHash !== plan.payloadHash) {
-    throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'PAYLOAD_HASH_MISMATCH' } });
+  const batch = plan.executionKind === 'sold_out' || plan.executionKind === 'resume';
+  if (!batch && items.length > 1) throw evidenceRejected('EVIDENCE_REPEATED');
+  const evidences = items.map((item) => {
+    const parsed = RegistrationEvidenceSchema.safeParse(item);
+    if (!parsed.success) throw evidenceRejected('EVIDENCE_INVALID');
+    return parsed.data;
+  });
+  const listings = evidences.map((evidence) => evidence.externalListingId);
+  if (new Set(listings).size !== listings.length) throw evidenceRejected('EVIDENCE_REPEATED');
+  for (const evidence of evidences) {
+    if (evidence.payloadHash !== plan.payloadHash) {
+      throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'PAYLOAD_HASH_MISMATCH' } });
+    }
+    if (evidence.channelAccountId !== plan.channelAccountId) throw evidenceRejected('EVIDENCE_ACCOUNT_MISMATCH');
   }
-  if (evidence.channelAccountId !== plan.channelAccountId) {
-    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'EVIDENCE_ACCOUNT_MISMATCH' } });
-  }
-  return evidence;
+  return evidences;
+}
+
+function evidenceRejected(reason: string): KiditemConflictError {
+  return new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason } });
 }
 
 type OperatorConfirmation = {

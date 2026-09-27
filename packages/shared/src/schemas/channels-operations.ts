@@ -200,6 +200,16 @@ export const RegistrationEvidenceSchema = z.object({
     externalOptionId: z.string().trim().min(1),
     sellerSku: z.string().nullable(),
   }).strict()),
+  /**
+   * 품절 · 재개만(KID-364 M1 추가, 리더 결정): 보낸 뒤 몰에서 다시 읽은 옵션 상태. 옵션 단위 몰은 얼린 옵션마다 한 줄이 있어야
+   * 확인이다(sold_out은 재고 0 또는 판매중지, resume은 판매중). 리스팅 단위 몰은 `observedStatus`로 확인한다. 묶음 실행은 리스팅마다
+   * 증거 청크 하나를 보낸다.
+   */
+  observedOptions: z.array(z.object({
+    externalOptionId: z.string().trim().min(1),
+    stock: z.number().int().nonnegative().nullable(),
+    status: z.string().nullable(),
+  }).strict()).max(1000).optional(),
 }).strict();
 export type RegistrationEvidence = z.infer<typeof RegistrationEvidenceSchema>;
 

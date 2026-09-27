@@ -287,6 +287,21 @@ export class RegistrationOperationRepositoryAdapter implements RegistrationOpera
     };
   }
 
+  async recordListingStatuses(transaction: OwnerTransaction, input: {
+    organizationId: string;
+    channelAccountId: string;
+    listings: ReadonlyArray<{ channelListingId: string; externalListingId: string; status: string }>;
+  }): Promise<void> {
+    const tx = ownerTransactionClient(transaction) as Prisma.TransactionClient;
+    for (const listing of input.listings) {
+      const updated = await tx.channelListing.updateMany({
+        where: { id: listing.channelListingId, organizationId: input.organizationId, channelAccountId: input.channelAccountId, externalId: listing.externalListingId },
+        data: { status: listing.status },
+      });
+      if (updated.count !== 1) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'LISTING_CHANGED' } });
+    }
+  }
+
   async confirmTarget(transaction: OwnerTransaction, input: {
     organizationId: string;
     channelAccountId: string;

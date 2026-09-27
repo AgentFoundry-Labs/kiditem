@@ -8,7 +8,7 @@ import { lockProductMapping } from '../../../../products/transaction/product-map
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../../products/application/port/in/product-transactional-read.port';
 import type { StockoutCheckPersistencePort, StockoutSubject } from '../../../application/port/out/persistence/stockout-check.persistence.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { LIVE_OPERATION_STATUSES, readRegistrationOperations, readUnresolvedCompositionOptionIds, type RegistrationOperationFact } from '../repository/registration-operation-facts';
+import { LIVE_OPERATION_STATUSES, isFillOnly, readRegistrationOperations, readUnresolvedCompositionOptionIds, type RegistrationOperationFact } from '../repository/registration-operation-facts';
 import { readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { OPERATION_PORT, type OperationPort } from '../../../../common/operation/application/port/in/operation.port';
@@ -105,7 +105,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
         || availabilityListing(execution, listing.id) !== null);
       const confirmed = related.flatMap(execution => {
         const target = availabilityListing(execution, listing.id);
-        if (execution.status !== 'succeeded' || !target || execution.plan.channelAccountId !== listing.channelAccountId) return [];
+        if (execution.status !== 'succeeded' || isFillOnly(execution) || !target || execution.plan.channelAccountId !== listing.channelAccountId) return [];
         return [{
           kind: execution.plan.executionKind as 'sold_out' | 'resume',
           optionCodes: target.options.map(option => option.externalOptionId),

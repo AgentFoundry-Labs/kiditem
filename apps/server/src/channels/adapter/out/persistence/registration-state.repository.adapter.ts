@@ -195,7 +195,7 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
     const rows: AvailabilityRow[] = [];
     const seen = new Set<string>();
     for (const operation of operations) {
-      if (!(AVAILABILITY_EXECUTION_KINDS as readonly string[]).includes(operation.plan.executionKind)) continue;
+      if (!(AVAILABILITY_EXECUTION_KINDS as readonly string[]).includes(operation.plan.executionKind) || isFillOnly(operation)) continue;
       const listings = field(operation.plan.payload, 'listings');
       if (!Array.isArray(listings)) continue;
       for (const listing of listings) {
