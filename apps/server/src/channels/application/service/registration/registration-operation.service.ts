@@ -3,7 +3,6 @@ import {
   KiditemInvalidValueError,
   KiditemNotFoundError,
 } from '@kiditem/shared/errors';
-import { findChannel } from '@kiditem/shared/channel-registry';
 import {
   channelListingLockKey,
   externalListingLockKey,
@@ -52,6 +51,7 @@ import type {
 import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { observedOptionConfirms } from '../../../domain/registration/availability-confirmation';
+import { registrationSubmitAllowed } from '../../../domain/registration/registration-submit-gate';
 
 /** 운영자가 몰에 없다고 닫은 등록 실행의 오류 코드(KID-218). */
 export const REGISTRATION_NOT_FOUND_ON_MALL_CODE = 'CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL' as const;
@@ -202,7 +202,7 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       channelListingId: planned.snapshot.channelListingId,
       externalListingId: planned.externalListingId,
       expectedProviderAccountId: planned.expectedProviderAccountId,
-      submit: scope.submit && submitsByBrowser(planned.mallKey),
+      submit: scope.submit && registrationSubmitAllowed(planned.mallKey),
     }, { snapshot: planned.snapshot, form }, lockKeys);
   }
 
@@ -245,6 +245,7 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       channelListingId: null,
       externalListingId: null,
       expectedProviderAccountId: planned.account.expectedProviderAccountId,
+      // 품절 · 재개는 등록 관문을 쓰지 않는다 — 요청이 곧 동작이다(온채널처럼 승인 요청인 몰도 요청을 보내는 것이 이 실행의 일).
       submit: scope.submit,
     }, { action, listings: planned.listings }, [
       accountLockKey(planned.account.id),
@@ -435,12 +436,6 @@ export class RegistrationOperationService implements RegistrationOperationPort {
     const operation = await this.operations.get(organizationId, operationId);
     if (!operation || operation.kind !== REGISTRATION_KIND) throw new KiditemNotFoundError('OPERATION_NOT_FOUND');
   }
-}
-
-/** 브라우저가 [등록]까지 누르는 몰(폼 · API 전송). 엑셀 · 전송 없음 몰은 채우기까지만이다(ADR-0019). */
-function submitsByBrowser(mallKey: string): boolean {
-  const delivery = findChannel(mallKey)?.delivery;
-  return delivery === 'form' || delivery === 'api';
 }
 
 function readFill(chunks: OperationStagedChunk[]): RegistrationFill {
