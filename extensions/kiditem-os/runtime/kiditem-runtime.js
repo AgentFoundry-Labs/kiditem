@@ -11935,6 +11935,61 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidkids/registration.ts
+  var KIDKIDS_REGISTRATION_FORM = {
+    label: "\uD0A4\uB4DC\uD0A4\uC988",
+    origin: "https://partner.kidkids.net",
+    pathPrefix: "/sales/goods_reg_renewal.htm",
+    formSelector: 'form[name="goods_form"]',
+    preRadios: ["kc_view"],
+    selectorFields: [
+      { key: "category1", selector: 'select[name="large_cat_id"]', label: "\uB300\uBD84\uB958", waitMs: 600, waitForOption: true },
+      { key: "category2", selector: 'select[name="middle_cat_id"]', label: "\uC911\uBD84\uB958", waitMs: 600, waitForOption: true },
+      { key: "category3", selector: 'select[name="small_cat_id"]', label: "\uC18C\uBD84\uB958", waitMs: 300, waitForOption: true },
+      // 목록은 화면이 열리자마자 AJAX 로 채운다(처음엔 `선택` 한 줄).
+      { key: "noticeGroup", selector: "#gs_id", label: "\uACF5\uC815\uC704 \uACE0\uC2DC \uBD84\uB958", waitMs: 300, waitForOption: true }
+    ],
+    infoRows: { itemSelector: "textarea.spec_contents", attr: "info", label: "\uACF5\uC815\uC704 \uACE0\uC2DC", timeoutMs: 1e4 },
+    fireKeyup: true,
+    // 목록 이미지 + 추가 이미지 4칸. 칸마다 한 장.
+    imageFileInputs: [
+      { key: "main", label: "\uB300\uD45C \uC774\uBBF8\uC9C0", selector: 'input[type="file"][name="goods_photo_new"]' },
+      { key: "img2", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 2", selector: 'input[type="file"][name="goods_img_2"]' },
+      { key: "img3", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 3", selector: 'input[type="file"][name="goods_img_3"]' },
+      { key: "img4", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 4", selector: 'input[type="file"][name="goods_img_4"]' },
+      { key: "img5", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 5", selector: 'input[type="file"][name="goods_img_5"]' }
+    ],
+    /**
+     * TinyMCE 3 는 모르는 속성을 저장할 때 지운다. 몰 업로드가 실패해 이미 읽히는 남의
+     * 주소(카카오 CDN)로 넣게 되면 핫링크를 통과시키는 `referrerpolicy` 가 필요하므로 그
+     * 속성을 허용한다(라이브 확인: 허용 후 `triggerSave` 결과에 속성이 남는다).
+     */
+    detailRich: {
+      kind: "tinymce",
+      editorId: "goods_desc",
+      validElements: "img[src|alt|width|height|style|referrerpolicy]",
+      // 에디터 [...] 업로드 창의 폼 그대로다(`imgupload`: 파일 `upload` + `act=upload` + `fname`).
+      upload: {
+        endpoint: "/sales/js/tiny_mce/plugins/advimage/galery_ftp.htm?dirname=https://img.kidkids.net/upimage/",
+        field: "upload",
+        fields: { act: "upload", fname: "" },
+        // 응답에는 파일명 없는 기본 주소(`…/upimage/'`)와 `…/upimage//' + img.alt` 도 있다.
+        // 파일명과 확장자까지 붙은 것만 올린 결과다.
+        hostedPattern: `https://img\\.kidkids\\.net/upimage/[^'"\\s<>/]+\\.(?:jpe?g|png|gif)`
+      }
+    },
+    // 상세 이미지를 File 로 받아 와야 몰 업로드에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "kidkids",
+    displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+    guard: registrationGuard(KIDKIDS_PAGE_GUARD, "\uD0A4\uB4DC\uD0A4\uC988"),
+    dialogHosts: ["kidkids.net"],
+    login: KIDKIDS_LOGIN,
+    form: KIDKIDS_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/kidsnote/listings.ts
   var KIDSNOTE_LISTINGS_URL = "https://shop.kidsnote.com/_manage/?body=2010";
   var KIDSNOTE_LISTINGS_FILE = "content/orders/kidsnote-listings.js";

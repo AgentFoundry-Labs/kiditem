@@ -47,6 +47,7 @@ import '../sites/haebub-mall';
 import '../sites/icecream-mall';
 import '../sites/kakao/listings';
 import '../sites/kidkids';
+import '../sites/kidkids/registration';
 import '../sites/kidsnote';
 import '../sites/kkomangse';
 import '../sites/kkomangse/registration';
