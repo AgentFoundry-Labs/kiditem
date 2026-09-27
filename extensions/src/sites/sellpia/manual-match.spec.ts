@@ -51,7 +51,9 @@ describe('sites/sellpia manual match', () => {
   it('화면이 바뀌면 MALL_CONTRACT_CHANGED(단계), 시간 초과는 SITE_REQUEST_FAILED이고 탭을 닫는다', async () => {
     const drift = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'contract_drift', stage: 'shop-uid' } }) });
     const site = createSellpiaSite(drift.tabs);
-    expect(await failure(site.manualMatchStatus(['a'.repeat(32)]))).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'shop-uid' } });
+    const driftError = await failure(site.manualMatchStatus(['a'.repeat(32)]));
+    expect(driftError).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'shop-uid', field: 'shop-uid' } });
+    expect(driftError.message).not.toContain('[');
     await site.closeManualMatch();
     expect(drift.log.at(-1)).toBe('close 7');
 

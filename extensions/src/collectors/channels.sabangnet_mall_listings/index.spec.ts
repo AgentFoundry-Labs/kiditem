@@ -133,7 +133,8 @@ describe('collectors/channels.sabangnet_mall_listings', () => {
     const short = await failure(collectAll(PLAN, fakeSabangnet([
       { total: 600, items: [item(1)] },
     ]).site));
-    expect(short).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'page_size' } });
+    expect(short).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'page_size', field: 'page_size' } });
+    expect((short as Error).message).not.toContain('[');
 
     const nameless = await failure(collectAll(PLAN, fakeSabangnet([{ total: 1, items: [item(1, { prdNm: null })] }]).site));
     expect(nameless).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'product_name' } });

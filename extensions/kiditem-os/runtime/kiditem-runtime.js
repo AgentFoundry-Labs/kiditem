@@ -5826,7 +5826,7 @@ var KidItemRuntime = (() => {
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS3 = 500;
   function drift(stage) {
-    throw new RuntimeError(MALL_CONTRACT_CHANGED, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${stage}]`, { stage });
+    throw new RuntimeError(MALL_CONTRACT_CHANGED, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage, field: stage });
   }
   function text(value, maximum) {
     if (typeof value !== "string" && typeof value !== "number") return null;
@@ -8693,7 +8693,7 @@ var KidItemRuntime = (() => {
         case "mall_login_required":
           throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
         case "mall_contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { stage, field: stage, mallKey: spec.mallKey });
         case "mall_total_changed":
           throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
         case "mall_invalid_snapshot":
@@ -11266,7 +11266,7 @@ var KidItemRuntime = (() => {
             bodyHead: null
           });
         case "contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+          throw new RuntimeError(MALL_CONTRACT_CHANGED5, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
         case "timeout":
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
         default:
@@ -11497,7 +11497,7 @@ var KidItemRuntime = (() => {
           case "login_required":
             throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE15, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
-            throw new RuntimeError(MALL_CONTRACT_CHANGED6, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+            throw new RuntimeError(MALL_CONTRACT_CHANGED6, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
           case "http_error":
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
               status: answer.httpStatus,
