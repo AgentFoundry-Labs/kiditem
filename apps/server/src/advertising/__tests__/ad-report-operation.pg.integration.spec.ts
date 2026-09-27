@@ -395,7 +395,8 @@ describe('advertising.ad_report owner over the operation contract + disposable P
         productRow({ date: day(0), spend: 20_000 }),
       ],
       settlements: [
-        settlementRow({ date: day(-2), deliveredSpend: 7, billedSpend: 1_001 }),
+        // 1,000 × 3/7·1/7은 나눠떨어지지 않는다: 내림 428·142·428 = 998, 남은 2원은 집행액 3인 두 행에.
+        settlementRow({ date: day(-2), deliveredSpend: 7, billedSpend: 1_000 }),
         settlementRow({ date: day(0), deliveredSpend: 21_500, billedSpend: 21_500 }),
       ],
     });
@@ -407,7 +408,7 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     const rows = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: [{ date: 'asc' }, { optionId: 'asc' }] });
     expect(rows.map((row) => [businessDateKey(row.date), row.optionId, row.spend, row.billedSpend])).toEqual([
       [day(-2), '1001', 3, 429],
-      [day(-2), '1002', 1, 143],
+      [day(-2), '1002', 1, 142],
       [day(-2), '1003', 3, 429],
       [day(-1), '1001', 5_000, 5_000],
       [day(0), '1001', 20_000, 21_500],

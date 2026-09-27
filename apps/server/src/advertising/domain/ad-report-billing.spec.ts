@@ -4,15 +4,15 @@ import { allocateBilledSpend, settleAdReport } from './ad-report-billing';
 
 describe('allocateBilledSpend', () => {
   it('splits a campaign-day bill in proportion to spend and hands the won remainder to the largest spends first', () => {
-    // 1,000 / 3 = 333.33… each: floors give 999, the one-won remainder goes to the largest spend (the first on a tie).
+    // 비율이 나눠떨어지면 나머지가 없다.
     expect(allocateBilledSpend([500, 300, 200], 1_000)).toEqual([500, 300, 200]);
-    expect(allocateBilledSpend([100, 100, 100], 1_000)).toEqual([334, 333, 333]);
-    // 900 billed over 700/200/100 spend: 630, 180, 90 exact.
     expect(allocateBilledSpend([700, 200, 100], 900)).toEqual([630, 180, 90]);
-    // 1,001 over 3/3/1: 429 + 429 + 143 = 1,001 exact after the largest two get a won each.
-    const shares = allocateBilledSpend([3, 1, 3], 1_001);
-    expect(shares.reduce((sum, share) => sum + share, 0)).toBe(1_001);
-    expect(shares).toEqual([429, 143, 429]);
+    // 1,000 / 3 = 333.33…: 내림 합 999, 남은 1원은 동률이라 앞 행에.
+    expect(allocateBilledSpend([100, 100, 100], 1_000)).toEqual([334, 333, 333]);
+    // 4 × 1/3 = 1.33 → 1, 4 × 2/3 = 2.67 → 2: 남은 1원은 앞 행이 아니라 집행액이 큰 행에.
+    expect(allocateBilledSpend([1, 2], 4)).toEqual([1, 3]);
+    // 1,000 × 3/7 = 428.57 → 428 (둘), 1,000 × 1/7 = 142.86 → 142: 남은 2원은 집행액 3인 두 행에 1원씩.
+    expect(allocateBilledSpend([3, 1, 3], 1_000)).toEqual([429, 142, 429]);
   });
 });
 
