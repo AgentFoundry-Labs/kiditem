@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MALL_ADMIN_LISTING_MALL_KEYS, mallListingSiteCapability } from '@kiditem/shared/mall-admin-listings';
 import { MALL_ORDER_OPERATION_MALLS, mallOrderSiteCapability } from '@kiditem/shared/orders-operations';
 import { findChannel } from '@kiditem/shared/channel-registry';
+import { registeredMallWriters } from '../sites/mall-write/writer';
 import { siteFactoryFor } from '../sites/registry';
 import './index';
 import { mallSiteCapabilities, mallWriteCapabilities } from './mall-site-capabilities';
@@ -46,5 +47,13 @@ describe('mall write capabilities (KID-256)', () => {
 
   it('쓰기 모듈이 없는 몰은 싣지 않는다', () => {
     expect(mallWriteCapabilities([{ mallKey: 'onch' }])).toEqual({ 'mallWriteSite.onch': true });
+  });
+});
+
+describe('몰 쓰기 [등록] 누르기 잠금(ADR-0019, KID-256)', () => {
+  it('검증된 누르기(`custom.submit`)를 가진 몰은 쿠팡 윙 하나뿐이다 — 몰 폼 명세 몰은 모두 폼만 채운다', () => {
+    const writers = registeredMallWriters();
+    expect(writers.length).toBeGreaterThanOrEqual(19);
+    expect(writers.filter((writer) => Boolean(writer.custom?.submit)).map((writer) => writer.mallKey)).toEqual(['coupang']);
   });
 });
