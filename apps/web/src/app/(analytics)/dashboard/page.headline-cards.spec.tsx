@@ -139,12 +139,11 @@ const inventory = {
     INSUFFICIENT_EVIDENCE: 2,
     SOURCE_UNMAPPED: 1,
     SELLPIA_SOURCE_STALE: 2,
-    AD_SOURCE_STALE: 1,
   },
   abcContributionProfit: {
     amountByGrade: { A: 12_000, B: 4_000, C: -500 },
     shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
-    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
+    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
   },
   abcFormula: null,
   alerts: [],

@@ -1,5 +1,5 @@
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   type ProductAbcEvaluation,
   type ProductAbcGrade,
 } from '@kiditem/shared/product-abc';
@@ -14,7 +14,6 @@ import type {
 
 const CUTOFF = '2026-06-30';
 const SELLPIA_RUN_ID = '00000000-0000-4000-8000-00000000fa01';
-const ADVERTISING_RUN_ID = '00000000-0000-4000-8000-00000000fa02';
 
 /**
  * A stand-in for Products' published ABC read, for unit tests whose subject is
@@ -46,7 +45,6 @@ export function stubProductAbcRead(
                 actualCutoff: CUTOFF,
                 mappingGeneration: '0',
                 sellpia: readySource(),
-                advertising: readySource(),
               },
               formulaState: {
                 formulaRevision: 1,
@@ -84,7 +82,6 @@ export function stubMissingProductAbcRead(): ProductAbcReadPort {
               actualCutoff: null,
               mappingGeneration: null,
               sellpia: missingSource(),
-              advertising: missingSource(),
             },
             formulaState: {
               formulaRevision: 0,
@@ -113,7 +110,6 @@ function publishedEvaluation(abcGrade: ProductAbcGrade): ProductAbcEvaluation {
     abcGrade,
     weightedRevenue: 100,
     weightedOrderTimeSupplyCost: 10,
-    weightedAdvertisingSpend: 0,
     weightedOperatingProfit: 90,
     operatingProfitVelocity30: 90,
     operatingMargin: 0.9,
@@ -123,15 +119,13 @@ function publishedEvaluation(abcGrade: ProductAbcGrade): ProductAbcEvaluation {
     consistencyScore: 100,
     economicScore: 90,
     validObservationDays: 30,
-    formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+    formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
     formulaRevision: 1,
     publicationRevision: 1,
     gradeBasisCutoffDate: CUTOFF,
     saleStartDate: '2026-01-01',
     sellpiaOperationId: SELLPIA_RUN_ID,
-    advertisingSourceImportRunId: ADVERTISING_RUN_ID,
     sellpiaGeneration: '1',
-    advertisingGeneration: '1',
     mappingGeneration: '0',
     calculatedAt: '2026-07-01T00:00:00.000Z',
   };

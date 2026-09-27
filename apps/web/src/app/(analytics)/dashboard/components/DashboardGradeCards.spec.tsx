@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ApiError } from '@/lib/api-error';
 import { DashboardGradeCards } from './DashboardGradeCards';
 
@@ -15,12 +15,12 @@ const summary = {
   classifiedProductCount: 4,
   abcStatusCount: {
     READY: 4, INSUFFICIENT_EVIDENCE: 2, SOURCE_UNMAPPED: 1,
-    SELLPIA_SOURCE_STALE: 2, AD_SOURCE_STALE: 1,
+    SELLPIA_SOURCE_STALE: 2,
   },
   abcContributionProfit: {
     amountByGrade: { A: 12_000, B: 4_000, C: -500 },
     shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
-    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
+    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
   },
   abcFormula: null,
 };
@@ -71,11 +71,11 @@ describe('DashboardGradeCards', () => {
   });
 
   it('shows the fixed formula version without an invented activation timestamp', () => {
-    render(<DashboardGradeCards {...summary} abcFormula={PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD} refetchReads={async () => {}} asOf="상품 관리에서 새로고침한 시점" />, { wrapper });
+    render(<DashboardGradeCards {...summary} abcFormula={PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD} refetchReads={async () => {}} asOf="상품 관리에서 새로고침한 시점" />, { wrapper });
 
     expect(screen.getByRole('heading', { name: '수익성 ABC' })).toHaveAttribute(
       'title',
-      `절대평가 v${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version} · 반감기 ${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.halfLifeDays}일`,
+      `절대평가 v${PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version} · 반감기 ${PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.halfLifeDays}일`,
     );
     expect(screen.queryByText(/활성화|Invalid Date/)).not.toBeInTheDocument();
   });
@@ -114,7 +114,7 @@ describe('DashboardGradeCards', () => {
     rerender(
       <DashboardGradeCards
         {...summary}
-        abcFormula={PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD}
+        abcFormula={PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD}
         abcContributionProfit={{
           ...summary.abcContributionProfit,
           basis: {
@@ -133,28 +133,24 @@ describe('DashboardGradeCards', () => {
     expect(screen.getByRole('link', { name: /A등급/ })).toHaveAccessibleName(/12,000원/);
     fireEvent.click(screen.getByRole('button', { name: '수익성 ABC 근거 안내' }));
     expect(screen.getByTestId('abc-contribution-evidence')).toHaveTextContent(
-      '공표 r7 · 2026-08-31 · 산식 v2 · 포함 1개 · 보류 1개',
+      '공표 r7 · 2026-08-31 · 산식 v3 · 포함 1개 · 보류 1개',
     );
   });
 
-  it('words a held advertising end as the last collection result with a step for a late report and for paused ads', async () => {
+  it('names only Sellpia as the source to prepare when the grades cannot refresh (KID-373)', async () => {
     recalculateProductAbc.mockResolvedValue({
       outcome: 'SOURCE_NOT_READY',
       publicationRevision: 7,
       officialCutoff: '2026-08-31',
       actualCutoff: null,
-      sources: {
-        sellpia: readySource('2026-09-06'),
-        advertising: readySource('2026-09-05'),
-      },
-      pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-09-06', advertisingEndDate: '2026-09-05' },
+      sources: { sellpia: { ...readySource('2026-09-05'), ready: false, requiredCutoff: '2026-09-06' } },
     });
 
     render(<DashboardGradeCards {...summary} refetchReads={async () => {}} />, { wrapper });
     fireEvent.click(screen.getByRole('button', { name: 'ABC 등급 다시 계산' }));
 
     expect(await screen.findByText(
-      '마지막으로 완료된 광고 손익 수집은 어제 광고비를 확정하지 못해 그제까지만 반영했습니다. 기존 공식 등급을 유지합니다. 쿠팡 보고가 늦었다면 보고 뒤 다시 수집해 주세요. 어제 광고를 멈춘 계정이면 내일 수집에서 반영됩니다. 공식 등급 기준일 2026-08-31',
+      '원천이 준비되지 않아 기존 공식 등급을 유지합니다. 공식 등급 기준일 2026-08-31 · 표시 데이터 기준일 없음 · 준비 필요: 셀피아',
     )).toBeInTheDocument();
   });
 
@@ -174,9 +170,8 @@ describe('DashboardGradeCards', () => {
   });
 
   it('names a source collected past the official cutoff, with the day its collection reaches', async () => {
-    // Sellpia collected through 2026-09-13 while advertising stayed at 2026-09-12,
-    // so the pair whose ends meet on 2026-09-12 published: Sellpia is reflected
-    // through that day, and only its 2026-09-13 is left out.
+    // Sellpia collected through 2026-09-13 while the grades published at
+    // 2026-09-12, so only its 2026-09-13 is left out.
     recalculateProductAbc.mockResolvedValue({
       outcome: 'PUBLISHED',
       publicationRevision: 2,
@@ -187,7 +182,6 @@ describe('DashboardGradeCards', () => {
       changedProductCount: 0,
       sources: {
         sellpia: readySource('2026-09-13'),
-        advertising: { ...readySource('2026-09-12'), ready: false, requiredCutoff: '2026-09-13' },
       },
     });
 

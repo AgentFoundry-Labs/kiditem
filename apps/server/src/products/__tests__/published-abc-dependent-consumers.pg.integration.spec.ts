@@ -3,8 +3,8 @@ import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { findAutoBatchCandidates } from '../../content/adapter/out/repository/thumbnail-generation-ledger.query';
@@ -156,10 +156,10 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
 async function seedOfficialEvaluation(prisma: PrismaClient, masterProductId: string) {
   const formula = await prisma.masterProductAbcFormulaVersion.create({ data: {
     organizationId: ORG,
-    formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
+    formulaKey: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey,
     version: 1,
-    formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-    formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+    formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+    formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
   } });
   const sellpia = await prisma.sourceImportRun.create({ data: {
     organizationId: ORG,
@@ -180,7 +180,6 @@ async function seedOfficialEvaluation(prisma: PrismaClient, masterProductId: str
     officialCutoffDate: cutoff,
     publishedAt: new Date('2026-09-01T00:00:00.000Z'),
     publishedSellpiaOperationId: sellpia.id,
-    publishedAdvertisingSourceImportRunId: advertising.id,
     publishedMappingGeneration: 0n,
     mappingGeneration: 0n,
   } });
@@ -191,7 +190,6 @@ async function seedOfficialEvaluation(prisma: PrismaClient, masterProductId: str
     abcGrade: 'A',
     weightedRevenue: 10_000,
     weightedOrderTimeSupplyCost: 4_000,
-    weightedAdvertisingSpend: 0,
     weightedOperatingProfit: 6_000,
     operatingProfitVelocity30: 6_000,
     operatingMargin: 0.6,
@@ -206,9 +204,7 @@ async function seedOfficialEvaluation(prisma: PrismaClient, masterProductId: str
     gradeBasisCutoffDate: cutoff,
     saleStartDate: new Date('2026-01-01T00:00:00.000Z'),
     sellpiaOperationId: sellpia.id,
-    advertisingSourceImportRunId: advertising.id,
     sellpiaGeneration: 1n,
-    advertisingGeneration: 1n,
     mappingGeneration: 0n,
   } });
 }

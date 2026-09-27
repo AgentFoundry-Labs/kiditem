@@ -41,13 +41,6 @@ describe('ProductDataStatusUseCase', () => {
           latestAttempt: { state: 'COMPLETE' },
           latestComplete: { actualCutoff: '2026-08-31' },
         },
-        advertising: {
-          ready: true,
-          requiredCutoff: '2026-08-31',
-          actualCutoff: '2026-08-31',
-          latestAttempt: { state: 'COMPLETE' },
-          latestComplete: { actualCutoff: '2026-08-31' },
-        },
         mapping: { ready: true, generation: '8' },
       },
       abcSummary: {
@@ -63,7 +56,7 @@ describe('ProductDataStatusUseCase', () => {
   it('retains the official publication while exposing a stale selected source', async () => {
     const stale = facts();
     stale.actualCutoff = '2026-07-31';
-    stale.advertising = {
+    stale.sellpia = {
       ready: false,
       requiredCutoff: '2026-08-31',
       actualCutoff: '2026-07-31',
@@ -81,7 +74,7 @@ describe('ProductDataStatusUseCase', () => {
       actualCutoff: '2026-07-31',
       publicationRevision: 4,
       sources: {
-        advertising: {
+        sellpia: {
           ready: false,
           actualCutoff: '2026-07-31',
           latestAttempt: { state: 'FAILED' },
@@ -154,16 +147,8 @@ function facts(): ProductOperationsDataStatusFacts {
       latestAttempt: { state: 'COMPLETE' as const },
       latestComplete: { actualCutoff: '2026-08-31' },
     },
-    advertising: {
-      ready: true,
-      requiredCutoff: '2026-08-31',
-      actualCutoff: '2026-08-31',
-      latestAttempt: { state: 'COMPLETE' as const },
-      latestComplete: { actualCutoff: '2026-08-31' },
-    },
     sourceVector: {
       sellpia: sourceManifest('00000000-0000-4000-8000-000000000011', '4'),
-      advertising: sourceManifest('00000000-0000-4000-8000-000000000012', '5'),
     },
     formulaState: {
       formulaRevision: 2,

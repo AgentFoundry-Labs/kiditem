@@ -18,7 +18,6 @@ const productA = '00000000-0000-4000-8000-000000000011';
 const productB = '00000000-0000-4000-8000-000000000012';
 const formulaVersionId = '00000000-0000-4000-8000-000000000021';
 const sellpiaRunId = '00000000-0000-4000-8000-000000000031';
-const advertisingRunId = '00000000-0000-4000-8000-000000000032';
 
 const state = {
   organizationId,
@@ -27,16 +26,14 @@ const state = {
   publicationRevision: 0,
   officialCutoffDate: null,
   publishedSellpiaOperationId: null,
-  publishedAdvertisingSourceImportRunId: null,
   publishedMappingGeneration: null,
   mappingGeneration: '7',
-  formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
 };
 
 function monthlyFact(input: {
   revenue: number;
   cost: number;
-  advertisingSpend?: number;
 }) {
   return {
     yearMonth: '2026-08',
@@ -45,7 +42,6 @@ function monthlyFact(input: {
     coveredDays: 30,
     recognizedRevenue: input.revenue,
     orderTimeSupplyCost: input.cost,
-    advertisingSpend: input.advertisingSpend ?? 0,
     provenance: {
       costBasis: 'ORDER_TIME_SUPPLY_COST' as const,
       vatIncluded: true as const,
@@ -58,7 +54,6 @@ function snapshot(
     masterProductId: string;
     revenue: number;
     cost: number;
-    advertisingSpend?: number;
     mappingValid?: boolean;
     selling?: boolean;
     saleStartDate?: string | null;
@@ -82,24 +77,9 @@ function snapshot(
         coverageEndDate: '2026-08-31',
         capturedAt: '2026-09-01T00:00:00.000Z',
       },
-      advertising: {
-        sourceImportRunId: advertisingRunId,
-        publicationSequence: '18',
-        mappingGeneration: '7',
-        coverageStartDate: '2026-01-01',
-        coverageEndDate: '2026-08-31',
-        capturedAt: '2026-09-01T00:00:00.000Z',
-      },
     },
     sources: {
       sellpia: {
-        ready: true,
-        requiredCutoff: '2026-08-31',
-        actualCutoff: '2026-08-31',
-        latestAttempt: { state: 'COMPLETE' },
-        latestComplete: { actualCutoff: '2026-08-31' },
-      },
-      advertising: {
         ready: true,
         requiredCutoff: '2026-08-31',
         actualCutoff: '2026-08-31',
@@ -168,9 +148,8 @@ describe('RecalculateProductAbcUseCase', () => {
 
   it('returns SOURCE_NOT_READY and performs no publication write', async () => {
     const products = repository();
-    // No compatible complete pair: the sources never agreed on a cutoff, so
-    // there is nothing to evaluate at any cutoff. Freshness alone is not this
-    // case — a lagging but complete source publishes.
+    // No usable Sellpia generation: there is nothing to evaluate at any cutoff.
+    // Freshness alone is not this case — a lagging but complete source publishes.
     const { service } = serviceWith(products, snapshot([{
       masterProductId: productA,
       revenue: 1_000_000,
@@ -179,8 +158,7 @@ describe('RecalculateProductAbcUseCase', () => {
       actualCutoff: null,
       mappingGeneration: null,
       sourceVector: {
-        ...snapshot([], {}).sourceVector,
-        advertising: {
+        sellpia: {
           sourceImportRunId: null,
           publicationSequence: null,
           mappingGeneration: null,
@@ -190,8 +168,7 @@ describe('RecalculateProductAbcUseCase', () => {
         },
       },
       sources: {
-        ...snapshot([], {}).sources,
-        advertising: {
+        sellpia: {
           ready: false,
           requiredCutoff: '2026-08-31',
           actualCutoff: null,
@@ -206,7 +183,7 @@ describe('RecalculateProductAbcUseCase', () => {
       publicationRevision: 0,
       actualCutoff: null,
       sources: {
-        advertising: {
+        sellpia: {
           ready: false,
           actualCutoff: null,
           latestAttempt: { state: 'FAILED', errorCode: 'COLLECTION_FAILED' },
@@ -216,44 +193,12 @@ describe('RecalculateProductAbcUseCase', () => {
     expect(products.publish).not.toHaveBeenCalled();
   });
 
-  it('names the source that ends earlier when no pair exists, unless both sources are stale', async () => {
-    const readiness = (ready: boolean, requiredCutoff: string, actualCutoff: string) => ({
-      ready,
-      requiredCutoff,
-      actualCutoff,
-      latestAttempt: { state: 'COMPLETE' as const },
-      latestComplete: { actualCutoff },
-    });
-    const unpaired = (sources: ProfitabilityEvidenceSnapshot['sources']) => serviceWith(
-      repository(),
-      snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }], {
-        actualCutoff: null,
-        mappingGeneration: null,
-        sources,
-      }),
-    ).service;
-
-    // Advertising held its closed day: both sources read ready, yet their ends never meet.
-    await expect(unpaired({
-      sellpia: readiness(true, '2026-08-31', '2026-08-31'),
-      advertising: readiness(true, '2026-08-30', '2026-08-30'),
-    }).recalculate({ organizationId })).resolves.toMatchObject({
-      outcome: 'SOURCE_NOT_READY',
-      pairing: { lateSource: 'advertising', sellpiaEndDate: '2026-08-31', advertisingEndDate: '2026-08-30' },
-    });
-    // Both sources are stale against their own cutoffs, so `sources` already names them.
-    await expect(unpaired({
-      sellpia: readiness(false, '2026-08-31', '2026-08-29'),
-      advertising: readiness(false, '2026-08-31', '2026-08-28'),
-    }).recalculate({ organizationId })).resolves.not.toHaveProperty('pairing');
-  });
-
   it('evaluates each eligible product independently and attempts one publication', async () => {
     const products = repository({
       listCurrentAbcTargetIds: vi.fn().mockResolvedValue([productA, productB]),
     });
     const { service, profitability } = serviceWith(products, snapshot([
-      { masterProductId: productA, revenue: 1_000_000, cost: 200_000, advertisingSpend: 100_000 },
+      { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
       { masterProductId: productB, revenue: 500_000, cost: 300_000 },
     ]));
 
@@ -267,7 +212,6 @@ describe('RecalculateProductAbcUseCase', () => {
     expect(profitability.load).toHaveBeenCalledWith({
       organizationId,
       targetCutoff: expect.any(String),
-      advertising: 'required',
     });
     expect(products.publish).toHaveBeenCalledTimes(1);
     const publication = products.publish.mock.calls[0]![0] as ProductAbcPublicationInput;
@@ -279,62 +223,34 @@ describe('RecalculateProductAbcUseCase', () => {
   });
 
   /**
-   * Formula version 3 grades without advertising (owner decision 2026-09-18).
-   * No advertising generation had ever been collected, so under version 2
-   * nothing could publish; version 3 pairs Sellpia alone and records no
-   * advertising provenance rather than inventing one.
+   * ABC grades without advertising (KID-373, 사용자 2026-09-25 "3,4는 제거하자"):
+   * a publication fences the Sellpia generation alone and records no
+   * advertising provenance.
    */
-  it('publishes an advertising-free formula from Sellpia alone, with no advertising provenance', async () => {
-    const products = repository({
-      getFormulaState: vi.fn().mockResolvedValue({ ...state, formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD }),
-      listCurrentAbcTargetIds: vi.fn().mockResolvedValue([productA]),
-    });
-    const noAdvertising = snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }]);
-    const { service, profitability } = serviceWith(products, {
-      ...noAdvertising,
-      sourceVector: {
-        ...noAdvertising.sourceVector,
-        advertising: {
-          sourceImportRunId: null,
-          publicationSequence: null,
-          mappingGeneration: null,
-          coverageStartDate: null,
-          coverageEndDate: null,
-          capturedAt: null,
-        },
-      },
-    });
+  it('publishes from Sellpia alone, with no advertising fence or provenance', async () => {
+    const products = repository();
+    const { service } = serviceWith(products, snapshot([
+      { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
+    ]));
 
     await expect(service.recalculate({ organizationId })).resolves.toMatchObject({ outcome: 'PUBLISHED' });
-    expect(profitability.load).toHaveBeenCalledWith(expect.objectContaining({ advertising: 'excluded' }));
     const publication = products.publish.mock.calls[0]![0] as ProductAbcPublicationInput;
-    expect(publication.sourceFences.advertising).toBeNull();
-    expect(publication.candidates[0]).toMatchObject({
-      advertisingSourceImportRunId: null,
-      advertisingGeneration: null,
-      sellpiaOperationId: sellpiaRunId,
-    });
+    expect(Object.keys(publication.sourceFences)).toEqual(['sellpia']);
+    expect(publication.candidates[0]).toMatchObject({ sellpiaOperationId: sellpiaRunId });
+    expect(publication.candidates[0]).not.toHaveProperty('advertisingSourceImportRunId');
+    expect(publication.candidates[0]).not.toHaveProperty('weightedAdvertisingSpend');
   });
 
-  it('still refuses a formula that counts advertising when no advertising generation exists', async () => {
-    const products = repository();
-    const noAdvertising = snapshot([{ masterProductId: productA, revenue: 1_000_000, cost: 200_000 }]);
-    const { service } = serviceWith(products, {
-      ...noAdvertising,
-      sourceVector: {
-        ...noAdvertising.sourceVector,
-        advertising: {
-          sourceImportRunId: null,
-          publicationSequence: null,
-          mappingGeneration: null,
-          coverageStartDate: null,
-          coverageEndDate: null,
-          capturedAt: null,
-        },
-      },
+  it('refuses to grade under a formula that still counts advertising', async () => {
+    const products = repository({
+      getFormulaState: vi.fn().mockResolvedValue({ ...state, formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD }),
     });
+    const { service, profitability } = serviceWith(products, snapshot([
+      { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
+    ]));
 
-    await expect(service.recalculate({ organizationId })).resolves.toMatchObject({ outcome: 'SOURCE_NOT_READY' });
+    await expect(service.recalculate({ organizationId })).rejects.toThrow('ABC formula counts advertising');
+    expect(profitability.load).not.toHaveBeenCalled();
     expect(products.publish).not.toHaveBeenCalled();
   });
 
@@ -418,7 +334,7 @@ describe('RecalculateProductAbcUseCase', () => {
 
   it('refuses with INPUT_CHANGED when the mapping generation moves before the evidence load', async () => {
     // Products reads mapping generation 7. While it captures its targets the
-    // mapping moves to 8, and both sources complete on 8 before the load reads
+    // mapping moves to 8, and the Sellpia source completes on 8 before the load reads
     // them: no source is waiting, the calculation's own input changed.
     let mappingGeneration = '7';
     const products = repository({
@@ -435,7 +351,6 @@ describe('RecalculateProductAbcUseCase', () => {
         mappingGeneration,
         sourceVector: {
           sellpia: { ...evidence.sourceVector.sellpia, mappingGeneration },
-          advertising: { ...evidence.sourceVector.advertising, mappingGeneration },
         },
       })),
     };
@@ -448,7 +363,7 @@ describe('RecalculateProductAbcUseCase', () => {
   it('does not change a product score when another product is added', async () => {
     const alone = repository();
     const aloneContext = serviceWith(alone, snapshot([
-      { masterProductId: productA, revenue: 1_000_000, cost: 200_000, advertisingSpend: 100_000 },
+      { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
     ]));
     await aloneContext.service.recalculate({ organizationId });
     const aloneCandidate = alone.publish.mock.calls[0]![0].candidates[0];
@@ -457,7 +372,7 @@ describe('RecalculateProductAbcUseCase', () => {
       listCurrentAbcTargetIds: vi.fn().mockResolvedValue([productA, productB]),
     });
     const peerContext = serviceWith(withPeer, snapshot([
-      { masterProductId: productA, revenue: 1_000_000, cost: 200_000, advertisingSpend: 100_000 },
+      { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
       { masterProductId: productB, revenue: 1, cost: 0 },
     ]));
     await peerContext.service.recalculate({ organizationId });

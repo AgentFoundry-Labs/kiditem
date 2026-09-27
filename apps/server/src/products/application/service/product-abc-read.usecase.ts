@@ -8,7 +8,6 @@ import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
   type ProductAbcRepositoryPort,
 } from '../port/out/persistence/master-product-abc.repository.port';
-import { productAbcExcludesAdvertising } from '@kiditem/shared/product-abc';
 import { productAbcEvidenceCutoff } from '../../domain/product-abc-display-status';
 import {
   buildProductAbcReadModel,
@@ -44,22 +43,12 @@ export class ProductAbcReadUseCase implements ProductAbcReadPort {
     masterProductIds: readonly string[];
   }): Promise<ProductAbcSnapshot> {
     const targetCutoff = productAbcEvidenceCutoff(new Date());
-    // The active formula decides whether a grade waits on advertising.
-    const state = await this.repository.getFormulaState(input.organizationId);
-    const advertisingExcluded = productAbcExcludesAdvertising(state.formula);
     const [published, snapshot] = await Promise.all([
       this.repository.readPublication(input.organizationId, input.masterProductIds),
-      this.evidence.load({
-        organizationId: input.organizationId,
-        targetCutoff,
-        advertising: advertisingExcluded ? 'excluded' : 'required',
-      }),
+      this.evidence.load({ organizationId: input.organizationId, targetCutoff }),
     ]);
 
-    const evidence = {
-      ...evidenceView(snapshot),
-      ...(advertisingExcluded ? { advertisingRequired: false } : {}),
-    };
+    const evidence = evidenceView(snapshot);
     const publication = published.publication;
     const formulaStateView: ProductAbcFormulaStateView = {
       formulaRevision: publication?.formulaRevision ?? published.currentFormulaRevision,
@@ -102,16 +91,12 @@ function evidenceView(snapshot: ProfitabilityEvidenceSnapshot): ProductAbcEviden
   return {
     actualCutoff: snapshot.actualCutoff,
     mappingGeneration: snapshot.mappingGeneration,
-    sellpia: sourceEvidence(snapshot, 'sellpia'),
-    advertising: sourceEvidence(snapshot, 'advertising'),
+    sellpia: sourceEvidence(snapshot),
   };
 }
 
-function sourceEvidence(
-  snapshot: ProfitabilityEvidenceSnapshot,
-  source: 'sellpia' | 'advertising',
-): ProductAbcSourceEvidence {
-  const readiness = snapshot.sources[source];
+function sourceEvidence(snapshot: ProfitabilityEvidenceSnapshot): ProductAbcSourceEvidence {
+  const readiness = snapshot.sources.sellpia;
   return {
     requiredCutoff: readiness.requiredCutoff,
     actualCutoff: readiness.actualCutoff,
@@ -119,17 +104,7 @@ function sourceEvidence(
   };
 }
 
-/**
- * A snapshot is only as recently observed as its most recent source read, and
- * either source may publish none.
- */
+/** A snapshot is as recently observed as its Sellpia read, which may publish none. */
 function latestCapturedAt(snapshot: ProfitabilityEvidenceSnapshot): string | null {
-  return [
-    snapshot.sourceVector.sellpia.capturedAt,
-    snapshot.sourceVector.advertising.capturedAt,
-  ].reduce<string | null>(
-    (latest, value) =>
-      value !== null && (latest === null || value > latest) ? value : latest,
-    null,
-  );
+  return snapshot.sourceVector.sellpia.capturedAt;
 }

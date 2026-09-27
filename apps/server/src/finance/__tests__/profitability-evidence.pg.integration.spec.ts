@@ -1,7 +1,5 @@
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import {
@@ -36,18 +34,15 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
   });
 
   it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
-    const alerts = new SourceFailureAlerts(prisma as never);
     const sellpia = new SellpiaProfitabilitySourceService(prisma as never);
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).recipes, profitCatalogTestReaders(prisma as never).listings, prisma as never, alerts);
     await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const published = await publishSellpia(prisma, TEST_ORGANIZATION_ID, 'OWN', 2_000);
-    await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
     await prisma.masterProductAbcFormulaState.upsert({
       where: { organizationId: TEST_ORGANIZATION_ID },
       create: { organizationId: TEST_ORGANIZATION_ID, mappingGeneration: 1n },
       update: { mappingGeneration: 1n },
     });
-    const evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
+    const evidence = new MasterProductProfitabilityReadService(sellpia, prisma as never, new ProductTransactionalReadRepositoryAdapter());
     const products = new ProductDataStatusUseCase(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as never).accounts),
     );
@@ -61,28 +56,22 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       actualCutoff: null,
       sources: {
         sellpia: { ready: false },
-        advertising: { ready: false },
         mapping: { ready: false, generation: '1' },
       },
     });
   });
 
-  it('loads one coherent source pair and excludes another organization', async () => {
+  it('loads one Sellpia generation, without advertising, and excludes another organization', async () => {
     const sellpia = new SellpiaProfitabilitySourceService(prisma as never);
-    const advertising = new ProfitabilityAdImportRepositoryAdapter(profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).recipes, profitCatalogTestReaders(prisma as never).listings, prisma as never, new SourceFailureAlerts(prisma as never)
-    );
     const ownProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const zeroProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'ZERO');
     await seedMappedProduct(prisma, OTHER_ORGANIZATION_ID, 'FOREIGN');
 
     const ownSellpia = await publishSellpia(prisma, TEST_ORGANIZATION_ID, 'OWN', 2_000);
     await publishSellpia(prisma, OTHER_ORGANIZATION_ID, 'FOREIGN', 999_999);
-    await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
-    await publishEmptyAdvertising(advertising, OTHER_ORGANIZATION_ID, 'foreign-ad');
 
     const service = new MasterProductProfitabilityReadService(
       sellpia,
-      advertising,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter());
     const targetCutoff = ownSellpia.plan.to;
@@ -102,9 +91,9 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
       },
       sources: {
         sellpia: { ready: true, latestAttempt: { state: 'COMPLETE' } },
-        advertising: { ready: true, latestAttempt: { state: 'COMPLETE' } },
       },
     });
+    expect(Object.keys(result.sources)).toEqual(['sellpia']);
     expect(inclusiveDateCount(ownSellpia.plan.from, ownSellpia.plan.to)).toBe(401);
     expect(result.sourceVector.sellpia).toMatchObject({
       coverageStartDate: ownSellpia.plan.from,
@@ -129,8 +118,8 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
     expect(ownEvidence?.formulaReadyFacts?.monthlyFacts.at(-1)).toMatchObject({
       recognizedRevenue: 2_000,
       orderTimeSupplyCost: 1_200,
-      advertisingSpend: 0,
     });
+    expect(ownEvidence?.formulaReadyFacts?.monthlyFacts.at(-1)).not.toHaveProperty('advertisingSpend');
     expect(zeroEvidence).toMatchObject({
       mappingValid: true,
       saleStartDate: '2026-05-01',
@@ -159,8 +148,6 @@ async function seedMappedProduct(
       name: `${suffix} Rocket`,
       externalAccountId: `account-${suffix.toLowerCase()}`,
       vendorId: `vendor-${suffix.toLowerCase()}`,
-      // Rocket remains a current selling channel while the organization has
-      // no retained Coupang account, making empty advertising NOT_APPLIED.
       status: 'active',
     },
   });
@@ -221,20 +208,6 @@ async function publishSellpia(
         inAmount: Math.floor(revenue * 0.6),
       }],
     }],
-  });
-}
-
-async function publishEmptyAdvertising(
-  owner: ProfitabilityAdImportRepositoryAdapter,
-  organizationId: string,
-  idempotencyKey: string,
-): Promise<void> {
-  const attempt = await owner.beginAttempt({ organizationId, idempotencyKey });
-  expect(attempt.accounts).toEqual([]);
-  await owner.finalizeAttempt({
-    organizationId,
-    attemptId: attempt.attemptId,
-    attemptToken: attempt.attemptToken,
   });
 }
 

@@ -359,7 +359,6 @@ function enrichAbc<T extends { id: string }>(
         ? status.formulaState.mappingGeneration
         : null,
       sellpia: abcSourceEvidence(status.sellpia),
-      advertising: abcSourceEvidence(status.advertising),
     },
     formulaState: {
       formulaRevision: current?.evaluation?.formulaRevision

@@ -155,7 +155,6 @@ describe('ensure:absolute_product_abc_formula', () => {
       'apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts',
     );
     const lockOrder = [
-      "await lockNamed(tx, 'kiditem.coupang-ad-profitability', input.organizationId);",
       'await lockProductMapping(tx, input.organizationId);',
       "await lockNamed(tx, 'kiditem.master-product-abc', input.organizationId);",
     ].map((statement) => publication.indexOf(statement));
@@ -169,7 +168,7 @@ describe('ensure:absolute_product_abc_formula', () => {
     const error = new AbsoluteProductAbcFormulaConflictError(['org-a'], ['org-b', 'org-c']);
 
     expect(error.name).toBe('AbsoluteProductAbcFormulaConflictError');
-    expect(error.message).toContain('PRODUCT_ABC_ABSOLUTE v2 is stored with a checksum other than');
+    expect(error.message).toContain('PRODUCT_ABC_ABSOLUTE v3 is stored with a checksum other than');
     expect(error.message).toContain('for organizations org-a;');
     expect(error.message).toContain('is not mapping-only');
     expect(error.message).toContain('for organizations org-b, org-c.');

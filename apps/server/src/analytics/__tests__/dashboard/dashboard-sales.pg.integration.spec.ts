@@ -7,8 +7,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { DashboardSalesService } from '../../application/service/dashboard/dashboard-sales.service';
@@ -101,7 +101,6 @@ function productAbcRead(prisma: PrismaClient): ProductAbcReadPort {
               actualCutoff,
               mappingGeneration: publication.publication?.mappingGeneration ?? null,
               sellpia: source,
-              advertising: source,
             },
             formulaState: {
               formulaRevision: product.evaluation?.formulaRevision
@@ -982,10 +981,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const formula = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey,
         version: 1,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
     });
     const source = await prisma.sourceImportRun.create({
@@ -1010,7 +1009,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         abcGrade: 'A',
         weightedRevenue: 10_000_000,
         weightedOrderTimeSupplyCost: 6_000_000,
-        weightedAdvertisingSpend: 1_000_000,
         weightedOperatingProfit: 3_000_000,
         operatingProfitVelocity30: 3_000_000,
         operatingMargin: 0.3,
@@ -1025,9 +1023,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         publicationRevision: 2,
         gradeBasisCutoffDate: new Date('2026-06-30T00:00:00Z'),
         sellpiaOperationId: source.id,
-        advertisingSourceImportRunId: advertising.id,
         sellpiaGeneration: 3n,
-        advertisingGeneration: 4n,
         mappingGeneration: 5n,
         calculatedAt: new Date('2026-07-01T00:00:00Z'),
       },
@@ -1042,7 +1038,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         officialCutoffDate: new Date('2026-06-30T00:00:00Z'),
         publishedAt: new Date('2026-07-01T00:00:00Z'),
         publishedSellpiaOperationId: source.id,
-        publishedAdvertisingSourceImportRunId: advertising.id,
         publishedMappingGeneration: 5n,
         mappingGeneration: 5n,
       },
@@ -1053,7 +1048,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         officialCutoffDate: new Date('2026-06-30T00:00:00Z'),
         publishedAt: new Date('2026-07-01T00:00:00Z'),
         publishedSellpiaOperationId: source.id,
-        publishedAdvertisingSourceImportRunId: advertising.id,
         publishedMappingGeneration: 5n,
         mappingGeneration: 5n,
       },
@@ -1075,13 +1069,12 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         abcGrade: 'A',
         weightedOperatingProfit: 3_000_000,
         economicScore: 100,
-        formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+        formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
         publicationRevision: 2,
         gradeBasisCutoffDate: '2026-06-30',
         saleStartDate: '2026-05-01',
         sellpiaOperationId: source.id,
-        advertisingSourceImportRunId: advertising.id,
-        sellpiaGeneration: '3', advertisingGeneration: '4', mappingGeneration: '5',
+        sellpiaGeneration: '3', mappingGeneration: '5',
       },
     });
   });

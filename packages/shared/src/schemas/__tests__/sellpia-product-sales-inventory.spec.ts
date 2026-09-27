@@ -5,7 +5,7 @@ import {
   SellpiaProductSalesRowSchema,
   SellpiaProductSalesSummarySchema,
 } from '../dashboard';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '../product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD } from '../product-abc';
 import { productAbcDisplayStatus } from '../../product-abc';
 
 const INVENTORY_SKU_ID = '11111111-1111-4111-8111-111111111111';
@@ -13,7 +13,6 @@ const MASTER_PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const CHANNEL_LISTING_OPTION_ID = '33333333-3333-4333-8333-333333333333';
 const CHANNEL_LISTING_ID = '44444444-4444-4444-8444-444444444444';
 const SELLPIA_OPERATION_ID = '55555555-5555-4555-8555-555555555555';
-const ADVERTISING_SOURCE_IMPORT_RUN_ID = '66666666-6666-4666-8666-666666666666';
 const GRADE_BASIS_CUTOFF_DATE = '2026-07-17';
 
 /** A published grade-A product: the shape the ABC producer emits for READY. */
@@ -21,7 +20,6 @@ const abcReadyEvaluation = {
   abcGrade: 'A' as const,
   weightedRevenue: 200,
   weightedOrderTimeSupplyCost: 100,
-  weightedAdvertisingSpend: 0,
   weightedOperatingProfit: 100,
   operatingProfitVelocity30: 50,
   operatingMargin: 0.5,
@@ -31,15 +29,13 @@ const abcReadyEvaluation = {
   consistencyScore: 90,
   economicScore: 82,
   validObservationDays: 60,
-  formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   formulaRevision: 2,
   publicationRevision: 4,
   gradeBasisCutoffDate: GRADE_BASIS_CUTOFF_DATE,
   saleStartDate: '2026-06-01',
   sellpiaOperationId: SELLPIA_OPERATION_ID,
-  advertisingSourceImportRunId: ADVERTISING_SOURCE_IMPORT_RUN_ID,
   sellpiaGeneration: '7',
-  advertisingGeneration: '7',
   mappingGeneration: '4',
   calculatedAt: '2026-07-18T00:00:00.000Z',
 };
@@ -54,13 +50,6 @@ const abcReady = {
   actualCutoffDate: GRADE_BASIS_CUTOFF_DATE,
   sources: {
     sellpia: {
-      ready: true,
-      requiredCutoff: GRADE_BASIS_CUTOFF_DATE,
-      actualCutoff: GRADE_BASIS_CUTOFF_DATE,
-      latestAttempt: { state: 'COMPLETE' as const },
-      latestComplete: { actualCutoff: GRADE_BASIS_CUTOFF_DATE },
-    },
-    advertising: {
       ready: true,
       requiredCutoff: GRADE_BASIS_CUTOFF_DATE,
       actualCutoff: GRADE_BASIS_CUTOFF_DATE,
@@ -161,10 +150,10 @@ describe('Sellpia product-sales inventory contracts', () => {
 
   it('keeps a graded destination, a stale one that keeps its grade, and an unclassified one distinguishable', () => {
     // A stale source does not erase a published grade. The Evaluation and the
-    // grade stay; the advertising readiness fact is what says the source moved on.
+    // grade stay; the Sellpia readiness fact is what says the source moved on.
     const stale = {
       ...abcReady,
-      sources: { ...abcReady.sources, advertising: { ...abcReady.sources.advertising, ready: false } },
+      sources: { ...abcReady.sources, sellpia: { ...abcReady.sources.sellpia, ready: false } },
     };
     // `NEW` and `INSUFFICIENT_EVIDENCE` retain no Evaluation at all. There is
     // no state that keeps an Evaluation without a grade: `ProductAbcEvaluation`
@@ -183,7 +172,7 @@ describe('Sellpia product-sales inventory contracts', () => {
     expect(retained).toMatchObject({ abcGrade: 'A' });
     expect(observing).toMatchObject({ abcGrade: null, evaluation: null });
     expect([ready, retained, observing].map(productAbcDisplayStatus))
-      .toEqual(['READY', 'AD_SOURCE_STALE', 'INSUFFICIENT_EVIDENCE']);
+      .toEqual(['READY', 'SELLPIA_SOURCE_STALE', 'INSUFFICIENT_EVIDENCE']);
   });
 
   it('requires a read-only channel catalog display image shape when present', () => {

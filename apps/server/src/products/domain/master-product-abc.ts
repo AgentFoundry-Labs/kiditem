@@ -1,6 +1,7 @@
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   parseProductAbcDateToKstCalendarDate,
+  productAbcExcludesAdvertising,
   productAbcSaleAgeDays,
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
@@ -31,8 +32,6 @@ export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
   coveredDays: number;
   recognizedRevenue: number;
   orderTimeSupplyCost: number;
-  /** Allocated ad spend for the month; `0` when the organization has no advertising. */
-  advertisingSpend: number;
   provenance: Readonly<{
     costBasis: 'ORDER_TIME_SUPPLY_COST';
     vatIncluded: true;
@@ -61,7 +60,6 @@ export type MasterProductAbcCandidate = Readonly<{
   gradeBasisCutoffDate: string;
   weightedRevenue: number;
   weightedOrderTimeSupplyCost: number;
-  weightedAdvertisingSpend: number;
   weightedOperatingProfit: number;
   operatingProfitVelocity30: number;
   operatingMargin: number | null;
@@ -80,9 +78,11 @@ export type MasterProductAbcAnchor = Readonly<{
 /**
  * The canonical payload is shared by source readers and Products. Exporting
  * this reference keeps fixtures and callers on the same immutable definition;
- * the evaluator never maintains a second copy of its literals.
+ * the evaluator never maintains a second copy of its literals. ABC grades on
+ * Sellpia sales and purchase cost alone (KID-373): the advertising-free
+ * formula (version 3) is the only one the evaluator accepts.
  */
-export { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD };
+export { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD };
 
 /**
  * Evaluate exactly one product from formula-ready monthly facts.
@@ -95,6 +95,9 @@ export function evaluateMasterProductAbc(
   input: MasterProductAbcCandidateInput,
 ): MasterProductAbcCandidate {
   const formula = input.formula;
+  if (!productAbcExcludesAdvertising(formula)) {
+    throw new Error('ABC formula counts advertising, which ABC no longer reads');
+  }
   const formulaReadyFacts = input.facts;
   const normalizedSaleStartDate = parseProductAbcDateToKstCalendarDate(
     formulaReadyFacts.saleStartDate,
@@ -151,7 +154,6 @@ export function evaluateMasterProductAbc(
     gradeBasisCutoffDate: calendarDate(formulaReadyFacts.cutoffDate),
     weightedRevenue: roundPersisted(metrics.weightedRevenue, formula),
     weightedOrderTimeSupplyCost: roundPersisted(metrics.weightedOrderTimeSupplyCost, formula),
-    weightedAdvertisingSpend: roundPersisted(metrics.weightedAdvertisingSpend, formula),
     weightedOperatingProfit: roundPersisted(metrics.weightedOperatingProfit, formula),
     operatingProfitVelocity30: roundPersisted(metrics.operatingProfitVelocity30, formula),
     operatingMargin: metrics.operatingMargin === null
@@ -172,14 +174,12 @@ type NormalizedFact = Readonly<{
   coveredDays: number;
   recognizedRevenue: number;
   orderTimeSupplyCost: number;
-  advertisingSpend: number;
 }>;
 
 type Metrics = Readonly<{
   validObservationDays: number;
   weightedRevenue: number;
   weightedOrderTimeSupplyCost: number;
-  weightedAdvertisingSpend: number;
   weightedOperatingProfit: number;
   operatingProfitVelocity30: number;
   operatingMargin: number | null;
@@ -248,7 +248,6 @@ function selectFacts(
     validateProvenance(rawFact.provenance, month);
     const recognizedRevenue = finiteAmount(rawFact.recognizedRevenue, `recognized revenue ${month}`);
     const orderTimeSupplyCost = finiteAmount(rawFact.orderTimeSupplyCost, `order-time supply cost ${month}`);
-    const advertisingSpend = advertisingAmount(rawFact, month);
 
     selected.push({
       yearMonth: month,
@@ -258,7 +257,6 @@ function selectFacts(
       coveredDays,
       recognizedRevenue,
       orderTimeSupplyCost,
-      advertisingSpend,
     });
   }
 
@@ -278,7 +276,6 @@ function calculateMetrics(
   let validObservationDays = 0;
   let weightedRevenue = 0;
   let weightedOrderTimeSupplyCost = 0;
-  let weightedAdvertisingSpend = 0;
   let weightedOperatingProfit = 0;
   let weightedCoveredDays = 0;
   let weightedNegativeDays = 0;
@@ -287,9 +284,7 @@ function calculateMetrics(
     const ageDays = finalDay - fact.coverageMidpointDay;
     if (ageDays < 0) throw new Error(`coverage midpoint after cutoff ${fact.yearMonth}`);
     const weight = 2 ** (-ageDays / formula.halfLifeDays);
-    const operatingProfit = fact.recognizedRevenue
-      - fact.orderTimeSupplyCost
-      - fact.advertisingSpend;
+    const operatingProfit = fact.recognizedRevenue - fact.orderTimeSupplyCost;
     const weightedDays = weight * fact.coveredDays;
 
     validObservationDays += fact.coveredDays;
@@ -297,7 +292,6 @@ function calculateMetrics(
     weightedNegativeDays += operatingProfit < 0 ? weightedDays : 0;
     weightedRevenue += weight * fact.recognizedRevenue;
     weightedOrderTimeSupplyCost += weight * fact.orderTimeSupplyCost;
-    weightedAdvertisingSpend += weight * fact.advertisingSpend;
     weightedOperatingProfit += weight * operatingProfit;
   }
 
@@ -306,13 +300,11 @@ function calculateMetrics(
   }
   if (!Number.isFinite(weightedRevenue)
     || !Number.isFinite(weightedOrderTimeSupplyCost)
-    || !Number.isFinite(weightedAdvertisingSpend)
     || !Number.isFinite(weightedOperatingProfit)) {
     throw new Error('weighted amounts are invalid');
   }
   if (facts.some((fact) => fact.recognizedRevenue < 0
-    || fact.orderTimeSupplyCost < 0
-    || fact.advertisingSpend < 0)) {
+    || fact.orderTimeSupplyCost < 0)) {
     if (weightedRevenue === 0 && weightedOperatingProfit > 0) {
       throw new Error('positive operating profit with zero revenue');
     }
@@ -331,7 +323,6 @@ function calculateMetrics(
     validObservationDays,
     weightedRevenue,
     weightedOrderTimeSupplyCost,
-    weightedAdvertisingSpend,
     weightedOperatingProfit,
     operatingProfitVelocity30: weightedOperatingProfit / weightedCoveredDays * formula.velocityPeriodDays,
     operatingMargin,
@@ -349,19 +340,6 @@ function validateProvenance(
   if (provenance.vatIncluded !== true) {
     throw new Error(`VAT inclusion is not verified ${month}`);
   }
-}
-
-/**
- * The month's advertising cost is the allocated spend itself: a measured zero
- * and "no advertising account" both cost nothing, and a positive amount is
- * what was observed. Whether the month is evidence at all is decided before
- * the facts reach here (`evaluationPeriodComplete`).
- */
-function advertisingAmount(
-  fact: MasterProductAbcFormulaReadyMonthlyFact,
-  month: string,
-): number {
-  return finiteAmount(fact.advertisingSpend, `advertising spend ${month}`);
 }
 
 export function interpolateMasterProductAbcAnchor(

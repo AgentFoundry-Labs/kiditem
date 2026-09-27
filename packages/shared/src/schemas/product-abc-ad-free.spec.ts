@@ -7,7 +7,11 @@ import {
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_JSON,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  ProductAbcDisplayStatusSchema,
+  ProductAbcEvaluationProvenanceSchema,
   ProductAbcFormulaPayloadSchema,
+  ProductAbcGradeHistorySchema,
+  ProductAbcSourceFreshnessSchema,
   productAbcExcludesAdvertising,
 } from './product-abc';
 
@@ -47,18 +51,28 @@ describe('advertising-free ABC formula (version 3)', () => {
     expect(ProductAbcFormulaPayloadSchema.safeParse(payload).success).toBe(false);
   });
 
-  it('does not hold a grade for advertising the formula does not use', () => {
-    const facts = (advertisingRequired?: boolean) => ({
+  // ABC has no advertising source any more (KID-373, 사용자 2026-09-25 "3,4는 제거하자"):
+  // a grade waits on the mapping and Sellpia alone.
+  it('derives the display word from mapping and Sellpia alone', () => {
+    const facts = (sellpiaReady: boolean) => ({
       evaluation: null,
-      sources: {
-        mapping: { valid: true },
-        sellpia: { ready: true },
-        advertising: { ready: false },
-        ...(advertisingRequired === undefined ? {} : { advertisingRequired }),
-      },
+      sources: { mapping: { valid: true }, sellpia: { ready: sellpiaReady } },
     });
-    expect(productAbcDisplayStatus(facts())).toBe('AD_SOURCE_STALE');
-    expect(productAbcDisplayStatus(facts(true))).toBe('AD_SOURCE_STALE');
-    expect(productAbcDisplayStatus(facts(false))).toBe('INSUFFICIENT_EVIDENCE');
+    expect(productAbcDisplayStatus(facts(true))).toBe('INSUFFICIENT_EVIDENCE');
+    expect(productAbcDisplayStatus(facts(false))).toBe('SELLPIA_SOURCE_STALE');
+    expect(ProductAbcDisplayStatusSchema.options).not.toContain('AD_SOURCE_STALE');
+  });
+
+  it('keeps no advertising provenance or spend on an evaluation or its source freshness', () => {
+    const evaluationKeys = Object.keys(ProductAbcEvaluationProvenanceSchema.shape);
+    expect(evaluationKeys).not.toContain('advertisingSourceImportRunId');
+    expect(evaluationKeys).not.toContain('advertisingGeneration');
+    expect(Object.keys(ProductAbcSourceFreshnessSchema.shape)).toEqual([
+      'evaluationCutoffDate',
+      'sellpia',
+      'mapping',
+    ]);
+    expect(Object.keys(ProductAbcGradeHistorySchema.innerType().shape))
+      .not.toContain('nextAdvertisingSourceImportRunId');
   });
 });

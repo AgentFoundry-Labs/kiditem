@@ -31,7 +31,6 @@ const abcFixture = {
   actualCutoffDate: null,
   sources: {
     sellpia: missingAbcSource(),
-    advertising: missingAbcSource(),
     mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
   },
 };
@@ -183,7 +182,8 @@ describe('product operations contracts', () => {
   });
 
   it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
-    expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('AD_SOURCE_STALE')).toBe('AD_SOURCE_STALE');
+    expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('SELLPIA_SOURCE_STALE')).toBe('SELLPIA_SOURCE_STALE');
+    expect(ProductOperationsAbcCalculationStatusFilterSchema.safeParse('AD_SOURCE_STALE').success).toBe(false);
     expect(MasterProductOperationsListQuerySchema.parse({}).activeStatus).toBe('active');
     expect(MasterProductOperationsListQuerySchema.parse({
       abcCalculationStatus: 'READY',
@@ -225,8 +225,7 @@ describe('product operations contracts', () => {
       sources: {
         traffic: dataStatusSource(true),
         orders: dataStatusSource(true),
-        advertising: dataStatusSource(false),
-        sellpia: dataStatusSource(true),
+        sellpia: dataStatusSource(false),
         mapping: { ready: true, generation: '7' },
       },
       abcSummary: {
@@ -235,7 +234,7 @@ describe('product operations contracts', () => {
         mappingRequiredProductCount: 1,
         otherPendingProductCount: 1,
       },
-    }).sources.advertising).toEqual(dataStatusSource(false));
+    }).sources.sellpia).toEqual(dataStatusSource(false));
   });
 
   it('rejects the retired legacy profit projection on strict list items', () => {

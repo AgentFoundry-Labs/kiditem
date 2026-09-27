@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import type { EnsureStep } from './types';
 
@@ -14,17 +14,18 @@ import type { EnsureStep } from './types';
  * `data:migrate -- up`, and the scripts that create an organization call
  * `ensureAbsoluteProductAbcFormulaForOrganization` in their own transaction.
  *
- * It writes exactly what 002 writes: the formula version keyed by the current
- * payload's `formulaKey` and `version`, with 002's payload JSON and checksum,
- * and a baseline state with formula revision 1 and no publication. It never
+ * It writes the advertising-free formula (version 3) that v0.1.31:016 moved
+ * every existing organization to — ABC grades without advertising (KID-373) —
+ * keyed by that payload's `formulaKey` and `version`, with its JSON and
+ * checksum, and a baseline state with formula revision 1 and no publication. It never
  * touches a state that already names a formula, so published organizations
  * are left alone. When the payload moves to a new version, this installs it
  * only for organizations without a formula; moving organizations that already
  * publish with the previous version needs a reviewed data migration.
  */
 
-const FORMULA_KEY = PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey;
-const FORMULA_VERSION = PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version;
+const FORMULA_KEY = PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey;
+const FORMULA_VERSION = PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version;
 
 /**
  * v0.1.31:002's `isMappingOnlyState` as a row predicate: the state
@@ -39,7 +40,6 @@ const MAPPING_ONLY_STATE = {
   officialCutoffDate: null,
   publishedSellpiaSourceImportRunId: null,
   publishedSellpiaOperationId: null,
-  publishedAdvertisingSourceImportRunId: null,
   publishedMappingGeneration: null,
   publishedAt: null,
 } as const satisfies Prisma.MasterProductAbcFormulaStateWhereInput;
@@ -49,9 +49,8 @@ const MAPPING_ONLY_STATE = {
  * server takes them (`apps/server/src/products/transaction/product-mapping-lock.ts`
  * and `MasterProductAbcRepositoryAdapter.publish`).
  *
- * Publication takes four locks: Sellpia profitability, Coupang ad
- * profitability, product mapping, then master-product ABC. This step changes
- * only formula state, so it takes only the last two, in the same relative
+ * Publication takes two locks: product mapping, then master-product ABC.
+ * This step changes only formula state and takes the same two, in the same
  * order. A mapping-generation change or a publication for the organization
  * waits for this transaction, or this transaction waits for it. Every holder
  * takes these locks in this order, so neither side can hold the second lock
@@ -113,7 +112,7 @@ export async function ensureAbsoluteProductAbcFormulaForOrganization(
     },
     select: { id: true, formulaChecksum: true },
   });
-  if (stored && stored.formulaChecksum !== PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH) {
+  if (stored && stored.formulaChecksum !== PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH) {
     throw new AbsoluteProductAbcFormulaConflictError([organizationId], []);
   }
   const formula = stored ?? await tx.masterProductAbcFormulaVersion.create({
@@ -121,8 +120,8 @@ export async function ensureAbsoluteProductAbcFormulaForOrganization(
       organizationId,
       formulaKey: FORMULA_KEY,
       version: FORMULA_VERSION,
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-      formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
     },
     select: { id: true },
   });
@@ -229,7 +228,7 @@ function conflictMessage(
   if (checksumMismatchOrganizationIds.length > 0) {
     problems.push(
       `${FORMULA_KEY} v${FORMULA_VERSION} is stored with a checksum other than `
-        + `${PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH} (a changed payload needs a new formula version) `
+        + `${PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH} (a changed payload needs a new formula version) `
         + `for organizations ${checksumMismatchOrganizationIds.join(', ')}`,
     );
   }

@@ -104,11 +104,9 @@ implements ProductOperationsDataStatusRepositoryPort {
       traffic: trafficStatus,
       orders: ordersStatus,
       actualCutoff,
-      sellpia: profitabilitySourceStatus(evidence, 'sellpia'),
-      advertising: profitabilitySourceStatus(evidence, 'advertising'),
+      sellpia: profitabilitySourceStatus(evidence),
       sourceVector: {
         sellpia: sourceManifest(evidence.sourceVector.sellpia),
-        advertising: sourceManifest(evidence.sourceVector.advertising),
       },
       mappingReady: evidence.mappingGeneration === published.currentMappingGeneration,
       contributionBasis: evidence.contributionBasis,
@@ -159,9 +157,8 @@ function sourceStatus(
 /** The evidence owner's readiness for one source, against the cutoff it requires of that source. */
 function profitabilitySourceStatus(
   evidence: Awaited<ReturnType<ProfitabilityEvidence['load']>>,
-  source: 'sellpia' | 'advertising',
 ): ProductOperationsDataSourceStatus {
-  const status = evidence.sources[source];
+  const status = evidence.sources.sellpia;
   return deriveSourceReadiness({
     latestAttempt: status.latestAttempt,
     latestComplete: status.latestComplete,

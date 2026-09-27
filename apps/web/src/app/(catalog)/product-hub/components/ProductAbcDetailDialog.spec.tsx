@@ -21,7 +21,7 @@ describe('ProductAbcDetailDialog', () => {
     expect(screen.getByText('매핑 최신 · 현재 세대 7 · 근거 세대 7')).toBeInTheDocument();
     expect(screen.queryByText(/\bREADY\b/)).not.toBeInTheDocument();
     expect(screen.queryByText('주문 원천')).not.toBeInTheDocument();
-    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v2 · 반감기 90일/)).toBeInTheDocument();
+    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v3 · 반감기 90일/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '상품 상세 보기' })).toHaveAttribute('href', '/product-hub/11111111-1111-4111-8111-111111111111');
   });
 
@@ -71,7 +71,6 @@ function product(): MasterProductOperationsMetadata {
       actualCutoffDate: '2026-08-31',
       sources: {
         sellpia: source(),
-        advertising: source(),
         mapping: {
           valid: true,
           currentMappingGeneration: '7',

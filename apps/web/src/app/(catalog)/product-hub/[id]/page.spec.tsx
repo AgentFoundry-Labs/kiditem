@@ -166,6 +166,6 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     fireEvent.click(screen.getByRole('button', { name: '동물 친구들 블록 ABC 근거 보기' }));
 
     expect(screen.getByRole('dialog', { name: 'ABC 평가 근거' })).toBeInTheDocument();
-    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v2 · 반감기 90일/)).toBeInTheDocument();
+    expect(screen.getByText(/PRODUCT_ABC_ABSOLUTE · v3 · 반감기 90일/)).toBeInTheDocument();
   });
 });

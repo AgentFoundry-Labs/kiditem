@@ -225,7 +225,6 @@ function product(): MasterProductOperationsListItem {
       actualCutoffDate: '2026-08-31',
       sources: {
         sellpia: abcSource(),
-        advertising: abcSource(),
         mapping: { valid: true, currentMappingGeneration: '7', evidenceMappingGeneration: '7' },
       },
     },

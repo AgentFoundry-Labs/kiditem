@@ -1,7 +1,4 @@
-import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
 import { ProductAbcReadUseCase } from '../../../products/application/service/product-abc-read.usecase';
@@ -40,10 +37,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     const inventory = new ProductAvailabilityUseCase(
       new ProductAvailabilityRepositoryAdapter(prismaService),
     );
-    const alerts = new SourceFailureAlerts(prismaService);
     const evidence = new MasterProductProfitabilityReadService(
       new SellpiaProfitabilitySourceService(prismaService),
-      new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).recipes, channelFactTestPorts(prismaService).listings, prismaService, alerts), prismaService,
+      prismaService,
       new ProductTransactionalReadRepositoryAdapter());
     service = new SellpiaProductSalesService(
       prismaService,
@@ -67,8 +63,14 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     // 빈 상품 손익 세대(성공한 실행) — 사실은 각 테스트가 그 실행 id로 넣는다(KID-361 J3).
+    // 세대 품질이 넣는 사실 수를 세지 않으므로 ABC 증거가 고르지 않게 다른 매핑 세대에 둔다
+    // (ABC는 셀피아만 읽는다, KID-373 — 여기서 검증하는 것은 재고 투영이다).
     const publishEmpty = async (organizationId: string) =>
-      (await seedSellpiaProfitabilityOperation(prisma, { organizationId, finishedAt: new Date(Date.now() - 60_000) })).id;
+      (await seedSellpiaProfitabilityOperation(prisma, {
+        organizationId,
+        finishedAt: new Date(Date.now() - 60_000),
+        mappingGeneration: 1n,
+      })).id;
     canonicalProfitabilityRunId = await publishEmpty(TEST_ORGANIZATION_ID);
     foreignProfitabilityRunId = await publishEmpty(OTHER_ORGANIZATION_ID);
   });

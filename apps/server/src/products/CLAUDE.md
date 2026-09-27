@@ -64,9 +64,8 @@ retains warehouse records only; no second mutable source stock exists.
   records only actual grade changes in history.
 - Evaluation requires a selling product, valid mapping, complete Sellpia
   profitability coverage, `ORDER_TIME_SUPPLY_COST`, VAT provenance, a verified
-  sale age of at least 30 days at the evaluation cutoff, and a measured
-  monthly ad spend, which is `0` when the organization has no advertising.
-  Missing or incompatible Sellpia, mapping, or advertising evidence produces
+  sale age of at least 30 days at the evaluation cutoff.
+  Missing or incompatible Sellpia or mapping evidence produces
   no publication; it is never zero-filled or synthesized as C. An existing normal grade remains visible while the source
   is stale. Judge data sufficiency by completeness and validity of the selected
   evaluation period, separately from sale age; there is no minimum evidence-day
@@ -85,38 +84,27 @@ retains warehouse records only; no second mutable source stock exists.
   FAILED collection alone does not invalidate a compatible complete source.
   Persist and display that actual cutoff separately from the desired latest
   cutoff.
-- A Sellpia and an advertising generation pair only when they end on the same
-  day or the earlier one ends on a month's last day: month totals cannot be cut
-  back to an earlier day inside a month. Whichever source is newer, publication
-  pairs the newest retained generations that end together; with none, the
-  refresh returns `SOURCE_NOT_READY` and nothing is written. An advertising
-  collection that held its closed day as unreported therefore delays a refresh
-  on a newer Sellpia generation by one day unless an older Sellpia generation
-  ends on the held end.
-- Formula version 3 (`historicalAdvertisingPolicy: EXCLUDED_V1`) grades on
-  Sellpia alone: evidence loads with `advertising: 'excluded'`, the evaluation
-  and publication carry no advertising provenance (null, never invented), and
-  display status does not wait on advertising (`advertisingRequired: false`).
-  Only that formula may omit advertising; version 2 still refuses without it.
-- Source readiness is each source's own, not the selected pair's: `sources[x]`
-  judges the source's newest complete generation on the current mapping
-  generation. Sellpia is due through the latest closed KST day and advertising
-  through Advertising's derived evidence cutoff (`adReportEvidenceCutoff` over
-  the generation's `requestedThrough` and `coveredThrough`), so a held closed
-  day never reads stale. Without a pair, `SOURCE_NOT_READY` carries `pairing`
-  (the source that ends earlier and both ends) unless both sources are stale,
-  when `sources` already names them.
+- ABC grades on Sellpia sales and purchase cost alone (KID-373): evidence has
+  no advertising source, and evaluations and publications carry no advertising
+  spend or provenance. Only the advertising-free formula (version 3,
+  `historicalAdvertisingPolicy: EXCLUDED_V1`) evaluates; a formula that counts
+  advertising is an integrity error. A Sellpia generation publishes when it
+  ends on the cutoff or the cutoff closes its month (month totals cannot be cut
+  back inside a month); with none, the refresh returns `SOURCE_NOT_READY` and
+  nothing is written.
+- Source readiness is the Sellpia source's own: `sources.sellpia` judges its
+  newest complete generation on the current mapping generation, due through
+  the latest closed KST day.
 - Evaluation/publication is organization-locked so an older snapshot cannot
   overwrite a newer completed publication.
 - Publication verifies the evaluated generation's identity as given; it does
   not re-select a current generation. A newer complete generation is freshness
-  and does not refuse a publication, so the evaluated pair commits and the next
+  and does not refuse a publication, so the evaluated generation commits and the next
   recalculation picks the newer one up. Published provenance and the official
   cutoff come from the evaluated selection, and the transaction still refuses
   an input that disagrees with itself or with mutable state it re-reads.
 - Publication does not move the official cutoff backward because every
-  collection plan requests coverage through KST-yesterday (an advertising
-  collection may confirm one day less) and `targetCutoff` is the latest closed
+  collection plan requests coverage through KST-yesterday and `targetCutoff` is the latest closed
   KST day, so the actual cutoff cannot precede a published one.
   No guard enforces this. It rests on two things: a collection plan's coverage
   end, and a forward-moving clock. A remapping followed by a collection that
@@ -124,8 +112,7 @@ retains warehouse records only; no second mutable source stock exists.
   settled grade.
 - Products owns the ABC evidence cutoff — the latest closed KST day — and
   publishes one per-product view of the facts that decide the display word
-  (retained evaluation, `sources.sellpia.ready`, `sources.advertising.ready`,
-  `sources.mapping.valid`) through `PRODUCT_ABC_READ_PORT`; no reader picks a
+  (retained evaluation, `sources.sellpia.ready`, `sources.mapping.valid`) through `PRODUCT_ABC_READ_PORT`; no reader picks a
   cutoff of its own. The view carries no display word: every consumer derives
   it with `productAbcDisplayStatus` from `@kiditem/shared/product-abc`
   ([ADR 0006](../../../../docs/adr/0006-a-displayed-number-is-a-measurement-or-nothing.md),

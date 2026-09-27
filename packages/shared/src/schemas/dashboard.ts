@@ -485,7 +485,6 @@ export const DashboardInventorySummarySchema = z.object({
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
-    AD_SOURCE_STALE: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfit: z.object({
     amountByGrade: z.object({
@@ -503,7 +502,6 @@ export const DashboardInventorySummarySchema = z.object({
       officialCutoffDate: DashboardCalendarDateSchema.nullable(),
       publishedAt: zIsoDate.nullable(),
       sellpiaOperationId: z.string().uuid().nullable(),
-      advertisingSourceImportRunId: z.string().uuid().nullable(),
       mappingGeneration: z.string().regex(/^\d+$/).nullable(),
       includedProductCount: z.number().int().nonnegative(),
       withheldProductCount: z.number().int().nonnegative(),

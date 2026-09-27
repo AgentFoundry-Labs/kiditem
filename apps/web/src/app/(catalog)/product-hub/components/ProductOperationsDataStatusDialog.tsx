@@ -52,7 +52,6 @@ export function ProductOperationsDataStatusDialog({
 }) {
   const sourcesReady = data !== undefined
     && data.sources.sellpia.ready
-    && data.sources.advertising.ready
     && data.sources.mapping.ready;
 
   return (
@@ -81,12 +80,11 @@ export function ProductOperationsDataStatusDialog({
             <section className="divide-y divide-[var(--border-subtle)] rounded-xl border border-[var(--border-subtle)]">
               <SourceRow label="방문·조회" source={data.sources.traffic} />
               <SourceRow label="주문·판매·매출" source={data.sources.orders} />
-              <SourceRow label="광고비" source={data.sources.advertising} />
               <SourceRow label="Sellpia 이익" source={data.sources.sellpia} />
               <MappingRow ready={data.sources.mapping.ready} generation={data.sources.mapping.generation} />
             </section>
 
-            {!sourcesReady ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">필수 원천이 최신이 아니면 셀피아 상품 손익과 광고 손익의 끝 날짜가 같은 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.</p> : null}
+            {!sourcesReady ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">필수 원천이 최신이 아니면 셀피아 상품 손익의 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.</p> : null}
             {feedback ? <p role="status" className={feedbackClass(feedback.tone)}>{feedback.message}</p> : null}
 
             <section className="rounded-xl border border-[var(--border-subtle)] p-4">
