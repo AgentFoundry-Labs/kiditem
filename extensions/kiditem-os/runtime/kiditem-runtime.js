@@ -8933,15 +8933,16 @@ var KidItemRuntime = (() => {
     const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
     const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
-    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
+    const remains = await formRemains(page, deps);
+    const status = remains === "unknown" ? "unconfirmed" : remains ? "form_remains" : "ok";
+    return { status, ...withMessage };
   }
   async function formRemains(page, deps) {
-    let lastSeen = false;
+    let lastSeen = "unknown";
     for (let check = 0; check < REMAIN_CHECKS; check += 1) {
       if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
       const probed = await probe(page);
-      if (probed === NO_ANSWER) return true;
-      if (probed === null || probed.length === 0) continue;
+      if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
       lastSeen = probed.some((frame) => frame.result?.loginForm === true);
       if (!lastSeen) return false;
     }

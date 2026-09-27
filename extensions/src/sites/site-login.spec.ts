@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RuntimeError, isRuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../core/site-caller';
 import { LOGIN_DIALOGS_FILE, LOGIN_FILL_FILE, createSiteLoginGate, ensureLoggedIn, withLoginTab, type LoginOutcome, type LoginSpec } from './site-login';
@@ -138,6 +138,35 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'ok' });
     expect(tab.log).toContain('navigate https://mall.test/admin');
     expect(tab.filled).toHaveLength(1);
+  });
+
+  it('누른 뒤 화면을 들여다보지 못하면(답 없음) form_remains가 아니라 unconfirmed — 거절로 단정하지 않는다(리뷰 MUST 3)', async () => {
+    const tab = loginTab({
+      url: 'https://auth.test/login',
+      submit: () => ({ url: 'https://auth.test/stalled', dialog: '처리 중입니다.' }),
+      unreadableAt: (url) => url === 'https://auth.test/stalled',
+    });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'unconfirmed', mallMessage: '처리 중입니다.' });
+
+    // 살피기가 끝내 답하지 않는 화면(알림 창·무거운 스크립트)도 같다.
+    const stalled = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true }) });
+    let submitted = false;
+    const frames = stalled.page.frames.bind(stalled.page);
+    stalled.page.frames = async <T,>(files: readonly string[]) => (submitted ? new Promise<never>(() => undefined) : frames<T>(files));
+    const ask = stalled.page.ask.bind(stalled.page);
+    stalled.page.ask = async (message, options) => {
+      const answer = await ask(message, options);
+      if (message.call === 'login.fill') submitted = true;
+      return answer;
+    };
+    vi.useFakeTimers();
+    try {
+      const outcome = ensureLoggedIn(stalled.page, SPEC, CREDENTIALS, stalled.deps);
+      await vi.runAllTimersAsync();
+      await expect(outcome).resolves.toEqual({ status: 'unconfirmed' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('로그인 폼이 어디에도 없으면 no_form — 채우지 않는다', async () => {

@@ -124,20 +124,22 @@ async function afterSubmit(page: TabPage, spec: LoginSpec, guard: PageGuard, fra
     .find(Boolean);
   const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
   if (isVerification(spec, await safeUrl(page))) return { status: 'verification_required', ...withMessage };
-  return (await formRemains(page, deps)) ? { status: 'form_remains', ...withMessage } : { status: 'ok', ...withMessage };
+  const remains = await formRemains(page, deps);
+  const status: LoginStatus = remains === 'unknown' ? 'unconfirmed' : remains ? 'form_remains' : 'ok';
+  return { status, ...withMessage };
 }
 
 /**
- * 누른 뒤 로그인 폼이 남았는가(옛 `loginFormRemainsAfterSubmit`). 답이 없으면(알림 창·무거운 스크립트로 멈춘 화면) 남은
- * 것으로 본다. 화면이 넘어가는 중이라 못 보면 잠시 뒤 다시 보고, 마지막으로 본 화면에 폼이 있을 때만 남았다고 한다.
+ * 누른 뒤 로그인 폼이 남았는가(옛 `loginFormRemainsAfterSubmit`). 화면이 넘어가는 중이라 못 보면 잠시 뒤 다시 보고, 마지막으로
+ * 본 화면에 폼이 있을 때만 남았다고 한다. 끝내 들여다보지 못하면(답 없음 — 알림 창·무거운 스크립트로 멈춘 화면, 권한 밖 주소)
+ * `unknown`이다: 거절로 단정하지 않는다 — `form_remains`는 몰 차단(`credentials_rejected`)으로 이어진다(리뷰 MUST 3).
  */
-async function formRemains(page: TabPage, deps: LoginDeps): Promise<boolean> {
-  let lastSeen = false;
+async function formRemains(page: TabPage, deps: LoginDeps): Promise<boolean | 'unknown'> {
+  let lastSeen: boolean | 'unknown' = 'unknown';
   for (let check = 0; check < REMAIN_CHECKS; check += 1) {
     if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
     const probed = await probe(page);
-    if (probed === NO_ANSWER) return true;
-    if (probed === null || probed.length === 0) continue;
+    if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
     lastSeen = probed.some((frame) => frame.result?.loginForm === true);
     if (!lastSeen) return false;
   }
@@ -218,8 +220,9 @@ function within<T>(work: Promise<T>, ms: number): Promise<T | typeof NO_ANSWER> 
 
 /**
  * 로그인 화면에서 멈춘 실행의 까닭(`SITE_LOGIN_REQUIRED` details.reason). 웹이 이것으로 자동 로그인을 막을지 정한다:
- * `credentials_rejected`(눌렀는데 폼이 남았다 — `mallMessage`가 거절 문장이면 막는다), `no_credentials`(자격을 받지
- * 못했다), `verification_required`(본인확인), `login_unconfirmed`(로그인했는지 확인하지 못했다).
+ * `credentials_rejected`(눌렀는데 폼이 남은 것을 봤다 — 몰의 말과 상관없이 막는다, KID-380 D10), `no_credentials`(자격을 받지
+ * 못했다), `verification_required`(본인확인), `login_unconfirmed`(로그인했는지 확인하지 못했다 — 누른 뒤 화면을
+ * 들여다보지 못한 것도 여기다. 막지 않고 한 시간 간격만 지킨다).
  */
 export type LoginFailureReason = 'credentials_rejected' | 'no_credentials' | 'verification_required' | 'login_unconfirmed';
 
