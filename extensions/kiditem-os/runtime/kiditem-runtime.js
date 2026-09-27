@@ -8476,7 +8476,10 @@ var KidItemRuntime = (() => {
           };
           await checkHere();
           const first = await send(message, timeoutMs, frameId);
-          if (!inject || !isMissing(first)) return first;
+          if (!inject || !isMissing(first)) {
+            if (isMissing(first) || isTimeout(first)) await checkHere();
+            return first;
+          }
           await checkHere();
           const target = frameId === void 0 ? { tabId } : { tabId, frameIds: [frameId] };
           await deps.chrome.scripting.executeScript({ target, files: [...inject.isolated] });
@@ -8485,7 +8488,9 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          return send(message, timeoutMs, frameId);
+          const second = await send(message, timeoutMs, frameId);
+          if (isMissing(second) || isTimeout(second)) await checkHere();
+          return second;
         },
         async frames(files) {
           const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
@@ -8570,6 +8575,9 @@ var KidItemRuntime = (() => {
         }
       }
     };
+  }
+  function isTimeout(value) {
+    return typeof value === "object" && value !== null && value.error === "timeout";
   }
   function isMissing(value) {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";

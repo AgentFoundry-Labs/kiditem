@@ -380,3 +380,31 @@ describe('installDialogGuardAnswer — 수집 탭인지 답한다(실기기 R1)'
     expect(ask(4).answers).toEqual([{ runTab: false }]);
   });
 });
+
+describe('TabPage.ask — 읽기가 답하지 못하면 탭 주소를 다시 본다(실기기 R4)', () => {
+  const GUARD: PageGuard = {
+    allows: (url) => url.hostname === 'shopping-seller.kakao.com',
+    isLogin: (url) => url.hostname === 'accounts.kakao.com',
+    loginMessage: '카카오 로그인이 필요합니다.',
+  };
+
+  it('읽는 사이 로그인 화면으로 넘어가 처리기가 없으면(content_script_missing) SITE_LOGIN_REQUIRED — 탭은 운영자에게 남는다', async () => {
+    const { chromeApi } = fakeChrome({
+      sendMessage: async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); },
+      urls: ['https://shopping-seller.kakao.com/product/store-seller/list', 'https://shopping-seller.kakao.com/product/store-seller/list', 'https://accounts.kakao.com/login?continue=x'],
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    const error = await page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard: GUARD }).then(() => null, (caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SITE_LOGIN_REQUIRED', message: '카카오 로그인이 필요합니다.' });
+    expect(leftForOperator(error)).toBe(true);
+  });
+
+  it('주소가 그대로면 답을 그대로 돌려준다', async () => {
+    const { chromeApi } = fakeChrome({
+      sendMessage: async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); },
+      url: 'https://shopping-seller.kakao.com/product/store-seller/list',
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard: GUARD })).resolves.toEqual({ ok: false, error: 'content_script_missing' });
+  });
+});

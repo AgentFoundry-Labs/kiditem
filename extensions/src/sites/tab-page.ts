@@ -332,7 +332,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         };
         await checkHere();
         const first = await send<T>(message, timeoutMs, frameId);
-        if (!inject || !isMissing(first)) return first;
+        if (!inject || !isMissing(first)) {
+          if (isMissing(first) || isTimeout(first)) await checkHere();
+          return first;
+        }
         // 묻는 사이에 탭이 옮겨 갔을 수 있다(로그인 리다이렉트) — 주입 직전에 다시 본다.
         await checkHere();
         const target: { tabId: number } | { tabId: number; frameIds: number[] } = frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] };
@@ -342,7 +345,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: 'MAIN' });
         }
         await deps.sleep(500);
-        return send<T>(message, timeoutMs, frameId);
+        const second = await send<T>(message, timeoutMs, frameId);
+        // 읽는 사이 탭이 로그인·사이트 밖 화면으로 넘어갔으면(카카오 accounts 리다이렉트) 처리기가 없거나 답하지 못한다 —
+        // 그 답을 실패로 넘기지 않고 주소 규칙으로 가른다(로그인이면 탭을 남긴다, 실기기 R4).
+        if (isMissing(second) || isTimeout(second)) await checkHere();
+        return second;
       },
       async frames<T>(files: readonly string[]) {
         const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
@@ -433,6 +440,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       }
     },
   };
+}
+
+function isTimeout(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { error?: unknown }).error === 'timeout';
 }
 
 function isMissing(value: unknown): boolean {
