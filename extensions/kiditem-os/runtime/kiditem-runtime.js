@@ -8428,6 +8428,7 @@ var KidItemRuntime = (() => {
       return {
         tabId,
         async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+          const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
           await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
@@ -8436,7 +8437,8 @@ var KidItemRuntime = (() => {
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
             if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
             last = tab.url || last;
-            if (stopAt?.(last) || tab.status === "complete") return last;
+            const committed = !tab.pendingUrl && tab.url !== void 0 && tab.url !== before;
+            if (committed && stopAt?.(last) || tab.status === "complete") return last;
             if (deps.now() >= deadline) {
               if (continueOnTimeout) return last;
               throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });

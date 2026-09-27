@@ -201,7 +201,7 @@ export interface TabPageChrome {
   tabs: {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
     update(tabId: number, properties: { url?: string; active?: boolean }): Promise<unknown>;
-    get(tabId: number): Promise<{ status?: string; url?: string; active?: boolean }>;
+    get(tabId: number): Promise<{ status?: string; url?: string; pendingUrl?: string; active?: boolean }>;
     query(query: { url: string }): Promise<Array<{ id?: number; url?: string; status?: string }>>;
     remove(tabId: number): Promise<void>;
     sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
@@ -283,6 +283,9 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     return {
       tabId,
       async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+        // 옮기기 전 문서의 주소. Chrome은 새 주소를 커밋할 때까지 pendingUrl에 두고 url은 옛 문서다 — 옛 로그인 문서에서
+        // stopAt이 먼저 맞으면 새 화면이 뜨기 전에 옛 문서에 채우게 된다(리뷰 2 MUST 1).
+        const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
         await deps.chrome.tabs.update(tabId, { url });
         const deadline = deps.now() + timeoutMs;
         let last = url;
@@ -292,7 +295,8 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
           if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
           last = tab.url || last;
-          if (stopAt?.(last) || tab.status === 'complete') return last;
+          const committed = !tab.pendingUrl && tab.url !== undefined && tab.url !== before;
+          if ((committed && stopAt?.(last)) || tab.status === 'complete') return last;
           if (deps.now() >= deadline) {
             if (continueOnTimeout) return last;
             throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지를 여는 데 시간이 너무 오래 걸립니다.', { url });

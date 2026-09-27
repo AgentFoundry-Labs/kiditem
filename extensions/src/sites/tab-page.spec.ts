@@ -408,3 +408,63 @@ describe('TabPage.ask — 읽기가 답하지 못하면 탭 주소를 다시 본
     await expect(page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard: GUARD })).resolves.toEqual({ ok: false, error: 'content_script_missing' });
   });
 });
+
+describe('TabPage.navigate — stopAt은 새 문서가 커밋된 뒤에만(리뷰 2 MUST 1)', () => {
+  it('옛 로그인 문서가 아직 커밋된 동안(pendingUrl·같은 주소)은 멈추지 않고, 새 로그인 문서에 닿으면 멈춘다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const answers = [
+      { status: 'complete', url: 'https://mall.test/login' },
+      { status: 'loading', url: 'https://mall.test/login', pendingUrl: 'https://mall.test/orders' },
+      { status: 'loading', url: 'https://mall.test/login' },
+      { status: 'loading', url: 'https://mall.test/login?next=orders' },
+    ];
+    let gets = 0;
+    chromeApi.tabs.get = async () => answers[Math.min(gets++, answers.length - 1)]!;
+    let now = 0;
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async (ms: number) => { now += ms; }, now: () => now });
+    const landed = await tabs.attach(3).navigate('https://mall.test/orders', { timeoutMs: 10_000, stopAt: (url) => url.includes('/login') });
+    expect(landed).toBe('https://mall.test/login?next=orders');
+    expect(gets).toBe(4);
+  });
+
+  it('주소가 바뀌지 않는 이동(같은 주소로 다시)은 stopAt 대신 complete를 기다린다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const answers = [
+      { status: 'complete', url: 'https://mall.test/login' },
+      { status: 'loading', url: 'https://mall.test/login' },
+      { status: 'complete', url: 'https://mall.test/login' },
+    ];
+    let gets = 0;
+    chromeApi.tabs.get = async () => answers[Math.min(gets++, answers.length - 1)]!;
+    let now = 0;
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async (ms: number) => { now += ms; }, now: () => now });
+    await expect(tabs.attach(3).navigate('https://mall.test/login', { timeoutMs: 10_000, stopAt: (url) => url.includes('/login') })).resolves.toBe('https://mall.test/login');
+    expect(gets).toBe(3);
+  });
+});
+
+describe('TabPage.ask — 시간 초과 뒤 주소 다시 보기(리뷰 2 MUST 2)', () => {
+  const GUARD: PageGuard = {
+    allows: (url) => url.hostname === 'shopping-seller.kakao.com',
+    isLogin: (url) => url.hostname === 'accounts.kakao.com',
+    loginMessage: '카카오 로그인이 필요합니다.',
+  };
+  const never = () => new Promise<never>(() => undefined);
+
+  it('시간 초과 사이 로그인 화면으로 넘어갔으면 SITE_LOGIN_REQUIRED — 탭은 운영자에게 남는다', async () => {
+    const { chromeApi } = fakeChrome({
+      sendMessage: never,
+      urls: ['https://shopping-seller.kakao.com/product/store-seller/list', 'https://accounts.kakao.com/login?continue=x'],
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    const error = await page.ask({ type: 'X' }, { timeoutMs: 5, guard: GUARD }).then(() => null, (caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SITE_LOGIN_REQUIRED' });
+    expect(leftForOperator(error)).toBe(true);
+  });
+
+  it('시간 초과인데 주소가 그대로면 timeout 답을 돌려준다(부른 쪽이 SITE_REQUEST_FAILED로 끝낸다)', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: never, url: 'https://shopping-seller.kakao.com/product/store-seller/list' });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.ask({ type: 'X' }, { timeoutMs: 5, guard: GUARD })).resolves.toEqual({ ok: false, error: 'timeout' });
+  });
+});
