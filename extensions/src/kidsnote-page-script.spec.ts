@@ -116,6 +116,16 @@ describe('kidsnote orders page script', () => {
     expect(requests.every((request) => !request.body || request.body.startsWith('body=order@order_print.frm'))).toBe(true);
   });
 
+  it('주문번호 표가 있는 빈 목록은 점검 예고 배너가 있어도 0건 성공이다(리뷰 SHOULD 1)', async () => {
+    const { handler } = load({ [listUrl(1)]: { html: '<html><body><p>시스템 점검 안내</p><table><tr><td>주문번호</td><td>상품명</td></tr></table></body></html>' } });
+    await expect(handler({ from: '2026-09-26', to: '2026-09-26', status: '', withDetail: true })).resolves.toEqual({ status: 'ok', orders: [] });
+  });
+
+  it('목록 표 대신 점검 안내면 maintenance — 안내문의 로그인 글자로 자동 로그인하지 않는다(KID-380 D3)', async () => {
+    const { handler } = load({ [listUrl(1)]: { html: '<html><body><h2>서비스 점검 안내</h2><p>보다 나은 서비스를 위해 시스템 점검을 진행하고 있습니다.</p><a href="/login">로그인</a></body></html>' } });
+    await expect(handler({ from: '2026-09-26', to: '2026-09-26', status: '', withDetail: true })).resolves.toEqual({ status: 'maintenance' });
+  });
+
   it('목록 표가 없으면 로그인 화면은 login_required, 로그인한 빈 목록은 0건 성공, 첫 쪽 HTTP 오류는 failed', async () => {
     await expect(load({ [listUrl(1)]: { html: '<html><body><form><input type="password"></form></body></html>' } })
       .handler({ from: '2026-09-26', to: '2026-09-26', status: '', withDetail: true })).resolves.toEqual({ status: 'login_required' });

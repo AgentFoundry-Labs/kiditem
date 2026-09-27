@@ -74,4 +74,9 @@ describe('kkomangse listings page script', () => {
     expect((await run((url) => ({ url: url.href, html: '<html><body><table><tr><td>안내</td></tr></table></body></html>' }))).result)
       .toEqual({ success: false, errorCode: 'mall_contract_drift', stage: 'goods_table' });
   });
+
+  it('로그아웃 뒤 넘어가는 /subAdmin/ 로그인 폼(주소에 login이 없다)도 로그인이 필요하다(KID-380 D5)', async () => {
+    const loginForm = '<html><body><form action="/subAdmin/login_ok.php"><input name="id"><input type="password" name="pw"><button>로그인</button></form></body></html>';
+    expect((await run(() => ({ url: `${KKOMANGSE}/subAdmin/`, html: loginForm }))).result).toEqual({ success: false, errorCode: 'mall_login_required' });
+  });
 });

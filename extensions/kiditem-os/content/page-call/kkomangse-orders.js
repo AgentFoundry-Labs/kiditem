@@ -1,14 +1,25 @@
 // 꼬망세(nstore.edupre.co.kr) 주문 엑셀 읽기(ISOLATED world, KID-380 — 옛 worker.js `scrapeKkomangseExport` 이식).
 // 사이트 `extensions/src/sites/kkomangse`가 전체주문 목록 탭에 `page-call/bridge.js`와 함께 주입하고 `kkomangse.orders`를
 // 부른다. 목록 폼(.form_list)을 직렬화해 `_mode=get_search_excel`로 같은 출처에서 xlsx를 받아 base64로 돌려준다.
-// 읽기만 한다. 폼이 없고 비밀번호 칸이 보이면 로그인 화면이다(사이트가 실행 자격으로 한 번 로그인한다).
+// 읽기만 한다. 목록 폼이 없고 비밀번호 칸이 보이면 로그인 화면이다(사이트가 실행 자격으로 한 번 로그인한다).
 (function installKkomangseOrders() {
   "use strict";
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
 
   calls["kkomangse.orders"] = async function kkomangseOrders() {
     try {
-      const form = document.querySelector(".form_list") || document.forms[0];
+      // 로그아웃이면 꼬망세는 /subAdmin/(주소에 login이 없다)의 로그인 폼으로 넘긴다 — 목록 폼이 없고 비밀번호 칸이 보이면
+      // 첫 폼(로그인 폼)을 엑셀 요청으로 보내지 않고 로그인 필요로 답한다(KID-380 D5).
+      const listForm = document.querySelector(".form_list");
+      const form = listForm || document.forms[0];
+      if (!listForm && document.querySelector('input[type="password"]')) {
+        return {
+          success: false,
+          pendingLogin: true,
+          errorCode: "login_required",
+          error: "꼬망세 로그인이 필요합니다. nstore.edupre.co.kr 에 로그인한 뒤 다시 수집해 주세요.",
+        };
+      }
       if (!form) {
         if (document.querySelector('input[type="password"]')) {
           return {

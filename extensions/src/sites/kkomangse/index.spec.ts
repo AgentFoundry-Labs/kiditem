@@ -78,6 +78,23 @@ describe('sites/kkomangse — 꼬망세 주문 엑셀(get_search_excel) 읽기',
     expect(loggedOut.log).not.toContain('close 7');
   });
 
+  it('로그아웃 뒤 /subAdmin/ 로그인 폼(주소에 login이 없다)도 처리기의 login_required로 그 탭에서 로그인하고 다시 읽는다(KID-380 D5)', async () => {
+    const loginAt = 'https://nstore.edupre.co.kr/subAdmin/';
+    const login = fakeLoginScreen({ loginAt });
+    const fake = fakeTabPages({
+      landAt: login.landAt,
+      frames: login.frames,
+      answer: (message) => login.answer(message) ?? {
+        ok: true,
+        value: login.state.signedIn ? { success: true, xlsxBase64: XLSX_BASE64 } : { success: false, pendingLogin: true, errorCode: 'login_required' },
+      },
+    });
+    const signIn = createSiteSignIn(KKOMANGSE_LOGIN, CREDENTIALS, fastClock());
+    await expect(createKkomangseSite(fake.tabs, signIn).readOrders()).resolves.toMatchObject({ rows: [{ base64: XLSX_BASE64 }] });
+    expect(login.state.filled).toEqual([{ loginId: 'fake-mall-id', password: 'fake-mall-password' }]);
+    expect(fake.log.at(-1)).toBe('close 7');
+  });
+
   it('처리기가 로그인 화면(비밀번호 칸)을 알리면 SITE_LOGIN_REQUIRED, 엑셀이 아닌 응답은 옛 문장 그대로 SITE_REQUEST_FAILED', async () => {
     const expired = fakeTabPages({ answer: () => ({ ok: true, value: { success: false, pendingLogin: true, errorCode: 'login_required', error: '꼬망세 로그인이 필요합니다.' } }) });
     expect((await failure(createKkomangseSite(expired.tabs).readOrders())).code).toBe('SITE_LOGIN_REQUIRED');

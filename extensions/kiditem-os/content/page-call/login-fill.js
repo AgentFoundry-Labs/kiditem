@@ -93,19 +93,13 @@
     const byHandler = Array.from(document.querySelectorAll("a,button,input[type='button'],[role='button'],[onclick]"))
       .filter(isVisibleControl)
       .find((el) => /do_?login|fn_?login|go_?login|login_?proc|loginsubmit/i.test(el.getAttribute("onclick") || ""));
-    if (byHandler) {
-      byHandler.click();
-      return "onclick-handler";
-    }
+    if (byHandler) return activate(byHandler, "onclick-handler");
 
     const form = anchor.closest("form");
 
     // 2) 텍스트가 정확히 "로그인"/"login"
     const byText = findLoginControl(form || document) || (form ? findLoginControl(document) : null);
-    if (byText) {
-      byText.click();
-      return "exact-text";
-    }
+    if (byText) return activate(byText, "exact-text");
 
     // 3) form 안의 submit 컨트롤 / form submit
     if (form) {
@@ -126,10 +120,7 @@
 
     // 4) 텍스트 느슨한 일치 — "로그인하기", "Sign in" 등. 링크·안내문은 부정 목록으로 거른다.
     const byLooseText = findLoginControlLoose(form || document);
-    if (byLooseText) {
-      byLooseText.click();
-      return "loose-text";
-    }
+    if (byLooseText) return activate(byLooseText, "loose-text");
 
     // 5) id/class/name 에 login 이 든 버튼 (아이콘만 있는 버튼 대응)
     const byAttribute = Array.from(
@@ -138,16 +129,34 @@
           "input[type='image'][id*='login' i],input[type='button'][id*='login' i]",
       ),
     ).filter(isVisibleControl).filter((el) => !isLoginDecoy(el))[0];
-    if (byAttribute) {
-      byAttribute.click();
-      return "attribute-match";
-    }
+    if (byAttribute) return activate(byAttribute, "attribute-match");
 
     // 6) 마지막 수단 — 비밀번호 칸에서 Enter(폼이 없는 SPA 로그인 화면).
     for (const type of ["keydown", "keypress", "keyup"]) {
       anchor.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
     }
     return "password-enter";
+  }
+
+  // `<a href="javascript:…">`(롯데ON `mf_btn_login`)를 그냥 누르면 이 world에서 `javascript:` 주소로 가려다 CSP 오류가 난다
+  // (KID-380 D9). 폼 안이든 밖이든 화면의 클릭 처리기(onclick·jQuery 로그인)는 돌게 두고 주소 이동만 막는다 — 폼을 대신
+  // 제출하면 그 처리기가 건너뛰어져 폼이 남고, 거절된 자격으로 오판해 몰이 막힌다(리뷰 MUST 1).
+  function activate(control, method) {
+    const href = control.tagName === "A" ? String(control.getAttribute("href") || "") : "";
+    if (!/^\s*javascript:/i.test(href)) {
+      control.click();
+      return method;
+    }
+    const stopNavigation = (event) => {
+      if (event.target === control || control.contains(event.target)) event.preventDefault();
+    };
+    window.addEventListener("click", stopNavigation, true);
+    try {
+      control.click();
+    } finally {
+      window.removeEventListener("click", stopNavigation, true);
+    }
+    return method;
   }
 
   /** 로그인 버튼이 아닌데 "로그인" 글자가 든 것들. 누르면 엉뚱한 데로 간다. */

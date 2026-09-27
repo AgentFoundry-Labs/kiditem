@@ -49,4 +49,19 @@ describe('kkomangse orders page script', () => {
       error: '꼬망세 주문 폼을 찾지 못했습니다. nstore.edupre.co.kr 로그인을 확인하세요.',
     });
   });
+
+  it('로그아웃 뒤 /subAdmin/ 로그인 폼이 첫 폼이면 그 폼을 엑셀로 보내지 않고 로그인 필요(KID-380 D5)', async () => {
+    const requested: string[] = [];
+    const loginForm = { getAttribute: () => '/subAdmin/login_ok.php', querySelectorAll: () => [field('id', ''), field('pw', '', { type: 'password' })] };
+    const loginPage = {
+      querySelector: (selector: string) => (selector === 'input[type="password"]' ? {} : null),
+      forms: [loginForm],
+    };
+    await expect(load(loginPage, async (url) => { requested.push(url); return new Response('<html></html>'); })()).resolves.toMatchObject({
+      success: false,
+      pendingLogin: true,
+      errorCode: 'login_required',
+    });
+    expect(requested).toEqual([]);
+  });
 });

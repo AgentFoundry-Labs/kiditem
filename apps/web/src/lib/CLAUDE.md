@@ -75,10 +75,12 @@ multiple route groups.
 - `mall-login-block.ts` owns both guards against locking the operator's mall
   account. A **block** stops auto-login for a mall until the operator's own
   session is observed (`signed_in`), a login test succeeds, or they clear it;
-  collection then stops with a "직접 로그인" notice. Only the mall rejecting the
-  credentials blocks: anything our own side failed to answer — an extension
-  timeout, the API throttler (`Too Many Requests`), a missing extension, or a
-  login whose result we could not confirm — is not a wrong password, and
+  collection then stops with a "직접 로그인" notice. A run that ends
+  `credentials_rejected` (the extension saw the login form remain after
+  submitting the stored credentials) blocks the mall regardless of the mall's
+  message; `login_unconfirmed` (the result could not be seen) does not. Anything
+  our own side failed to answer — an extension timeout, the API throttler
+  (`Too Many Requests`), a missing extension — is not a wrong password, and
   `isCredentialFailureReason` keeps those out (stored blocks with those reasons
   are dropped on read). A **retry interval**
   (`AUTO_LOGIN_RETRY_INTERVAL_MS`) then covers what judgement cannot: after any

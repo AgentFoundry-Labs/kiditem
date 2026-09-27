@@ -1,6 +1,7 @@
 import { RuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../core/site-caller';
 import { withFreshTab } from './fresh-tab';
+import { mallMaintenance } from './mall-maintenance';
 import type { SiteSignIn } from './site-login';
 import { callPage } from './page-call';
 import type { PageGuard, TabPages } from './tab-page';
@@ -51,10 +52,12 @@ export function readMallListings(
   signIn?: SiteSignIn,
 ): Promise<{ collection: Record<string, unknown>; rows: unknown[]; proof: Record<string, unknown> }> {
   const login = `${spec.displayName} 로그인이 필요합니다. 열린 ${spec.displayName} 화면에서 로그인한 뒤 다시 가져와 주세요.`;
+  // 몰 guard는 주문 읽기와 같이 쓴다 — 로그인 화면에서 멈출 때의 문장만 목록 가져오기 말로 바꾼다(KID-381).
+  const guard: PageGuard = { ...spec.guard, loginMessage: login };
   return withFreshTab(tabs, spec.startUrl, async (page) => {
     const answer = await callPage<ListingsAnswer>(page, spec.call, { plan }, {
       timeoutMs: READ_TIMEOUT_MS,
-      guard: spec.guard,
+      guard,
       ...(spec.world === 'main' ? { main: [spec.file] } : { isolated: [spec.file] }),
       displayName: spec.displayName,
     });
@@ -69,6 +72,8 @@ export function readMallListings(
         throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, `읽는 사이 ${spec.displayName} 상품 목록이 바뀌었습니다. 잠시 뒤 다시 가져와 주세요.`, { stage: 'total_changed', mallKey: spec.mallKey });
       case 'mall_invalid_snapshot':
         throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, `${spec.displayName} 상품 목록이 올바르지 않아 저장하지 않았습니다.`, { stage, mallKey: spec.mallKey });
+      case 'mall_maintenance':
+        throw mallMaintenance(spec.displayName, spec.startUrl, '가져와', { mallKey: spec.mallKey });
       case 'mall_timeout':
         throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} 응답이 늦어 가져오기를 멈췄습니다.`, { status: null, url: spec.startUrl, reason: 'timeout', bodyHead: null });
       default:

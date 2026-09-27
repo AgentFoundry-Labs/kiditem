@@ -16,7 +16,7 @@ import { orderMallAccountApi } from './order-mall-account-api';
 /**
  * 실행 kind의 사이트 자동 로그인(KID-377). 확장이 실행 안에서 로그인하므로 웹은 수집을 시작할 때 그 몰의 저장 자격을
  * `operation.start`에 실어 보낸다(서버에는 보내지 않는다). 계정이 잠기지 않게 하는 규칙은 옛 몰과 같다 — 막힌 몰에는
- * 보내지 않고, 스스로 도는 수집은 한 시간에 한 번만 보낸다. 끝난 실행이 "몰이 아이디·비밀번호를 거부했다"고 말하면 막는다.
+ * 보내지 않고, 스스로 도는 수집은 한 시간에 한 번만 보낸다. 끝난 실행이 `credentials_rejected`로 멈추면 막는다(KID-380 D10).
  */
 export interface OperationLoginCredentials {
   loginId: string;
@@ -114,22 +114,30 @@ export const ROCKET_LOGIN_MALL_KEY = 'coupang-direct' as const;
 /** 쿠팡 윙 저장 자격이 있는 키 — 대표 윙 계정 행(Channels, KID-377). 윙 카탈로그·상품평 로그인. */
 export const WING_LOGIN_MALL_KEY = 'coupang' as const;
 
+/** 확장의 `credentials_rejected` 문장(`sites/site-login.ts` REASON_TEXT)과 같은 말. */
+const STORED_CREDENTIALS_REJECTED = '저장된 아이디·비밀번호로 로그인하지 못했습니다.';
+
 /**
- * 로그인 화면에서 멈춘 실행(`SITE_LOGIN_REQUIRED`, `result.login`)이 몰이 아이디·비밀번호를 거부했다고 말하면 그 몰의
- * 자동 로그인을 멈춘다. 확인하지 못한 것·자격 없음·본인확인은 막지 않는다 — 비밀번호가 틀린 게 아니다.
+ * 로그인 화면에서 멈춘 실행(`SITE_LOGIN_REQUIRED`, `result.login`)의 까닭이 `credentials_rejected`(저장 자격으로 눌렀는데
+ * 로그인 폼이 남았다)면 몰의 말과 상관없이 그 몰의 자동 로그인을 멈춘다(KID-380 D10 리더 결정 — 같은 자격으로 거듭 두드리면
+ * 계정이 잠긴다). 푸는 것은 사람이다. 확인하지 못한 것·자격 없음·본인확인은 막지 않는다 — 비밀번호가 틀린 게 아니다.
  */
 export function noteOperationLoginFailure(account: Pick<OperationLoginAccount, 'key' | 'name'>, operation: OperationView): void {
   if (operation.status !== 'failed' || operation.errorCode !== 'SITE_LOGIN_REQUIRED') return;
   const login = operation.result?.login as { reason?: unknown; mallMessage?: unknown } | undefined;
-  const mallMessage = typeof login?.mallMessage === 'string' ? login.mallMessage : null;
-  if (login?.reason !== 'credentials_rejected' || !mallRejectedCredentials(mallMessage)) return;
+  const mallMessage = typeof login?.mallMessage === 'string' && login.mallMessage.trim() ? login.mallMessage.trim() : null;
+  if (login?.reason !== 'credentials_rejected') return;
   // 사람이 차단을 푼 뒤라면 그보다 먼저 끝난 실행의 거절로는 다시 막지 않는다(리뷰 S1).
   const clearedAt = mallAutoLoginClearedAt(account.key);
   const finishedAt = operation.finishedAt ? new Date(operation.finishedAt).getTime() : Number.NaN;
   if (clearedAt !== null && (!Number.isFinite(finishedAt) || finishedAt <= clearedAt)) return;
   const mallName = account.name ?? account.key;
-  blockMallAutoLogin(account.key, mallMessage ?? '몰이 아이디·비밀번호를 거부했습니다.');
-  toast.error(`${mallName} 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요`, { description: `${mallName}: ${mallMessage}` });
+  // 몰이 거절 문장으로 답했으면 그 말을, 아니면 저장 자격이 거부됐다는 말(몰의 말은 덧붙인다)을 차단 까닭으로 둔다.
+  const reason = mallMessage && mallRejectedCredentials(mallMessage)
+    ? mallMessage
+    : `${STORED_CREDENTIALS_REJECTED}${mallMessage ? ` 몰의 말: ${mallMessage}` : ''}`;
+  blockMallAutoLogin(account.key, reason);
+  toast.error(`${mallName} 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요`, { description: `${mallName}: ${reason}` });
 }
 
 /** 이미 본 끝난 실행(이 탭에서 한 번만 알린다). */

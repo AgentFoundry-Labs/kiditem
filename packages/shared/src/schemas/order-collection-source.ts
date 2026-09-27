@@ -70,6 +70,28 @@ export function orderCollectionOrderCount(
 }
 
 /**
+ * 셀피아 양식에 주문 줄이 따로 없는 몰 — 택배비가 상품 행의 칸이라 출력 줄 = 상품 줄이다(해법몰·아트공구). 이 몰들은 위
+ * 셈법이 늘 0을 내므로(해법몰 QA 2026-09-27: 주문수집 1 대 오늘 주문 0) 수집한 **서로 다른 주문번호 수**가 주문 수다(KID-380 D6).
+ */
+export const MALL_ORDERS_COUNT_BY_ORDER_NUMBERS: readonly string[] = ['haebub-mall', 'art09'];
+
+/**
+ * 몰 주문 실행 하나의 주문 수(`orders.mall_orders` finish가 `result.rowCount`로 적는다). 변환할 것이 없던 수집은 0. 주문 줄이
+ * 없는 몰(`MALL_ORDERS_COUNT_BY_ORDER_NUMBERS`)은 주문번호 수, 나머지는 `orderCollectionOrderCount`(2026-09-22 셈법)다.
+ * 주문번호는 result에 싣는 상한(2,000)까지만 센다.
+ */
+export function mallOrdersOrderCount(input: Readonly<{
+  mallKey: string;
+  conversion: Readonly<{ outputRows: number | null; productRows: number | null }> | null;
+  orderNumbers?: readonly string[];
+}>): number {
+  // 변환 결과가 0줄이면 화면이 "신규 주문 없음"이라 말한다 — 주문번호로 세지 않는다(리뷰 SHOULD 4).
+  if (!input.conversion || (input.conversion.outputRows ?? 0) === 0) return 0;
+  if (MALL_ORDERS_COUNT_BY_ORDER_NUMBERS.includes(input.mallKey) && input.orderNumbers) return input.orderNumbers.length;
+  return orderCollectionOrderCount(input.conversion) ?? 0;
+}
+
+/**
  * 오늘 수집이 실어 온 주문 수 — **서버 기록**이다. 브라우저에 남은 변환 파일이 아니라서 어느
  * PC 에서 열어도 같고, 대시보드의 '오늘 주문' 과 같은 사실을 읽는다(사장님 2026-09-22).
  *

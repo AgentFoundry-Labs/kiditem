@@ -26,6 +26,8 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 폼 채우기는 `content/page-call/login-fill.js`에 페이지 호출 인자로 그 탭에만 가며, 옛 `executeScript` 인자와 같은
 노출이다. 실패한 로그인은 `SITE_LOGIN_REQUIRED` details.reason(`credentials_rejected`·`no_credentials`·
 `verification_required`·`login_unconfirmed`)으로 알리고, runner가 failed finish의 `result.login`에 까닭과 몰의 말만 싣는다.
+웹(`apps/web/src/lib/operation-login.ts`)은 `credentials_rejected`면 몰의 말과 상관없이 그 몰의 자동 로그인을 멈춘다(KID-380 D10 —
+같은 자격으로 거듭 두드리면 계정이 잠긴다). 푸는 것은 사람이고, 스스로 도는 수집의 한 시간 간격은 그대로다.
 
 몰 이관 규칙(H3′·L′, KID-380·381): 로그인 폼 명세가 없는 사이트(올웨이즈 JWT, 지마켓·옥션·스마트스토어·떠리몰·11번가 목록)는
 `loginSpec` 없이 `PageGuard.isLogin`만 두어 로그인 화면이면 `SITE_LOGIN_REQUIRED`로 멈추고 탭을 남긴다(운영자가 로그인).
@@ -37,6 +39,14 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 볼 수 있다(옛 `executeScript` 인자보다 넓다 — 리더 수용, KID-380). 로그인 폼 채우기는 ISOLATED 전용(`isolatedOnly`)이라
 페이지로 가지 않는다. 서버·plan·progress·result·청크·로그·오류 details에는 싣지 않는다.
 SMS·본인확인 화면(GS샵)은 `waitForOperator`로 멈췄다 잇는다.
+
+불러오는 중 알림 창 가드(KID-380 D4): 몰이 로드 중 `alert`·`confirm`을 띄우면 백그라운드 탭이 멈춘다. `withFreshTab`(로그인
+입구의 `hosts` 또는 `dialogGuardHosts`)과 로그인하러 여는 탭은 주소를 옮기기 전에 `TabPages.guardDialogs`로 그 호스트에
+MAIN world·document_start 등록 content script(`content/page-call/dialog-guard.js`, 실행마다 id 하나)를 걸고 끝나면 지운다.
+가드는 숨은 수집 탭에서만 문장을 `window.__kiditemDialogs`에 모으고 바로 돌아간다 — `confirm` 자동 확인도 숨은 탭에서만이고,
+보이는 탭(운영자 탭·남긴 탭·앞으로 가져온 GS샵 SMS 탭)은 진짜 창을 띄운다. 서비스워커가 다시 뜨면 입구가
+`sweepDialogGuards`로 남은 가드 등록을 지운다. `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
+`alert`을 바꿨다가 되돌린다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
 import 한 줄씩(수집기 하나, 사이트 하나)이다.

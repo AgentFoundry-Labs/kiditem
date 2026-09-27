@@ -104,6 +104,44 @@ export interface TabPages {
   find(urlPattern: string): Promise<TabPage | null>;
   /** 브라우저 밖 fetch(서비스워커). 설명 본문처럼 탭 없이 읽을 때만 쓴다. */
   fetchText(url: string, init?: RequestInit): Promise<string | null>;
+  /**
+   * 이 확장이 연 탭을 운영자에게 남겼다고 적는다(KID-380 D8). 사이트(`key`)마다 하나만 — 먼저 남긴 다른 탭은 닫는다.
+   * 서비스워커가 다시 뜨면 잊는다.
+   */
+  keep(key: string, page: TabPage): Promise<void>;
+  /**
+   * 그 사이트에 남긴 탭이 아직 열려 있고 운영자가 보고 있지 않으며 남길 때 주소나 로그인·빈 화면이면 이 확장이 연 탭으로
+   * 돌려준다(없으면 null). 어느 쪽이든 기록은 비운다. 새 탭 대신 옮겨 쓴다.
+   */
+  reclaimKept(key: string): Promise<TabPage | null>;
+  /**
+   * 그 호스트(하위 도메인 포함)의 문서가 불러오기를 시작할 때(document_start) MAIN world에 알림 창 가드
+   * (`DIALOG_GUARD_FILE`)를 거는 등록 content script를 이 실행 몫으로 등록한다(KID-380 D4). 로드 중 `alert`이 백그라운드
+   * 탭을 멈추지 않게 주소를 옮기기 전에 건다. 돌려준 함수가 등록을 지운다(두 번 불러도 한 번). 등록이 안 되는 환경이면
+   * 가드 없이 이어 간다.
+   */
+  guardDialogs(hosts: readonly string[]): Promise<() => Promise<void>>;
+}
+
+/** 불러오는 중 알림 창 가드 파일(MAIN world, document_start). */
+export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
+const DIALOG_GUARD_ID_PREFIX = 'kiditem-dialog-guard-';
+
+/**
+ * 서비스워커가 다시 뜨면 지난 실행이 건 가드 등록이 남는다(해제 함수를 잃었다) — 입구가 뜰 때 이 확장의 가드 등록을 다
+ * 지운다(리뷰 MUST 2). 던지지 않는다.
+ */
+export async function sweepDialogGuards(chromeApi: Pick<TabPageChrome, 'scripting'>): Promise<void> {
+  const scripting = chromeApi.scripting;
+  if (!scripting.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+  try {
+    const ids = (await scripting.getRegisteredContentScripts())
+      .map((script) => script.id)
+      .filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+    if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
+  } catch {
+    // 지우지 못해도 다음 실행은 새 id로 건다.
+  }
 }
 
 export const SITE_TAB_UNAVAILABLE = 'SITE_TAB_UNAVAILABLE' as const;
@@ -141,7 +179,7 @@ export interface TabPageChrome {
   tabs: {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
     update(tabId: number, properties: { url?: string; active?: boolean }): Promise<unknown>;
-    get(tabId: number): Promise<{ status?: string; url?: string }>;
+    get(tabId: number): Promise<{ status?: string; url?: string; active?: boolean }>;
     query(query: { url: string }): Promise<Array<{ id?: number; url?: string; status?: string }>>;
     remove(tabId: number): Promise<void>;
     sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
@@ -153,6 +191,18 @@ export interface TabPageChrome {
       files: string[];
       world?: 'ISOLATED' | 'MAIN';
     }): Promise<unknown>;
+    /** 알림 창 가드 등록(KID-380 D4). 없는 환경(옛 스펙 가짜)이면 가드 없이 이어 간다. */
+    registerContentScripts?(scripts: Array<{
+      id: string;
+      matches: string[];
+      js: string[];
+      world: 'MAIN';
+      runAt: 'document_start';
+      allFrames: boolean;
+      persistAcrossSessions: boolean;
+    }>): Promise<unknown>;
+    unregisterContentScripts?(filter?: { ids?: string[] }): Promise<unknown>;
+    getRegisteredContentScripts?(filter?: { ids?: string[] }): Promise<Array<{ id: string }>>;
   };
   runtime: {
     onMessage: {
@@ -174,7 +224,21 @@ const POLL_MS = 250;
 const LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
 const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
 
+let dialogGuardSerial = 0;
+
 export function createTabPages(deps: TabPageDeps): TabPages {
+  /** 사이트마다 운영자에게 남긴 탭 하나와 남길 때의 주소(KID-380 D8). */
+  const kept = new Map<string, { tabId: number; url: string }>();
+  /**
+   * 남긴 탭을 이 확장이 다시 써도 되는가: 아직 열려 있고, 운영자가 보고 있지 않고(active 아님), 남길 때 주소나 로그인·빈 화면에
+   * 머물러 있다. 운영자가 로그인해 다른 화면으로 옮긴 탭은 운영자 것이다(리뷰 SHOULD 3).
+   */
+  async function stillOurs(entry: { tabId: number; url: string }): Promise<boolean> {
+    const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
+    if (!tab || tab.active === true) return false;
+    const url = tab.url ?? '';
+    return url === entry.url || url === '' || url.startsWith('about:') || LOGIN_LIKE_URL.test(url);
+  }
   function page(tabId: number, owned: boolean): TabPage {
     let closed = false;
     async function send<T extends PageAnswer>(message: Record<string, unknown>, timeoutMs: number, frameId?: number): Promise<T> {
@@ -292,6 +356,42 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ''));
       const picked = usable.find((tab) => tab.status === 'complete') ?? usable[0] ?? null;
       return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
+    },
+    async keep(key, keptPage) {
+      const prior = kept.get(key);
+      const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
+      if (!tab) {
+        kept.delete(key);
+      } else {
+        kept.set(key, { tabId: keptPage.tabId, url: tab.url ?? '' });
+      }
+      // 먼저 남긴 탭은 아직 우리 것일 때만 닫는다(운영자가 로그인해 쓰는 탭은 두고 잊는다).
+      if (prior && prior.tabId !== keptPage.tabId && (await stillOurs(prior))) {
+        await deps.chrome.tabs.remove(prior.tabId).catch(() => undefined);
+      }
+    },
+    async reclaimKept(key) {
+      const entry = kept.get(key);
+      if (!entry) return null;
+      kept.delete(key);
+      return (await stillOurs(entry)) ? page(entry.tabId, true) : null;
+    },
+    async guardDialogs(hosts) {
+      const scripting = deps.chrome.scripting;
+      dialogGuardSerial += 1;
+      const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
+      const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
+      let registered = false;
+      if (matches.length > 0 && scripting.registerContentScripts) {
+        registered = await scripting.registerContentScripts([
+          { id, matches, js: [DIALOG_GUARD_FILE], world: 'MAIN', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
+        ]).then(() => true, () => false);
+      }
+      return async () => {
+        if (!registered) return;
+        registered = false;
+        await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => undefined);
+      };
     },
     async fetchText(url, init) {
       try {

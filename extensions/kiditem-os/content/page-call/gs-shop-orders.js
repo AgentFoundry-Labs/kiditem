@@ -7,11 +7,28 @@
 (function installGsShopOrders() {
   "use strict";
   const calls = window.__kiditemPageCalls || (window.__kiditemPageCalls = {});
-  const SMS_WALL = /인증번호\s*받기|SMS\s*인증|인증방식/;
+  // SMS 벽은 벽에만 있는 요소로 본다(KID-380 D2): 켜진 [인증번호 받기/요청/발송] 버튼이나 보이는 인증번호 칸. 로그인
+  // 화면(`/sign-in`)의 고정 안내문("SMS 인증 불가로 정보 변경 필요 시")은 글자만 같아 보지 않는다. SMS 단계는 협력사 로그인
+  // 화면 안에 함께 뜨기도 하므로 아이디·비밀번호 칸이 있어도 이 요소가 보이면 벽이다(리뷰 SHOULD 2).
+  const SMS_BUTTON = /^인증\s*번호\s*(?:받기|요청|발송|전송|재전송)$/;
+  const SMS_INPUT = /인증\s*번호|auth_?no|cert_?no|otp/i;
+
+  function shown(element) {
+    if (!element || element.disabled || element.hidden) return false;
+    const style = typeof getComputedStyle === "function" ? getComputedStyle(element) : null;
+    return !style || (style.display !== "none" && style.visibility !== "hidden");
+  }
+
+  function smsWallShown() {
+    const button = Array.from(document.querySelectorAll("button, a, input[type='button'], [role='button']")).find((element) =>
+      shown(element) && SMS_BUTTON.test(String(element.textContent || element.value || "").replace(/\s+/g, " ").trim()));
+    if (button) return true;
+    return Array.from(document.querySelectorAll("input")).some((input) =>
+      shown(input) && SMS_INPUT.test([input.name, input.id, input.placeholder].filter(Boolean).join(" ")));
+  }
 
   calls["gs-shop.smsWall"] = async function gsShopSmsWall() {
-    const bodyText = document.body ? document.body.innerText || "" : "";
-    return { sms: SMS_WALL.test(bodyText) };
+    return { sms: smsWallShown() };
   };
 
   calls["gs-shop.orders"] = async function gsShopOrders() {
@@ -50,7 +67,7 @@
         // 로그인/인증 벽 구분: SMS 인증방식이 걸리면 협력사 로그인 화면(인증번호 받기)이 뜬다.
         const bodyText = document.body ? document.body.innerText || "" : "";
         const href = typeof location !== "undefined" ? String(location.href || "") : "";
-        if (/인증번호\s*받기|SMS\s*인증|인증방식/.test(bodyText)) {
+        if (smsWallShown()) {
           return {
             success: false,
             pendingAuth: true,
@@ -127,7 +144,8 @@
         const bodyText = document.body ? document.body.innerText || "" : "";
         const href = typeof location !== "undefined" ? String(location.href || "") : "";
         if (
-          /login|로그인|세션.*(?:만료|없)|인증번호\s*받기|SMS\s*인증|인증방식/i.test(bodyText + " " + href)
+          smsWallShown()
+          || /login|로그인|세션.*(?:만료|없)/i.test(bodyText + " " + href)
           || document.querySelector('input[type="password"]')
         ) {
           return {

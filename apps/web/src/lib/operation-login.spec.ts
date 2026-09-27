@@ -111,10 +111,20 @@ describe('operation-login — 끝난 실행의 로그인 결과로 차단을 갱
     expect(toast.error).toHaveBeenCalled();
   });
 
-  it('몰의 말이 거절이 아니거나 없거나, 확인 못 함·자격 없음·본인확인·다른 실패는 막지 않는다', () => {
+  it('credentials_rejected는 몰의 말이 없거나 거절 문장이 아니어도 막는다 — 같은 자격으로 거듭 두드리면 계정이 잠긴다(KID-380 D10)', () => {
+    noteOperationLoginFailure(ACCOUNT, failed({ login: { reason: 'credentials_rejected' } }));
+    expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '저장된 아이디·비밀번호로 로그인하지 못했습니다.', kind: 'login' });
+    expect(toast.error).toHaveBeenCalledWith('키드키즈 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요', {
+      description: '키드키즈: 저장된 아이디·비밀번호로 로그인하지 못했습니다.',
+    });
+
+    resetMallLoginBlocksForTest();
+    noteOperationLoginFailure(ACCOUNT, failed({ login: { reason: 'credentials_rejected', mallMessage: '로그인 정보를 다시 입력하세요.' } }));
+    expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '저장된 아이디·비밀번호로 로그인하지 못했습니다. 몰의 말: 로그인 정보를 다시 입력하세요.' });
+  });
+
+  it('확인 못 함·자격 없음·본인확인·다른 실패는 막지 않는다', () => {
     for (const operation of [
-      failed({ login: { reason: 'credentials_rejected', mallMessage: '점검 중입니다.' } }),
-      failed({ login: { reason: 'credentials_rejected' } }),
       failed({ login: { reason: 'login_unconfirmed' } }),
       failed({ login: { reason: 'no_credentials' } }),
       failed({ login: { reason: 'verification_required' } }),

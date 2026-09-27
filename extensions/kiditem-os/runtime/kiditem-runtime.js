@@ -8364,6 +8364,17 @@ var KidItemRuntime = (() => {
     const host = url.hostname.toLowerCase();
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   }
+  var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
+  var DIALOG_GUARD_ID_PREFIX = "kiditem-dialog-guard-";
+  async function sweepDialogGuards(chromeApi) {
+    const scripting = chromeApi.scripting;
+    if (!scripting.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+    try {
+      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+      if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
+    } catch {
+    }
+  }
   var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
   var OPERATOR_POLL_MS = 2e3;
   var OPERATOR_WAIT_MAX_MS = 10 * 6e4;
@@ -8377,7 +8388,15 @@ var KidItemRuntime = (() => {
   var POLL_MS = 250;
   var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
+  var dialogGuardSerial = 0;
   function createTabPages(deps) {
+    const kept = /* @__PURE__ */ new Map();
+    async function stillOurs(entry) {
+      const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
+      if (!tab || tab.active === true) return false;
+      const url = tab.url ?? "";
+      return url === entry.url || url === "" || url.startsWith("about:") || LOGIN_LIKE_URL.test(url);
+    }
     function page(tabId, owned) {
       let closed = false;
       async function send(message, timeoutMs, frameId) {
@@ -8489,6 +8508,41 @@ var KidItemRuntime = (() => {
         const picked = usable.find((tab) => tab.status === "complete") ?? usable[0] ?? null;
         return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
+      async keep(key, keptPage) {
+        const prior = kept.get(key);
+        const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
+        if (!tab) {
+          kept.delete(key);
+        } else {
+          kept.set(key, { tabId: keptPage.tabId, url: tab.url ?? "" });
+        }
+        if (prior && prior.tabId !== keptPage.tabId && await stillOurs(prior)) {
+          await deps.chrome.tabs.remove(prior.tabId).catch(() => void 0);
+        }
+      },
+      async reclaimKept(key) {
+        const entry = kept.get(key);
+        if (!entry) return null;
+        kept.delete(key);
+        return await stillOurs(entry) ? page(entry.tabId, true) : null;
+      },
+      async guardDialogs(hosts) {
+        const scripting = deps.chrome.scripting;
+        dialogGuardSerial += 1;
+        const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
+        const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
+        let registered = false;
+        if (matches.length > 0 && scripting.registerContentScripts) {
+          registered = await scripting.registerContentScripts([
+            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+          ]).then(() => true, () => false);
+        }
+        return async () => {
+          if (!registered) return;
+          registered = false;
+          await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => void 0);
+        };
+      },
       async fetchText(url, init) {
         try {
           const response = await deps.fetch(url, { credentials: "include", redirect: "error", ...init });
@@ -8506,8 +8560,18 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS = 3e4;
   async function withFreshTab(tabs, url, read, options = {}) {
+    const guardHosts = options.dialogGuardHosts ?? options.signIn?.hosts ?? [];
+    const releaseGuard = guardHosts.length > 0 ? await tabs.guardDialogs(guardHosts) : null;
+    try {
+      return await readInTab(tabs, url, read, options);
+    } finally {
+      await releaseGuard?.();
+    }
+  }
+  async function readInTab(tabs, url, read, options) {
     const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
-    const page = reused ?? await tabs.open("about:blank");
+    const site = siteKey(url);
+    const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
       if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
@@ -8518,7 +8582,25 @@ var KidItemRuntime = (() => {
       throw error;
     } finally {
       if (!keepOpen) await page.close();
+      else if (!reused) await tabs.keep(site, page);
     }
+  }
+  function siteKey(url) {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return url;
+    }
+  }
+
+  // extensions/src/sites/mall-maintenance.ts
+  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
+      status: null,
+      reason: "maintenance",
+      url,
+      ...details
+    });
   }
 
   // extensions/src/sites/page-call.ts
@@ -8557,10 +8639,11 @@ var KidItemRuntime = (() => {
   var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
   function readMallListings(tabs, spec, plan, signIn) {
     const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    const guard = { ...spec.guard, loginMessage: login };
     return withFreshTab(tabs, spec.startUrl, async (page) => {
       const answer = await callPage(page, spec.call, { plan }, {
         timeoutMs: READ_TIMEOUT_MS,
-        guard: spec.guard,
+        guard,
         ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
         displayName: spec.displayName
       });
@@ -8575,6 +8658,8 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
         case "mall_invalid_snapshot":
           throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_maintenance":
+          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
         case "mall_timeout":
           throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
         default:
@@ -8824,7 +8909,7 @@ var KidItemRuntime = (() => {
     const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
-    if (first === null && !isLogin(spec, await safeUrl(page))) {
+    if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
       await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
@@ -8860,15 +8945,16 @@ var KidItemRuntime = (() => {
     const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
     const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
-    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
+    const remains = await formRemains(page, deps);
+    const status = remains === "unknown" ? "unconfirmed" : remains ? "form_remains" : "ok";
+    return { status, ...withMessage };
   }
   async function formRemains(page, deps) {
-    let lastSeen = false;
+    let lastSeen = "unknown";
     for (let check = 0; check < REMAIN_CHECKS; check += 1) {
       if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
       const probed = await probe(page);
-      if (probed === NO_ANSWER) return true;
-      if (probed === null || probed.length === 0) continue;
+      if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
       lastSeen = probed.some((frame) => frame.result?.loginForm === true);
       if (!lastSeen) return false;
     }
@@ -8960,15 +9046,27 @@ var KidItemRuntime = (() => {
     const withLogin = createSiteLoginGate(credentials);
     const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
     return {
+      hosts: spec.hosts,
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
         if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
         return outcome;
       }),
-      beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
+      beforeTab: async (tabs, call2) => {
+        let releaseGuard = null;
+        try {
+          const site = new URL(spec.loginUrl).origin;
+          return await withLoginTab(withLogin, call2, async () => {
+            releaseGuard = await tabs.guardDialogs(spec.hosts);
+            return await tabs.reclaimKept(site) ?? tabs.open("about:blank");
+          }, login, (kept) => tabs.keep(site, kept));
+        } finally {
+          await releaseGuard?.();
+        }
+      }
     };
   }
-  async function withLoginTab(withLogin, call2, open, login) {
+  async function withLoginTab(withLogin, call2, open, login, onKept) {
     let opened = null;
     try {
       const result = await withLogin(call2, async () => {
@@ -8977,11 +9075,18 @@ var KidItemRuntime = (() => {
       });
       return result;
     } catch (error) {
-      if (leftForOperator(error)) opened = null;
+      if (leftForOperator(error) && opened && !await isBlank(opened)) {
+        await onKept?.(opened);
+        opened = null;
+      }
       throw error;
     } finally {
       await opened?.close();
     }
+  }
+  async function isBlank(page) {
+    const url = await safeUrl(page);
+    return url === "" || url.startsWith("about:");
   }
   function isLoginRequired(error) {
     return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
@@ -8989,7 +9094,8 @@ var KidItemRuntime = (() => {
   var REASON_TEXT = {
     no_credentials: "",
     credentials_rejected: " \uC800\uC7A5\uB41C \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB85C \uB85C\uADF8\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4",
-    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+    // 주문 수집·목록 가져오기가 함께 쓰는 문장이라 동작 말은 중립으로 둔다(KID-381).
+    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
@@ -10025,8 +10131,8 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/domeggook/index.ts
-  var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
-  var DOMEGGOOK_ORDER_LIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
+  var DOMEGGOOK_ORDER_LIST_URL = "https://www.domeggook.com/sc/order/lstAll";
+  var DOMEGGOOK_ORDER_LIST_API = "https://www.domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
   var DOMEGGOOK_ORDERS_FILE = "content/orders/domeggook-orders.js";
   var DOMEGGOOK_PART_CHARS = 7e5;
   var LIST_RENDER_WAIT_MS = 1500;
@@ -10247,6 +10353,7 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: HAEBUB_MALL_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD574\uBC95\uBAB0", HAEBUB_MALL_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD574\uBC95\uBAB0 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10504,6 +10611,7 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uB4DC\uD0A4\uC988", KIDKIDS_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10583,6 +10691,7 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: KIDSNOTE_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uC988\uB178\uD2B8", KIDSNOTE_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -13338,6 +13447,7 @@ var KidItemRuntime = (() => {
       tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
       randomId: () => crypto.randomUUID()
     };
+    void sweepDialogGuards(chrome);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({

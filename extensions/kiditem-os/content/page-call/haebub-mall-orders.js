@@ -58,6 +58,13 @@
         if (/login|로그인/i.test(String(listRes.url || ""))) return { status: "login_required" };
         const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
         if (ldoc.querySelector('input[type="password"]')) return { status: "login_required" };
+        // 목록 표 자체가 없는(체크박스도 주문번호 머리도 없는) 점검 안내 화면은 0건이 아니다(KID-380 D3). 목록 표가 있으면 점검
+        // 예고 배너가 있어도 정상 빈 목록이다.
+        const listTable = Boolean(ldoc.querySelector('input[name="select_checkbox"]'))
+          || [...ldoc.querySelectorAll("table")].some((t) => /주문번호/.test(t.textContent));
+        if (!listTable && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(ldoc.body ? ldoc.body.textContent : "")) {
+          return { status: "maintenance" };
+        }
 
         // 목록 행: 선택 체크박스(select_checkbox)를 가진 tr.
         // ⚠️hidden orderid/idx 는 행 단위로 격리돼 있지 않다(중첩 테이블 하나에 전 행의 hidden 이 모여 있어

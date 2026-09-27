@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import guardSource from '../kiditem-os/content/page-call/dialog-guard.js?raw';
 import dialogsSource from '../kiditem-os/content/page-call/login-dialogs.js?raw';
 import fillSource from '../kiditem-os/content/page-call/login-fill.js?raw';
 
@@ -119,5 +120,52 @@ describe('content/page-call/login-dialogs.js', () => {
     expect(calls['login.takeDialogs']!()).toEqual(['아이디 또는 비밀번호가 일치하지 않습니다.']);
     expect(window.alert).toBe(nativeAlert);
     expect(calls['login.takeDialogs']!()).toEqual([]);
+  });
+});
+
+describe('content/page-call/dialog-guard.js — 불러오는 중 뜨는 알림 창(KID-380 D4)', () => {
+  it('document_start에 alert·confirm을 바꿔 문장만 모으고 바로 돌아간다 — 탭이 멈추지 않는다', () => {
+    const shown: string[] = [];
+    const window: Record<string, unknown> = { alert: (message: string) => shown.push(message), confirm: () => { throw new Error('native confirm'); } };
+    new Function('window', 'document', guardSource)(window, { visibilityState: 'hidden' });
+    new Function('window', 'document', guardSource)(window, { visibilityState: 'hidden' }); // 두 번 들어와도 한 번만 바꾼다
+    expect((window.alert as (message: string) => unknown)('로그인이 만료되었습니다.')).toBeUndefined();
+    expect((window.confirm as (message: string) => unknown)('Session이 종료되었거나 다른 곳에서 로그인했습니다.')).toBe(true);
+    expect(shown).toEqual([]);
+    expect(window.__kiditemDialogs).toEqual(['로그인이 만료되었습니다.', 'Session이 종료되었거나 다른 곳에서 로그인했습니다.']);
+  });
+
+  it('로그인 알림 창 받기는 지켜보기 전 문장을 버리고, 누른 뒤 가드에 모인 문장을 몰의 말로 돌려준다', () => {
+    const window: Record<string, unknown> = { alert: () => undefined, confirm: () => true };
+    new Function('window', 'document', guardSource)(window, { visibilityState: 'hidden' });
+    new Function('window', dialogsSource)(window);
+    const calls = window.__kiditemPageCalls as Record<string, () => unknown>;
+    (window.alert as (message: string) => void)('로그인이 만료되었습니다.');
+    expect(calls['login.watchDialogs']!()).toBe(true);
+    (window.alert as (message: string) => void)('아이디 또는 비밀번호가 일치하지 않습니다.');
+    expect(calls['login.takeDialogs']!()).toEqual(['아이디 또는 비밀번호가 일치하지 않습니다.']);
+    expect(calls['login.takeDialogs']!()).toEqual([]);
+    // 가드는 로그인이 끝나도 그대로다(불러오는 중 알림 창이 다시 떠도 멈추지 않는다).
+    (window.alert as (message: string) => void)('다시');
+    expect(window.__kiditemDialogs).toEqual(['다시']);
+  });
+
+  it('보이는 탭(운영자가 보는 탭·남긴 탭·앞으로 가져온 GS샵 SMS 탭)에서는 진짜 alert·confirm으로 넘긴다(리뷰 MUST 2)', () => {
+    const shown: string[] = [];
+    const document = { visibilityState: 'visible' };
+    const window: Record<string, unknown> = {
+      alert: (message: string) => { shown.push(`alert ${message}`); },
+      confirm: (message: string) => { shown.push(`confirm ${message}`); return false; },
+    };
+    new Function('window', 'document', guardSource)(window, document);
+    (window.alert as (message: string) => void)('보이는 탭');
+    expect((window.confirm as (message: string) => boolean)('삭제할까요?')).toBe(false);
+    expect(shown).toEqual(['alert 보이는 탭', 'confirm 삭제할까요?']);
+    expect(window.__kiditemDialogs).toEqual([]);
+
+    // 같은 문서가 백그라운드로 가면 다시 기록만 한다(판정은 부를 때의 가시성).
+    document.visibilityState = 'hidden';
+    expect((window.confirm as (message: string) => boolean)('숨은 탭')).toBe(true);
+    expect(window.__kiditemDialogs).toEqual(['숨은 탭']);
   });
 });

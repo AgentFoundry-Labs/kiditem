@@ -64,6 +64,8 @@
       const table = [...doc.querySelectorAll("table")].find(
         (candidate) => candidate.querySelector('input[name^="chk_pcode["]'),
       );
+      // 로그아웃 뒤 /subAdmin/ 로그인 폼(주소에 login이 없다)은 형식 변화가 아니라 로그인 필요다(KID-380 D5).
+      if (!table && doc.querySelector('input[type="password"]')) throw new Error("LOGIN_REQUIRED");
       if (!table) drift("goods_table");
 
       const rows = [];

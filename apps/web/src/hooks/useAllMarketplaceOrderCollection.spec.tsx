@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   startOperation: vi.fn(),
   /** 옛 attempt 경로로 보낼 몰(실행 kind 몰이라도). 옛 경로에 끝까지 남는 몰은 카카오 하나라 몰 여럿이 필요한 경우에 쓴다. */
   oldPath: new Set<string>(),
+  /** 실행 기다림·이어 읽기를 바꿔 끼울 때(KID-380 D7). 없으면 원래 함수. */
+  collectOperation: null as null | ((...args: unknown[]) => Promise<unknown>),
+  followUpOperation: null as null | ((...args: unknown[]) => Promise<unknown>),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -46,6 +49,10 @@ vi.mock('@/app/(orders)/order-collection/lib/mall-order-operation-source', async
   return {
     ...original,
     collectsViaMallOrderOperation: (mallKey: string) => !mocks.oldPath.has(mallKey) && original.collectsViaMallOrderOperation(mallKey),
+    collectMallOrderOperation: (...args: Parameters<typeof original.collectMallOrderOperation>) =>
+      (mocks.collectOperation ? mocks.collectOperation(...args) : original.collectMallOrderOperation(...args)),
+    followUpMallOrderOperation: (...args: Parameters<typeof original.followUpMallOrderOperation>) =>
+      (mocks.followUpOperation ? mocks.followUpOperation(...args) : original.followUpMallOrderOperation(...args)),
   };
 });
 vi.mock('@/lib/operation-start', () => ({ requestOperationStart: mocks.startOperation, requestOperationCancel: vi.fn() }));
@@ -73,6 +80,7 @@ import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query
 import { ORDER_COLLECTION_IN_PROGRESS_MESSAGE } from '@/app/(orders)/order-collection/lib/order-collection-source-owner';
 import { COUPANG_DIRECT_MALL_KEY } from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import { OrderOperationFailure, OrderOperationStillRunning } from '@/app/(orders)/order-collection/lib/order-operations';
 
 const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   key,
@@ -831,5 +839,92 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
     expect(mocks.startOperation).toHaveBeenCalledWith('orders.mall_orders', expect.objectContaining({ mallKey, channelAccountId: account.channelAccountId }), expect.anything());
     expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/convert`, expect.objectContaining({ body: JSON.stringify({ operationId: OPERATION_ID }) }));
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey, collectedRows: 2 }));
+  });
+
+  it('⭐ 화면 기다림이 끝나 "아직 끝나지 않았습니다"로 적은 활동 행은 실행이 끝나면 실제 결과로 바뀐다(KID-380 D7)', async () => {
+    const logActivity = vi.fn();
+    const clearMallErrorActivity = vi.fn();
+    let finish!: (value: unknown) => void;
+    let fail!: (error: unknown) => void;
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = () => new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+    try {
+      const { result } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn(), logActivity, clearMallErrorActivity }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+      });
+      expect(logActivity).toHaveBeenCalledWith('error', '키드키즈', expect.stringContaining('아직 끝나지 않았습니다'), OPERATION_ID);
+      clearMallErrorActivity.mockClear();
+      logActivity.mockClear();
+
+      // 실행이 로그인 화면에서 멈춰 끝났다 — 그 행을 로그인 필요로 바꿔 적는다.
+      const operation = {
+        id: OPERATION_ID, kind: 'orders.mall_orders', status: 'failed', lockKeys: [], plan: { mallKey: 'kidkids' }, progress: null,
+        result: null, window: null, errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '키드키즈 로그인이 필요합니다.',
+        startedAt: null, finishedAt: '2026-09-26T00:05:00.000Z', expiresAt: null, attempts: 1, maxAttempts: 1, scheduledFor: null,
+      } as unknown as ConstructorParameters<typeof OrderOperationFailure>[0];
+      await act(async () => {
+        fail(new OrderOperationFailure(operation, '키드키즈 로그인이 필요합니다.'));
+        await Promise.resolve();
+      });
+      // 그 실행의 행만 지운다 — 같은 몰의 더 새 실행 행은 두고(리뷰 SHOULD 5).
+      expect(clearMallErrorActivity).toHaveBeenCalledWith('키드키즈', OPERATION_ID);
+      expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String), OPERATION_ID);
+      expect(finish).toBeTypeOf('function');
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
+  });
+
+  it('이어 읽은 실행이 성공으로 끝나면 오류 행을 지우고, 주문이 없었으면 신규 주문 없음으로 적는다(KID-380 D7)', async () => {
+    const logActivity = vi.fn();
+    const clearMallErrorActivity = vi.fn();
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = async () => ({ rowCount: 0, masked: false, date: '2026-09-26' });
+    try {
+      const { result } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn(), logActivity, clearMallErrorActivity }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(clearMallErrorActivity).toHaveBeenLastCalledWith('키드키즈', OPERATION_ID);
+      expect(logActivity).toHaveBeenLastCalledWith('empty', '키드키즈', undefined, OPERATION_ID);
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
+  });
+
+  it('화면이 내려가면 이어 읽던 실행 기다림을 모두 끊는다(리뷰 SHOULD 5)', async () => {
+    let followUpSignal: AbortSignal | null = null;
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = (input) => {
+      followUpSignal = (input as { signal: AbortSignal }).signal;
+      return new Promise(() => undefined);
+    };
+    try {
+      const { result, unmount } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn() }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(followUpSignal).not.toBeNull();
+      expect(followUpSignal!.aborted).toBe(false);
+      unmount();
+      expect(followUpSignal!.aborted).toBe(true);
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
   });
 });

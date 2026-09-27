@@ -45,6 +45,10 @@
           isAuthenticationGateUrl(finalUrl) ||
           Boolean(ldoc.querySelector('input[type="password"]'));
         if (looksLikeLogin) return { status: "login_required" };
+        // 점검 안내 화면(목록 표 자체가 없고 "서비스 점검 안내")을 0건 성공으로 읽지 않는다(KID-380 D3). 목록 표(주문번호·상품명
+        // 머리)가 있으면 점검 예고 배너가 있어도 정상 빈 목록이다.
+        const listTable = [...ldoc.querySelectorAll("table")].some((t) => /주문번호/.test(t.textContent) && /상품명/.test(t.textContent));
+        if (!listTable && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(ldoc.body ? ldoc.body.textContent : "")) return { status: "maintenance" };
         return { status: "ok", orders: [] }; // 로그인 상태의 빈 목록 = 정상 0건
       }
 

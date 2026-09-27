@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 import { requestOperationStart } from '@/lib/operation-start';
 import {
   ORDER_CAPTURE_OPERATION_CAPABILITY,
+  OrderOperationStillRunning,
   orderOperationControl,
   startOrderOperation,
   waitForOrderOperation,
@@ -82,6 +83,17 @@ describe('order operations (KID-359 H3)', () => {
     vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(ID, 'executing') });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async (ms) => { now += ms; }, now: () => now, timeoutMs: 5_000 }))
       .rejects.toThrow('아직 끝나지 않았습니다');
+  });
+
+  it('기다림 상한이 지나면 그 실행 id를 실은 OrderOperationStillRunning — 화면이 나중에 결과로 바꿔 적는다(KID-380 D7), 읽기 간격은 고를 수 있다', async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(ID, 'executing') });
+    const error = await waitForOrderOperation(KIND, ID, { sleep: async (ms) => { sleeps.push(ms); now += ms; }, now: () => now, timeoutMs: 30_000, pollMs: 15_000 })
+      .then(() => null, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OrderOperationStillRunning);
+    expect(error).toMatchObject({ operationId: ID });
+    expect(sleeps).toEqual([15_000, 15_000]);
   });
 
   it('공용 컨트롤: 도는 실행·마지막 성공을 reader에서 읽고, 중단은 확장 → 서버 cancel', async () => {

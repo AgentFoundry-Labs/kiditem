@@ -52,11 +52,7 @@ describe('gs-shop orders page script', () => {
     expect(changed).toMatchObject({ errorCode: 'provider_contract_changed' });
     expect(changed.pendingLogin).toBeUndefined();
     await expect(load(gsDocument(null, 'GS샵 로그인', false)).orders()).resolves.toMatchObject({ errorCode: 'login_required', pendingLogin: true });
-    await expect(load(gsDocument(null, '인증번호 받기', false)).orders()).resolves.toMatchObject({ pendingAuth: true, errorCode: 'operator_action_required' });
-  });
-
-  it('smsWall은 로그인 화면이 SMS 인증번호를 받는 화면인지 본다', async () => {
-    await expect(load(gsDocument(null, '협력사 로그인 인증번호 받기', false)).smsWall()).resolves.toEqual({ sms: true });
-    await expect(load(gsDocument(null, '협력사 로그인', false)).smsWall()).resolves.toEqual({ sms: false });
+    // SMS 벽은 글자가 아니라 벽에만 있는 요소로 본다 — 실제 화면 판정은 gs-shop-sms-wall-page-script.spec.ts(KID-380 D2).
+    await expect(load(gsDocument(null, 'SMS 인증 불가로 정보 변경 필요 시', false)).smsWall()).resolves.toEqual({ sms: false });
   });
 });

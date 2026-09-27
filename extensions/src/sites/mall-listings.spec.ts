@@ -58,4 +58,12 @@ describe('sites/<mall> readListings (1차 몰 넷, KID-363 L2)', () => {
     expect(await failure(createKidkidsSite(answer('mall_invalid_snapshot', 'row_limit').tabs).readListings(PLAN))).toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID' });
     expect(await failure(createKidkidsSite(answer('mall_timeout').tabs).readListings(PLAN))).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'timeout' } });
   });
+
+  it('점검 안내면 SITE_REQUEST_FAILED{reason: maintenance}와 점검 문장 — 형식 변경으로 멈추지 않는다(KID-380 D3)', async () => {
+    const maintenance = fakeTabPages({ answer: () => ({ ok: true, value: { success: false, errorCode: 'mall_maintenance' } }) });
+    const error = await failure(createKidkidsSite(maintenance.tabs).readListings(PLAN));
+    expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'maintenance', mallKey: 'kidkids' } });
+    expect(error.message).toBe('키드키즈 사이트가 점검 중입니다. 점검이 끝난 뒤 다시 가져와 주세요.');
+    expect(maintenance.log).toContain('close 7');
+  });
 });

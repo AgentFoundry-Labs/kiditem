@@ -47,24 +47,30 @@ export function useOrderActivityEvents(mallAccounts: OrderCollectionMallAccount[
   );
 
   const logActivity = useCallback(
-    (kind: OrderActivityEvent['kind'], mallName: string, message = '') => {
+    (kind: OrderActivityEvent['kind'], mallName: string, message = '', runId?: string) => {
       const event: OrderActivityEvent = {
         id: `${Date.now()}-${kind}-${Math.random().toString(36).slice(2, 8)}`,
         kind,
         mallName,
         message,
         at: Date.now(),
+        ...(runId ? { runId } : {}),
       };
       updateEvents((current) => [event, ...current]);
     },
     [updateEvents],
   );
 
+  /** 그 몰의 조치 행을 지운다. `runId`를 주면 그 실행이 남긴 행만 지운다(같은 몰의 더 새 실행 행은 둔다, KID-380 D7). */
   const clearMallErrorActivity = useCallback(
-    (mallName: string) => {
+    (mallName: string, runId?: string) => {
       updateEvents((current) =>
         current.filter(
-          (event) => !(ATTENTION_KINDS.has(event.kind) && event.mallName === mallName),
+          (event) => !(
+            ATTENTION_KINDS.has(event.kind)
+            && event.mallName === mallName
+            && (runId === undefined || event.runId === runId)
+          ),
         ),
       );
     },

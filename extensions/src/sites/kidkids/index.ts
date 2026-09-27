@@ -1,6 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { withFreshTab } from '../fresh-tab';
+import { mallMaintenance } from '../mall-maintenance';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
@@ -40,6 +41,7 @@ export const KIDKIDS_LOGIN: LoginSpec = {
 type KidkidsAnswer =
   | { status: 'ok'; orders: unknown[] }
   | { status: 'login_required' }
+  | { status: 'maintenance' }
   | { status: 'failed'; error: string };
 
 /**
@@ -60,6 +62,7 @@ export function createKidkidsSite(tabs: TabPages, signIn?: SiteSignIn) {
         });
         if (answer?.status === 'ok') return { rows: answer.orders };
         if (answer?.status === 'login_required') throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: KIDKIDS_ORDER_URL });
+        if (answer?.status === 'maintenance') throw mallMaintenance('키드키즈', KIDKIDS_ORDER_URL);
         throw new RuntimeError(SITE_REQUEST_FAILED, `키드키즈 주문을 읽지 못했습니다: ${answer?.status === 'failed' ? answer.error : '알 수 없음'}`, {
           status: null,
           reason: 'page_error',
