@@ -12405,6 +12405,82 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kakao", create: (deps) => createKakaoListings(deps.tabs) });
 
+  // extensions/src/sites/kakao/registration.ts
+  var KAKAO_REGISTER_FILE = "content/page-call/kakao-register.js";
+  function normalizeKakaoForm(value) {
+    const raw = requireRaw(value, "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const text6 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).replace(/\s+/g, " ").trim().slice(0, max);
+    const productName = [...text6(raw.productName, 400).replace(/[<>]/g, "")].slice(0, 70).join("").trim();
+    if (!productName) throw planInvalid("\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const categoryText = String(raw.categoryId ?? "").trim();
+    const categoryId = /^\d{9,15}$/.test(categoryText) && categoryText.length % 3 === 0 ? categoryText : "";
+    const stock = amount(raw.stock);
+    const originTypes = ["\uAD6D\uB0B4\uC0B0", "\uC218\uC785\uC0B0", "\uD63C\uD569", "\uAE30\uD0C0"];
+    const origin = asRaw(raw.origin);
+    const originType = originTypes.includes(text6(origin.type, 10)) ? text6(origin.type, 10) : "\uC218\uC785\uC0B0";
+    const cert = asRaw(raw.cert);
+    const certNumber = text6(cert.number, 60);
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [label, entry] of entriesOf(notice.values)) {
+      const key = text6(label, 60);
+      const noticeValue = text6(entry, 500);
+      if (key && noticeValue) noticeValues[key] = noticeValue;
+    }
+    return {
+      productName,
+      categoryId,
+      salePrice,
+      stock: stock >= 1 ? Math.min(stock, 99999) : 999,
+      origin: {
+        type: originType,
+        region: originType === "\uC218\uC785\uC0B0" ? text6(origin.region, 20) : "",
+        country: originType === "\uC218\uC785\uC0B0" ? text6(origin.country, 30) : ""
+      },
+      cert: /^[A-Za-z0-9-]{4,40}$/.test(certNumber) ? { type: text6(cert.type, 40) || "[\uC5B4\uB9B0\uC774\uC81C\uD488] \uC548\uC804\uD655\uC778", number: certNumber } : null,
+      notice: { group: text6(notice.group, 40) || "\uC5B4\uB9B0\uC774\uC81C\uD488", values: noticeValues },
+      deliveryTemplate: text6(raw.deliveryTemplate, 60),
+      brand: text6(raw.brand, 30),
+      manufacturer: text6(raw.manufacturer, 30),
+      sellerCode: text6(raw.sellerCode, 50),
+      affiliate: raw.affiliate === true
+    };
+  }
+  var KAKAO_REGISTRATION_FORM = {
+    label: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+    origin: "https://shopping-seller.kakao.com",
+    pathPrefix: "/product/store-seller/insert",
+    exactPath: true,
+    noQuery: true,
+    formSelector: "form",
+    imageSlots: [],
+    dedicated: {
+      file: KAKAO_REGISTER_FILE,
+      call: "kakao.fill",
+      // 대표 1 + 추가 5.
+      imageGroupKey: "kakao",
+      formKey: "kakao",
+      normalize: normalizeKakaoForm,
+      options: {
+        maxImages: 6,
+        formWaitMs: 4e4,
+        // 칸 하나(추천 카테고리·다음 목록·사진 업로드·KC 조회)가 반응할 때까지 기다리는 시간.
+        stepWaitMs: 12e3
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 편집기 업로드로 톡스토어에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "kakao",
+    displayName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+    guard: registrationGuard(KAKAO_LISTINGS_GUARD, "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4"),
+    dialogHosts: ["shopping-seller.kakao.com"],
+    form: KAKAO_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/kidkids/listings.ts
   var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
   var KIDKIDS_LISTINGS_FILE = "content/orders/kidkids-listings.js";

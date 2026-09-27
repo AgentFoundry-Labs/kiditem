@@ -5,7 +5,7 @@ import { OPERATION_STATUSES } from '@kiditem/shared/operation';
 import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
 
 /** 쓰기 모듈이 있는 몰(KID-256). */
-const MALL_WRITE_SITES = ['11st', 'always', 'art09', 'boribori', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kidkids', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall'];
+const MALL_WRITE_SITES = ['11st', 'always', 'art09', 'boribori', 'domeggook', 'gmarket', 'gs-shop', 'icecream-mall', 'kakao', 'kidkids', 'kkomangse', 'lotte-on', 'onch', 'smartstore', 'ssg', 'teacher-mall', 'thirtymall'];
 
 // 커밋된 번들(서비스워커가 싣는 바로 그 파일)을 classic script 처럼 실행한다.
 // `extension:check` 가 이 파일이 src 의 새 빌드와 바이트까지 같은지 따로 본다.
