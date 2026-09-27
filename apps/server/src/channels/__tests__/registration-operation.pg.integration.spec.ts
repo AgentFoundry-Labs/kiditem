@@ -268,6 +268,22 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(refused.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'PROVIDER_LISTING_MISSING' } });
   });
 
+  it('refuses a malformed evidence chunk and a succeeded finish that submitted without a confirmation as evidence rejections', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const begun = await beginOk(registerScope(fixture));
+    await put(begun.operation.id, begun.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [{ externalListingId: 'provider-listing-9' }]).expect(200);
+    const malformed = await finish(begun.operation.id, begun.token, { outcome: 'succeeded' }).expect(409);
+    expect(malformed.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'EVIDENCE_INVALID' } });
+
+    const other = await createFixture(prisma, targets, { channel: 'kidkids' });
+    const second = await beginOk(registerScope(other));
+    await put(second.operation.id, second.token, REGISTRATION_EVIDENCE_CHUNK_KIND, 1, [evidence(second, other)]).expect(200);
+    // 제출했지만 몰이 확정하지 않은 결과(submitted · uncertain · awaiting_approval)는 reconciling 으로 와야 한다.
+    const pending = await finish(second.operation.id, second.token, { outcome: 'succeeded', result: { ...submittedResult, mallOutcome: 'awaiting_approval' } }).expect(409);
+    expect(pending.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'SUBMITTED_NOT_CONFIRMED' } });
+    expect(await prisma.channelListing.count({ where: { organizationId: ORG } })).toBe(0);
+  });
+
   it('refuses evidence frozen for another payload and evidence without the mall account, leaving the operation running', async () => {
     const fixture = await createFixture(prisma, targets);
     const begun = await beginOk(registerScope(fixture));

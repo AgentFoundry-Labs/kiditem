@@ -312,6 +312,10 @@ export class RegistrationOperationService implements RegistrationOperationPort {
         channelListingId: null,
       });
     }
+    // 몰에 제출했지만 확정되지 않은 결과(submitted · uncertain · awaiting_approval)는 finish `reconciling` 으로 와야 한다.
+    if (operator === null && reported.submitted === true && reported.mallOutcome !== undefined && reported.mallOutcome !== 'confirmed') {
+      throw evidenceRejected('SUBMITTED_NOT_CONFIRMED');
+    }
     if (availability) {
       await this.confirmAvailability(context, plan, evidences);
       return registrationResult({
