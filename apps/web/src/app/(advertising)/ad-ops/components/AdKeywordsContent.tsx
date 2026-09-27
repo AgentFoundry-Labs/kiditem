@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useMemo, useState } from 'react';
-import { Bot, ChevronDown, ChevronRight, KeyRound, Loader2, RefreshCw, Sparkles } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, KeyRound, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import type { AdKeywordSnapshot } from '@kiditem/shared/advertising';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
@@ -21,6 +21,13 @@ type KeywordFilter = 'all' | 'serving' | 'idle' | 'irrelevant';
 
 interface Props {
   period: string;
+}
+
+/** The ad report's keyword row without a search keyword: clicks from non-search placements. */
+const NON_SEARCH_LABEL = '비검색';
+
+function keywordLabel(keyword: AdKeywordSnapshot): string {
+  return keyword.keyword === '' ? NON_SEARCH_LABEL : keyword.keyword;
 }
 
 const FILTERS: { key: KeywordFilter; label: string }[] = [
@@ -115,11 +122,11 @@ export default function AdKeywordsContent({ period }: Props) {
       products.reduce(
         (acc, product) => ({
           keywordCount: acc.keywordCount + product.keywordCount,
-          smartTargetingCount: acc.smartTargetingCount + product.smartTargetingCount,
+          spend: acc.spend + product.metrics.spend,
           servingCount: acc.servingCount + product.servingCount,
           irrelevantCount: acc.irrelevantCount + product.irrelevantCount,
         }),
-        { keywordCount: 0, smartTargetingCount: 0, servingCount: 0, irrelevantCount: 0 },
+        { keywordCount: 0, spend: 0, servingCount: 0, irrelevantCount: 0 },
       ),
     [products],
   );
@@ -131,7 +138,7 @@ export default function AdKeywordsContent({ period }: Props) {
       const hay = `${product.productName ?? ''} ${product.campaignName ?? ''} ${product.externalOptionId}`;
       if (hay.toLowerCase().includes(q)) return true;
       return (keywordsByOption.get(product.externalOptionId) ?? []).some((keyword) =>
-        keyword.keyword.toLowerCase().includes(q),
+        keywordLabel(keyword).toLowerCase().includes(q),
       );
     });
   }, [products, search, keywordsByOption]);
@@ -169,12 +176,12 @@ export default function AdKeywordsContent({ period }: Props) {
       <div className={cn(cardRaised, 'p-10 text-center')}>
         <KeyRound size={28} className="mx-auto" style={{ color: 'var(--text-muted)' }} />
         <p className="mt-3 text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-          아직 수집된 광고 키워드가 없습니다
+          이 기간에 클릭이 있던 검색 키워드가 없습니다
         </p>
         <p className="mt-1 text-xs leading-relaxed" style={{ color: 'var(--text-tertiary)' }}>
-          대시보드 데이터 수집 모달에서 <b>광고 동기화</b>를 실행하면
+          현황 탭의 <b>광고 보고서 수집</b>이 받은 날의 키워드 보고서에서
           <br />
-          캠페인 순회가 끝난 뒤 상품별 키워드가 함께 수집됩니다.
+          클릭이 있던 검색 키워드만 기간 합으로 보여 줍니다.
         </p>
       </div>
     );
@@ -185,9 +192,9 @@ export default function AdKeywordsContent({ period }: Props) {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <SummaryCard label="광고 상품" value={`${formatNumber(products.length)}개`} hint={`키워드 ${formatNumber(totals.keywordCount)}개`} />
         <SummaryCard
-          label="스마트 타겟팅"
-          value={`${formatNumber(totals.smartTargetingCount)}개`}
-          hint="쿠팡이 자동 매칭한 키워드"
+          label="집행 광고비"
+          value={`${formatKRW(totals.spend)}원`}
+          hint="키워드가 있는 광고 상품의 기간 합"
         />
         <SummaryCard
           label="노출 중"
@@ -209,6 +216,9 @@ export default function AdKeywordsContent({ period }: Props) {
             <h3 className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>
               상품별 광고 키워드
             </h3>
+            <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+              이 기간에 클릭이 있던 검색 키워드
+            </span>
           </div>
           {collectedAt && (
             <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>
@@ -261,7 +271,7 @@ export default function AdKeywordsContent({ period }: Props) {
                 <th className="px-3 py-2.5 text-right font-semibold">키워드</th>
                 <th className="px-3 py-2.5 text-right font-semibold">노출 중</th>
                 <th className="px-3 py-2.5 text-right font-semibold">연관 없음</th>
-                <th className="px-3 py-2.5 text-right font-semibold">광고비</th>
+                <th className="px-3 py-2.5 text-right font-semibold">집행 광고비</th>
                 <th className="px-3 py-2.5 text-right font-semibold">노출수</th>
                 <th className="px-3 py-2.5 text-right font-semibold">클릭</th>
               </tr>
@@ -300,11 +310,6 @@ export default function AdKeywordsContent({ period }: Props) {
                       </td>
                       <td className="px-3 py-3 text-right font-semibold" style={{ color: 'var(--text-primary)' }}>
                         {formatNumber(product.keywordCount)}
-                        {product.registeredCount > 0 && (
-                          <span className="ml-1 text-[10px] font-normal" style={{ color: 'var(--text-muted)' }}>
-                            (등록 {product.registeredCount})
-                          </span>
-                        )}
                       </td>
                       <td className="px-3 py-3 text-right" style={{ color: 'var(--text-secondary)' }}>
                         {formatNumber(product.servingCount)}
@@ -386,10 +391,10 @@ function KeywordList({
       if (filter === 'serving' && keyword.metrics.impressions === 0) return false;
       if (filter === 'idle' && keyword.metrics.impressions > 0) return false;
       if (filter === 'irrelevant' && keyword.relevance !== 'irrelevant') return false;
-      if (q && !keyword.keyword.toLowerCase().includes(q)) return false;
+      if (q && !keywordLabel(keyword).toLowerCase().includes(q)) return false;
       return true;
     })
-    .sort((a, b) => b.metrics.impressions - a.metrics.impressions || a.keyword.localeCompare(b.keyword));
+    .sort((a, b) => b.metrics.impressions - a.metrics.impressions || keywordLabel(a).localeCompare(keywordLabel(b)));
   // A product-wide request covers every proposal of the product awaiting
   // review, not only the chips the filter shows.
   const pendingIds = pendingProposalIds(keywords);
@@ -488,13 +493,15 @@ function KeywordChip({
   const isLoose = keyword.relevance === 'loose';
   const proposal = keyword.pauseProposal;
   const proposalState = proposal ? pauseProposalState(proposal) : null;
+  const label = keywordLabel(keyword);
+  // Conversions are the report's orders, observed on every measured day.
   const summary =
     keyword.relevanceReason ??
-    `${keyword.origin === 'registered' ? '직접 등록' : '스마트 타겟팅'} · 노출 ${formatNumber(keyword.metrics.impressions)} · 클릭 ${formatNumber(keyword.metrics.clicks)}`;
+    `노출 ${formatNumber(keyword.metrics.impressions)} · 클릭 ${formatNumber(keyword.metrics.clicks)} · 주문 ${formatNumber(keyword.metrics.conversions)}`;
   return (
     <span
       role="group"
-      aria-label={keyword.keyword}
+      aria-label={label}
       // The reason the latest attempt recorded, such as why it did not run, is on hover.
       title={proposal?.errorMessage ? `${summary}\n${operatorReason(proposal.errorMessage, '실행하지 못했습니다.')}` : summary}
       className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]"
@@ -504,8 +511,7 @@ function KeywordChip({
         color: isIrrelevant ? 'var(--danger)' : 'var(--text-secondary)',
       }}
     >
-      {keyword.origin === 'registered' && <Sparkles size={10} style={{ color: 'var(--primary)' }} />}
-      <span className="font-medium">{keyword.keyword}</span>
+      <span className="font-medium">{label}</span>
       <span style={{ color: 'var(--text-muted)' }}>
         {formatNumber(keyword.metrics.impressions)}
         {keyword.metrics.clicks > 0 ? ` · 클릭 ${formatNumber(keyword.metrics.clicks)}` : ''}
