@@ -1,5 +1,6 @@
 import { ERROR_DEFINITIONS, resolveErrorCode, type KiditemErrorCode } from './definitions.js';
 import type {
+  AD_REPORT_KIND,
   COMPETITOR_CATALOG_KIND,
   COMPETITOR_SELLER_IDENTITY_KIND,
   KEYWORD_SERP_KIND,
@@ -63,7 +64,8 @@ export type OperationFailureKind =
   | typeof COMPETITOR_SELLER_IDENTITY_KIND
   | typeof COMPETITOR_CATALOG_KIND
   | typeof WING_TRAFFIC_KIND
-  | typeof WING_ITEMWINNER_KIND;
+  | typeof WING_ITEMWINNER_KIND
+  | typeof AD_REPORT_KIND;
 
 const OPERATION_KIND_LABELS = {
   'channels.wing_catalog_list': '쿠팡 윙 상품 목록 수집',
@@ -95,6 +97,7 @@ const OPERATION_KIND_LABELS = {
   'advertising.competitor_catalog': '경쟁 판매자 상품 수집',
   'advertising.wing_traffic': '쿠팡 윙 트래픽 수집',
   'advertising.wing_itemwinner': '아이템위너 수집',
+  'advertising.ad_report': '광고 보고서 수집',
 } as const satisfies Record<OperationFailureKind, string>;
 
 /** 원천 식별자 → 운영자에게 보이는 이름. 모르는 원천은 "수집". 새 원천은 여기 한 줄. */

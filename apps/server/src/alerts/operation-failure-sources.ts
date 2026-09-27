@@ -1,4 +1,5 @@
 import {
+  AD_REPORT_KIND,
   COMPETITOR_CATALOG_KIND,
   COMPETITOR_SELLER_IDENTITY_KIND,
   KEYWORD_SERP_KIND,
@@ -72,6 +73,8 @@ export const OPERATION_FAILURE_HREFS = {
   [COMPETITOR_CATALOG_KIND]: '/sourcing-ai/competitor-analysis',
   [WING_TRAFFIC_KIND]: '/ad-ops',
   [WING_ITEMWINNER_KIND]: '/ad-ops',
+  // wave5 — 광고 보고서
+  [AD_REPORT_KIND]: '/ad-ops',
 } as const satisfies Record<OperationFailureKind, string>;
 
 /**
@@ -96,6 +99,7 @@ export const OPERATION_FAILURE_SCOPE_FIELDS: Readonly<Partial<Record<OperationFa
   [WING_RANK_KIND]: 'channelAccountId',
   [WING_TRAFFIC_KIND]: 'channelAccountId',
   [WING_ITEMWINNER_KIND]: 'channelAccountId',
+  [AD_REPORT_KIND]: 'channelAccountId',
 };
 
 export const OPERATION_FAILURE_KINDS = Object.keys(OPERATION_FAILURE_HREFS) as OperationFailureKind[];
