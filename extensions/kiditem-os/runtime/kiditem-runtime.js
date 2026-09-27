@@ -6088,6 +6088,8 @@ var KidItemRuntime = (() => {
     /** 몰이 지금 팔고 있다고 보이는가(품절·판매중지는 false). */
     available: external_exports.boolean(),
     stock: external_exports.number().int().nonnegative().nullable(),
+    /** 쿠팡 로켓그로스 옵션인가(다른 몰은 false). 웹 품절 후보 화면이 구별해 보여 준다. */
+    rocket: external_exports.boolean(),
     /** 몰 화면의 상태 원문. */
     observedStatus: external_exports.string().nullable(),
     observedAt: external_exports.string().datetime({ offset: true })
