@@ -254,16 +254,7 @@ describe('collectors/advertising.ad_report — 광고센터 보고서 2개 + 캠
     expect(chunks.filter((chunk) => chunk.chunkKind === 'ad_product_rows').map((chunk) => chunk.payload.length)).toEqual([1500, 1500, 1]);
   });
 
-  it('큰 보고서(isLargeReport)는 excel-report로 받고, 광고그룹 ID가 없으면 캠페인 목록의 그룹으로 채운다', async () => {
-    const large = REPORT_LIST_SEQUENCE.map((step) => ({ reportList: { reports: step.reportList.reports.map((report) => ({ ...report, isLargeReport: report.id === '15116068' })) } }));
-    const withoutGroup = ndjson(PRODUCT_NDJSON).map(({ ad_group_id: _group, ...rest }) => rest);
-    const { site, calls } = fakeAdCenter({ reportList: large, productRows: withoutGroup });
-    const { chunks } = await collectAll(PLAN, site);
-    expect(calls.downloads).toEqual([{ id: '15116068', isLargeReport: true }, { id: '15116069', isLargeReport: false }]);
-    const products = payloadOf(chunks, 'ad_product_rows');
-    expect(products.map((row) => row.adGroupId)).toEqual(['201', '201', '201', '202', '202', '201', '201', '201', '201', '202', '202', '201']);
-    expect(payloadOf(chunks, 'ad_period')[0]).toMatchObject({ reports: [{ granularity: 'vendorItem', isLargeReport: true }, { granularity: 'keyword', isLargeReport: false }] });
-  });
+  // 큰 보고서 TSV(excel-report) 받기 → 행 변환은 실제 광고센터 사이트와 함께 `entry/ad-report.spec.ts`가 잠근다.
 
   it('큰 보고서의 삭제 캠페인 행은 그룹 ID를 풀지 못하면 adGroupId null로 보내고 실행은 성공한다', async () => {
     const large = REPORT_LIST_SEQUENCE.map((step) => ({ reportList: { reports: step.reportList.reports.map((report) => ({ ...report, isLargeReport: report.id === '15116068' })) } }));
