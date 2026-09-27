@@ -67,6 +67,8 @@ export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const
 // executionKind(register·update·sold_out·resume·composition_change·thumbnail_update)는 kind가 아니라 plan 안 필드다.
 
 export const REGISTRATION_KIND = 'channels.registration' as const;
+/** 읽기·품절·재개 묶음 한 실행의 리스팅 상한. */
+export const MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
 /** 이 kind를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 몰별 쓰기 사이트는 `mallWriteSite.<key>`로 따로 싣는다. */
 export const CHANNELS_REGISTRATION_OPERATION_CAPABILITY = 'channelsRegistrationOperationKindV1' as const;
 export const REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, THUMBNAIL_UPDATE_EXECUTION_KIND] as const;
@@ -118,20 +120,36 @@ export const RegistrationScopeSchema = z.object({
   form: z.record(z.string(), z.unknown()).optional(),
   /** 빠른 등록(등록 대상 없이 수집 상품 → 폼만 채우기)의 출처. 그때 `registrationTargetId`는 없고 `submit`은 false여야 한다. */
   sourceProductId: z.string().uuid().optional(),
+  /**
+   * sold_out·resume만: 몰 계정 하나의 리스팅 묶음(옛 일괄 품절과 같이 실행 하나 = 계정 묶음 하나, 2026-09-27 리더 결정).
+   * 항목은 리스팅 id나 옵션 id로 가리키고(후보 화면은 옵션 id만 안다) 서버 plan이 외부 id·옵션으로 푼다. 잠금 = `account:<id>` + 리스팅마다 하나.
+   */
+  channelAccountId: z.string().uuid().optional(),
+  items: z.array(z.object({
+    channelListingId: z.string().uuid().optional(),
+    channelListingOptionIds: z.array(z.string().uuid()).min(1).max(200).optional(),
+  }).strict().refine((item) => item.channelListingId !== undefined || item.channelListingOptionIds !== undefined, {
+    message: '리스팅 id나 옵션 id가 필요합니다',
+  })).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS).optional(),
 }).strict().refine(
   (scope) => {
     if (scope.executionKind === 'thumbnail_update') return scope.salesProductId !== undefined;
+    if (scope.executionKind === 'sold_out' || scope.executionKind === 'resume') {
+      return scope.channelAccountId !== undefined && scope.items !== undefined;
+    }
     if (scope.registrationTargetId !== undefined) return true;
     return scope.executionKind === 'register' && scope.submit === false && scope.form !== undefined;
   },
-  { message: '등록 대상이 필요합니다(썸네일은 판매 상품, 빠른 등록은 폼만 채우기 + submit false)', path: ['registrationTargetId'] },
+  { message: '등록 대상이 필요합니다(썸네일은 판매 상품, 품절·재개는 계정 + 리스팅 묶음, 빠른 등록은 폼만 채우기 + submit false)', path: ['registrationTargetId'] },
 );
 export type RegistrationScope = z.infer<typeof RegistrationScopeSchema>;
 
 /**
  * owner plan(확장 몰 쓰기 모듈이 받는 것). `payload`는 준비 순간 얼린 문서(`payloadHash`로 잠금): register·update·
  * composition_change는 `{ snapshot: TargetExecutionSnapshot | null, form: Record | null }`(빠른 등록은 snapshot null·
- * registrationTargetId null·submit false, 잠금은 `account:<id>`만), sold_out·resume는 옵션 재고 지시, thumbnail_update는 사진 하나.
+ * registrationTargetId null·submit false, 잠금은 `account:<id>`만), sold_out·resume는 `{ action, listings: [{ channelListingId,
+ * externalListingId, options: [{ salesProductOptionId|null, channelListingOptionId, externalOptionId, sellerSku }] }] }`(계정 묶음),
+ * thumbnail_update는 사진 하나. 묶음 실행의 `channelListingId`·`externalListingId`는 null이고 항목은 payload 안에 있다.
  * executionKind별 payload 스키마는 `registration-plan-payloads.ts`에 둔다. 자격증명은 plan에 없고 lease로만 온다.
  */
 export const RegistrationPlanSchema = z.object({
@@ -227,7 +245,6 @@ export type RegistrationCloseRequest = z.infer<typeof RegistrationCloseRequestSc
 // kind와 나눈다. finalize는 원장을 쓰지 않고 `result`에 행만 남긴다(KID-369가 일별 스냅샷 칸을 정리하기 전까지).
 
 export const MALL_AVAILABILITY_READ_KIND = 'channels.mall_availability_read' as const;
-export const MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
 
 export const MallAvailabilityReadScopeSchema = z.object({
   channelAccountId: z.string().uuid(),
