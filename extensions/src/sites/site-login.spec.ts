@@ -1,7 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RuntimeError, isRuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../core/site-caller';
-import { LOGIN_DIALOGS_FILE, LOGIN_FILL_FILE, createSiteLoginGate, ensureLoggedIn, type LoginOutcome, type LoginSpec } from './site-login';
+import { LOGIN_DIALOGS_FILE, LOGIN_FILL_FILE, createSiteLoginGate, ensureLoggedIn, withLoginTab, type LoginOutcome, type LoginSpec } from './site-login';
 import type { PageAnswer, TabPage } from './tab-page';
 
 const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password', supplierLoginId: 'fake-supplier' };
@@ -17,7 +17,8 @@ const SPEC: LoginSpec = {
 
 const reply = <T>(value: unknown): T => value as T;
 
-type Submitted = { url?: string; formStays?: boolean; dialog?: string };
+/** `sent: false`: 눌렀지만 몰의 폼 검사(form_check·캡차)가 막아 아무것도 보내지 않았다 — 같은 문서에 폼이 남는다. */
+type Submitted = { url?: string; formStays?: boolean; dialog?: string; sent?: boolean };
 
 /**
  * 로그인 화면 하나를 흉내 내는 가짜 탭(경계: `TabPage`). 주소마다 폼이 있는지 정하고, 제출하면 `submit`이 다음 화면을 정한다.
@@ -27,11 +28,14 @@ function loginTab(options: {
   url: string;
   landAt?: (url: string) => string;
   formAt?: (url: string) => boolean;
-  fill?: 'submit' | 'incomplete';
+  fill?: 'submit' | 'incomplete' | 'verification';
   submit?: (values: Record<string, unknown>) => Submitted;
+  /** 이 주소에서는 프레임을 들여다보지 못한다(about:blank처럼 확장 권한 밖 — executeScript가 던진다). */
+  unreadableAt?: (url: string) => boolean;
 }) {
   const clock = { now: 0 };
-  const state = { url: options.url, form: false, dialogs: [] as string[] };
+  // `filledHere`: 폼을 채운 그 문서에 아직 있다. `submitObserved`: 그 문서에서 보내기가 나갔다(login-fill.js 살피기 값).
+  const state = { url: options.url, form: false, dialogs: [] as string[], filledHere: false, submitObserved: false };
   const formAt = options.formAt ?? ((url: string) => url.startsWith('https://auth.test'));
   state.form = formAt(state.url);
   const log: string[] = [];
@@ -39,14 +43,18 @@ function loginTab(options: {
   const messages: Array<Record<string, unknown>> = [];
   const page: TabPage = {
     tabId: 9,
-    async navigate(url) {
+    async navigate(url, navigateOptions) {
       log.push(`navigate ${url}`);
       state.url = options.landAt ? options.landAt(url) : url;
+      if (navigateOptions?.stopAt?.(state.url)) log.push(`stop at ${state.url}`);
       state.form = formAt(state.url);
       return state.url;
     },
     async waitWhile() {
       return false;
+    },
+    async focus() {
+      log.push('focus');
     },
     async currentUrl() {
       return state.url;
@@ -66,9 +74,14 @@ function loginTab(options: {
         if (options.fill === 'incomplete') return reply<T>({ ok: true, value: { state: 'incomplete', reason: 'id-input-not-found' } });
         const values = (message.args as { values: Record<string, unknown> }).values;
         filled.push(values);
+        if (options.fill === 'verification') return reply<T>({ ok: true, value: { state: 'verification_required', reason: 'captcha' } });
         const next = options.submit?.(values) ?? {};
         if (next.url) state.url = next.url;
         state.form = next.formStays ?? false;
+        // 보내기가 나가면 새 문서다(채운 흔적이 없다). 막혔으면 채운 그 문서에 폼이 그대로 남는다.
+        const sent = next.sent !== false;
+        state.filledHere = !sent;
+        state.submitObserved = false;
         if (next.dialog) state.dialogs.push(next.dialog);
         return reply<T>({ ok: true, value: { state: 'submitted', method: 'exact-text' } });
       }
@@ -76,7 +89,8 @@ function loginTab(options: {
     },
     async frames<T>(files: readonly string[]) {
       log.push(`frames ${files.join(',')}`);
-      return [{ frameId: 0, result: { loginForm: state.form } as T }];
+      if (options.unreadableAt?.(state.url)) throw new Error(`Cannot access contents of url "${state.url}"`);
+      return [{ frameId: 0, result: { loginForm: state.form, filledHere: state.filledHere, submitObserved: state.submitObserved } as T }];
     },
     listen: () => () => undefined,
     async close() {
@@ -97,6 +111,8 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     const tab = loginTab({ url: 'https://mall.test/admin', landAt: () => 'https://auth.test/login', submit: () => ({ url: 'https://mall.test/admin' }) });
     await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'ok' });
     expect(tab.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
+    // 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다(실기기 R1).
+    expect(tab.log).toContain('stop at https://auth.test/login');
     expect(tab.log[0]).toBe('frames content/page-call/login-fill.js');
     expect(tab.log).toContain('navigate https://mall.test/admin');
     expect(tab.log).toContain('call login.watchDialogs frame 0');
@@ -114,12 +130,84 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
   });
 
   it('눌렀는데 폼이 남으면 form_remains와 몰이 알림 창으로 남긴 말', async () => {
-    const tab = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, dialog: ' 아이디 또는  비밀번호가 일치하지 않습니다. ' }) });
+    const tab = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, dialog: ' 입력하신  정보를 다시 확인해 주세요. ' }) });
     await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({
       status: 'form_remains',
+      mallMessage: '입력하신 정보를 다시 확인해 주세요.',
+    });
+    // 거절 문장이면 폼이 남았는지 보기 전에 rejected다(실기기 R5).
+    const rejected = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, dialog: ' 아이디 또는  비밀번호가 일치하지 않습니다. ' }) });
+    await expect(ensureLoggedIn(rejected.page, SPEC, CREDENTIALS, rejected.deps)).resolves.toEqual({
+      status: 'rejected',
       mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
     });
     expect(tab.filled).toHaveLength(1);
+  });
+
+  it('빈 탭(about:blank)처럼 화면을 들여다보지 못하면 로그인 입구로 옮긴 뒤 채운다(KID-380 D1 — 15초를 빈 탭에서 돌지 않는다)', async () => {
+    const tab = loginTab({
+      url: 'about:blank',
+      unreadableAt: (url) => url === 'about:blank',
+      landAt: () => 'https://auth.test/login',
+      submit: () => ({ url: 'https://mall.test/admin' }),
+    });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'ok' });
+    expect(tab.log).toContain('navigate https://mall.test/admin');
+    expect(tab.filled).toHaveLength(1);
+  });
+
+  it('누른 뒤 화면을 들여다보지 못하면(답 없음) form_remains가 아니라 unconfirmed — 거절로 단정하지 않는다(리뷰 MUST 3)', async () => {
+    const tab = loginTab({
+      url: 'https://auth.test/login',
+      submit: () => ({ url: 'https://auth.test/stalled', dialog: '처리 중입니다.' }),
+      unreadableAt: (url) => url === 'https://auth.test/stalled',
+    });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'unconfirmed', mallMessage: '처리 중입니다.' });
+
+    // 살피기가 끝내 답하지 않는 화면(알림 창·무거운 스크립트)도 같다.
+    const stalled = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true }) });
+    let submitted = false;
+    const frames = stalled.page.frames.bind(stalled.page);
+    stalled.page.frames = async <T,>(files: readonly string[]) => (submitted ? new Promise<never>(() => undefined) : frames<T>(files));
+    const ask = stalled.page.ask.bind(stalled.page);
+    stalled.page.ask = async <T extends PageAnswer>(message: Record<string, unknown>, options: Parameters<TabPage['ask']>[1]) => {
+      const answer = await ask<T>(message, options);
+      if (message.call === 'login.fill') submitted = true;
+      return answer;
+    };
+    vi.useFakeTimers();
+    try {
+      const outcome = ensureLoggedIn(stalled.page, SPEC, CREDENTIALS, stalled.deps);
+      await vi.runAllTimersAsync();
+      await expect(outcome).resolves.toEqual({ status: 'unconfirmed' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('누른 뒤 몰이 거절 문장을 알림 창으로 남기면 화면이 다른 곳으로 넘어가도 rejected(실기기 R5 — 아이스크림몰 /error/loginExpired)', async () => {
+    const tab = loginTab({
+      url: 'https://auth.test/login',
+      submit: () => ({ url: 'https://mall.test/error/loginExpired', dialog: '아이디 혹은 비밀번호가 일치하지 않습니다.' }),
+    });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({
+      status: 'rejected',
+      mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.',
+    });
+  });
+
+  it('캡차가 붙은 폼이면 채우기가 verification_required로 답하고 누르지 않는다 — 운영자가 풀 일이다(재QA 3 D1)', async () => {
+    const tab = loginTab({ url: 'https://auth.test/login', fill: 'verification' });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'verification_required' });
+  });
+
+  it('눌렀는데 몰의 폼 검사가 막아 아무것도 보내지 않았으면(같은 문서에 폼) form_remains가 아니라 unconfirmed(재QA 3 D1)', async () => {
+    const blocked = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, sent: false }) });
+    await expect(ensureLoggedIn(blocked.page, SPEC, CREDENTIALS, blocked.deps)).resolves.toEqual({ status: 'unconfirmed' });
+
+    // 실제로 보내고 폼이 다시 온 것(새 문서)은 그대로 form_remains다.
+    const sent = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true }) });
+    await expect(ensureLoggedIn(sent.page, SPEC, CREDENTIALS, sent.deps)).resolves.toEqual({ status: 'form_remains' });
   });
 
   it('로그인 폼이 어디에도 없으면 no_form — 채우지 않는다', async () => {
@@ -211,6 +299,13 @@ describe('sites/site-login — createSiteLoginGate(로그인 화면이면 한 �
     }
   });
 
+  it('rejected도 credentials_rejected — 몰의 말은 details.mallMessage에만 싣고 오류 문장은 레지스트리 말 그대로다(실기기 R5)', async () => {
+    const gate = createSiteLoginGate(CREDENTIALS);
+    const error = await failure(gate(async () => { throw loginRequired(); }, async () => ({ status: 'rejected', mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.' })));
+    expect(error).toMatchObject({ code: SITE_LOGIN_REQUIRED, details: { reason: 'credentials_rejected', mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.' } });
+    expect(error.message).toBe('테스트몰 로그인이 필요합니다. 저장된 아이디·비밀번호로 로그인하지 못했습니다.');
+  });
+
   it('본인확인이면 다시 하지 않고 verification_required', async () => {
     const withLogin = createSiteLoginGate(CREDENTIALS);
     let calls = 0;
@@ -238,5 +333,19 @@ describe('sites/site-login — createSiteLoginGate(로그인 화면이면 한 �
     }, login);
     await expect(Promise.all([read(1), read(2), read(3)])).resolves.toEqual([1, 2, 3]);
     expect(logins).toBe(1);
+  });
+});
+
+describe('sites/site-login — withLoginTab(로그인하러 연 탭)', () => {
+  it('문턱이 멈춰도 로그인 화면으로 가지 못한 빈 탭(about:blank)은 운영자에게 남기지 않고 닫는다(KID-380 D1)', async () => {
+    const blank = loginTab({ url: 'about:blank', unreadableAt: () => true });
+    const withLogin = createSiteLoginGate(CREDENTIALS);
+    const error = await failure(withLoginTab(withLogin, async () => { throw loginRequired(); }, async () => blank.page, async () => ({ status: 'unconfirmed' })));
+    expect(error.details).toMatchObject({ reason: 'login_unconfirmed' });
+    expect(blank.log).toContain('close');
+
+    const atLogin = loginTab({ url: 'https://auth.test/login' });
+    await failure(withLoginTab(createSiteLoginGate(CREDENTIALS), async () => { throw loginRequired(); }, async () => atLogin.page, async () => ({ status: 'form_remains' })));
+    expect(atLogin.log).not.toContain('close');
   });
 });

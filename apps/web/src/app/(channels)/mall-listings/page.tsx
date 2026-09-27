@@ -272,8 +272,8 @@ function ListingStatusView() {
             </strong>
             <p className="mt-1 text-xs leading-relaxed">
               그 열의 &lsquo;미등록&rsquo;은 몰에 상품이 없다는 뜻이 아니라 우리가 모른다는 뜻입니다.
-              사방넷으로 올린 몰은 사방넷 송신 기록에서 한꺼번에 가져오고, 사방넷에 없는 키드키즈 ·
-              아이스크림몰은 그 몰 관리자에서 직접 가져옵니다.
+              사방넷으로 올린 몰은 사방넷 송신 기록에서 한꺼번에 가져오고, 몰마다의 가져오기 단추는
+              그 몰 관리자에서 직접 가져옵니다(몰 계정이 연결돼 있어야 합니다).
             </p>
             <SabangnetListingsImport className="mt-2 justify-start" />
             {MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => (

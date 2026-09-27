@@ -3,12 +3,14 @@ import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collecti
 
 export const ORDER_COLLECTION_SOURCE_PORT = Symbol('ORDER_COLLECTION_SOURCE_PORT');
 
-export type OrderCollectionMode = 'browser' | 'manual-upload';
+/*
+ * KID-379: 옛 주문 attempt 경로의 owner 포트. 카카오(`MALL_ORDER_ATTEMPT_MALLS`)만 쓴다 — 시작·읽기·제어 읽기·몰 상태
+ * 목록·실패(원본 artifact + 몰 실패 알림)·중단. 완료·재변환·원본 다운로드는 없다(KID-380 T4, 카카오는 셀피아 변환 규격이
+ * 없어 완료되지 않는다). 카카오가 실행 kind로 옮기면 이 포트와 저장소·라우트가 함께 사라진다.
+ */
 
-export type OrderCollectionConfirmedCoverage = {
-  startDate: string;
-  endDate: string;
-};
+/** 옛 plan 칸. 새 시도는 `browser`만 받지만, 옮기기 전 남은 옛 행은 `manual-upload`도 있다. */
+export type OrderCollectionMode = 'browser' | 'manual-upload';
 
 export type OrderCollectionPlan = {
   sourceType: 'order_collection_mall';
@@ -44,21 +46,6 @@ export type OrderCollectionSourceSubmission = {
   fileName: string | null;
   contentType: string;
   isFile: boolean;
-};
-
-export type OrderCollectionArtifact = {
-  artifactId: string;
-  sourceImportRunId: string;
-  sourceFileName: string | null;
-  sourceContentType: string;
-  createdAt: string;
-  sourceDownloadAvailable: boolean;
-};
-
-export type OrderCollectionSourceDownload = {
-  bytes: Buffer;
-  fileName: string | null;
-  contentType: string;
 };
 
 export function orderCollectionJsonSubmission(
@@ -97,15 +84,6 @@ export interface OrderCollectionSourcePort {
   }): Promise<OrderCollectionAttemptControl | null>;
 
   /**
-   * 공용 시작 컨트롤이 읽는 몰별 현재 상태. 진행 중 시도·마지막 완료분·마지막 시도를
-   * 한 번에 돌려주며 시도 토큰은 담지 않는다.
-   */
-  readSourceStatus(input: {
-    organizationId: string;
-    mallKey: string;
-  }): Promise<OrderCollectionSourceStatus>;
-
-  /**
    * 주문 수집 화면 한 장이 읽는 몰 전체의 현재 상태. 레지스트리 순서로 몰마다 한 칸이며,
    * 이 조직에 계정 행이 없는 몰은 범위와 상태를 비운 칸으로 돌려준다. 몰 하나짜리 읽기와
    * 같은 판정을 쓰고, 마찬가지로 시도 토큰은 담지 않는다.
@@ -113,24 +91,6 @@ export interface OrderCollectionSourcePort {
   readSourceStatuses(input: {
     organizationId: string;
   }): Promise<OrderCollectionSourceStatus[]>;
-
-  validateCompletion(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    mallKey: string;
-    source: OrderCollectionSourceSubmission;
-    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
-  }): Promise<void>;
-
-  completeAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    mallKey: string;
-    source: OrderCollectionSourceSubmission;
-    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
-  }): Promise<OrderCollectionArtifact>;
 
   failAttempt(input: {
     organizationId: string;
@@ -146,23 +106,4 @@ export interface OrderCollectionSourcePort {
     organizationId: string;
     attemptId: string;
   }): Promise<OrderCollectionAttempt>;
-
-  readSourceDownload(input: {
-    organizationId: string;
-    artifactId: string;
-  }): Promise<OrderCollectionSourceDownload>;
-
-  /**
-   * 이 수집이 실어 온 주문이 몇 줄인지 장부에 적는다.
-   *
-   * 완료 시점에는 원본 바이트만 있어 몇 건인지 모른다 — 셀피아 양식으로 **변환할 때** 비로소
-   * 안다. 그래서 몰 수집은 성공해도 `row_count` 가 0 으로 남았고, 대시보드의 '오늘 주문' 이
-   * 그만큼 모자랐다(사장님 2026-09-21). 변환은 여러 번 불릴 수 있으므로 같은 값을 다시 적는
-   * 것은 아무 일도 아니다.
-   */
-  recordCollectedRows(input: {
-    organizationId: string;
-    attemptId: string;
-    rowCount: number;
-  }): Promise<void>;
 }

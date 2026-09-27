@@ -17,7 +17,9 @@ export interface TabPage {
    * 탭 주소가 `blocked`(검증 화면)인 동안 2초마다 본다 — 운영자가 열려 있는 탭에서 검증을 통과하길 기다린다. 벗어나면
    * true, 10분이 지나면 false. 기다리는 동안 3분마다 `onRemind`(임대 연장·progress). 탭이 닫히면 실패.
    */
-  waitWhile(blocked: (url: string) => boolean, options: { onRemind?(): void | Promise<void> }): Promise<boolean>;
+  waitWhile(blocked: (url: string) => boolean | Promise<boolean>, options: { onRemind?(): void | Promise<void> }): Promise<boolean>;
+  /** 이 탭을 활성 탭으로 앞으로 가져온다 — 운영자가 이 탭에서 할 일이 있을 때(GS샵 SMS 인증, KID-380). */
+  focus(): Promise<void>;
   /** 지금 탭 주소를 기다리지 않고 읽는다(운영자 탭). */
   currentUrl(): Promise<string>;
   /**
@@ -69,9 +71,13 @@ export function checkPageUrl(guard: PageGuard, value: string): void {
   }
 }
 
-/** 사이트 밖으로 옮겨 간 탭(로그인·예상 밖 주소)의 실패인가 — 그 탭은 닫지 않고 운영자에게 남긴다. */
+/** 운영자가 그 탭에서 해야 할 일(GS샵 SMS 인증 시간 초과·보리보리 다운로드 비밀번호, KID-380) — 탭을 남기고 앞으로 가져온다. */
+export const OPERATOR_ACTION_REQUIRED = 'OPERATOR_ACTION_REQUIRED' as const;
+
+/** 사이트 밖으로 옮겨 간 탭(로그인·예상 밖 주소)이나 운영자 조치의 실패인가 — 그 탭은 닫지 않고 운영자에게 남긴다. */
 export function leftForOperator(error: unknown): boolean {
-  return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === 'unexpected_url');
+  return isRuntimeError(error)
+    && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED || error.details?.reason === 'unexpected_url');
 }
 
 /** 호스트가 그 도메인이거나 그 하위 도메인인가. */
@@ -91,8 +97,75 @@ export interface TabPages {
   open(url: string): Promise<TabPage>;
   /** 운영자가 연 탭을 그대로 쓴다. `close()`는 아무것도 하지 않는다. */
   attach(tabId: number): TabPage;
+  /**
+   * 주소 무늬(`https://host/*`)에 맞는 열린 탭을 찾아 `attach`한다(없으면 null). 세션이 탭에 묶인 사이트(롯데ON의 탭별
+   * sessionStorage 토큰, KID-380)만 쓴다 — 그 탭의 세션으로 읽고, 운영자 탭이므로 닫지 않는다.
+   */
+  find(urlPattern: string): Promise<TabPage | null>;
   /** 브라우저 밖 fetch(서비스워커). 설명 본문처럼 탭 없이 읽을 때만 쓴다. */
   fetchText(url: string, init?: RequestInit): Promise<string | null>;
+  /**
+   * 이 확장이 연 탭을 운영자에게 남겼다고 적는다(KID-380 D8). 사이트(`key`)마다 하나만 — 먼저 남긴 다른 탭은 닫는다.
+   * 서비스워커가 다시 뜨면 잊는다.
+   */
+  keep(key: string, page: TabPage): Promise<void>;
+  /**
+   * 그 사이트에 남긴 탭이 아직 열려 있고 운영자가 보고 있지 않으며 남길 때 주소나 로그인·빈 화면이면 이 확장이 연 탭으로
+   * 돌려준다(없으면 null). 어느 쪽이든 기록은 비운다. 새 탭 대신 옮겨 쓴다.
+   */
+  reclaimKept(key: string): Promise<TabPage | null>;
+  /**
+   * 그 호스트(하위 도메인 포함)의 문서가 불러오기를 시작할 때(document_start) MAIN world에 알림 창 가드
+   * (`DIALOG_GUARD_FILE`)를 거는 등록 content script를 이 실행 몫으로 등록한다(KID-380 D4). 로드 중 `alert`이 백그라운드
+   * 탭을 멈추지 않게 주소를 옮기기 전에 건다. 돌려준 함수가 등록을 지운다(두 번 불러도 한 번). 등록이 안 되는 환경이면
+   * 가드 없이 이어 간다.
+   */
+  guardDialogs(hosts: readonly string[]): Promise<() => Promise<void>>;
+  /** 이 탭이 지금 실행이 쥔 수집 탭인가(이 런타임이 열었거나 다시 가져와 쓰는 중, 닫거나 운영자에게 남기기 전) — 실기기 R1. */
+  isRunTab(tabId: number): boolean;
+}
+
+/** 불러오는 중 알림 창 가드 파일(MAIN world, document_start). */
+export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
+/** 가드의 ISOLATED 짝 — 수집 탭인지 런타임에 묻는다(실기기 R1). */
+export const DIALOG_GUARD_BRIDGE_FILE = 'content/page-call/dialog-guard-bridge.js';
+export const DIALOG_GUARD_RUN_TAB_ACTION = 'kiditem.dialogGuard.isRunTab';
+/** 런타임 → 가드 짝: 이 탭을 운영자에게 넘겼다(`runTab: false`)·다시 쓴다(리뷰 2 SHOULD 2·3). */
+export const DIALOG_GUARD_SET_RUN_TAB_ACTION = 'kiditem.dialogGuard.setRunTab';
+
+/**
+ * 가드 짝의 물음(`kiditem.dialogGuard.isRunTab`)에 답한다: 보낸 탭이 지금 실행이 쥔 수집 탭이면 `{runTab: true}`. 다른 메시지는
+ * 받지 않는다(다른 수신자가 답한다). 입구가 한 번 건다.
+ */
+export function installDialogGuardAnswer(
+  chromeApi: { runtime: { onMessage: { addListener(listener: (message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown): void } } },
+  tabs: Pick<TabPages, 'isRunTab'>,
+): void {
+  chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || typeof message !== 'object' || (message as { action?: unknown }).action !== DIALOG_GUARD_RUN_TAB_ACTION) return undefined;
+    const tabId = sender.tab?.id;
+    sendResponse({ runTab: typeof tabId === 'number' && tabs.isRunTab(tabId) });
+    return undefined;
+  });
+}
+const DIALOG_GUARD_ID_PREFIX = 'kiditem-dialog-guard-';
+
+/**
+ * 서비스워커가 다시 뜨면 지난 실행이 건 가드 등록이 남는다(해제 함수를 잃었다) — 입구가 뜰 때 이 확장의 가드 등록을 다
+ * 지운다(리뷰 MUST 2). 던지지 않는다.
+ */
+export async function sweepDialogGuards(chromeApi: Partial<Pick<TabPageChrome, 'scripting'>> | undefined): Promise<void> {
+  // 옛 워커의 가짜 chrome(테스트 하네스)엔 `scripting`이 없다 — 지울 게 없으면 조용히 끝낸다.
+  const scripting = chromeApi?.scripting;
+  if (!scripting?.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+  try {
+    const ids = (await scripting.getRegisteredContentScripts())
+      .map((script) => script.id)
+      .filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+    if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
+  } catch {
+    // 지우지 못해도 다음 실행은 새 id로 건다.
+  }
 }
 
 export const SITE_TAB_UNAVAILABLE = 'SITE_TAB_UNAVAILABLE' as const;
@@ -115,7 +188,7 @@ export type AttentionListener = (attention: SiteAttention | null) => void | Prom
  */
 export async function waitForOperator(
   page: TabPage,
-  blocked: (url: string) => boolean,
+  blocked: (url: string) => boolean | Promise<boolean>,
   attention: SiteAttention,
   onAttention?: AttentionListener,
 ): Promise<boolean> {
@@ -129,8 +202,9 @@ export async function waitForOperator(
 export interface TabPageChrome {
   tabs: {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
-    update(tabId: number, properties: { url: string }): Promise<unknown>;
-    get(tabId: number): Promise<{ status?: string; url?: string }>;
+    update(tabId: number, properties: { url?: string; active?: boolean }): Promise<unknown>;
+    get(tabId: number): Promise<{ status?: string; url?: string; pendingUrl?: string; active?: boolean }>;
+    query(query: { url: string }): Promise<Array<{ id?: number; url?: string; status?: string }>>;
     remove(tabId: number): Promise<void>;
     sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
   };
@@ -141,6 +215,18 @@ export interface TabPageChrome {
       files: string[];
       world?: 'ISOLATED' | 'MAIN';
     }): Promise<unknown>;
+    /** 알림 창 가드 등록(KID-380 D4). 없는 환경(옛 스펙 가짜)이면 가드 없이 이어 간다. */
+    registerContentScripts?(scripts: Array<{
+      id: string;
+      matches: string[];
+      js: string[];
+      world: 'MAIN' | 'ISOLATED';
+      runAt: 'document_start';
+      allFrames: boolean;
+      persistAcrossSessions: boolean;
+    }>): Promise<unknown>;
+    unregisterContentScripts?(filter?: { ids?: string[] }): Promise<unknown>;
+    getRegisteredContentScripts?(filter?: { ids?: string[] }): Promise<Array<{ id: string }>>;
   };
   runtime: {
     onMessage: {
@@ -158,9 +244,32 @@ export interface TabPageDeps {
 }
 
 const POLL_MS = 250;
+/** 재사용 후보에서 빼는 주소(로그인·가입·인증 화면). */
+const LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
 const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
 
+let dialogGuardSerial = 0;
+
 export function createTabPages(deps: TabPageDeps): TabPages {
+  /** 사이트마다 운영자에게 남긴 탭 하나와 남길 때의 주소(KID-380 D8). */
+  const kept = new Map<string, { tabId: number; url: string }>();
+  /** 지금 실행이 쥔 수집 탭(이 런타임이 열었거나 다시 가져온 탭). 닫거나 운영자에게 남기면 뺀다(실기기 R1). */
+  const runTabs = new Set<number>();
+  /** 탭을 운영자에게 넘긴다 — 수집 탭에서 빼고 그 탭의 가드 짝에 알려 진짜 창으로 돌린다(짝이 없으면 조용히 넘어간다). */
+  async function handToOperator(tabId: number): Promise<void> {
+    runTabs.delete(tabId);
+    await deps.chrome.tabs.sendMessage(tabId, { action: DIALOG_GUARD_SET_RUN_TAB_ACTION, runTab: false }).catch(() => undefined);
+  }
+  /**
+   * 남긴 탭을 이 확장이 다시 써도 되는가: 아직 열려 있고, 운영자가 보고 있지 않고(active 아님), 남길 때 주소나 로그인·빈 화면에
+   * 머물러 있다. 운영자가 로그인해 다른 화면으로 옮긴 탭은 운영자 것이다(리뷰 SHOULD 3).
+   */
+  async function stillOurs(entry: { tabId: number; url: string }): Promise<boolean> {
+    const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
+    if (!tab || tab.active === true) return false;
+    const url = tab.url ?? '';
+    return url === entry.url || url === '' || url.startsWith('about:') || LOGIN_LIKE_URL.test(url);
+  }
   function page(tabId: number, owned: boolean): TabPage {
     let closed = false;
     async function send<T extends PageAnswer>(message: Record<string, unknown>, timeoutMs: number, frameId?: number): Promise<T> {
@@ -181,6 +290,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     return {
       tabId,
       async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+        // 옮기기 전 문서의 주소. Chrome은 새 주소를 커밋할 때까지 pendingUrl에 두고 url은 옛 문서다 — 옛 로그인 문서에서
+        // stopAt이 먼저 맞으면 새 화면이 뜨기 전에 옛 문서에 채우게 된다(리뷰 2 MUST 1).
+        const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
+        // 이 런타임이 연 탭을 옮기면 다시 수집 탭이다(운영자 조치 뒤 이어 읽기) — 새 문서의 가드 짝이 묻는다.
+        if (owned && !closed) runTabs.add(tabId);
         await deps.chrome.tabs.update(tabId, { url });
         const deadline = deps.now() + timeoutMs;
         let last = url;
@@ -190,7 +304,8 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
           if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
           last = tab.url || last;
-          if (stopAt?.(last) || tab.status === 'complete') return last;
+          const committed = !tab.pendingUrl && tab.url !== undefined && tab.url !== before;
+          if ((committed && stopAt?.(last)) || tab.status === 'complete') return last;
           if (deps.now() >= deadline) {
             if (continueOnTimeout) return last;
             throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지를 여는 데 시간이 너무 오래 걸립니다.', { url });
@@ -204,7 +319,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         for (;;) {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
           if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
-          if (!blocked(tab.url ?? '')) return true;
+          if (!(await blocked(tab.url ?? ''))) return true;
           if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
           if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
             remindedAt = deps.now();
@@ -212,6 +327,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           }
           await deps.sleep(OPERATOR_POLL_MS);
         }
+      },
+      async focus() {
+        // 운영자가 이 탭에서 할 일이 있다(GS샵 SMS 인증·운영자 조치) — 진짜 알림 창을 보게 넘긴다(리뷰 2 SHOULD 2).
+        await handToOperator(tabId);
+        await deps.chrome.tabs.update(tabId, { active: true }).catch(() => undefined);
       },
       async currentUrl() {
         const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -227,7 +347,12 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         };
         await checkHere();
         const first = await send<T>(message, timeoutMs, frameId);
-        if (!inject || !isMissing(first)) return first;
+        // 가드 짝(ISOLATED)만 있는 탭은 받는 쪽이 있어 "Receiving end does not exist" 대신 빈 답이 온다 — 주입 전의 빈 답은
+        // 처리기가 없는 것과 같다(재QA 2 B1). 주입한 뒤의 빈 답은 그대로 오류다.
+        if (!inject || !(isMissing(first) || isEmpty(first))) {
+          if (isMissing(first) || isTimeout(first)) await checkHere();
+          return first;
+        }
         // 묻는 사이에 탭이 옮겨 갔을 수 있다(로그인 리다이렉트) — 주입 직전에 다시 본다.
         await checkHere();
         const target: { tabId: number } | { tabId: number; frameIds: number[] } = frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] };
@@ -237,7 +362,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: 'MAIN' });
         }
         await deps.sleep(500);
-        return send<T>(message, timeoutMs, frameId);
+        const second = await send<T>(message, timeoutMs, frameId);
+        // 읽는 사이 탭이 로그인·사이트 밖 화면으로 넘어갔으면(카카오 accounts 리다이렉트) 처리기가 없거나 답하지 못한다 —
+        // 그 답을 실패로 넘기지 않고 주소 규칙으로 가른다(로그인이면 탭을 남긴다, 실기기 R4).
+        if (isMissing(second) || isTimeout(second)) await checkHere();
+        return second;
       },
       async frames<T>(files: readonly string[]) {
         const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
@@ -257,6 +386,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       async close() {
         if (!owned || closed) return;
         closed = true;
+        runTabs.delete(tabId);
         await deps.chrome.tabs.remove(tabId).catch(() => undefined);
       },
     };
@@ -266,9 +396,58 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     async open(url) {
       const created = await deps.chrome.tabs.create({ url, active: false });
       if (typeof created.id !== 'number') throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭을 열지 못했습니다.', { url });
+      runTabs.add(created.id);
       return page(created.id, true);
     },
     attach: (tabId) => page(tabId, false),
+    async find(urlPattern) {
+      // 옛 borrowOpenTab과 같은 고르기: 다 그려진 탭을, 로그인·인증 화면이 아닌 것부터 — 로그인 탭에 자격을 채우지 않게.
+      const candidates = (await deps.chrome.tabs.query({ url: urlPattern })).filter((tab) => typeof tab.id === 'number');
+      const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ''));
+      const picked = usable.find((tab) => tab.status === 'complete') ?? usable[0] ?? null;
+      return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
+    },
+    async keep(key, keptPage) {
+      await handToOperator(keptPage.tabId);
+      const prior = kept.get(key);
+      const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
+      if (!tab) {
+        kept.delete(key);
+      } else {
+        kept.set(key, { tabId: keptPage.tabId, url: tab.url ?? '' });
+      }
+      // 먼저 남긴 탭은 아직 우리 것일 때만 닫는다(운영자가 로그인해 쓰는 탭은 두고 잊는다).
+      if (prior && prior.tabId !== keptPage.tabId && (await stillOurs(prior))) {
+        await deps.chrome.tabs.remove(prior.tabId).catch(() => undefined);
+      }
+    },
+    async reclaimKept(key) {
+      const entry = kept.get(key);
+      if (!entry) return null;
+      kept.delete(key);
+      if (!(await stillOurs(entry))) return null;
+      runTabs.add(entry.tabId);
+      return page(entry.tabId, true);
+    },
+    isRunTab: (tabId) => runTabs.has(tabId),
+    async guardDialogs(hosts) {
+      const scripting = deps.chrome.scripting;
+      dialogGuardSerial += 1;
+      const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
+      const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
+      let registered = false;
+      if (matches.length > 0 && scripting.registerContentScripts) {
+        registered = await scripting.registerContentScripts([
+          { id, matches, js: [DIALOG_GUARD_FILE], world: 'MAIN', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
+          { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: 'ISOLATED', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
+        ]).then(() => true, () => false);
+      }
+      return async () => {
+        if (!registered) return;
+        registered = false;
+        await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => undefined);
+      };
+    },
     async fetchText(url, init) {
       try {
         const response = await deps.fetch(url, { credentials: 'include', redirect: 'error', ...init });
@@ -278,6 +457,14 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       }
     },
   };
+}
+
+function isEmpty(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { error?: unknown }).error === 'empty_response';
+}
+
+function isTimeout(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { error?: unknown }).error === 'timeout';
 }
 
 function isMissing(value: unknown): boolean {

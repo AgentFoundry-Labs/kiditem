@@ -1,3 +1,4 @@
+import { mallRejectedCredentials } from '@kiditem/shared/mall-login';
 import { RuntimeError, isRuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import { callPage } from './page-call';
@@ -49,11 +50,12 @@ export interface LoginSpec {
 }
 
 /**
+ * `rejected`: 눌렀더니 몰이 거절 문장으로 답했다(화면이 어디로 넘어갔든, 실기기 R5).
  * `ok`: 눌렀고 폼이 사라졌다. `no_form`: 로그인 폼이 없었다(이미 로그인됐거나 폼이 아닌 화면). `form_remains`: 눌렀는데
  * 폼이 남았다(`mallMessage`가 있으면 몰의 말). `verification_required`: 본인확인 화면. `unconfirmed`: 폼을 다 채우지
  * 못했거나 화면을 들여다보지 못했다.
  */
-export type LoginStatus = 'ok' | 'no_form' | 'form_remains' | 'verification_required' | 'unconfirmed';
+export type LoginStatus = 'ok' | 'no_form' | 'form_remains' | 'rejected' | 'verification_required' | 'unconfirmed';
 export interface LoginOutcome {
   status: LoginStatus;
   mallMessage?: string;
@@ -65,7 +67,8 @@ export interface LoginDeps {
 }
 
 type FillAnswer = { state?: string; reason?: string; method?: string };
-type FrameProbe = { loginForm?: boolean };
+/** `filledHere`: 폼을 채운 그 문서다. `submitObserved`: 그 문서에서 막히지 않은 보내기가 나갔다(login-fill.js, 재QA 3 D1). */
+type FrameProbe = { loginForm?: boolean; filledHere?: boolean; submitObserved?: boolean };
 const NO_ANSWER = Symbol('no-answer');
 
 /** 이 탭에서 로그인한다. 던지지 않는다 — 탭이 닫힌 것처럼 부를 수 없는 일만 그대로 넘긴다. */
@@ -79,10 +82,12 @@ export async function ensureLoggedIn(
   const guard = loginGuard(spec);
   const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
   if (isVerification(spec, await safeUrl(page))) return { status: 'verification_required' };
-  // 로그인 폼이 이미 보이거나 로그인 주소면 그 화면에서 채운다. 아니면 로그인 입구로 간다.
+  // 로그인 폼이 이미 보이거나 로그인 주소면 그 화면에서 채운다. 아니면 로그인 입구로 간다 — 화면을 들여다보지 못한
+  // 탭(새로 연 about:blank는 확장 권한 밖이라 살피기가 던진다)도 폼을 찾지 못한 것이다(KID-380 D1).
   const first = await loginFrame(page);
-  if (first === null && !isLogin(spec, await safeUrl(page))) {
-    await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true });
+  if (typeof first !== 'number' && !isLogin(spec, await safeUrl(page))) {
+    // 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다 — 느린 로그인 화면이 시간을 다 쓰지 않게(실기기 R1).
+    await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
   }
 
   const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
@@ -106,6 +111,8 @@ export async function ensureLoggedIn(
         await pageCall(page, 'login.watchDialogs', {}, guard, spec, frameId, 'main');
       }
       const filled = await pageCall<FillAnswer>(page, 'login.fill', { values }, guard, spec, frameId, 'isolated');
+      // 캡차가 붙은 폼 — 칸만 채웠고 운영자가 풀어야 보내진다(재QA 3 D1). 막지 않고 탭을 운영자에게 남긴다.
+      if (filled?.state === 'verification_required') return { status: 'verification_required' };
       if (filled?.state === 'submitted') return afterSubmit(page, spec, guard, frameId, deps);
     }
     await deps.sleep(FILL_RETRY_MS);
@@ -123,22 +130,31 @@ async function afterSubmit(page: TabPage, spec: LoginSpec, guard: PageGuard, fra
     .find(Boolean);
   const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
   if (isVerification(spec, await safeUrl(page))) return { status: 'verification_required', ...withMessage };
-  return (await formRemains(page, deps)) ? { status: 'form_remains', ...withMessage } : { status: 'ok', ...withMessage };
+  // 몰이 거절 문장으로 답했으면 화면이 어디로 넘어갔든 거절이다(실기기 R5 — 아이스크림몰은 /error/loginExpired로 넘긴다).
+  if (mallMessage && mallRejectedCredentials(mallMessage)) return { status: 'rejected', ...withMessage };
+  const remains = await formRemains(page, deps);
+  const status: LoginStatus = remains === 'unknown' ? 'unconfirmed' : remains ? 'form_remains' : 'ok';
+  return { status, ...withMessage };
 }
 
 /**
- * 누른 뒤 로그인 폼이 남았는가(옛 `loginFormRemainsAfterSubmit`). 답이 없으면(알림 창·무거운 스크립트로 멈춘 화면) 남은
- * 것으로 본다. 화면이 넘어가는 중이라 못 보면 잠시 뒤 다시 보고, 마지막으로 본 화면에 폼이 있을 때만 남았다고 한다.
+ * 누른 뒤 로그인 폼이 남았는가(옛 `loginFormRemainsAfterSubmit`). 화면이 넘어가는 중이라 못 보면 잠시 뒤 다시 보고, 마지막으로
+ * 본 화면에 폼이 있을 때만 남았다고 한다. 끝내 들여다보지 못하면(답 없음 — 알림 창·무거운 스크립트로 멈춘 화면, 권한 밖 주소)
+ * `unknown`이다: 거절로 단정하지 않는다 — `form_remains`는 몰 차단(`credentials_rejected`)으로 이어진다(리뷰 MUST 3).
  */
-async function formRemains(page: TabPage, deps: LoginDeps): Promise<boolean> {
-  let lastSeen = false;
+async function formRemains(page: TabPage, deps: LoginDeps): Promise<boolean | 'unknown'> {
+  let lastSeen: boolean | 'unknown' = 'unknown';
   for (let check = 0; check < REMAIN_CHECKS; check += 1) {
     if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
     const probed = await probe(page);
-    if (probed === NO_ANSWER) return true;
-    if (probed === null || probed.length === 0) continue;
-    lastSeen = probed.some((frame) => frame.result?.loginForm === true);
-    if (!lastSeen) return false;
+    if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
+    const withForm = probed.filter((frame) => frame.result?.loginForm === true);
+    // 폼이 채운 그 문서에 그대로 있고 보내기가 나가지 않았다 — 몰의 폼 검사(form_check·캡차)가 막아 아무것도 보내지 않았다.
+    // 거절로 단정하지 않는다(재QA 3 D1): 보내기가 실제로 나간 뒤 폼이 다시 온 것만 form_remains다.
+    lastSeen = withForm.some((frame) => !(frame.result.filledHere === true && frame.result.submitObserved !== true))
+      ? true
+      : withForm.length > 0 ? 'unknown' : false;
+    if (lastSeen === false) return false;
   }
   return lastSeen;
 }
@@ -217,8 +233,9 @@ function within<T>(work: Promise<T>, ms: number): Promise<T | typeof NO_ANSWER> 
 
 /**
  * 로그인 화면에서 멈춘 실행의 까닭(`SITE_LOGIN_REQUIRED` details.reason). 웹이 이것으로 자동 로그인을 막을지 정한다:
- * `credentials_rejected`(눌렀는데 폼이 남았다 — `mallMessage`가 거절 문장이면 막는다), `no_credentials`(자격을 받지
- * 못했다), `verification_required`(본인확인), `login_unconfirmed`(로그인했는지 확인하지 못했다).
+ * `credentials_rejected`(눌렀는데 폼이 남은 것을 봤다 — 몰의 말과 상관없이 막는다, KID-380 D10), `no_credentials`(자격을 받지
+ * 못했다), `verification_required`(본인확인), `login_unconfirmed`(로그인했는지 확인하지 못했다 — 누른 뒤 화면을
+ * 들여다보지 못한 것도 여기다. 막지 않고 한 시간 간격만 지킨다).
  */
 export type LoginFailureReason = 'credentials_rejected' | 'no_credentials' | 'verification_required' | 'login_unconfirmed';
 
@@ -247,7 +264,7 @@ export function createSiteLoginGate(credentials: SiteCredentials | null | undefi
       return await call();
     } catch (error) {
       if (!isLoginRequired(error)) throw error;
-      throw outcome.status === 'form_remains'
+      throw outcome.status === 'form_remains' || outcome.status === 'rejected'
         ? loginFailure(error, 'credentials_rejected', outcome.mallMessage)
         : loginFailure(error, 'login_unconfirmed');
     }
@@ -263,6 +280,10 @@ export type SiteLoginGate = ReturnType<typeof createSiteLoginGate>;
  *   같은 호출을 다시 한다.
  */
 export interface SiteSignIn {
+  /** 로그인 화면과 로그인 뒤 화면의 호스트(`LoginSpec.hosts`) — 수집 탭이 불러오는 중 알림 창 가드를 거는 곳(KID-380 D4). */
+  readonly hosts: readonly string[];
+  /** 로그인 화면 주소인가 — 수집 탭이 그 화면에 닿으면 다 그려지기를 기다리지 않는다(실기기 R1). */
+  isLoginUrl(url: string): boolean;
   onPage<T>(page: TabPage, returnTo: string, read: () => Promise<T>): Promise<T>;
   beforeTab<T>(tabs: TabPages, call: () => Promise<T>): Promise<T>;
 }
@@ -272,12 +293,27 @@ export function createSiteSignIn(spec: LoginSpec, credentials: SiteCredentials |
   // 자격이 없으면 문턱이 로그인을 부르지 않는다(`no_credentials`).
   const login = (page: TabPage) => ensureLoggedIn(page, spec, credentials as SiteCredentials, deps);
   return {
+    hosts: spec.hosts,
+    isLoginUrl: (url) => isLogin(spec, url),
     onPage: (page, returnTo, read) => withLogin(read, async () => {
       const outcome = await login(page);
       if (outcome.status !== 'verification_required') await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS });
       return outcome;
     }),
-    beforeTab: (tabs, call) => withLoginTab(withLogin, call, () => tabs.open('about:blank'), login),
+    beforeTab: async (tabs, call) => {
+      // 로그인하러 여는 탭도 불러오는 중 알림 창 가드를 건다(KID-380 D4) — 로그인을 부를 때만.
+      let releaseGuard: (() => Promise<void>) | null = null;
+      try {
+        // 지난 실행이 운영자에게 남긴 로그인 탭이 있으면 그 탭을 다시 쓰고, 이번에도 남기면 적어 둔다(리뷰 SHOULD 3).
+        const site = new URL(spec.loginUrl).origin;
+        return await withLoginTab(withLogin, call, async () => {
+          releaseGuard = await tabs.guardDialogs(spec.hosts);
+          return (await tabs.reclaimKept(site)) ?? tabs.open('about:blank');
+        }, login, (kept) => tabs.keep(site, kept));
+      } finally {
+        await (releaseGuard as (() => Promise<void>) | null)?.();
+      }
+    },
   };
 }
 
@@ -290,6 +326,8 @@ export async function withLoginTab<T>(
   call: () => Promise<T>,
   open: () => Promise<TabPage>,
   login: (page: TabPage) => Promise<LoginOutcome>,
+  /** 운영자에게 남긴 탭을 적는 곳(다음 실행이 다시 쓴다). */
+  onKept?: (page: TabPage) => Promise<void>,
 ): Promise<T> {
   let opened: TabPage | null = null;
   try {
@@ -299,11 +337,20 @@ export async function withLoginTab<T>(
     });
     return result;
   } catch (error) {
-    if (leftForOperator(error)) opened = null;
+    // 로그인 화면에 닿지 못한 빈 탭은 운영자가 할 일이 없다 — 남기지 않는다(KID-380 D1).
+    if (leftForOperator(error) && opened && !(await isBlank(opened))) {
+      await onKept?.(opened);
+      opened = null;
+    }
     throw error;
   } finally {
     await (opened as TabPage | null)?.close();
   }
+}
+
+async function isBlank(page: TabPage): Promise<boolean> {
+  const url = await safeUrl(page);
+  return url === '' || url.startsWith('about:');
 }
 
 function isLoginRequired(error: unknown): error is RuntimeError {
@@ -313,12 +360,14 @@ function isLoginRequired(error: unknown): error is RuntimeError {
 const REASON_TEXT: Record<LoginFailureReason, string> = {
   no_credentials: '',
   credentials_rejected: ' 저장된 아이디·비밀번호로 로그인하지 못했습니다',
-  verification_required: ' 본인 인증이 필요합니다. 열린 탭에서 인증한 뒤 다시 수집해 주세요.',
+  // 주문 수집·목록 가져오기가 함께 쓰는 문장이라 동작 말은 중립으로 둔다(KID-381).
+  verification_required: ' 본인 인증이 필요합니다. 열린 탭에서 인증한 뒤 다시 시도해 주세요.',
   login_unconfirmed: ' 저장된 계정으로 로그인했는지 확인하지 못했습니다. 열린 탭을 확인해 주세요.',
 };
 
 function loginFailure(error: RuntimeError, reason: LoginFailureReason, mallMessage?: string): RuntimeError {
-  const text = reason === 'credentials_rejected' ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ''}.` : REASON_TEXT[reason];
+  // 몰의 말은 details.mallMessage(→ result.login.mallMessage)에만 싣는다 — 오류 문장은 레지스트리 말 그대로(실기기 R5).
+  const text = reason === 'credentials_rejected' ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
   return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text}`, {
     ...(error.details ?? {}),
     reason,

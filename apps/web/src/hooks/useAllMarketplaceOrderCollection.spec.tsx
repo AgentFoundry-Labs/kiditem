@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => ({
   closeTabs: vi.fn(),
   ensureLogin: vi.fn(),
   startOperation: vi.fn(),
+  /** 옛 attempt 경로로 보낼 몰(실행 kind 몰이라도). 옛 경로에 끝까지 남는 몰은 카카오 하나라 몰 여럿이 필요한 경우에 쓴다. */
+  oldPath: new Set<string>(),
+  /** 실행 기다림·이어 읽기를 바꿔 끼울 때(KID-380 D7). 없으면 원래 함수. */
+  collectOperation: null as null | ((...args: unknown[]) => Promise<unknown>),
+  followUpOperation: null as null | ((...args: unknown[]) => Promise<unknown>),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -39,6 +44,17 @@ vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
   ensureMallLoginForRun: mocks.ensureLogin,
   toastNoNewOrders: vi.fn(),
 }));
+vi.mock('@/app/(orders)/order-collection/lib/mall-order-operation-source', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/app/(orders)/order-collection/lib/mall-order-operation-source')>();
+  return {
+    ...original,
+    collectsViaMallOrderOperation: (mallKey: string) => !mocks.oldPath.has(mallKey) && original.collectsViaMallOrderOperation(mallKey),
+    collectMallOrderOperation: (...args: Parameters<typeof original.collectMallOrderOperation>) =>
+      (mocks.collectOperation ? mocks.collectOperation(...args) : original.collectMallOrderOperation(...args)),
+    followUpMallOrderOperation: (...args: Parameters<typeof original.followUpMallOrderOperation>) =>
+      (mocks.followUpOperation ? mocks.followUpOperation(...args) : original.followUpMallOrderOperation(...args)),
+  };
+});
 vi.mock('@/lib/operation-start', () => ({ requestOperationStart: mocks.startOperation, requestOperationCancel: vi.fn() }));
 vi.mock('@/app/(orders)/order-collection/lib/coupang-directship-collection', () => ({
   createCoupangDirectshipCollector: () => mocks.collectDirectship,
@@ -64,6 +80,7 @@ import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query
 import { ORDER_COLLECTION_IN_PROGRESS_MESSAGE } from '@/app/(orders)/order-collection/lib/order-collection-source-owner';
 import { COUPANG_DIRECT_MALL_KEY } from '@/app/(orders)/order-collection/lib/coupang-directship-collection-source';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import { OrderOperationFailure, OrderOperationStillRunning } from '@/app/(orders)/order-collection/lib/order-operations';
 
 const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   key,
@@ -78,14 +95,18 @@ const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   updatedAt: null,
 });
 
-// 옛 attempt 경로에 남은 몰(나머지 몰이 옮겨질 때까지)만 쓴다 — 1차 몰 4곳은 실행 kind 경로다(KID-359 H3).
+// 옛 attempt 경로의 몰 여럿 — 카카오 말고는 실행 kind 몰이라 이 스펙이 옛 경로로 돌린다(mocks.oldPath).
 const MALLS = [
+  mall('kakao', '카카오'),
   mall('kidsnote', '키즈노트'),
   mall('onch', '온채널'),
   mall('haebub-mall', '해법몰'),
-  mall('kkomangse', '꼬망세'),
-  mall('lotte-on', '롯데ON'),
+  mall('art09', '아트공구'),
 ];
+
+beforeEach(() => {
+  mocks.oldPath.clear();
+});
 
 /** 몰 키마다 서버가 따로 내어 주는 진행 중 시도. */
 function attemptFor(mallKey: string, index: number) {
@@ -126,6 +147,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    for (const account of MALLS) mocks.oldPath.add(account.key);
     const byMall = new Map(MALLS.map((account, index) => [account.key, attemptFor(account.key, index)]));
     const byId = new Map([...byMall.values()].map((attempt) => [attempt.attemptId, attempt]));
     mocks.begin.mockImplementation(async (_idempotencyKey: string, input: { mallKey: string }) => {
@@ -164,19 +186,19 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   });
 
   /**
-   * 해법몰 · 도매꾹은 주문이 없다는 확인을 받으면 확장이 시도를 빈 스냅샷으로 끝낸다. 끝난 시도에
+   * 주문이 없다는 확인을 받은 옛 경로 몰(해법몰 · 도매꾹이 그랬다)은 확장이 시도를 빈 스냅샷으로 끝낸다. 끝난 시도에
    * '신규 주문 없음' 실패를 또 보내면 서버가 거절해(SOURCE_TERMINAL_REPLAY_CONFLICT) 수집
    * 실패로 남는다.
    */
   it('⭐ 확장이 빈 스냅샷으로 끝낸 시도는 실패로 다시 닫지 않는다 — 신규 주문 없음으로 남긴다', async () => {
-    const haebub = mall('haebub-mall', '해법몰');
-    const completed = { ...attemptFor('haebub-mall', 7), state: 'COMPLETE' as const };
-    mocks.begin.mockResolvedValue({ ...attemptFor('haebub-mall', 7), attemptToken: '33333333-3333-4333-8333-333333333333' });
+    const kakao = mall('kakao', '카카오');
+    const completed = { ...attemptFor('kakao', 7), state: 'COMPLETE' as const };
+    mocks.begin.mockResolvedValue({ ...attemptFor('kakao', 7), attemptToken: '33333333-3333-4333-8333-333333333333' });
     mocks.readAttempt.mockResolvedValue(completed);
     mocks.collectMall.mockResolvedValue({ rowCount: 0, masked: false, date: '2026-09-14' });
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [haebub],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
       }),
@@ -197,17 +219,17 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 이미 수집하는 중이지 실패한 것이 아니므로, 실패 수에도 활동 기록에도 남기지 않는다.
    */
   it('⭐ 이미 진행 중인 몰은 실패가 아니라 진행 중으로 센다 — 실패 기록을 남기지 않는다', async () => {
-    const kidsnote = mall('kidsnote', '키즈노트');
+    const kakao = mall('kakao', '카카오');
     const logActivity = vi.fn();
     mocks.begin.mockRejectedValue(new ApiError(
       409,
       'ATTEMPT_IN_PROGRESS',
       ORDER_COLLECTION_IN_PROGRESS_MESSAGE,
-      {  attemptId: attemptFor('kidsnote', 9).attemptId },
+      {  attemptId: attemptFor('kakao', 9).attemptId },
     ));
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity,
@@ -235,21 +257,21 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 그렇지 않으면 확장의 연결 끊김이 "오류"로, 서버의 시도 분실이 일반 문장으로, 우리 요청 한도가 고장으로 읽힌다.
    */
   it.each([
-    ['확장의 "Failed to fetch"는 로그인 필요로', new TypeError('Failed to fetch'), 'login', '키즈노트 연결이 끊겼습니다'],
+    ['확장의 "Failed to fetch"는 로그인 필요로', new TypeError('Failed to fetch'), 'login', '카카오 연결이 끊겼습니다'],
     [
       '서버가 시도를 모르면 내부 오류 문장으로(안심시키는 말로 덮지 않는다)',
       new ApiError(404, 'NOT_FOUND', 'Not Found', { reason: 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND' }),
       'error',
-      '키즈노트 수집이 KidItem 내부 오류로 멈췄습니다(시도를 찾지 못함)',
+      '카카오 수집이 KidItem 내부 오류로 멈췄습니다(시도를 찾지 못함)',
     ],
-    ['우리 API 한도(429)는 잠시 미룬 것으로', new ApiError(429, 'RATE_LIMITED', null), 'error', '요청이 한꺼번에 몰려 키즈노트 수집을 잠시 미뤘습니다'],
+    ['우리 API 한도(429)는 잠시 미룬 것으로', new ApiError(429, 'RATE_LIMITED', null), 'error', '요청이 한꺼번에 몰려 카카오 수집을 잠시 미뤘습니다'],
   ] as const)('⭐ %s', async (_name, failure, kind, text) => {
     const logActivity = vi.fn();
-    const kidsnote = mall('kidsnote', '키즈노트');
+    const kakao = mall('kakao', '카카오');
     mocks.collectMall.mockRejectedValue(failure);
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity,
@@ -261,7 +283,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
       await result.current.collectAll();
     });
 
-    expect(logActivity).toHaveBeenCalledWith(kind, '키즈노트', expect.stringContaining(text));
+    expect(logActivity).toHaveBeenCalledWith(kind, '카카오', expect.stringContaining(text));
   });
 
   /**
@@ -270,8 +292,8 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    */
   it('⭐ 설정되지 않은 몰은 실패가 아니라 미설정으로 센다', async () => {
     const logActivity = vi.fn();
-    const missing = mall('kidsnote', '키즈노트');
-    const ready = mall('onch', '온채널');
+    const missing = mall('kakao', '카카오');
+    const ready = mall('kidsnote', '키즈노트');
     mocks.begin.mockImplementation(async (_key: string, input: { mallKey: string }) => {
       if (input.mallKey === missing.key) {
         throw new ApiError(404, 'NOT_FOUND', null, { reason: 'ORDER_COLLECTION_MALL_NOT_FOUND' });
@@ -309,16 +331,16 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 알림이 남는다("멈춰도 실패 알림이 남지 않는다" 위반).
    */
   it('⭐ 운영자 중단으로 끊긴 수집은 실패로 닫지 않는다 — /fail 도 실패 활동도 없다', async () => {
-    const kidsnote = mall('kidsnote', '키즈노트');
+    const kakao = mall('kakao', '카카오');
     const logActivity = vi.fn();
     mocks.begin.mockResolvedValue({
-      ...attemptFor('kidsnote', 6),
+      ...attemptFor('kakao', 6),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
-    mocks.readAttempt.mockResolvedValue(attemptFor('kidsnote', 6));
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 6));
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity,
@@ -343,18 +365,18 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   });
 
   it('중단이 아닌 진짜 실패는 그대로 COLLECTION_FAILED 로 닫고 활동에 남긴다', async () => {
-    const kidsnote = mall('kidsnote', '키즈노트');
+    const kakao = mall('kakao', '카카오');
     const logActivity = vi.fn();
     mocks.begin.mockResolvedValue({
-      ...attemptFor('kidsnote', 6),
+      ...attemptFor('kakao', 6),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
-    mocks.readAttempt.mockResolvedValue(attemptFor('kidsnote', 6));
-    mocks.fail.mockResolvedValue({ ...attemptFor('kidsnote', 6), state: 'FAILED' });
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 6));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 6), state: 'FAILED' });
     mocks.collectMall.mockRejectedValue(new Error('주문 표를 읽지 못했습니다.'));
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity,
@@ -367,10 +389,10 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     });
 
     expect(mocks.fail).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptId: attemptFor('kidsnote', 6).attemptId }),
+      expect.objectContaining({ attemptId: attemptFor('kakao', 6).attemptId }),
       expect.objectContaining({ code: 'COLLECTION_FAILED' }),
     );
-    expect(logActivity).toHaveBeenCalledWith('error', '키즈노트', expect.any(String));
+    expect(logActivity).toHaveBeenCalledWith('error', '카카오', expect.any(String));
   });
 
   /**
@@ -378,21 +400,21 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 사장님이 로그인하고 돌아와도 카드가 '중단'만 보여 다시 시작할 수 없었다.
    */
   it('⭐ 로그인·인증이 필요해 멈춘 시도는 그 자리에서 끝낸다 — 카드가 30분 동안 수집 중으로 서 있지 않게', async () => {
-    const lotteOn = mall('lotte-on', '롯데ON');
+    const kakao = mall('kakao', '카카오');
     const logActivity = vi.fn();
     mocks.begin.mockResolvedValue({
-      ...attemptFor('lotte-on', 9),
+      ...attemptFor('kakao', 9),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
     // 확장이 로그인 화면을 만나 돌아왔을 뿐, owner 의 시도는 아직 돌고 있다.
-    mocks.readAttempt.mockResolvedValue(attemptFor('lotte-on', 9));
-    mocks.fail.mockResolvedValue({ ...attemptFor('lotte-on', 9), state: 'FAILED' });
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 9));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 9), state: 'FAILED' });
     mocks.collectMall.mockRejectedValue(
-      Object.assign(new Error('롯데ON 로그인이 필요합니다.'), { errorCode: 'login_required' }),
+      Object.assign(new Error('카카오 로그인이 필요합니다.'), { errorCode: 'login_required' }),
     );
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [lotteOn],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity,
@@ -405,10 +427,10 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     });
 
     expect(mocks.fail).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptId: attemptFor('lotte-on', 9).attemptId }),
+      expect.objectContaining({ attemptId: attemptFor('kakao', 9).attemptId }),
       expect.objectContaining({ code: 'LOGIN_REQUIRED' }),
     );
-    expect(logActivity).toHaveBeenCalledWith('login', '롯데ON', expect.any(String));
+    expect(logActivity).toHaveBeenCalledWith('login', '카카오', expect.any(String));
   });
 
   /**
@@ -416,16 +438,16 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 남기는 것은 본인인증 · OTP 처럼 그 화면에서 사람이 끝내야 하는 몰뿐이다.
    */
   it('⭐ 수집이 끝나면 그 몰의 탭을 닫는다 — 인증이 필요한 몰만 남긴다', async () => {
-    const kidsnote = mall('kidsnote', '키즈노트');
+    const kakao = mall('kakao', '카카오');
     mocks.begin.mockResolvedValue({
-      ...attemptFor('kidsnote', 8),
+      ...attemptFor('kakao', 8),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
-    mocks.readAttempt.mockResolvedValue({ ...attemptFor('kidsnote', 8), state: 'COMPLETE' });
+    mocks.readAttempt.mockResolvedValue({ ...attemptFor('kakao', 8), state: 'COMPLETE' });
     mocks.collectMall.mockResolvedValue({ rowCount: 2, masked: false, date: '2026-09-14' });
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity: vi.fn(),
@@ -434,24 +456,24 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     );
 
     await act(async () => {
-      await result.current.collectAccounts([kidsnote]);
+      await result.current.collectAccounts([kakao]);
     });
 
-    expect(mocks.closeTabs).toHaveBeenCalledWith('order-extension', attemptFor('kidsnote', 8).attemptId);
+    expect(mocks.closeTabs).toHaveBeenCalledWith('order-extension', attemptFor('kakao', 8).attemptId);
   });
 
   it('인증이 필요한 몰의 탭은 사람이 끝내야 하므로 닫지 않는다', async () => {
-    const gsshop = mall('gs-shop', 'GS샵');
+    const kakao = mall('kakao', '카카오');
     mocks.begin.mockResolvedValue({
-      ...attemptFor('gs-shop', 8),
+      ...attemptFor('kakao', 8),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
-    mocks.readAttempt.mockResolvedValue(attemptFor('gs-shop', 8));
-    mocks.fail.mockResolvedValue({ ...attemptFor('gs-shop', 8), state: 'FAILED' });
-    mocks.collectMall.mockRejectedValue(new Error('GS샵 SMS 인증이 필요합니다.'));
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 8));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 8), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(new Error('카카오 본인 인증이 필요합니다.'));
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [gsshop],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity: vi.fn(),
@@ -460,7 +482,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     );
 
     await act(async () => {
-      await result.current.collectAccounts([gsshop]);
+      await result.current.collectAccounts([kakao]);
     });
 
     expect(mocks.closeTabs).not.toHaveBeenCalled();
@@ -472,15 +494,15 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 통과하므로, 아무것도 안 한 몰이 '수집 완료'로 세어지면 안 된다.
    */
   it('⭐ 시작만 되고 수집 절차가 남지 않은 몰은 성공으로 세지 않는다', async () => {
-    const kidsnote = mall('kidsnote', '키즈노트');
+    const kakao = mall('kakao', '카카오');
     mocks.begin.mockResolvedValue({
-      ...attemptFor('kidsnote', 8),
+      ...attemptFor('kakao', 8),
       state: 'COMPLETE' as const,
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity: vi.fn(),
@@ -490,7 +512,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
 
     let batch: { successCount: number; failedCount: number } | null = null;
     await act(async () => {
-      batch = await result.current.collectAccounts([kidsnote]);
+      batch = await result.current.collectAccounts([kakao]);
     });
 
     expect(batch).toMatchObject({ successCount: 0, failedCount: 1 });
@@ -499,14 +521,14 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   });
 
   it('주문이 없는데 시도가 아직 진행 중이면 신규 주문 없음으로 닫는다', async () => {
-    const kidsnote = mall('kidsnote', '키즈노트');
-    mocks.begin.mockResolvedValue({ ...attemptFor('kidsnote', 8), attemptToken: '33333333-3333-4333-8333-333333333333' });
-    mocks.readAttempt.mockResolvedValue(attemptFor('kidsnote', 8));
-    mocks.fail.mockResolvedValue({ ...attemptFor('kidsnote', 8), state: 'FAILED' });
+    const kakao = mall('kakao', '카카오');
+    mocks.begin.mockResolvedValue({ ...attemptFor('kakao', 8), attemptToken: '33333333-3333-4333-8333-333333333333' });
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 8));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 8), state: 'FAILED' });
     mocks.collectMall.mockResolvedValue({ rowCount: 0, masked: false, date: '2026-09-14' });
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
       }),
@@ -518,7 +540,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     });
 
     expect(mocks.fail).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptId: attemptFor('kidsnote', 8).attemptId }),
+      expect.objectContaining({ attemptId: attemptFor('kakao', 8).attemptId }),
       expect.objectContaining({ code: 'NO_NEW_ORDERS' }),
     );
   });
@@ -532,8 +554,8 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
  * 약속을 기다리던 전체 수집도 풀리지 않는다.
  */
 describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
-  const lotteOn = mall('lotte-on', '롯데ON');
-  const attempt = attemptFor('lotte-on', 5);
+  const kakao = mall('kakao', '카카오');
+  const attempt = attemptFor('kakao', 5);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -548,7 +570,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
   function renderOneMall() {
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [lotteOn],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
       }),
@@ -560,7 +582,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
   /** 카드의 공용 컨트롤이 시작하는 것과 같은 자리 — 이 시작만 운영자에게 결과를 알린다. */
   async function startFromCard(result: ReturnType<typeof renderOneMall>) {
     await act(async () => {
-      await result.current.mallCollectionAdapter(lotteOn).start?.({}, { status: undefined });
+      await result.current.mallCollectionAdapter(kakao).start?.({}, { status: undefined });
     });
   }
 
@@ -588,7 +610,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
     });
 
     expect(toast.success).toHaveBeenCalledTimes(1);
-    expect(toast.success).toHaveBeenCalledWith('롯데ON 수집 완료');
+    expect(toast.success).toHaveBeenCalledWith('카카오 수집 완료');
     expect(toast.info).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });
@@ -644,7 +666,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
 describe('useAllMarketplaceOrderCollection — 원천이 달라도 집계는 같다', () => {
   const ROCKET_CHANNEL_ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
   const DIRECT_ATTEMPT_ID = '00000000-0000-4000-8000-0000000000d1';
-  const kidsnote = mall('kidsnote', '키즈노트');
+  const kakao = mall('kakao', '카카오');
   const directship = mall(COUPANG_DIRECT_MALL_KEY, '쿠팡직배송');
 
   const directAttempt = (state: 'RUNNING' | 'COMPLETE' = 'RUNNING') => ({
@@ -670,10 +692,10 @@ describe('useAllMarketplaceOrderCollection — 원천이 달라도 집계는 같
     vi.clearAllMocks();
     window.localStorage.clear();
     mocks.begin.mockResolvedValue({
-      ...attemptFor(kidsnote.key, 1),
+      ...attemptFor(kakao.key, 1),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
-    mocks.readAttempt.mockResolvedValue(attemptFor(kidsnote.key, 1));
+    mocks.readAttempt.mockResolvedValue(attemptFor(kakao.key, 1));
     mocks.beginDirect.mockResolvedValue(directAttempt());
     mocks.readDirectAttempt.mockResolvedValue(directAttempt('COMPLETE'));
     mocks.collectMall.mockResolvedValue({ rowCount: 2, masked: false, date: '2026-09-14' });
@@ -683,7 +705,7 @@ describe('useAllMarketplaceOrderCollection — 원천이 달라도 집계는 같
   function collectBoth() {
     return renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [kidsnote, directship],
+        mallAccounts: [kakao, directship],
         rocketChannelAccountId: ROCKET_CHANNEL_ACCOUNT_ID,
         addGeneratedFile: vi.fn(),
       }),
@@ -783,5 +805,126 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
     expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/convert`, expect.objectContaining({ body: JSON.stringify({ operationId: OPERATION_ID }) }));
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey: 'kidkids', collectedRows: 2 }));
     expect(toast.success).toHaveBeenCalledTimes(0);
+  });
+
+  // 2차 몰(KID-380)도 사이트가 옮겨지면 같은 길이다 — 옛 시도·옛 로그인·옛 확장 액션 없이 실행을 연다.
+  it.each([
+    ['kidsnote', '키즈노트'],
+    ['onch', '온채널'],
+    ['haebub-mall', '해법몰'],
+  ] as const)('⭐ %s(2차 몰)는 옛 시도 없이 실행을 시작해 실행 id로 변환한다', async (mallKey, mallName) => {
+    const account = { ...mall(mallKey, mallName), channelAccountId: '6a1d3f8e-8b0f-4a4f-8e72-1b5c3c9f2d22' };
+    vi.mocked(apiClient.get).mockResolvedValue({
+      operation: {
+        id: OPERATION_ID, kind: 'orders.mall_orders', status: 'succeeded', lockKeys: [],
+        plan: { mallKey }, progress: null, result: { rowCount: 2, mallKey }, window: null,
+        errorCode: null, errorMessage: null, startedAt: '2026-09-26T00:00:00.000Z', finishedAt: '2026-09-26T00:00:03.000Z',
+        expiresAt: '2026-09-26T00:30:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null,
+      },
+    });
+    const addGeneratedFile = vi.fn();
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({ mallAccounts: [account], rocketChannelAccountId: null, addGeneratedFile }),
+      { wrapper },
+    );
+    let batch: Awaited<ReturnType<typeof result.current.collectAll>> | undefined;
+    await act(async () => {
+      batch = await result.current.collectAll();
+    });
+
+    expect(batch).toMatchObject({ successCount: 1, failedCount: 0 });
+    expect(mocks.begin).not.toHaveBeenCalled();
+    expect(mocks.collectMall).not.toHaveBeenCalled();
+    expect(mocks.ensureLogin).not.toHaveBeenCalled();
+    expect(mocks.startOperation).toHaveBeenCalledWith('orders.mall_orders', expect.objectContaining({ mallKey, channelAccountId: account.channelAccountId }), expect.anything());
+    expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/convert`, expect.objectContaining({ body: JSON.stringify({ operationId: OPERATION_ID }) }));
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey, collectedRows: 2 }));
+  });
+
+  it('⭐ 화면 기다림이 끝나 "아직 끝나지 않았습니다"로 적은 활동 행은 실행이 끝나면 실제 결과로 바뀐다(KID-380 D7)', async () => {
+    const logActivity = vi.fn();
+    const clearMallErrorActivity = vi.fn();
+    let finish!: (value: unknown) => void;
+    let fail!: (error: unknown) => void;
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = () => new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+    try {
+      const { result } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn(), logActivity, clearMallErrorActivity }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+      });
+      expect(logActivity).toHaveBeenCalledWith('error', '키드키즈', expect.stringContaining('아직 끝나지 않았습니다'), OPERATION_ID);
+      clearMallErrorActivity.mockClear();
+      logActivity.mockClear();
+
+      // 실행이 로그인 화면에서 멈춰 끝났다 — 그 행을 로그인 필요로 바꿔 적는다.
+      const operation = {
+        id: OPERATION_ID, kind: 'orders.mall_orders', status: 'failed', lockKeys: [], plan: { mallKey: 'kidkids' }, progress: null,
+        result: null, window: null, errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '키드키즈 로그인이 필요합니다.',
+        startedAt: null, finishedAt: '2026-09-26T00:05:00.000Z', expiresAt: null, attempts: 1, maxAttempts: 1, scheduledFor: null,
+      } as unknown as ConstructorParameters<typeof OrderOperationFailure>[0];
+      await act(async () => {
+        fail(new OrderOperationFailure(operation, '키드키즈 로그인이 필요합니다.'));
+        await Promise.resolve();
+      });
+      // 그 실행의 행만 지운다 — 같은 몰의 더 새 실행 행은 두고(리뷰 SHOULD 5).
+      expect(clearMallErrorActivity).toHaveBeenCalledWith('키드키즈', OPERATION_ID);
+      expect(logActivity).toHaveBeenCalledWith('login', '키드키즈', expect.any(String), OPERATION_ID);
+      expect(finish).toBeTypeOf('function');
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
+  });
+
+  it('이어 읽은 실행이 성공으로 끝나면 오류 행을 지우고, 주문이 없었으면 신규 주문 없음으로 적는다(KID-380 D7)', async () => {
+    const logActivity = vi.fn();
+    const clearMallErrorActivity = vi.fn();
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = async () => ({ rowCount: 0, masked: false, date: '2026-09-26' });
+    try {
+      const { result } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn(), logActivity, clearMallErrorActivity }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(clearMallErrorActivity).toHaveBeenLastCalledWith('키드키즈', OPERATION_ID);
+      expect(logActivity).toHaveBeenLastCalledWith('empty', '키드키즈', undefined, OPERATION_ID);
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
+  });
+
+  it('화면이 내려가면 이어 읽던 실행 기다림을 모두 끊는다(리뷰 SHOULD 5)', async () => {
+    let followUpSignal: AbortSignal | null = null;
+    mocks.collectOperation = async () => { throw new OrderOperationStillRunning(OPERATION_ID); };
+    mocks.followUpOperation = (input) => {
+      followUpSignal = (input as { signal: AbortSignal }).signal;
+      return new Promise(() => undefined);
+    };
+    try {
+      const { result, unmount } = renderHook(
+        () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile: vi.fn() }),
+        { wrapper },
+      );
+      await act(async () => {
+        await result.current.collectAll();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(followUpSignal).not.toBeNull();
+      expect(followUpSignal!.aborted).toBe(false);
+      unmount();
+      expect(followUpSignal!.aborted).toBe(true);
+    } finally {
+      mocks.collectOperation = null;
+      mocks.followUpOperation = null;
+    }
   });
 });

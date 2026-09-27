@@ -300,6 +300,11 @@
       "import": "./dist/channels-operations.js",
       "require": "./dist/channels-operations.cjs"
     },
+    "./mall-login": {
+      "types": "./dist/mall-login.d.ts",
+      "import": "./dist/mall-login.js",
+      "require": "./dist/mall-login.cjs"
+    },
     "./order-collection-source": {
       "types": "./dist/order-collection-source.d.ts",
       "import": "./dist/order-collection-source.js",
@@ -493,6 +498,9 @@
       ],
       "collection-start": [
         "dist/collection-start.d.ts"
+      ],
+      "mall-login": [
+        "dist/mall-login.d.ts"
       ],
       "order-collection-source": [
         "dist/order-collection-source.d.ts"

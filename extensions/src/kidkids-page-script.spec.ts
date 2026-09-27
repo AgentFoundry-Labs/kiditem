@@ -24,22 +24,30 @@ const DOWN4_HTML = `<html><body><table>
 
 type Answer = { status: string; orders?: Array<Record<string, unknown>> };
 
-function load(options: { pageUrl?: string; listUrl?: string; listHtml?: string; down4Html?: string } = {}) {
+function load(options: { pageUrl?: string; listUrl?: string; listHtml?: string; down4Html?: string; listStatus?: number; listContentType?: string } = {}) {
   const requests: Array<{ url: string; init?: RequestInit }> = [];
   const isolated: Record<string, unknown> = {};
   const body = (html: string) => ({ html });
   const fetch = async (url: string, init?: RequestInit) => {
     requests.push({ url, ...(init ? { init } : {}) });
     const isList = url.startsWith('/logis/logis_index.htm');
+    const status = isList ? (options.listStatus ?? 200) : 200;
+    const contentType = isList ? (options.listContentType ?? 'text/html') : 'text/html';
     return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: new Headers({ 'content-type': contentType }),
       url: isList ? (options.listUrl ?? LIST_URL) : `https://partner.kidkids.net${url}`,
       arrayBuffer: async () => body(isList ? (options.listHtml ?? LIST_HTML) : (options.down4Html ?? DOWN4_HTML)),
     };
   };
+  // 문자셋 이름을 적고 본문을 그대로 돌려준다 — 머리에 문자셋이 없으면 EUC-KR이어야 한다(옛 규칙).
+  const labels: string[] = [];
   class EucKrDecoder {
-    constructor(readonly label: string) {}
+    constructor(readonly label: string) {
+      labels.push(label.toLowerCase());
+    }
     decode(buffer: { html: string }) {
-      expect(this.label).toBe('euc-kr');
       return buffer.html;
     }
   }
@@ -50,7 +58,7 @@ function load(options: { pageUrl?: string; listUrl?: string; listHtml?: string; 
     EucKrDecoder,
   );
   const handler = (isolated.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => Promise<Answer>>)['kidkids.orders']!;
-  return { handler, requests };
+  return { handler, requests, labels };
 }
 
 describe('kidkids orders page script', () => {
@@ -94,6 +102,35 @@ describe('kidkids orders page script', () => {
     expect(sent).toEqual({ from_logis_index: 'Y', mul_id: '|od-1|od-4', mode: 'xls_down' });
     // 출고예정등록(sales_process.htm, 실주문 상태 변경)은 보내지 않는다.
     expect(requests.some((request) => request.url.includes('sales_process'))).toBe(false);
+  });
+
+  it('서비스 점검 안내 화면이면 0건 성공이 아니라 maintenance(KID-380 D3)', async () => {
+    await expect(load({ listHtml: '<html><body><h2>서비스 점검 안내</h2><p>보다 나은 서비스를 위해 시스템 점검을 진행하고 있습니다.</p></body></html>' }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'maintenance' });
+  });
+
+  it('목록 표가 있는 빈 목록은 점검 예고 배너가 있어도 0건 성공이다(리뷰 SHOULD 1)', async () => {
+    const empty = '<html><body><div>시스템 점검 안내: 10월 1일 새벽</div><table><tr><td>선택</td><td>주문번호</td><td>주문일</td><td>상품명</td></tr></table></body></html>';
+    await expect(load({ listHtml: empty }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'ok', orders: [] });
+  });
+
+  it('응답 머리의 문자셋을 따른다 — 키드키즈는 2xx에도 charset=utf-8을 보낸다(재QA 3 D2), 머리에 없을 때만 EUC-KR', async () => {
+    const utf8 = load({ listContentType: 'text/html; charset=utf-8' });
+    await expect(utf8.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'ok' });
+    expect(utf8.labels[0]).toBe('utf-8');
+
+    const bare = load({ listContentType: 'text/html' });
+    await expect(bare.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'ok' });
+    expect(new Set(bare.labels)).toEqual(new Set(['euc-kr']));
+  });
+
+  it('출고관리 목록이 404 UTF-8 점검 화면이면 응답의 문자셋으로 읽어 maintenance, 다른 HTTP 오류는 상태를 싣고 failed(실기기 R2)', async () => {
+    const maintenance = load({ listStatus: 404, listContentType: 'text/html; charset=UTF-8', listHtml: '<html><body><h1>서비스 점검 안내</h1></body></html>' });
+    await expect(maintenance.handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'maintenance' });
+    expect(maintenance.labels).toEqual(['utf-8']);
+
+    const broken = load({ listStatus: 502, listHtml: '<html><body>Bad Gateway</body></html>' });
+    await expect(broken.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'failed', httpStatus: 502 });
+    expect(broken.labels).toEqual(['euc-kr']);
   });
 
   it('로그인한 빈 목록은 0건 성공, 본인확인 화면·로그인 리다이렉트는 login_required', async () => {

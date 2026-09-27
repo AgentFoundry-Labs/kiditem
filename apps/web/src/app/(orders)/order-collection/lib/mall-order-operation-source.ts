@@ -1,14 +1,16 @@
 'use client';
 
-import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
+import { OperationFinishResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
 import {
-  isMallOrderOperationMall,
+  isMallOrdersManualUploadMall,
+  mallOrderSiteCapability,
   MALL_ORDERS_KIND,
   MallOrdersResultSchema,
 } from '@kiditem/shared/orders-operations';
 import type { QueryKey } from '@tanstack/react-query';
 import { COLLECTION_IDLE_POLL_MS } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
+import { mallAutoLoginBlock } from '@/lib/mall-login-block';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { loadOperationLoginCredentials, noteOperationLoginFailure, type OperationLoginCredentials } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
@@ -16,9 +18,13 @@ import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { toastNoNewOrders, type BrowserMallCollectionResult } from './browser-mall-collection';
-import type { MallOrderCollectionStartInput } from './mall-order-collection-source';
+import { collectsViaOrderAttempt, type MallOrderCollectionStartInput } from './mall-order-collection-source';
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
-import { readOrderOperationContinuation, regenerateOrderOperationSource } from './order-collection-api';
+import {
+  readOrderOperationContinuation,
+  regenerateOrderOperationSource,
+  type OrderCollectionConversionResult,
+} from './order-collection-api';
 import { addSeenOrderKeys } from './order-detect';
 import {
   detectOrderCollectionSessionExtensionStatus,
@@ -27,7 +33,6 @@ import {
 import { ICECREAM_MALL_KEY, todayYmd, type ConversionHistoryItem } from './order-collection-page-model';
 import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
 import {
-  ORDER_CAPTURE_OPERATION_CAPABILITY,
   OrderOperationFailure,
   orderOperationsQueryKey,
   readOrderOperations,
@@ -35,11 +40,11 @@ import {
 } from './order-operations';
 
 /**
- * 이 몰은 실행 kind `orders.mall_orders`로 수집한다(KID-359 H3 1차 몰). 나머지 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다.
- * 어느 경로인지는 이 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
+ * 이 몰은 실행 kind `orders.mall_orders`로 수집한다 — 옛 attempt 경로에 남은 카카오(KID-379)가 아니면 모두다.
+ * 어느 경로인지는 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
  */
 export function collectsViaMallOrderOperation(mallKey: string): boolean {
-  return isMallOrderOperationMall(mallKey);
+  return !collectsViaOrderAttempt(mallKey);
 }
 
 /** 시작이 연 실행을 절차에 넘기는 것. 절차가 끝날 때까지 기다리고 변환한다. */
@@ -54,6 +59,43 @@ const NOT_CONFIGURED = {
   outcome: 'refused',
   message: '설정에서 사용을 켜고 저장한 뒤 수집할 수 있습니다.',
 } as const;
+
+/** 로그인 폼 채우기(15초)와 탭 이동(로그인 뒤 돌아가기 포함 60초) — 사이트 읽기 제한 위에 얹는다. */
+const LOGIN_AND_NAVIGATION_MS = 75_000;
+/** 옛 확장 응답 제한. 몰 실행 기다림은 이보다 짧지 않다. */
+const MIN_OPERATION_WAIT_MS = 200_000;
+/**
+ * 엑셀·blob 몰마다 확장 사이트의 읽기 제한(`extensions/src/sites/<mall>`의 READ_TIMEOUT_MS). GS샵은 읽기 → SMS 인증을
+ * 운영자가 마칠 때까지 최대 10분(`waitForOperator`) → 배송관리로 돌아가기 30초 → 다시 읽기다(KID-380 T2).
+ */
+const MALL_READ_MS: Readonly<Record<string, number>> = {
+  kkomangse: 90_000,
+  'teacher-mall': 120_000,
+  boribori: 120_000,
+  always: 120_000,
+  'lotte-on': 120_000,
+  'gs-shop': 140_000 + 600_000 + 30_000 + 140_000,
+};
+/**
+ * 정해 둔 한도: 도매꾹은 엑셀 생성을, 키즈노트(읽기 190초)·해법몰(180초)은 읽기 위에 실행 안 로그인(폼 15초 + 이동 30초 두 번)을
+ * 더 기다린다(KID-380 T1). 여기에도 표에도 없는 몰(1차 셋·온채널)은 옛 확장 응답 제한 200초다.
+ */
+const FIXED_WAIT_MS: Readonly<Record<string, number>> = { domeggook: 260_000, kidsnote: 260_000, 'haebub-mall': 260_000 };
+
+/** 웹이 몰 실행 하나를 기다리는 시간. 사이트가 운영자를 기다리는 동안 먼저 포기하지 않게 사이트 제한에서 계산한다. */
+export function mallOrderOperationWaitMs(mallKey: string): number {
+  return FIXED_WAIT_MS[mallKey] ?? Math.max(MIN_OPERATION_WAIT_MS, (MALL_READ_MS[mallKey] ?? 0) + LOGIN_AND_NAVIGATION_MS);
+}
+
+/** 도는 실행이 운영자를 기다리면(`progress.attention`, 확장 `attentionReporter`) 카드 안내. 아니면 null. */
+export function mallOrderAttentionText(operation: OperationView | null, mallName: string): string | null {
+  const attention = operation?.progress?.attention;
+  if (!attention || typeof attention !== 'object' || Array.isArray(attention)) return null;
+  const { kind, label } = attention as Record<string, unknown>;
+  if (kind !== 'verification') return null;
+  const step = typeof label === 'string' && label ? label : '인증';
+  return `${mallName} 탭에서 ${step}을 마쳐 주세요 — 마치면 자동으로 이어집니다`;
+}
 
 function forMall(mallKey: string) {
   return (operation: OperationView) => operation.plan?.mallKey === mallKey;
@@ -105,6 +147,10 @@ export function mallOrderOperationSource({
         .find((operation) => operation.status === 'executing' || operation.status === 'prepared');
       return running ? { attemptId: running.id, scopeLabel: account.name } : null;
     },
+    readAttention: (status) => mallOrderAttentionText(
+      mallOperations(status, account.key).find((operation) => operation.status === 'executing' || operation.status === 'prepared') ?? null,
+      account.name,
+    ),
     readStatusIdentity: (status) =>
       mallOperations(status, account.key).map((operation) => `${operation.id}:${operation.status}`).join(','),
     start: async (input) => {
@@ -121,7 +167,13 @@ export function mallOrderOperationSource({
         collectionMode: 'browser',
         selectionMode,
         ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
-      }, { capability: ORDER_CAPTURE_OPERATION_CAPABILITY, ...(credentials ? { credentials } : {}) });
+      // 그 몰 사이트를 가진 빌드에만 보낸다 — 옛 빌드는 서버가 실행을 연 뒤 RUNTIME_PLAN_INVALID로 끝났다(KID-380 T4).
+      }, {
+        capability: mallOrderSiteCapability(account.key),
+        ...(credentials ? { credentials } : {}),
+        // 막힌 몰이라 자격을 싣지 않았다 — 멈춘 실행의 까닭을 blocked로 적게 한다(실기기 R7).
+        ...(!credentials && mallAutoLoginBlock(account.key) ? { loginBlocked: true } : {}),
+      });
       if (outcome.outcome === 'refused') return outcome;
       if (outcome.outcome === 'running') return { outcome: 'running', attemptId: outcome.operationId };
       await handOff({ extensionId: extension.extensionId, operationId: outcome.operationId, input, collectionDate });
@@ -147,6 +199,15 @@ export function mallOrderOperationSource({
  * 생성 파일을 남긴다. 주문이 없던 수집은 변환하지 않는다. 실패는 `OrderOperationFailure`로 올라가 몰 카드가
  * 로그인 필요·인증 필요·실패를 가른다.
  */
+type MallOrderOperationCollectInput = Readonly<{
+  account: OrderCollectionMallAccount;
+  operationId: string;
+  collectionDate: string;
+  addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
+  signal?: AbortSignal;
+  sleep?: (ms: number) => Promise<void>;
+}>;
+
 export async function collectMallOrderOperation({
   account,
   operationId,
@@ -154,18 +215,14 @@ export async function collectMallOrderOperation({
   addGeneratedFile,
   signal,
   sleep,
-}: Readonly<{
-  account: OrderCollectionMallAccount;
-  operationId: string;
-  collectionDate: string;
-  addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
-  signal?: AbortSignal;
-  sleep?: (ms: number) => Promise<void>;
-}>): Promise<BrowserMallCollectionResult> {
+  timeoutMs,
+  pollMs,
+}: MallOrderOperationCollectInput & Readonly<{ timeoutMs?: number; pollMs?: number }>): Promise<BrowserMallCollectionResult> {
   const operation = await waitForOrderOperation(MALL_ORDERS_KIND, operationId, {
     source: 'order_collection_mall',
-    // 옛 확장 응답 제한과 같다(도매꾹은 엑셀 생성을 기다린다).
-    timeoutMs: account.key === 'domeggook' ? 260_000 : 200_000,
+    // 사이트 제한에서 계산한다 — GS샵은 SMS 인증을 운영자가 마칠 때까지 기다린다(KID-380).
+    timeoutMs: timeoutMs ?? mallOrderOperationWaitMs(account.key),
+    ...(pollMs ? { pollMs } : {}),
     ...(signal ? { signal } : {}),
     ...(sleep ? { sleep } : {}),
   }).catch((error: unknown) => {
@@ -203,4 +260,56 @@ export async function collectMallOrderOperation({
   // 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
   if (continuation && continuation.selectedRowKeys.length > 0) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
   return { rowCount: collectedRows, masked, date: collectionDate };
+}
+
+/** 기다림이 끝난 뒤 이어 읽는 상한 — 실행 임대(30분)와 같다. */
+export const MALL_ORDER_FOLLOW_UP_MS = 30 * 60_000;
+/**
+ * 이어 읽는 간격. 몰 하나에 분당 네 번이다 — 몰 27곳이 한꺼번에 기다림을 넘겨도 탭당 분당 108번으로 API 제한(600) 안이다.
+ */
+export const MALL_ORDER_FOLLOW_UP_POLL_MS = 15_000;
+
+/**
+ * 화면의 기다림 상한이 지나 `OrderOperationStillRunning`으로 끝난 실행을 이어 읽는다(KID-380 D7). 실행이 끝나면
+ * `collectMallOrderOperation`과 같은 길로 결과를 낸다 — 성공이면 변환해 생성 파일을 남기고, 실패면 `OrderOperationFailure`.
+ * 화면은 이 결과로 "아직 끝나지 않았습니다" 활동 행을 바꿔 적는다.
+ */
+export function followUpMallOrderOperation(input: MallOrderOperationCollectInput): Promise<BrowserMallCollectionResult> {
+  return collectMallOrderOperation({ ...input, timeoutMs: MALL_ORDER_FOLLOW_UP_MS, pollMs: MALL_ORDER_FOLLOW_UP_POLL_MS });
+}
+
+/**
+ * 수동 엑셀 업로드(KID-380 T4): 파일(과 엑셀 암호)을 그 몰의 업로드 라우트에 올리면 서버가 `orders.mall_orders`
+ * 실행 하나(`collectionMode: 'manual-upload'`)를 돌린다. 화면은 그 실행 id로 기다린 뒤 실행 id로 변환 파일을 받는다 —
+ * attempt도, 브라우저에 남기는 시도 힌트도 없다. 변환기가 신규 주문이 없다고 하면(204) null.
+ */
+export async function uploadMallOrderFile({
+  account,
+  file,
+  password,
+  sleep,
+}: Readonly<{
+  account: OrderCollectionMallAccount;
+  file: File;
+  password?: string;
+  sleep?: (ms: number) => Promise<void>;
+}>): Promise<(OrderCollectionConversionResult & { operationId: string }) | null> {
+  if (!isMallOrdersManualUploadMall(account.key)) {
+    throw new Error(`${account.name} 업로드 변환은 아직 준비 중입니다.`);
+  }
+  const form = new FormData();
+  form.append('file', file);
+  if (password) form.append('password', password);
+  const { operation } = await apiClient.uploadParsed(
+    `/api/orders/collection/malls/${encodeURIComponent(account.key)}/upload`,
+    OperationFinishResponseSchema,
+    form,
+  );
+  const done = await waitForOrderOperation(MALL_ORDERS_KIND, operation.id, {
+    source: 'order_collection_mall',
+    ...(sleep ? { sleep } : {}),
+  });
+  const converted = await regenerateOrderOperationSource(done.id);
+  if (converted.outputRows === 0 || converted.blob.size === 0) return null;
+  return { ...converted, operationId: done.id };
 }

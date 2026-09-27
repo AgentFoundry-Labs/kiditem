@@ -52,10 +52,20 @@ describe('sites/<mall> readListings (1차 몰 넷, KID-363 L2)', () => {
 
   it('형식 변화는 MALL_CONTRACT_CHANGED(단계), 수 변화·틀린 목록은 SOURCE_SNAPSHOT_INVALID, 시간 초과는 SITE_REQUEST_FAILED', async () => {
     const answer = (errorCode: string, stage?: string) => fakeTabPages({ answer: () => ({ ok: true, value: { success: false, errorCode, ...(stage ? { stage } : {}) } }) });
-    expect(await failure(createKidkidsSite(answer('mall_contract_drift', 'download').tabs).readListings(PLAN)))
-      .toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'download' } });
+    const drift = await failure(createKidkidsSite(answer('mall_contract_drift', 'download').tabs).readListings(PLAN));
+    expect(drift).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'download', field: 'download' } });
+    // 단계 표시는 details에만 — 운영자에게 보이는 문장에는 싣지 않는다(재QA 3 D3).
+    expect(drift.message).toBe('키드키즈 상품 목록 형식이 바뀌어 가져오기를 멈췄습니다.');
     expect(await failure(createKidkidsSite(answer('mall_total_changed').tabs).readListings(PLAN))).toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID' });
     expect(await failure(createKidkidsSite(answer('mall_invalid_snapshot', 'row_limit').tabs).readListings(PLAN))).toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID' });
     expect(await failure(createKidkidsSite(answer('mall_timeout').tabs).readListings(PLAN))).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'timeout' } });
+  });
+
+  it('점검 안내면 SITE_REQUEST_FAILED{reason: maintenance}와 점검 문장 — 형식 변경으로 멈추지 않는다(KID-380 D3)', async () => {
+    const maintenance = fakeTabPages({ answer: () => ({ ok: true, value: { success: false, errorCode: 'mall_maintenance' } }) });
+    const error = await failure(createKidkidsSite(maintenance.tabs).readListings(PLAN));
+    expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'maintenance', mallKey: 'kidkids' } });
+    expect(error.message).toBe('키드키즈 사이트가 점검 중입니다. 점검이 끝난 뒤 다시 가져와 주세요.');
+    expect(maintenance.log).toContain('close 7');
   });
 });

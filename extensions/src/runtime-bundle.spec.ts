@@ -1,3 +1,5 @@
+import { MALL_ADMIN_LISTING_MALL_KEYS, mallListingSiteCapability } from '@kiditem/shared/mall-admin-listings';
+import { MALL_ORDER_OPERATION_MALLS, mallOrderSiteCapability } from '@kiditem/shared/orders-operations';
 import { describe, expect, it } from 'vitest';
 import { OPERATION_STATUSES } from '@kiditem/shared/operation';
 import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
@@ -86,20 +88,34 @@ describe('committed runtime bundle', () => {
     );
 
     expect(registered).toHaveLength(1);
-    expect(runtimeListeners).toEqual(['onMessage', 'onConnect']);
+    // 알림 창 가드 짝의 "수집 탭인가" 물음(실기기 R1) · 팝업 COLLECT_CURRENT · keepalive 포트.
+    expect(runtimeListeners).toEqual(['onMessage', 'onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
     // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
     // operationLoginV1: operation.start의 credentials를 받는 빌드(KID-377) — 웹은 이 표시가 있을 때만 자격을 싣는다.
-    expect(registered[0].capabilities).toEqual({
+    // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드에 사이트가 있는 몰마다(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
+    const { mallSite, kinds } = Object.entries(registered[0].capabilities).reduce(
+      (split, [name, value]) => {
+        (/^mall(Order|Listing)Site\./.test(name) ? split.mallSite : split.kinds)[name] = value;
+        return split;
+      },
+      { mallSite: {} as Record<string, boolean>, kinds: {} as Record<string, boolean> },
+    );
+    expect(kinds).toEqual({
       operationRuntime: true,
       sourcingOperationKindsV1: true,
       orderCaptureOperationKindsV1: true,
       channelsOperationKindsV1: true,
       operationLoginV1: true,
+      operationLoginBlockedV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       sellpiaOperationKindsV1: true,
     });
+    expect(mallSite).toEqual(Object.fromEntries([
+      ...MALL_ORDER_OPERATION_MALLS.map((mallKey) => [mallOrderSiteCapability(mallKey), true]),
+      ...MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => [mallListingSiteCapability(mallKey), true]),
+    ]));
 
     const start = registered[0].externalActions['operation.start'];
     await expect(start.handle(start.validate({ action: 'operation.start', kind: 'Bad' }), 'local')).resolves.toMatchObject({

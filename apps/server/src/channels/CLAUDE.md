@@ -125,8 +125,7 @@ sync, registration, matching, and capacity behavior is executable in
   → `adapter/out`. Application and domain may use NestJS as described in the
   server guide; queries preserve the same owner and IO boundaries.
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
-  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자 옛
-  경로)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
 - Listing-day traffic coverage comes from Advertising's succeeded
   `advertising.wing_traffic` operations, read through Advertising's transaction
   function `advertising/transaction/wing-traffic-coverage` (KID-362); Channels
@@ -186,20 +185,18 @@ sync, registration, matching, and capacity behavior is executable in
   only listings this source created that left the list, all with
   `lastOperationId`. Its statuses carry the `사방넷 ` prefix and fold with a
   Sabangnet-basis warning.
-- The mall admin listing import is one import per mall
-  account for malls Sabangnet does not carry (`mall_admin_listings`, readers in
-  `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
+- The mall admin listing import is one `channels.mall_admin_listings`
+  operation per mall account (KID-363 first batch, KID-381 the other 12) for
+  every mall with a reader in `@kiditem/shared/mall-admin-listings`, holding
+  `account:<channelAccountId>`; there is no attempt path. Finalize publishes that mall's
   products as listings with one option whose `itemName` is the Sellpia name the
   mall keeps, and turns off only listings this source created that left the
   list (shared `deactivateCatalogAbsence` with source scope). Its `sellerSku`
   is the mall's own seller code when the mall shows one, so matching may also
   link by the option name. Its list carries no barcode or model number column.
   Statuses come from the mall itself and fold without a Sabangnet warning.
-  The first batch (`MALL_ADMIN_LISTING_OPERATION_MALLS`: icecream-mall,
-  kidkids, art09, domeggook) runs as `channels.mall_admin_listings`
-  operations (KID-363) holding `account:<channelAccountId>`; their source read
-  shows operations only. The other malls stay on the old attempt path until
-  they move; both paths publish through the same repository function.
+  Rows carry `lastOperationId`; the run writes no `source_import_runs` and no
+  alert rows (policy B), and the source read shows each mall's operations.
 - Sellpia manual-match evidence is one `channels.sellpia_manual_match`
   operation (KID-363) holding `resource:sellpia:login`, so it never overlaps
   another Sellpia-login kind. Its plan freezes the sorted active Sellpia codes;

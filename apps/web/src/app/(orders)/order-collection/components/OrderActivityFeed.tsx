@@ -20,10 +20,15 @@ interface ActivityMeta {
 /** 수집·전송 외 이벤트(주문 없음/오류/로그인·인증 필요)도 피드에 뜨게 하는 이벤트 타입. */
 export interface OrderActivityEvent {
   id: string;
-  kind: 'empty' | 'error' | 'login' | 'auth';
+  /** `reused`: 이미 변환된 주문을 다시 수집해 생성 파일을 새로 만들지 않았다(실기기 R6). */
+  kind: 'empty' | 'error' | 'login' | 'auth' | 'reused';
   mallName: string;
   message: string;
   at: number;
+  /** 이 행을 남긴 실행(실행 kind 몰). 그 실행이 끝나면 이 행만 바꿔 적는다(KID-380 D7). */
+  runId?: string;
+  /** `reused` 행의 주문 수. */
+  orders?: number;
 }
 
 /**
@@ -117,6 +122,15 @@ function eventMeta(e: OrderActivityEvent): ActivityMeta {
       fg: 'text-red-600',
       title: `오류 · ${e.mallName}`,
       sub: `${operatorReason(e.message, '주문 수집 작업이 실패했습니다.')} · ${shortTime(e.at)}`,
+    };
+  }
+  if (e.kind === 'reused') {
+    return {
+      icon: <Inbox size={15} />,
+      bg: 'bg-slate-100',
+      fg: 'text-slate-500',
+      title: `이미 변환된 주문 ${formatNumber(e.orders ?? 0)}건 (파일 재사용) · ${e.mallName}`,
+      sub: shortTime(e.at),
     };
   }
   return {

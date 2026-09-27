@@ -1,11 +1,8 @@
 (function initializeOrderCollectionFailure(root) {
   "use strict";
 
-  const CONTRACT_PATTERNS = Object.freeze({
-    domeggook: [/생성 요청 모달을? (?:열지|찾지) 못했습니다/],
-    "icecream-mall": [/로그인 후 화면으로 넘어가지 않았습니다/],
-    art09: [/주문목록에서 주문번호를 찾지 못했습니다/],
-  });
+  // KID-379: 옛 몰 소유자 경로(카카오)의 실패 증거. 몰마다의 화면 구조 문구(도매꾹·아이스크림몰·아트공구)와 GS샵 SMS
+  // 인증 분기는 그 몰들이 실행 kind로 옮겨 지웠다(KID-380) — 실행 kind 사이트는 `extensions/src`에서 제 코드를 낸다.
   // 추가 인증 화면을 로그인 화면과 구분하는 패턴. 웹의 `isAuthRequiredMessage` 와
   // 같은 뜻이어야 하므로 한쪽만 고치지 말 것. 맨 "인증" 한 단어는 로그인 안내문에도
   // 흔히 섞여 오므로 넣지 않는다.
@@ -27,29 +24,20 @@
 
   function createEvidence(provider, value) {
     const message = messageOf(value);
-    const providerPatterns = CONTRACT_PATTERNS[provider] || [];
     let code = "unknown_failure";
     let retryable = false;
     let operatorAction = null;
 
     // 인증(SMS/2단계/OTP)은 로그인과 조치가 다르므로 화면에도 "인증"으로 떠야 한다.
-    // 인증 안내문에는 "로그인"이 섞여 오는 경우가 많아, 반드시 로그인 판별보다 먼저
-    // 그리고 몰에 상관없이 본다. 예전에는 이 분기가 gs-shop 에만 걸려 있어서 다른 몰의
-    // 인증 화면이 전부 `login_required` 로 떨어졌다.
+    // 인증 안내문에는 "로그인"이 섞여 오는 경우가 많아, 반드시 로그인 판별보다 먼저 본다.
     if (value?.pendingAuth === true || AUTH_PATTERNS.test(message)) {
       code = "operator_action_required";
       retryable = true;
-      operatorAction = provider === "gs-shop" ? "complete_sms_auth" : "complete_auth";
+      operatorAction = "complete_auth";
     } else if (STABLE_CODES.has(value?.errorCode)) {
       code = value.errorCode;
       retryable = code === "login_required" || code === "operator_action_required" || code === "network_failed";
-      operatorAction = code === "login_required"
-        ? "complete_login"
-        : code === "operator_action_required" && provider === "gs-shop"
-          ? "complete_sms_auth"
-          : null;
-    } else if (providerPatterns.some((pattern) => pattern.test(message))) {
-      code = "provider_contract_changed";
+      operatorAction = code === "login_required" ? "complete_login" : null;
     } else if (
       /failed to fetch|networkerror|network request failed|net::err_/i.test(message)
     ) {

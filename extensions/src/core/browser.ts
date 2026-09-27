@@ -114,10 +114,14 @@ async function openSiteTab(chromeApi: BrowserChrome, origin: string): Promise<{ 
   return { tabId: created.id, opened: true };
 }
 
+const OPERATOR_ACTION_REQUIRED = 'OPERATOR_ACTION_REQUIRED' as const;
+
 /**
- * 운영자가 탭에서 해야 할 일로 끝난 실행인가: 사이트 로그인이 필요하거나(`SITE_LOGIN_REQUIRED`) 탭이 사이트 밖 주소로
- * 옮겨 갔다(`reason: 'unexpected_url'`) — `sites/tab-page`의 `leftForOperator`와 같은 판정(core는 sites를 모른다).
+ * 운영자가 탭에서 해야 할 일로 끝난 실행인가: 사이트 로그인이 필요하거나(`SITE_LOGIN_REQUIRED`) 운영자 조치가 필요하거나
+ * (`OPERATOR_ACTION_REQUIRED`, KID-380) 탭이 사이트 밖 주소로 옮겨 갔다(`reason: 'unexpected_url'`) — `sites/tab-page`의
+ * `leftForOperator`와 같은 판정(core는 sites를 모른다).
  */
 export function operatorMustAct(error: unknown): boolean {
-  return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === 'unexpected_url');
+  return isRuntimeError(error)
+    && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED || error.details?.reason === 'unexpected_url');
 }

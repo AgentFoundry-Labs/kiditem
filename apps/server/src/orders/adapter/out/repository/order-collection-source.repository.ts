@@ -12,7 +12,6 @@ import {
 } from '../../../../common/operator-cancel';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import {
-  BadRequestException,
   ConflictException,
   Inject,
   Injectable,
@@ -31,14 +30,11 @@ import {
 } from '../../../../channels/application/port/in/account/channel-account.port';
 import type { MallChannelKey } from '@kiditem/shared/channel-registry';
 import type {
-  OrderCollectionArtifact,
   OrderCollectionAttempt,
   OrderCollectionAttemptControl,
-  OrderCollectionConfirmedCoverage,
   OrderCollectionMode,
   OrderCollectionPlan,
   OrderCollectionSourcePort,
-  OrderCollectionSourceDownload,
   OrderCollectionSourceSubmission,
 } from '../../../application/port/in/order-collection-source.port';
 
@@ -46,7 +42,6 @@ const SOURCE_TYPE = 'order_collection_mall' as const;
 const PARSER_VERSION = 'order-collection-v1';
 const SOURCE_ALERT_TITLE = '몰 주문 수집 실패';
 const ATTEMPT_EXPIRES_IN_MS = 30 * 60_000;
-const COVERAGE_CAPABLE_MALLS = new Set(['haebub-mall', 'domeggook']);
 const ARTIFACT_SELECT = {
   id: true,
   organizationId: true,
@@ -106,6 +101,11 @@ const LAST_ROW_SELECT = {
 const NO_STATUS_RUNS: StatusRuns = { running: null, lastComplete: null, lastRow: null };
 const LATEST_FIRST = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
 
+/**
+ * KID-379: 옛 주문 attempt 경로의 저장소(`SourceImportRun` `order_collection_mall`). 카카오만 쓴다 — 시작·읽기·몰 상태
+ * 목록·실패·중단. 카카오는 옛 경로의 kind라 실패 알림(`recordTerminalOutcome`)을 그대로 남긴다(실패 알림 정책 B는 실행
+ * kind의 규칙이다). 완료·재변환·원본 다운로드는 없다(KID-380 T4).
+ */
 @Injectable()
 export class OrderCollectionSourceRepository implements OrderCollectionSourcePort {
   constructor(
@@ -248,50 +248,6 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
   }
 
   /**
-   * 공용 시작 컨트롤이 폴링하는 몰별 현재 상태. 진행 중 판정은 begin이 409를 내는
-   * 판정과 같은 규칙이고, 임대가 지난 RUNNING 행은 여기서 끝내지 않고 마지막 시도
-   * 자리에 만료로만 비친다. 끝내는 일은 owner의 쓰기 경로가 한다.
-   */
-  async readSourceStatus(input: {
-    organizationId: string;
-    mallKey: string;
-  }): Promise<OrderCollectionSourceStatus> {
-    return this.prisma.$transaction(async (tx) => {
-      const account = await this.findMallAccount(tx, input.organizationId, input.mallKey);
-      const scope = {
-        organizationId: input.organizationId,
-        sourceType: SOURCE_TYPE,
-        channelAccountId: account.id,
-      } as const;
-
-      // 목록 읽기와 같은 규칙으로 좁힌다(KID-216). 임대가 지난 RUNNING 행은 아무도
-      // 돌리고 있지 않으므로 DB 가 거르고, 칸을 짓는 데 쓰는 열만 읽는다 — 이 조회는
-      // 카드마다 2초로 돌고 `plan` JSONB 는 seenRowKeys 수천 개를 담을 수 있다.
-      return sourceStatusView(account, {
-        running: await tx.sourceImportRun.findFirst({
-          where: {
-            ...scope,
-            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-            expiresAt: { gt: new Date() },
-          },
-          orderBy: [...LATEST_FIRST],
-          select: RUNNING_SELECT,
-        }),
-        lastComplete: await tx.sourceImportRun.findFirst({
-          where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-          orderBy: [{ importedAt: 'desc' }, ...LATEST_FIRST],
-          select: LAST_COMPLETE_SELECT,
-        }),
-        lastRow: await tx.sourceImportRun.findFirst({
-          where: scope,
-          orderBy: [...LATEST_FIRST],
-          select: LAST_ROW_SELECT,
-        }),
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  }
-
-  /**
    * 주문 수집 화면 한 장이 읽는 몰 전체의 현재 상태. 레지스트리 순서로 몰마다 한 칸을
    * 돌려주며, 이 조직에 계정 행이 없는 몰은 범위와 상태를 모두 비운 칸이다(찾지 못한
    * 것이 아니라 아직 설정되지 않은 것이다). 몰 하나짜리 읽기와 같은 판정을 쓰고,
@@ -388,128 +344,6 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
     return byAccount;
   }
 
-  async validateCompletion(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    mallKey: string;
-    source: OrderCollectionSourceSubmission;
-    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
-  }): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const row = await this.findRun(tx, input.organizationId, input.attemptId);
-      if (row.attemptToken !== input.attemptToken) {
-        throw new ConflictException('ATTEMPT_FENCE_LOST');
-      }
-      const plan = readPlan(row.plan);
-      if (plan.mallKey !== input.mallKey) {
-        throw new ConflictException('ORDER_COLLECTION_MALL_MISMATCH');
-      }
-      assertConfirmedCoverage(plan, input.confirmedCoverage);
-      const checksum = submissionHash(input.source.bytes);
-      if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-        if (
-          row.contentChecksum !== checksum ||
-          !sameConfirmedCoverage(row, input.confirmedCoverage) ||
-          !(await this.findArtifact(tx, input.organizationId, row.id))
-        ) {
-          throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
-        }
-        return;
-      }
-      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
-        throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
-      }
-      if (expired(row)) throw new ConflictException('ATTEMPT_EXPIRED');
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  }
-
-  async recordCollectedRows(input: {
-    organizationId: string;
-    attemptId: string;
-    rowCount: number;
-  }): Promise<void> {
-    if (!Number.isInteger(input.rowCount) || input.rowCount < 0) return;
-    await this.prisma.sourceImportRun.updateMany({
-      where: {
-        id: input.attemptId,
-        organizationId: input.organizationId,
-        sourceType: SOURCE_TYPE,
-      },
-      data: { rowCount: input.rowCount },
-    });
-  }
-
-  async completeAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    mallKey: string;
-    source: OrderCollectionSourceSubmission;
-    confirmedCoverage: OrderCollectionConfirmedCoverage | null;
-  }): Promise<OrderCollectionArtifact> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.lock(tx, input.organizationId);
-      const row = await this.findRun(tx, input.organizationId, input.attemptId);
-      if (row.attemptToken !== input.attemptToken) throw new ConflictException('ATTEMPT_FENCE_LOST');
-      const plan = readPlan(row.plan);
-      if (plan.mallKey !== input.mallKey) {
-        throw new ConflictException('ORDER_COLLECTION_MALL_MISMATCH');
-      }
-      assertConfirmedCoverage(plan, input.confirmedCoverage);
-      const submissionChecksum = submissionHash(input.source.bytes);
-      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
-        if (
-          row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS &&
-          row.contentChecksum === submissionChecksum &&
-          sameConfirmedCoverage(row, input.confirmedCoverage)
-        ) {
-          const replay = await this.findArtifact(tx, input.organizationId, row.id);
-          if (replay) return toArtifact(replay);
-        }
-        throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
-      }
-      if (expired(row)) {
-        throw new ConflictException('ATTEMPT_EXPIRED');
-      }
-
-      const artifact = await tx.orderCollectionArtifact.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceImportRunId: row.id,
-          sourceFileName: input.source.fileName,
-          sourceContentType: input.source.contentType,
-          sourceBytes: new Uint8Array(input.source.bytes),
-        },
-      });
-      const completedAt = new Date();
-      await tx.sourceImportRun.update({
-        where: { id: row.id, organizationId: input.organizationId },
-        data: {
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          importedAt: completedAt,
-          lastVerifiedAt: completedAt,
-          verificationCount: { increment: 1 },
-          contentChecksum: submissionChecksum,
-          coverageStartDate: input.confirmedCoverage
-            ? dateOnly(input.confirmedCoverage.startDate)
-            : null,
-          coverageEndDate: input.confirmedCoverage
-            ? dateOnly(input.confirmedCoverage.endDate)
-            : null,
-          errorCode: null,
-          errorMessage: null,
-        },
-      });
-      await this.alerts.resolveSourceFailure(tx, {
-        organizationId: input.organizationId,
-        dedupeKey: alertDedupeKey(row),
-        attemptId: row.id,
-      });
-      return toArtifact(artifact);
-    });
-  }
-
   async failAttempt(input: {
     organizationId: string;
     attemptId: string;
@@ -571,30 +405,6 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
         : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
       return this.attemptView(tx, failed);
     });
-  }
-
-  async readSourceDownload(input: {
-    organizationId: string;
-    artifactId: string;
-  }): Promise<OrderCollectionSourceDownload> {
-    const row = await this.prisma.orderCollectionArtifact.findFirst({
-      where: {
-        id: input.artifactId,
-        organizationId: input.organizationId,
-        sourceImportRun: { organizationId: input.organizationId, sourceType: SOURCE_TYPE },
-      },
-      select: {
-        sourceBytes: true,
-        sourceFileName: true,
-        sourceContentType: true,
-      },
-    });
-    if (!row) throw new NotFoundException('ORDER_COLLECTION_ARTIFACT_NOT_FOUND');
-    return {
-      bytes: Buffer.from(row.sourceBytes),
-      fileName: row.sourceFileName,
-      contentType: row.sourceContentType,
-    };
   }
 
   /**
@@ -713,46 +523,6 @@ function readPlan(value: Prisma.JsonValue | null): OrderCollectionPlan {
   return plan as OrderCollectionPlan;
 }
 
-function assertConfirmedCoverage(
-  plan: OrderCollectionPlan,
-  coverage: OrderCollectionConfirmedCoverage | null,
-): void {
-  if (!coverage) return;
-  if (!isDateOnly(coverage.startDate) || !isDateOnly(coverage.endDate)) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_CONFIRMED_COVERAGE');
-  }
-  if (
-    !COVERAGE_CAPABLE_MALLS.has(plan.mallKey) ||
-    !plan.collectionDate ||
-    coverage.startDate !== plan.collectionDate ||
-    coverage.endDate !== plan.collectionDate
-  ) {
-    throw new ConflictException('ORDER_COLLECTION_COVERAGE_MISMATCH');
-  }
-}
-
-function sameConfirmedCoverage(
-  row: SourceRun,
-  coverage: OrderCollectionConfirmedCoverage | null,
-): boolean {
-  return (
-    (row.coverageStartDate ? businessDateKey(row.coverageStartDate) : null) ===
-      (coverage?.startDate ?? null) &&
-    (row.coverageEndDate ? businessDateKey(row.coverageEndDate) : null) ===
-      (coverage?.endDate ?? null)
-  );
-}
-
-function isDateOnly(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = dateOnly(value);
-  return !Number.isNaN(parsed.getTime()) && businessDateKey(parsed) === value;
-}
-
-function dateOnly(value: string): Date {
-  return new Date(`${value}T00:00:00.000Z`);
-}
-
 function expired(row: Pick<SourceRun, 'status' | 'expiresAt'>): boolean {
   return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
 }
@@ -824,20 +594,6 @@ function alertDedupeKey(row: SourceRun): string {
 
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
-}
-
-function toArtifact(row: ArtifactRow): OrderCollectionArtifact {
-  // 옛 attempt 경로의 artifact는 run id가 있다. 실행 계약 kind가 보관한 artifact(`operationId`)는 이 리더를 거치지
-  // 않는다(KID-359 wave2 H3가 실행 id로 읽는다).
-  if (!row.sourceImportRunId) throw new Error('order collection artifact without source_import_run_id');
-  return {
-    artifactId: row.id,
-    sourceImportRunId: row.sourceImportRunId,
-    sourceFileName: row.sourceFileName,
-    sourceContentType: row.sourceContentType,
-    createdAt: row.createdAt.toISOString(),
-    sourceDownloadAvailable: Boolean(row.sourceBytes),
-  };
 }
 
 function submissionHash(source: Buffer): string {

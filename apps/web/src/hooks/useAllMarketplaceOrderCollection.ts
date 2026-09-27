@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { friendlyError } from '@/lib/api-error';
@@ -11,10 +11,12 @@ import { createBrowserMallCollector } from '@/app/(orders)/order-collection/lib/
 import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
+  followUpMallOrderOperation,
   mallOrderOperationSource,
   type MallOrderOperationHandoff,
 } from '@/app/(orders)/order-collection/lib/mall-order-operation-source';
 import type { OperationListResponse } from '@kiditem/shared/operation';
+import { OrderOperationStillRunning } from '@/app/(orders)/order-collection/lib/order-operations';
 import { isDuplicateGeneratedFile } from '@/app/(orders)/order-collection/lib/generated-file-dedup';
 import {
   loadGeneratedOrderFiles,
@@ -75,6 +77,7 @@ const NOOP_ACTIVITY = (
   _kind: MarketplaceOrderCollectionActivityKind,
   _mallName: string,
   _message?: string,
+  _runId?: string,
 ) => undefined;
 const EMPTY_MALL_ACCOUNTS: OrderCollectionMallAccount[] = [];
 
@@ -140,11 +143,14 @@ type UseAllMarketplaceOrderCollectionOptions = {
   rocketChannelAccountId: string | null;
   addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
   setPreviewId?: (id: string) => void;
-  clearMallErrorActivity?: (mallName: string) => void;
+  /** 그 몰의 조치 행을 지운다. `runId`가 있으면 그 실행이 남긴 행만(KID-380 D7). */
+  clearMallErrorActivity?: (mallName: string, runId?: string) => void;
   logActivity?: (
     kind: MarketplaceOrderCollectionActivityKind,
     mallName: string,
     message?: string,
+    /** 이 행을 남긴 실행(실행 kind 몰). */
+    runId?: string,
   ) => void;
 };
 
@@ -178,9 +184,10 @@ export function useAllMarketplaceOrderCollection({
   } = sessionControls;
   /** The collection each mall's hand-off left running, for a caller that waits on it. */
   const collectionsRef = useRef(new Map<string, Promise<BrowserMallCollectionResult>>());
+  // KID-379: 옛 attempt 경로(카카오)의 브라우저 절차.
   const collectBrowserMall = useMemo(
-    () => createBrowserMallCollector({ mallAccounts, addGeneratedFile, setPreviewId }),
-    [addGeneratedFile, mallAccounts, setPreviewId],
+    () => createBrowserMallCollector({ mallAccounts }),
+    [mallAccounts],
   );
   const collectDirectship = useMemo(
     () => createCoupangDirectshipCollector({
@@ -280,6 +287,7 @@ export function useAllMarketplaceOrderCollection({
           }
         }
         if (activeRun && !stopped && !attentionKind && !ownerReconciliationRequired) {
+          // KID-379: 변환 규격이 없는 카카오 원본은 실패와 함께 남긴다(확장이 이미 적었으면 owner가 같은 답을 돌려준다).
           const unsupported = error instanceof Error && 'sourcePayload' in error
             ? (error as Error & { sourcePayload?: unknown }).sourcePayload
             : undefined;
@@ -385,6 +393,7 @@ export function useAllMarketplaceOrderCollection({
   }, [activateDirectOwnerRun, collectAccount, startCollectionProcedure]);
 
   /**
+   * KID-379: the old attempt adapter, used only by Kakao.
    * One mall's adapter for the shared control. The card that renders it starts,
    * shows and stops the same collection every other browser sees.
    */
@@ -405,6 +414,14 @@ export function useAllMarketplaceOrderCollection({
   const abortOperationRun = useCallback((operationId: string) => {
     operationRunsRef.current.get(operationId)?.abort();
     operationRunsRef.current.delete(operationId);
+  }, []);
+  // 화면이 내려가면 이 브라우저가 기다리거나 이어 읽던 실행 절차를 모두 끊는다(실행 자체는 확장에서 이어진다, 리뷰 SHOULD 5).
+  useEffect(() => {
+    const runs = operationRunsRef.current;
+    return () => {
+      for (const controller of runs.values()) controller.abort();
+      runs.clear();
+    };
   }, []);
 
   /**
@@ -428,7 +445,7 @@ export function useAllMarketplaceOrderCollection({
         },
       });
       clearMallErrorActivity(account.name);
-      if (collected.rowCount === 0) logActivity('empty', account.name);
+      if (collected.rowCount === 0) logActivity('empty', account.name, undefined, operationId);
       return collected;
     } catch (error) {
       if (!signal.aborted) {
@@ -439,9 +456,48 @@ export function useAllMarketplaceOrderCollection({
           friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
         );
         const failureKind = classifyOrderCollectionFailure(error, evidence || message);
-        logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message);
+        logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message, operationId);
       }
       throw error;
+    }
+  }, [addGeneratedFile, clearMallErrorActivity, logActivity, setPreviewId]);
+
+  /**
+   * 화면 기다림 상한이 지나 "아직 끝나지 않았습니다"로 적은 실행을 이어 읽는다(KID-380 D7). 실행이 끝나면 그 몰의 오류 행을
+   * 지우고 실제 결과(신규 주문 없음·로그인 필요·실패)로 다시 적는다. 성공이면 생성 파일도 남긴다. 중단하면 그만 읽는다.
+   */
+  const followUpMallOperation = useCallback(async (
+    account: OrderCollectionMallAccount,
+    { operationId, collectionDate }: MallOrderOperationHandoff,
+    signal: AbortSignal,
+    report: boolean,
+  ): Promise<void> => {
+    try {
+      const collected = await followUpMallOrderOperation({
+        account,
+        operationId,
+        collectionDate,
+        signal,
+        addGeneratedFile: (historyItem) => {
+          addGeneratedFile(historyItem);
+          setPreviewId(historyItem.id);
+        },
+      });
+      clearMallErrorActivity(account.name, operationId);
+      if (collected.rowCount === 0) logActivity('empty', account.name, undefined, operationId);
+      else if (report) toast.success(`${account.name} 수집 완료`);
+    } catch (error) {
+      // 중단했거나 이어 읽기도 끝나지 않았으면 적어 둔 행을 그대로 둔다.
+      if (signal.aborted || error instanceof OrderOperationStillRunning) return;
+      const evidence = orderCollectionFailureEvidence(error);
+      const message = mallCollectionFailureMessage(
+        account.name,
+        evidence,
+        friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
+      );
+      const failureKind = classifyOrderCollectionFailure(error, evidence || message);
+      clearMallErrorActivity(account.name, operationId);
+      logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message, operationId);
     }
   }, [addGeneratedFile, clearMallErrorActivity, logActivity, setPreviewId]);
 
@@ -452,14 +508,23 @@ export function useAllMarketplaceOrderCollection({
   ) => {
     const controller = new AbortController();
     operationRunsRef.current.set(handoff.operationId, controller);
-    const collection = collectMallOperationAccount(account, handoff, controller.signal).finally(() => {
+    const release = () => {
       if (operationRunsRef.current.get(handoff.operationId) === controller) {
         operationRunsRef.current.delete(handoff.operationId);
       }
+    };
+    const collection = collectMallOperationAccount(account, handoff, controller.signal);
+    collection.then(release, (error: unknown) => {
+      // 기다림만 끝났고 실행은 확장에서 이어진다 — 중단 신호를 쥔 채로 이어 읽는다(KID-380 D7).
+      if (error instanceof OrderOperationStillRunning && !controller.signal.aborted) {
+        void followUpMallOperation(account, handoff, controller.signal, report).finally(release);
+        return;
+      }
+      release();
     });
     startCollectionProcedure(account, controller.signal, collection, report);
     return Promise.resolve();
-  }, [collectMallOperationAccount, startCollectionProcedure]);
+  }, [collectMallOperationAccount, followUpMallOperation, startCollectionProcedure]);
 
   /** 실행 kind로 옮긴 몰 카드의 어댑터. 상태는 실행 reader 한 읽기를 네 몰이 나눠 본다. */
   const mallOperationCollectionAdapter = useCallback((
@@ -508,6 +573,7 @@ export function useAllMarketplaceOrderCollection({
       ? startCollectionSource(queryClient, directshipCollectionAdapter(account, false), input)
       : collectsViaMallOrderOperation(account.key)
         ? startCollectionSource(queryClient, mallOperationCollectionAdapter(account, false), input)
+        // KID-379: 카카오만 옛 attempt 어댑터.
         : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
     return {
       outcome,

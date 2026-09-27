@@ -273,6 +273,18 @@ describe('operation.start · operation.cancel 입구', () => {
     expect(JSON.stringify(server.requests)).not.toMatch(/fake-password|fake-id|fake-supplier/);
   });
 
+  it('start의 loginBlocked(웹이 차단 때문에 자격을 싣지 않았다)를 받고 서버에는 싣지 않는다(실기기 R7)', async () => {
+    const server = fakeServer();
+    const actions = createOperationActions({ apiFor: server.apiFor, browser: orgOnlyBrowser() });
+    const response = await send(actions, { action: 'operation.start', kind: 'test.echo', loginBlocked: true });
+    await server.finished;
+    await settle();
+    expect(response).toEqual({ success: true, operationId: OP, reused: false });
+    expect(JSON.stringify(server.requests)).not.toMatch(/loginBlocked/);
+    const wrong = await send(createOperationActions({ apiFor: fakeServer().apiFor, browser: orgOnlyBrowser() }), { action: 'operation.start', kind: 'test.echo', loginBlocked: 'yes' });
+    expect(wrong).toMatchObject({ success: false, errorCode: 'VALIDATION_FAILED' });
+  });
+
   it('credentials 모양이 틀리면 VALIDATION_FAILED로 답하고 그 값을 되돌려 싣지 않는다', async () => {
     const server = fakeServer();
     const actions = createOperationActions({ apiFor: server.apiFor, browser: orgOnlyBrowser() });

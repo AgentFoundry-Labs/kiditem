@@ -55,7 +55,9 @@ describe('sites/sabangnet', () => {
   it('형식 변화는 MALL_CONTRACT_CHANGED, HTTP·시간 초과는 SITE_REQUEST_FAILED(사유)이고 탭을 닫는다', async () => {
     const drift = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'contract_drift', stage: 'code' } }) });
     const driftSite = createSabangnetSite(drift.tabs, async () => undefined);
-    expect(await failure(driftSite.mallListingPage(QUERY, 1))).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'code' } });
+    const driftError = await failure(driftSite.mallListingPage(QUERY, 1));
+    expect(driftError).toMatchObject({ code: 'MALL_CONTRACT_CHANGED', details: { stage: 'code', field: 'code' } });
+    expect(driftError.message).not.toContain('[');
     await driftSite.close();
     expect(drift.log.at(-1)).toBe('close 7');
 

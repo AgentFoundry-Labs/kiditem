@@ -2,11 +2,14 @@ import type {
   MallAdminListingRow,
   MallAdminListingsPlan,
   MallAdminListingsPublication,
+  MallAdminListingsSource,
 } from '@kiditem/shared/mall-admin-listings';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
-import type { MallAdminListingsPort } from '../../in/mall-admin-listings.port';
 
-export interface MallAdminListingsRepositoryPort extends MallAdminListingsPort {}
+/** 몰마다 몰 허브가 고르는 계정 행(실행은 서비스가 실행 계약에서 채운다). */
+export interface MallAdminListingsRepositoryPort {
+  readSource(input: { organizationId: string }): Promise<MallAdminListingsSource>;
+}
 
 export const MALL_ADMIN_LISTINGS_REPOSITORY_PORT = Symbol(
   'MALL_ADMIN_LISTINGS_REPOSITORY_PORT',

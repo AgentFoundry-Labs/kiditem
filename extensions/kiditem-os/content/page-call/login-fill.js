@@ -10,8 +10,20 @@
   "use strict";
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
   calls["login.fill"] = (args) => fillLogin(args && typeof args === "object" ? args.values : null);
+  // 보내기가 실제로 나갔는지(재QA 3 D1): 누를 때 이 문서에 표시를 남기고, 막히지 않은 submit 이벤트를 보면 나간 것으로 적는다.
+  // 몰의 폼 검사(form_check·캡차)가 막으면 같은 문서에 "채웠지만 보내지 않음"이 남는다 — 사이트 로그인 단계가 거절로 단정하지 않는다.
+  // 보내기로 문서가 바뀌면 표시가 없다(새 문서).
+  if (!globalThis.__kiditemLoginSubmitWatch && typeof window.addEventListener === "function") {
+    globalThis.__kiditemLoginSubmitWatch = true;
+    window.addEventListener("submit", (event) => {
+      const mark = globalThis.__kiditemLoginSubmit;
+      if (mark && !event.defaultPrevented) mark.observed = true;
+    });
+  }
   const password = pickPasswordInput();
-  return { loginForm: Boolean(password && pickLoginIdInput(password)) };
+  const mark = globalThis.__kiditemLoginSubmit;
+  const loginForm = Boolean(password && pickLoginIdInput(password));
+  return mark ? { loginForm, filledHere: true, submitObserved: mark.observed === true } : { loginForm };
 
   function fillLogin(values) {
     const passwordInput = pickPasswordInput();
@@ -23,6 +35,15 @@
     const loginInput = values.supplierLoginId
       ? pickCafe24ShopIdInput(passwordInput, supplierLoginInput)
       : pickLoginIdInput(passwordInput);
+    // Cafe24(아트공구) 로그인은 대표운영자 탭이 열린 채로 뜬다 — 공급사 아이디가 있는데 칸이 모자라면 공급사 탭을 눌러
+    // 세 칸 폼을 열고 다음 바퀴에 채운다(실기기 R3).
+    if (values.supplierLoginId && (!loginInput || !supplierLoginInput)) {
+      const supplierTab = findSupplierTab();
+      if (supplierTab) {
+        activate(supplierTab, "supplier-tab");
+        return { state: "incomplete", reason: "supplier-tab-opened" };
+      }
+    }
     // 비번칸은 떴는데 ID칸이 아직 안 보임 → 다음 스캔에서 재시도.
     if (!loginInput) return { state: "incomplete", reason: "id-input-not-found" };
     if (values.supplierLoginId && !supplierLoginInput) return { state: "incomplete", reason: "supplier-id-input-not-found" };
@@ -31,6 +52,10 @@
     if (supplierLoginInput) setInputValue(supplierLoginInput, values.supplierLoginId);
     setInputValue(passwordInput, values.password);
 
+    // 캡차가 붙은 폼(Cafe24 reCAPTCHA 등)은 사람이 풀어야 보내진다 — 칸만 채우고 누르지 않는다(재QA 3 D1).
+    if (captchaShown(passwordInput)) return { state: "verification_required", reason: "captcha" };
+
+    globalThis.__kiditemLoginSubmit = { observed: false };
     const method = triggerLogin(passwordInput);
     return method ? { state: "submitted", method } : { state: "incomplete", reason: "submit-not-found" };
   }
@@ -80,6 +105,23 @@
     return candidates.find((input) => /쇼핑몰|mall.?id|shop.?id|cafe24/.test(inputDescriptor(input))) || candidates[0] || null;
   }
 
+  /** 그 로그인 폼(없으면 문서)에 보이는 캡차 위젯이 있는가 — reCAPTCHA·hCaptcha. 숨은 탭의 위젯은 보지 않는다. */
+  function captchaShown(anchor) {
+    const root = anchor.closest("form") || document;
+    return Array.from(
+      root.querySelectorAll(".g-recaptcha, .gRecaptcha, iframe[src*='recaptcha'], .h-captcha, iframe[src*='hcaptcha']"),
+    ).some(isVisibleControl);
+  }
+
+  /** 로그인 화면의 "공급사" 탭(Cafe24 eclogin). 폼 안의 버튼·안내 링크가 아닌, 글자가 딱 "공급사"(로그인)인 보이는 컨트롤. */
+  function findSupplierTab() {
+    const matches = Array.from(document.querySelectorAll("a,button,li,label,[role='tab'],[role='button']"))
+      .filter(isVisibleControl)
+      .filter((element) => /^공급사(?:\s*(?:로그인|관리자))?$/.test(String(element.textContent || "").replace(/\s+/g, " ").trim()));
+    // 가장 안쪽(클릭 처리기가 붙는 a·button)을 누른다 — <li><a>공급사</a></li>에서 li를 누르면 a의 처리기가 돌지 않는다.
+    return matches.find((element) => !matches.some((other) => other !== element && element.contains(other))) || null;
+  }
+
   function textInputs(root) {
     return Array.from(root.querySelectorAll("input")).filter((input) => {
       const type = String(input.type || "text").toLowerCase();
@@ -93,19 +135,13 @@
     const byHandler = Array.from(document.querySelectorAll("a,button,input[type='button'],[role='button'],[onclick]"))
       .filter(isVisibleControl)
       .find((el) => /do_?login|fn_?login|go_?login|login_?proc|loginsubmit/i.test(el.getAttribute("onclick") || ""));
-    if (byHandler) {
-      byHandler.click();
-      return "onclick-handler";
-    }
+    if (byHandler) return activate(byHandler, "onclick-handler");
 
     const form = anchor.closest("form");
 
     // 2) 텍스트가 정확히 "로그인"/"login"
     const byText = findLoginControl(form || document) || (form ? findLoginControl(document) : null);
-    if (byText) {
-      byText.click();
-      return "exact-text";
-    }
+    if (byText) return activate(byText, "exact-text");
 
     // 3) form 안의 submit 컨트롤 / form submit
     if (form) {
@@ -126,10 +162,7 @@
 
     // 4) 텍스트 느슨한 일치 — "로그인하기", "Sign in" 등. 링크·안내문은 부정 목록으로 거른다.
     const byLooseText = findLoginControlLoose(form || document);
-    if (byLooseText) {
-      byLooseText.click();
-      return "loose-text";
-    }
+    if (byLooseText) return activate(byLooseText, "loose-text");
 
     // 5) id/class/name 에 login 이 든 버튼 (아이콘만 있는 버튼 대응)
     const byAttribute = Array.from(
@@ -138,16 +171,34 @@
           "input[type='image'][id*='login' i],input[type='button'][id*='login' i]",
       ),
     ).filter(isVisibleControl).filter((el) => !isLoginDecoy(el))[0];
-    if (byAttribute) {
-      byAttribute.click();
-      return "attribute-match";
-    }
+    if (byAttribute) return activate(byAttribute, "attribute-match");
 
     // 6) 마지막 수단 — 비밀번호 칸에서 Enter(폼이 없는 SPA 로그인 화면).
     for (const type of ["keydown", "keypress", "keyup"]) {
       anchor.dispatchEvent(new KeyboardEvent(type, { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true }));
     }
     return "password-enter";
+  }
+
+  // `<a href="javascript:…">`(롯데ON `mf_btn_login`)를 그냥 누르면 이 world에서 `javascript:` 주소로 가려다 CSP 오류가 난다
+  // (KID-380 D9). 폼 안이든 밖이든 화면의 클릭 처리기(onclick·jQuery 로그인)는 돌게 두고 주소 이동만 막는다 — 폼을 대신
+  // 제출하면 그 처리기가 건너뛰어져 폼이 남고, 거절된 자격으로 오판해 몰이 막힌다(리뷰 MUST 1).
+  function activate(control, method) {
+    const href = control.tagName === "A" ? String(control.getAttribute("href") || "") : "";
+    if (!/^\s*javascript:/i.test(href)) {
+      control.click();
+      return method;
+    }
+    const stopNavigation = (event) => {
+      if (event.target === control || control.contains(event.target)) event.preventDefault();
+    };
+    window.addEventListener("click", stopNavigation, true);
+    try {
+      control.click();
+    } finally {
+      window.removeEventListener("click", stopNavigation, true);
+    }
+    return method;
   }
 
   /** 로그인 버튼이 아닌데 "로그인" 글자가 든 것들. 누르면 엉뚱한 데로 간다. */

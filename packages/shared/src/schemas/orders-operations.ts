@@ -217,13 +217,39 @@ export const MallOrdersScopeSchema = z.object({
 export type MallOrdersScope = z.infer<typeof MallOrdersScopeSchema>;
 
 /**
- * 몰 주문 kind로 옮긴 몰(1차, KID-359 H3). 여기 없는 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다 — 웹은 이 목록으로
- * 시작 경로를 가른다(KID-355 2026-09-26 03:27 리더 설계).
+ * 몰 주문 kind로 옮긴 몰(1차 넷 KID-359 H3, 2차는 사이트가 다 옮겨진 몰부터 KID-380 — HTML 몰 T1, 엑셀·blob 몰 T2). 여기 없는
+ * 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다 — 웹은 이 목록으로 시작 경로를 가른다(KID-355 2026-09-26 03:27 리더 설계).
  */
-export const MALL_ORDER_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook'] as const;
+export const MALL_ORDER_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall', 'kkomangse', 'teacher-mall', 'boribori', 'gs-shop', 'always', 'lotte-on'] as const;
 export type MallOrderOperationMall = (typeof MALL_ORDER_OPERATION_MALLS)[number];
 export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderOperationMall {
   return (MALL_ORDER_OPERATION_MALLS as readonly string[]).includes(mallKey);
+}
+
+/**
+ * 확장 `ping`에 싣는 몰마다의 주문 사이트 표시(KID-380 T4). 이 빌드에 그 몰 사이트가 있어야 실린다 — 웹은 이 표시가 없는
+ * 빌드에 그 몰 실행을 보내지 않는다(서버에 실행을 만들기 전에 "업데이트" 문장으로 거절).
+ */
+export function mallOrderSiteCapability(mallKey: string): string {
+  return `mallOrderSite.${mallKey}`;
+}
+
+/**
+ * 옛 주문 attempt 경로(`POST /api/orders/collection/attempts`)에 남은 몰. KID-379: 카카오는 셀피아 변환 규격이 생길 때까지
+ * 옛 경로로 수집하고(확장이 원본을 실패 artifact로 남긴다), 그 뒤 실행 kind로 옮기면 이 목록과 옛 경로가 함께 사라진다.
+ */
+export const MALL_ORDER_ATTEMPT_MALLS = ['kakao'] as const; // KID-379
+export function isMallOrderAttemptMall(mallKey: string): boolean {
+  return (MALL_ORDER_ATTEMPT_MALLS as readonly string[]).includes(mallKey);
+}
+
+/**
+ * 운영자가 몰에서 받은 주문 파일을 화면에서 올리는 수동 업로드(`collectionMode: 'manual-upload'`, KID-380 T4)를 받는 몰.
+ * 옛 업로드 화면이 받던 몰 그대로다 — 서버가 그 파일을 실행 하나로 보관하고 같은 변환기로 바꾼다.
+ */
+export const MALL_ORDERS_MANUAL_UPLOAD_MALLS = ['domeggook', 'gs-shop', 'icecream-mall'] as const satisfies readonly MallOrderOperationMall[];
+export function isMallOrdersManualUploadMall(mallKey: string): boolean {
+  return (MALL_ORDERS_MANUAL_UPLOAD_MALLS as readonly string[]).includes(mallKey);
 }
 
 /** 청크 종류(확장 수집기 → owner finalize). */

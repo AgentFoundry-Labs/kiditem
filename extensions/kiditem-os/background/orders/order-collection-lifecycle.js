@@ -1,6 +1,9 @@
 (function initializeOrderCollectionLifecycle(root) {
   "use strict";
 
+  // KID-379: 옛 몰 소유자 경로(카카오)의 로컬 수집 세션 수명. 호출자는 worker의 몰 소유자 하나뿐이라, 서버가 준
+  // attemptId만 받는다(옛 runId 이름·스스로 만든 id·표시 문구 바꾸기는 지웠다, KID-380).
+
   const ATTEMPT_ID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -48,19 +51,13 @@
   function create(options) {
     const sessions = options.sessions;
     const producer = options.producer;
-    const requireAttemptId =
-      options.requireAttemptId === true || options.requireRunId === true;
-    const createAttemptId = options.createAttemptId ||
-      options.createRunId || (() => root.crypto.randomUUID());
     const classifyFailure = options.classifyFailure || (() => null);
     const normalizeFailure = typeof options.normalizeFailure === "function"
       ? options.normalizeFailure
       : null;
-    const forceDeferred = options.forceDeferred === true ||
-      options.forceDeferredTerminal === true;
-    const deferredLabel = options.deferredLabel || "브라우저 수집 완료 · 파일 생성 중";
-    const failedLabel = options.failedLabel || "주문 파일 생성 실패";
-    const succeededLabel = options.succeededLabel || "주문 파일 생성 완료";
+    const deferredLabel = "브라우저 수집 완료 · 파일 생성 중";
+    const failedLabel = "주문 파일 생성 실패";
+    const succeededLabel = "주문 파일 생성 완료";
     if (typeof producer !== "string" || producer.length < 1) {
       throw new Error("Collection producer is required");
     }
@@ -109,12 +106,7 @@
     }
 
     function messageAttemptId(message) {
-      if (validAttemptId(message?.attemptId)) return message.attemptId;
-      // Marketplace collectors still send their owner correlation in the
-      // historical field until their callers are migrated. It is normalized
-      // to attemptId before touching the session adapter.
-      if (validAttemptId(message?.runId)) return message.runId;
-      return null;
+      return validAttemptId(message?.attemptId) ? message.attemptId : null;
     }
 
     async function begin(message) {
@@ -122,14 +114,8 @@
       if (environmentId !== "local" && environmentId !== "office") {
         throw new Error("Collection environment is required");
       }
-      let attemptId = messageAttemptId(message);
-      if (!attemptId && requireAttemptId) {
-        throw new Error("Owner attempt ID is required");
-      }
-      attemptId = attemptId || createAttemptId();
-      if (!validAttemptId(attemptId)) {
-        throw new Error("Owner attempt ID is required");
-      }
+      const attemptId = messageAttemptId(message);
+      if (!attemptId) throw new Error("Owner attempt ID is required");
       const current = await sessions.get(attemptId);
       if (current) {
         if (
@@ -174,9 +160,6 @@
 
       const collection = Object.freeze({
         attemptId,
-        // This is an in-memory collector compatibility alias. The persisted
-        // and published session contract contains attemptId only.
-        runId: attemptId,
         environmentId: message.environmentId,
         async assertActive() {
           return isLocallyActive(attemptId, message.environmentId);
@@ -231,7 +214,7 @@
             result,
           );
         }
-        if ((forceDeferred || message?.deferTerminal === true) && result.success !== false) {
+        if (message?.deferTerminal === true && result.success !== false) {
           const collectionSession = await sessions.progress(attemptId, {
             current: 1,
             total: 2,
@@ -298,7 +281,6 @@
   root.KidItemOrderCollectionLifecycle = Object.freeze({
     create,
     createIdentity,
-    validRunId: validAttemptId,
     validAttemptId,
   });
 })(globalThis);

@@ -20,10 +20,7 @@ import {
   type SabangnetMallListingsSource,
 } from '@kiditem/shared/sabangnet-mall-listings';
 import {
-  MallAdminListingsAttemptSchema,
   MallAdminListingsSourceSchema,
-  type MallAdminListingMallKey,
-  type MallAdminListingsAttempt,
   type MallAdminListingsSource,
 } from '@kiditem/shared/mall-admin-listings';
 import { apiClient } from '@/lib/api-client';
@@ -106,25 +103,9 @@ export const mallPublishingApi = {
     return apiClient.getParsed(`${SABANGNET_BASE}/source`, SabangnetMallListingsSourceSchema);
   },
 
-  /** 몰 관리자에서 직접 가져오는 원천(키드키즈 · 아이스크림몰)의 현재 — 몰마다 한 줄. */
+  /** 몰 관리자에서 직접 가져오는 원천의 현재 — 몰마다 한 줄(최근 실행 · 최근 성공 실행과 발행 결과). */
   mallAdminListingsSource(): Promise<MallAdminListingsSource> {
     return apiClient.getParsed(`${MALL_ADMIN_BASE}/source`, MallAdminListingsSourceSchema);
-  },
-
-  /** 몰 하나의 가져오기 시도를 연다. 화면은 쓰기 토큰을 갖지 않는다 — 응답에서 버린다. */
-  async beginMallAdminListings(
-    mallKey: MallAdminListingMallKey,
-    idempotencyKey: string,
-  ): Promise<MallAdminListingsAttempt> {
-    const raw = await apiClient.post(`${MALL_ADMIN_BASE}/attempts`, { mallKey }, {
-      headers: { 'Idempotency-Key': idempotencyKey },
-    });
-    return MallAdminListingsAttemptSchema.strip().parse(raw);
-  },
-
-  /** 운영자 중단. */
-  cancelMallAdminListings(attemptId: string): Promise<unknown> {
-    return apiClient.post(`${MALL_ADMIN_BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
   },
 
   /**

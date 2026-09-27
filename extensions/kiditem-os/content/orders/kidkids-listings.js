@@ -25,7 +25,21 @@
     const drift = (stage) => {
       throw new Error(`CONTRACT_DRIFT:${stage}`);
     };
-    const decoder = new TextDecoder("euc-kr");
+    /**
+     * 응답 머리의 문자셋으로 읽고, 머리에 없거나 모르는 이름이면 EUC-KR(키드키즈 기본). 2026-09-27 실기기 재QA 3: 키드키즈는
+     * 2xx(goods_list_renewal·logis_index)에도 `charset=utf-8`을 보내고 본문도 UTF-8이다(`<meta>`만 euc-kr) — EUC-KR로
+     * 고정하면 건수 문구가 깨졌다. 점검 404도 UTF-8이다.
+     */
+    function decodeBody(buffer, response) {
+      if (!response) return new TextDecoder("euc-kr").decode(buffer);
+      const contentType = response.headers && typeof response.headers.get === "function" ? response.headers.get("content-type") || "" : "";
+      const match = /charset=["']?([\w-]+)/i.exec(contentType);
+      try {
+        return new TextDecoder(match ? match[1] : "euc-kr").decode(buffer);
+      } catch {
+        return new TextDecoder("euc-kr").decode(buffer);
+      }
+    }
 
     function text(value, maximum) {
       if (typeof value !== "string") return null;
@@ -52,10 +66,14 @@
         if (landed.origin !== plan.sourceOrigin || /login/i.test(landed.pathname)) {
           throw new Error("LOGIN_REQUIRED");
         }
-        if (!response.ok) throw new Error("NETWORK_FAILED");
         const buffer = await response.arrayBuffer();
+        if (!response.ok) {
+          // 점검 화면은 404 UTF-8로 온다 — 응답 문자셋으로 읽어 점검인지 본다(실기기 R2).
+          if (buffer.byteLength <= maxBytes && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(decodeBody(buffer, response))) throw new Error("MAINTENANCE");
+          throw new Error("NETWORK_FAILED");
+        }
         if (buffer.byteLength > maxBytes) throw new Error("INVALID_RESPONSE");
-        return decoder.decode(buffer);
+        return decodeBody(buffer, response);
       } finally {
         clearTimeout(timer);
       }
@@ -69,6 +87,8 @@
       const listDoc = new DOMParser().parseFromString(listHtml, "text/html");
       if (listDoc.querySelector('input[type="password"]')) throw new Error("LOGIN_REQUIRED");
       const counter = COUNTER.exec(listHtml);
+      // 점검 안내 화면은 형식 변경이 아니다(KID-380 D3).
+      if (!counter && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(listDoc.body ? listDoc.body.textContent : "")) return fail("mall_maintenance");
       if (!counter) drift("counter");
       const total = Number(counter[1].replace(/,/g, ""));
       if (!Number.isSafeInteger(total) || total < 0) drift("total");
@@ -149,6 +169,7 @@
     } catch (error) {
       if (error?.name === "AbortError") return fail("mall_timeout");
       if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "MAINTENANCE") return fail("mall_maintenance");
       if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
       if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
         return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));

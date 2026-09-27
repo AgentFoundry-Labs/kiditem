@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
-import { mallAutoLoginBlock, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
+import { blockMallAutoLogin, mallAutoLoginBlock, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { detectOrderCollectionSessionExtensionStatus } from './order-collection-extension';
@@ -10,10 +10,14 @@ import { addSeenOrderKeys } from './order-detect';
 import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
+  followUpMallOrderOperation,
+  MALL_ORDER_FOLLOW_UP_POLL_MS,
   mallOrderOperationSource,
+  mallOrderOperationWaitMs,
+  uploadMallOrderFile,
 } from './mall-order-operation-source';
 
-vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), fetchRaw: vi.fn() } }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), fetchRaw: vi.fn(), uploadParsed: vi.fn() } }));
 vi.mock('@/lib/operation-start', () => ({ requestOperationStart: vi.fn(), requestOperationCancel: vi.fn() }));
 vi.mock('./order-collection-extension', () => ({
   detectOrderCollectionSessionExtensionStatus: vi.fn(),
@@ -70,6 +74,8 @@ function operation(id: string, status: OperationView['status'], patch: Partial<O
 }
 
 const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password' };
+/** 엑셀·blob 몰 — 몰마다 확장 사이트가 다 되면 더한다(KID-380). */
+const EXCEL_MALLS = ['kkomangse', 'teacher-mall', 'boribori', 'gs-shop', 'always', 'lotte-on'];
 
 function source(overrides: Partial<Parameters<typeof mallOrderOperationSource>[0]> = {}) {
   const handOff = vi.fn().mockResolvedValue(undefined);
@@ -86,9 +92,23 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳만 실행 kind로 수집한다', () => {
-    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook'].every(collectsViaMallOrderOperation)).toBe(true);
-    expect(collectsViaMallOrderOperation('kidsnote')).toBe(false);
+  it('옛 attempt 경로에 남은 카카오(KID-379)가 아니면 모두 실행 kind로 수집한다(KID-380 T4)', () => {
+    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall', ...EXCEL_MALLS].every(collectsViaMallOrderOperation)).toBe(true);
+    expect(collectsViaMallOrderOperation('kakao')).toBe(false);
+  });
+
+  it.each(EXCEL_MALLS)('%s: 옛 attempt 없이 그 계정의 operation.start로 시작해 절차에 넘긴다(KID-380)', async (mallKey) => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    const { adapter, handOff } = source({ account: { ...account, key: mallKey } });
+    await expect(adapter.start!({}, { status: undefined })).resolves.toEqual({ outcome: 'started', attemptId: OPERATION_ID });
+    expect(requestOperationStart).toHaveBeenCalledWith('orders.mall_orders', {
+      channelAccountId: ACCOUNT_ID,
+      mallKey,
+      collectionDate: '2026-09-26',
+      collectionMode: 'browser',
+      selectionMode: 'manual',
+    }, { capability: `mallOrderSite.${mallKey}`, credentials: CREDENTIALS });
+    expect(handOff).toHaveBeenCalledWith(expect.objectContaining({ operationId: OPERATION_ID }));
   });
 
   it('시작: 저장 자격(차단·간격 규칙을 지난 것)을 실어 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다(KID-377 — 확장이 실행 안에서 로그인)', async () => {
@@ -104,7 +124,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
       collectionMode: 'browser',
       selectionMode: 'automatic',
       seenRowKeys: ['A'],
-    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    }, { capability: 'mallOrderSite.kidkids', credentials: CREDENTIALS });
     expect(handOff).toHaveBeenCalledWith({ extensionId: 'ext-1', operationId: OPERATION_ID, input: { selectionMode: 'automatic', seenRowKeys: ['A'] }, collectionDate: '2026-09-26' });
   });
 
@@ -114,7 +134,15 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
     const { adapter } = source({ loadLoginCredentials });
     await adapter.start!({}, { status: undefined });
     expect(loadLoginCredentials).toHaveBeenCalledWith(account, { automatic: false });
-    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'orderCaptureOperationKindsV1' });
+    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'mallOrderSite.kidkids' });
+  });
+
+  it('시작: 자동 로그인이 막힌 몰이라 자격을 싣지 않으면 loginBlocked를 싣는다 — 멈춘 실행의 까닭이 blocked가 된다(실기기 R7)', async () => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    blockMallAutoLogin('kidkids', '비밀번호가 일치하지 않습니다.');
+    const { adapter } = source({ loadLoginCredentials: vi.fn().mockResolvedValue(undefined) });
+    await adapter.start!({}, { status: undefined });
+    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'mallOrderSite.kidkids', loginBlocked: true });
   });
 
   it('계정 행이 없는 몰은 아무것도 부르지 않고 설정 안내, 같은 계정이 이미 돌면 거절 문장이나 그 실행', async () => {
@@ -129,6 +157,26 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
 
     vi.mocked(requestOperationStart).mockResolvedValueOnce({ outcome: 'running', operationId: EARLIER });
     await expect(source().adapter.start!({}, { status: undefined })).resolves.toEqual({ outcome: 'running', attemptId: EARLIER });
+  });
+
+  it('기다리는 실행의 progress.attention(GS샵 SMS 인증)을 카드 안내로 답하고, 없으면 null(KID-380)', () => {
+    const gs = source({ account: { ...account, key: 'gs-shop', name: 'GS샵' } }).adapter;
+    const waiting = operation(OPERATION_ID, 'executing', {
+      plan: { mallKey: 'gs-shop' },
+      progress: { mallKey: 'gs-shop', attention: { kind: 'verification', site: 'gs-shop', label: 'SMS 인증', since: '2026-09-26T00:00:00.000Z' } },
+    });
+    expect(gs.readAttention!({ operations: [waiting] } as never)).toBe('GS샵 탭에서 SMS 인증을 마쳐 주세요 — 마치면 자동으로 이어집니다');
+    const plain = operation(OPERATION_ID, 'executing', { plan: { mallKey: 'gs-shop' }, progress: { mallKey: 'gs-shop', attention: null } });
+    expect(gs.readAttention!({ operations: [plain] } as never)).toBeNull();
+  });
+
+  it('엑셀·blob 몰의 실행 기다림 = 사이트 읽기 제한 + 로그인 채우기 15초 + 탭 이동 60초(옛 응답 제한 200초 밑으로는 안 간다), GS샵은 SMS 대기 10분까지, T1 몰은 정해 둔 한도', () => {
+    expect(mallOrderOperationWaitMs('kidkids')).toBe(200_000);
+    for (const mallKey of ['domeggook', 'kidsnote', 'haebub-mall']) expect(mallOrderOperationWaitMs(mallKey)).toBe(260_000);
+    expect(mallOrderOperationWaitMs('kkomangse')).toBe(200_000);
+    for (const mallKey of ['teacher-mall', 'boribori', 'always', 'lotte-on']) expect(mallOrderOperationWaitMs(mallKey)).toBe(200_000);
+    expect(mallOrderOperationWaitMs('gs-shop')).toBe(985_000);
+    expect(mallOrderOperationWaitMs('gs-shop')).toBeGreaterThanOrEqual(660_000);
   });
 
   it('상태: 이 몰 실행만 보고 도는 것·마지막 성공을 읽고, 중단은 이 브라우저 절차 → 확장 → 서버', async () => {
@@ -153,6 +201,56 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
 
 describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환해 생성 파일을 남긴다', () => {
   const sleep = async () => undefined;
+
+  it.each([
+    ['kidkids', 200_000],
+    // 도매꾹은 엑셀 생성, 키즈노트(190초)·해법몰(180초)은 읽기 + 실행 안 로그인(폼 15초 + 이동 30초 두 번)을 기다린다(KID-380).
+    ['domeggook', 260_000],
+    ['kidsnote', 260_000],
+    ['haebub-mall', 260_000],
+    ['onch', 200_000],
+    // 엑셀·blob 몰(KID-380 T2): 사이트 읽기 + 로그인·이동 75초(200초 밑으로는 안 간다), GS샵은 SMS 대기 10분까지.
+    ['kkomangse', 200_000],
+    ['lotte-on', 200_000],
+    ['gs-shop', 985_000],
+  ] as const)('%s 실행은 %i ms까지 기다린 뒤 아직 끝나지 않았다고 알린다', async (mallKey, limit) => {
+    let clock = 0;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    try {
+      vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(OPERATION_ID, 'executing', { plan: { mallKey } }) });
+      const waited = collectMallOrderOperation({
+        account: { ...account, key: mallKey },
+        operationId: OPERATION_ID,
+        collectionDate: '2026-09-26',
+        addGeneratedFile: vi.fn(),
+        sleep: async (ms) => { clock += ms; },
+      });
+      await expect(waited).rejects.toThrow('실행이 아직 끝나지 않았습니다');
+      expect(clock).toBeGreaterThanOrEqual(limit);
+      expect(clock).toBeLessThan(limit + 10_000);
+    } finally {
+      now.mockRestore();
+      vi.mocked(apiClient.get).mockReset();
+    }
+  });
+
+  it('기다림이 끝난 실행을 천천히 이어 읽어, 끝나면 같은 실행 id로 변환한다(KID-380 D7)', async () => {
+    const sleeps: number[] = [];
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'executing') })
+      .mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded') });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response('xls', {
+      status: 201,
+      headers: { 'X-Order-Collection-Source-Rows': '3', 'X-Order-Collection-Output-Rows': '3' },
+    }));
+    const addGeneratedFile = vi.fn();
+    await expect(followUpMallOrderOperation({
+      account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep: async (ms) => { sleeps.push(ms); },
+    })).resolves.toMatchObject({ rowCount: 3 });
+    expect(sleeps).toEqual([MALL_ORDER_FOLLOW_UP_POLL_MS]);
+    expect(MALL_ORDER_FOLLOW_UP_POLL_MS).toBeGreaterThanOrEqual(10_000);
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey: 'kidkids', collectedRows: 3 }));
+  });
 
   it('성공한 실행을 실행 id로 다시 변환하고(본문 operationId), 수집 행 수를 생성 파일에 적는다', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded') });
@@ -257,5 +355,44 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile: vi.fn(), sleep }))
       .rejects.toMatchObject({ errorCode: 'login_required' });
     expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '아이디 또는 비밀번호가 일치하지 않습니다.' });
+  });
+  it('수동 업로드(KID-380 T4): 파일(과 암호)을 몰 업로드 라우트에 올리고 그 실행 id로 기다린 뒤 실행 id로 변환한다 — attempt는 열지 않는다', async () => {
+    const domeggook = { ...account, key: 'domeggook', name: '도매꾹' } as OrderCollectionMallAccount;
+    const uploaded = operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'domeggook', collectionMode: 'manual-upload', collectionDate: null }, result: { rowCount: 2, mallKey: 'domeggook', captured: 1 } });
+    vi.mocked(apiClient.uploadParsed).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response('xls', {
+      status: 201,
+      headers: { 'X-Order-Collection-Source-Rows': '2', 'X-Order-Collection-Output-Rows': '2' },
+    }));
+    const file = new File(['a,b'], 'ORDER_ALL.csv', { type: 'text/csv' });
+
+    const converted = await uploadMallOrderFile({ account: domeggook, file, password: 'secret', sleep });
+
+    const [path, , form] = vi.mocked(apiClient.uploadParsed).mock.calls[0]!;
+    expect(path).toBe('/api/orders/collection/malls/domeggook/upload');
+    expect((form as FormData).get('file')).toBeInstanceOf(File);
+    expect((form as FormData).get('password')).toBe('secret');
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}`);
+    expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/convert`, expect.objectContaining({
+      body: JSON.stringify({ operationId: OPERATION_ID }),
+    }));
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(converted).toMatchObject({ outputRows: 2, sourceRows: 2, operationId: OPERATION_ID });
+  });
+
+  it('수동 업로드: 받지 않는 몰은 아무것도 부르지 않고 준비 중 문장, 변환기가 신규 주문이 없다고 하면(204) null', async () => {
+    await expect(uploadMallOrderFile({ account, file: new File(['x'], 'x.xlsx'), sleep }))
+      .rejects.toThrow('키드키즈 업로드 변환은 아직 준비 중입니다.');
+    expect(apiClient.uploadParsed).not.toHaveBeenCalled();
+
+    const gs = { ...account, key: 'gs-shop', name: 'GS샵' } as OrderCollectionMallAccount;
+    const uploaded = operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'gs-shop' }, result: { rowCount: 0, mallKey: 'gs-shop', captured: 1 } });
+    vi.mocked(apiClient.uploadParsed).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response(null, { status: 204, headers: { 'X-Order-Collection-Output-Rows': '0' } }));
+    await expect(uploadMallOrderFile({ account: gs, file: new File(['x'], 'gs.xlsx'), sleep })).resolves.toBeNull();
+    const form = vi.mocked(apiClient.uploadParsed).mock.calls[0]![2] as FormData;
+    expect(form.get('password')).toBeNull();
   });
 });

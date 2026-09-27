@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { accountLockKey, type OperationPlanResult, type OperationStagedChunk } from '@kiditem/shared/operation';
-import { orderCollectionOrderCount } from '@kiditem/shared/order-collection-source';
+import { mallOrdersOrderCount } from '@kiditem/shared/order-collection-source';
 import {
   MALL_ORDERS_KIND,
   MallOrdersResultSchema,
@@ -40,7 +40,7 @@ export interface MallOrdersOperationConversion {
  * 몰 주문 수집(ADR-0025 kind `orders.mall_orders`, KID-359 H3). 확장이 몰 관리자 화면에서 읽은 주문을 `order_rows`
  * 청크로 올리면 finish 트랜잭션에서 옛 변환 라우트가 받던 본문 그대로 보관 캡처(`OrderCollectionArtifact.operationId`)로
  * 남기고, 그 캡처를 변환해 주문 수를 `result.rowCount`로 적는다 — "적지 않으면 성공한 수집도 0 건으로 남아 대시보드의
- * '오늘 주문' 이 모자라게 센다"(사장님 2026-09-21). 셈법은 `orderCollectionOrderCount` 하나다(2026-09-22 63 대 82).
+ * '오늘 주문' 이 모자라게 센다"(사장님 2026-09-21). 셈법은 `mallOrdersOrderCount` 하나다(2026-09-22 63 대 82, 주문 줄이 없는 몰은 주문번호 수 — KID-380 D6).
  * 변환 파일은 보관하지 않고, 화면이 실행 id로 다시 변환해 받는다.
  */
 @Injectable()
@@ -90,7 +90,8 @@ export class MallOrdersOperationService {
       source: capture.source,
     });
     const conversion = capture.captured === 0 ? null : await this.convert(plan, capture.source);
-    const rowCount = conversion ? orderCollectionOrderCount(conversion) ?? 0 : 0;
+    // 주문 줄이 없는 몰(해법몰·아트공구)은 주문번호 수, 나머지는 2026-09-22 셈법(KID-380 D6).
+    const rowCount = mallOrdersOrderCount({ mallKey: plan.mallKey, conversion, ...(capture.orderNumbers ? { orderNumbers: capture.orderNumbers } : {}) });
     const coverage = mallOrdersCoverage(plan);
     return MallOrdersResultSchema.parse({
       rowCount,

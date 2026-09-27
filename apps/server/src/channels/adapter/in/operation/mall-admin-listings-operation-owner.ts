@@ -14,7 +14,7 @@ import {
 } from '../../../application/port/in/mall-admin-listings-operation.port';
 
 /**
- * 몰 관리자 목록 kind의 owner 포트(ADR-0025, KID-363, 1차 몰 넷). producer는 확장 수집기
+ * 몰 관리자 목록 kind의 owner 포트(ADR-0025, KID-363·381, 읽기기가 있는 몰 모두). producer는 확장 수집기
  * `collectors/channels.mall_admin_listings`다. `onFailed`가 없다 — 실패는 원장에 아무것도 쓰지 않는다.
  */
 @OperationOwner()

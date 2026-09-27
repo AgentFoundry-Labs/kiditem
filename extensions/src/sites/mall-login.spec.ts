@@ -46,8 +46,9 @@ function mall(mallKey: string, options: {
     },
   };
   const lease: SiteLease = { tabId: null, credentials: options.credentials === undefined ? CREDENTIALS : options.credentials };
-  const router = siteFactoryFor('mall-orders')!.create(deps, lease) as { reader(mallKey: string): Reader | null };
-  return { login, fake, reader: router.reader(mallKey)! };
+  const readerFor = () => (siteFactoryFor('mall-orders')!.create(deps, lease) as { reader(mallKey: string): Reader | null }).reader(mallKey)!;
+  // `nextRun`: 같은 브라우저(탭 묶음)에서 새 실행 하나의 읽기(실행마다 사이트 핸들이 새로 만들어진다).
+  return { login, fake, reader: readerFor(), nextRun: readerFor };
 }
 
 describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () => {
@@ -60,16 +61,20 @@ describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () =
   });
 
   it('아트공구: Cafe24 주문목록으로 들어가 쇼핑몰 아이디·공급사 아이디·비밀번호 세 칸', () => {
-    expect(ART09_LOGIN).toMatchObject({ loginUrl: ART09_ORDER_URL, hosts: ['zzogzzog1.cafe24.com'], fields: ['supplierLoginId', 'loginId', 'password'] });
+    // 로그아웃이면 Cafe24 통합 로그인(eclogin.cafe24.com/Shop/)으로 넘어간다 — 그 호스트에서도 폼을 채운다(실기기 R3).
+    expect(ART09_LOGIN).toMatchObject({ loginUrl: ART09_ORDER_URL, hosts: ['zzogzzog1.cafe24.com', 'eclogin.cafe24.com'], fields: ['supplierLoginId', 'loginId', 'password'] });
+    expect(ART09_LOGIN.isLoginUrl(new URL('https://eclogin.cafe24.com/Shop/'))).toBe(true);
     expect(ART09_LOGIN.isLoginUrl(new URL('https://zzogzzog1.cafe24.com/admin/php/login.php'))).toBe(true);
     expect(ART09_LOGIN.isLoginUrl(new URL(ART09_ORDER_URL))).toBe(false);
   });
 
   it('도매꾹: 주문목록으로 들어가 두 칸 / 아이스크림몰: main.do → loginForm.do(JS로 늦게 뜬다)', () => {
-    expect(DOMEGGOOK_LOGIN).toMatchObject({ loginUrl: 'https://domeggook.com/sc/order/lstAll', hosts: ['domeggook.com'], fields: ['loginId', 'password'] });
+    expect(DOMEGGOOK_LOGIN).toMatchObject({ loginUrl: 'https://www.domeggook.com/sc/order/lstAll', hosts: ['domeggook.com'], fields: ['loginId', 'password'] });
     expect(DOMEGGOOK_LOGIN.isLoginUrl(new URL('https://domeggook.com/ssl/member/mem_loginForm.php'))).toBe(true);
     expect(ICECREAM_LOGIN).toMatchObject({ loginUrl: ICECREAM_MALL_URL, hosts: ['i-screammall.co.kr'], fields: ['loginId', 'password'], settleMs: 8_000 });
     expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/loginForm.do'))).toBe(true);
+    // 틀린 자격으로 누르면 아이스크림몰은 /error/loginExpired로 넘긴다 — 로그인 화면이다(실기기 R5).
+    expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/error/loginExpired'))).toBe(true);
   });
 });
 
@@ -126,12 +131,14 @@ describe('몰 주문 읽기의 자동 로그인(KID-377)', () => {
     expect(login.state.filled).toEqual([{ loginId: 'fake-mall-id', password: 'fake-mall-password' }]);
     expect(fake.log.filter((line) => /^(open|close|navigate)/.test(line))).toEqual([
       'open about:blank',
-      'navigate https://domeggook.com/sc/order/lstAll (continue on timeout)',
+      'navigate https://www.domeggook.com/sc/order/lstAll (continue on timeout)',
       'close 7',
       'open about:blank',
-      'navigate https://domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
+      'navigate https://www.domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
       'close 7',
     ]);
+    // 로그인하러 연 탭도, 주문목록 탭도 불러오는 중 알림 창 가드를 건다(KID-380 D4).
+    expect(fake.guards).toEqual(['guard dialogs domeggook.com', 'unguard dialogs domeggook.com', 'guard dialogs domeggook.com', 'unguard dialogs domeggook.com']);
   });
 
   it('도매꾹: 로그인 결과가 form_remains여도 다시 읽기가 되면 로그인하러 연 탭을 닫는다 — 남기는 것은 문턱이 멈출 때뿐(리뷰 S4)', async () => {
@@ -143,6 +150,24 @@ describe('몰 주문 읽기의 자동 로그인(KID-377)', () => {
     });
     await expect(reader.readOrders(INPUT)).resolves.toEqual({ rows: [] });
     expect(fake.log.filter((line) => /^(open|close)/.test(line))).toEqual(['open about:blank', 'close 7', 'open about:blank', 'close 7']);
+  });
+
+  it('도매꾹: 로그인하러 연 탭이 운영자에게 남으면 다음 실행은 새 탭 대신 그 탭을 다시 쓴다(리뷰 SHOULD 3)', async () => {
+    const { fake, reader, nextRun } = mall('domeggook', {
+      loginAt: 'https://domeggook.com/ssl/member/mem_loginForm.php',
+      accept: false,
+      dialog: '아이디 또는 비밀번호가 일치하지 않습니다.',
+      fetch: (url) => (url === DOMEGGOOK_ORDER_LIST_API ? Response.json({ res: false }) : new Response('', { status: 404 })),
+      answer: () => ({ ok: false, error: 'unexpected' }),
+    });
+    await expect(reader.readOrders(INPUT)).rejects.toMatchObject({ details: { reason: 'credentials_rejected' } });
+    await expect(nextRun().readOrders(INPUT)).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    expect(fake.log.filter((line) => line.startsWith('open'))).toEqual(['open about:blank']);
+    expect(fake.guards.filter((line) => /^(keep|reclaim)/.test(line))).toEqual([
+      'keep for https://www.domeggook.com 7',
+      'reclaim https://www.domeggook.com 7',
+      'keep for https://www.domeggook.com 7',
+    ]);
   });
 
   it('아이스크림몰: 프레임에 로그인 폼이 보이면 그 화면에서 로그인하고 main.do로 돌아가 배송목록을 읽는다', async () => {

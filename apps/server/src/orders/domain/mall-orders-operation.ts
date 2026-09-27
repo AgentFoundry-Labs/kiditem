@@ -2,6 +2,7 @@ import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import {
   isMallOrderOperationMall,
+  isMallOrdersManualUploadMall,
   MALL_ORDERS_CHUNK_KIND,
   MALL_ORDERS_CONTINUATION_CHUNK_KIND,
   MALL_ORDERS_ORDER_NUMBERS_MAX,
@@ -60,9 +61,12 @@ interface MallCaptureRule {
   assemble(input: { rows: unknown[]; continuation: unknown | null; plan: MallOrdersPlan }): MallOrdersCapture;
 }
 
+/** 옛 확장 변환 요청의 엑셀 형식(`order-collection-server-converter.js` FILE_MIME). */
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 const OrderObjectSchema = z.record(z.string(), z.unknown());
 
-/** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
+/** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈·키즈노트·온채널·해법몰 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
 function jsonList(field: string, item: z.ZodTypeAny, orderNumberField: string): MallCaptureRule {
   return {
     assemble({ rows }) {
@@ -85,28 +89,69 @@ const FilePartSchema = z.object({
   base64: z.string().regex(/^[A-Za-z0-9+/=]*$/),
 }).strict();
 
+/** 조각(base64)을 순번대로 이어 파일 하나로. 조각이 없으면 null — "주문 없음"을 확인한 날이다. */
+function joinedFile(rows: unknown[]): { bytes: Buffer; fileName: string } | null {
+  const parsed = FilePartSchema.array().safeParse(rows);
+  if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
+  const parts = [...parsed.data].sort((a, b) => a.part - b.part);
+  if (parts.length === 0) return null;
+  const [first] = parts;
+  const complete = parts.every((part, index) => part.part === index && part.parts === first!.parts && part.fileName === first!.fileName)
+    && parts.length === first!.parts;
+  if (!complete) throw invalid('incomplete_file_parts', { parts: parts.map((part) => [part.part, part.parts]) });
+  return { bytes: Buffer.from(parts.map((part) => part.base64).join(''), 'base64'), fileName: first!.fileName };
+}
+
 /**
- * 몰이 내려준 파일 하나를 조각(base64, 청크 1MiB 안)으로 받아 이어 붙여 파일 캡처로 보관하는 몰(도매꾹 주문 CSV,
- * EUC-KR 원본 바이트 그대로 — 변환기가 디코딩한다). 조각이 없으면 "주문 없음"을 확인한 날이다.
+ * 몰이 내려준 파일 하나를 조각(base64, 청크 1MiB 안)으로 받아 이어 붙여 파일 캡처로 보관하는 몰(도매꾹 주문 CSV는
+ * EUC-KR 원본 바이트 그대로 — 변환기가 디코딩한다, 롯데ON·보리보리·티쳐몰·GS샵·올웨이즈 엑셀). `contentType`은 옛
+ * 확장 변환 요청(`order-collection-server-converter.js` FILE_MIME)의 값이다. 조각이 없으면 "주문 없음"을 확인한 날이다.
  */
 function filePart(contentType: string): MallCaptureRule {
   return {
     assemble({ rows }) {
-      const parsed = FilePartSchema.array().safeParse(rows);
-      if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
-      const parts = [...parsed.data].sort((a, b) => a.part - b.part);
-      if (parts.length === 0) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType }, captured: 0 };
-      const [first] = parts;
-      const complete = parts.every((part, index) => part.part === index && part.parts === first!.parts && part.fileName === first!.fileName)
-        && parts.length === first!.parts;
-      if (!complete) throw invalid('incomplete_file_parts', { parts: parts.map((part) => [part.part, part.parts]) });
-      return {
-        source: { bytes: Buffer.from(parts.map((part) => part.base64).join(''), 'base64'), fileName: first!.fileName, contentType },
-        captured: 1,
-      };
+      const file = joinedFile(rows);
+      if (!file) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType }, captured: 0 };
+      return { source: { bytes: file.bytes, fileName: file.fileName, contentType }, captured: 1 };
     },
   };
 }
+
+/** 올린 파일 이름의 확장자 → 보관 형식. 변환기는 이름으로 엑셀과 구분 문자 파일을 가른다. */
+function uploadedContentType(fileName: string): string {
+  if (/\.csv$/i.test(fileName)) return 'text/csv';
+  if (/\.xlsx$/i.test(fileName)) return XLSX_CONTENT_TYPE;
+  if (/\.xls$/i.test(fileName)) return 'application/vnd.ms-excel';
+  return 'application/octet-stream';
+}
+
+/**
+ * 수동 업로드(`collectionMode: 'manual-upload'`, KID-380 T4): 서버가 받은 파일 하나를 조각으로 나눠 올린 것을 이어 그
+ * 파일 그대로 보관한다 — 아이스크림몰도 배송목록 행이 아니라 올린 파일이다(암호는 업로드 때 서버가 이미 풀었다).
+ */
+const manualUploadRule: MallCaptureRule = {
+  assemble({ rows, plan }) {
+    const file = joinedFile(rows);
+    if (!file) throw invalid('upload_file_missing', { mallKey: plan.mallKey });
+    return { source: { bytes: file.bytes, fileName: file.fileName, contentType: uploadedContentType(file.fileName) }, captured: 1 };
+  },
+};
+
+/**
+ * 꼬망세: 엑셀 조각을 이어 옛 변환 본문 `{xlsxBase64, date}`(JSON, 옛 확장 `jsonPayload` kkomangse)로 보관한다. `date`는
+ * plan의 수집일 — 변환기가 그날 주문만 거른다.
+ */
+const kkomangseRule: MallCaptureRule = {
+  assemble({ rows, plan }) {
+    const file = joinedFile(rows);
+    if (!file) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType: 'application/json' }, captured: 0 };
+    const payload = { xlsxBase64: file.bytes.toString('base64'), date: plan.collectionDate };
+    return {
+      source: { bytes: Buffer.from(canonicalOwnerInputJson(payload), 'utf8'), fileName: null, contentType: 'application/json' },
+      captured: 1,
+    };
+  },
+};
 
 /** 아이스크림몰 행 하나를 가리는 키 — 칸마다 공백을 걷어 U+001F로 잇는다(웹 `order-detect.ts`의 본 행 키와 같다). */
 const ICECREAM_ROW_KEY_SEPARATOR = '\u001f';
@@ -199,8 +244,20 @@ export function icecreamContinuation(mallKey: string, bytes: Buffer): IcecreamCo
 
 const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule>> = {
   kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) })), 'om'),
+  // 키즈노트(KID-380): 확장이 옛 `kidsnotePayload` 모양으로 바꿔 올린 주문(주문번호 `ono`, 품목 `items`).
+  kidsnote: jsonList('orders', OrderObjectSchema.and(z.object({ ono: z.string().min(1), items: z.array(z.unknown()) })), 'ono'),
+  // 온채널(KID-380): 옛 수집기 원소 그대로(상세 모달을 못 읽은 주문은 주문코드·일자만).
+  onch: jsonList('orders', OrderObjectSchema.and(z.object({ orderCode: z.string().min(1) })), 'orderCode'),
+  // 해법몰(KID-380): 상품행(등록번호 하나 = 셀피아 한 행), 주문번호 orderNo. 기간 확인은 COVERAGE_CAPABLE_MALLS.
+  'haebub-mall': jsonList('orders', OrderObjectSchema.and(z.object({ orderNo: z.string().min(1) })), 'orderNo'),
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() })), 'orderId'),
   domeggook: filePart('text/csv'),
+  kkomangse: kkomangseRule,
+  'teacher-mall': filePart('application/vnd.ms-excel'),
+  boribori: filePart(XLSX_CONTENT_TYPE),
+  'gs-shop': filePart(XLSX_CONTENT_TYPE),
+  always: filePart(XLSX_CONTENT_TYPE),
+  'lotte-on': filePart(XLSX_CONTENT_TYPE),
   'icecream-mall': icecreamRule,
 };
 
@@ -230,6 +287,9 @@ export function mallOrdersScope(scope: unknown): MallOrdersScope & { mallKey: Ma
   if (!isMallOrderOperationMall(value.mallKey) || !mallCaptureReady(value.mallKey)) {
     throw invalid('mall_not_operation_kind', { mallKey: value.mallKey });
   }
+  if (value.collectionMode === 'manual-upload' && !isMallOrdersManualUploadMall(value.mallKey)) {
+    throw invalid('manual_upload_unsupported', { mallKey: value.mallKey });
+  }
   if (value.selectionMode === 'automatic' && !value.seenRowKeys) {
     throw invalid('automatic_selection_requires_seen_rows', { mallKey: value.mallKey });
   }
@@ -244,7 +304,7 @@ export function readMallOrdersPlan(value: unknown): MallOrdersPlan {
 
 /** 청크 → 보관 캡처. `order_rows`는 순번대로 이어 붙이고, `continuation`은 받는 몰에서 한 장만. */
 export function mallOrdersCapture(plan: MallOrdersPlan, chunks: readonly OperationStagedChunk[]): MallOrdersCapture {
-  const rule = MALL_CAPTURE_RULES[plan.mallKey];
+  const rule = plan.collectionMode === 'manual-upload' ? manualUploadRule : MALL_CAPTURE_RULES[plan.mallKey];
   if (!rule) throw invalid('mall_not_operation_kind', { mallKey: plan.mallKey });
   const rows: unknown[] = [];
   let continuation: unknown | null = null;

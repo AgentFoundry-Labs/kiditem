@@ -10,6 +10,8 @@ import type { OperationLoginCredentials } from './operation-login';
 export const OPERATION_RUNTIME_CAPABILITY = 'operationRuntime' as const;
 /** `operation.start`의 credentials(사이트 자동 로그인, KID-377)를 받는 빌드의 표시. 옛 빌드는 그 칸이 있는 시작을 거절한다. */
 export const OPERATION_LOGIN_CAPABILITY = 'operationLoginV1' as const;
+/** `operation.start`의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는 빌드의 표시. */
+export const OPERATION_LOGIN_BLOCKED_CAPABILITY = 'operationLoginBlockedV1' as const;
 
 type PingReply = { success?: boolean; capabilities?: Record<string, unknown> };
 
@@ -30,7 +32,7 @@ type StartReply =
   | { success: true; operationId: string; reused: boolean }
   | { success: false; errorCode?: string; error?: string; details?: { existing?: { operationId?: unknown } | null } | null };
 
-async function extensionWithRuntime(capability: string): Promise<{ extensionId: string; acceptsLogin: boolean }> {
+async function extensionWithRuntime(capability: string): Promise<{ extensionId: string; acceptsLogin: boolean; acceptsLoginBlocked: boolean }> {
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error(EXTENSION_MISSING);
   const ping = await sendToExtension<PingReply>(extensionId, { action: 'ping' });
@@ -39,7 +41,11 @@ async function extensionWithRuntime(capability: string): Promise<{ extensionId: 
     throw new Error(OPERATION_RUNTIME_UPDATE_REQUIRED);
   }
   await transferExtensionAuthTo(extensionId);
-  return { extensionId, acceptsLogin: ping.capabilities?.[OPERATION_LOGIN_CAPABILITY] === true };
+  return {
+    extensionId,
+    acceptsLogin: ping.capabilities?.[OPERATION_LOGIN_CAPABILITY] === true,
+    acceptsLoginBlocked: ping.capabilities?.[OPERATION_LOGIN_BLOCKED_CAPABILITY] === true,
+  };
 }
 
 /** 이 확장이 `operation.start`의 credentials를 받는가(`operationLoginV1`). 답이 없으면 받지 않는 것으로 본다. */
@@ -59,11 +65,12 @@ export async function requestOperationStart(
   /**
    * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). `idempotencyKey`: 같은 시작을
    * 다시 보내도 같은 실행을 돌려받는다(끊긴 답을 되풀이할 때). `credentials`: 사이트 자동 로그인에 쓸 그 몰의 저장 자격 —
-   * 확장 메시지에만 싣고 확장은 그 실행 동안만 쥔다(KID-377, `operation-login`).
+   * 확장 메시지에만 싣고 확장은 그 실행 동안만 쥔다(KID-377, `operation-login`). `loginBlocked`: 그 몰의 자동 로그인 차단 때문에
+   * 자격을 싣지 않았다(실기기 R7).
    */
-  options: { capability?: string; idempotencyKey?: string; credentials?: OperationLoginCredentials } = {},
+  options: { capability?: string; idempotencyKey?: string; credentials?: OperationLoginCredentials; loginBlocked?: boolean } = {},
 ): Promise<OperationStartOutcome> {
-  const { extensionId, acceptsLogin } = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
+  const { extensionId, acceptsLogin, acceptsLoginBlocked } = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
   const reply = await sendToExtension<StartReply>(
     extensionId,
     {
@@ -73,6 +80,8 @@ export async function requestOperationStart(
       ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
       // 옛 빌드(operationLoginV1 없음)에는 싣지 않는다 — 자격 없이 시작하고 로그인 화면이면 탭을 남긴다.
       ...(options.credentials && acceptsLogin ? { credentials: options.credentials } : {}),
+      // 차단 때문에 자격을 싣지 않았다 — 확장이 로그인 화면에서 멈추면 까닭을 blocked로 적는다(실기기 R7).
+      ...(options.loginBlocked && !options.credentials && acceptsLoginBlocked ? { loginBlocked: true } : {}),
     },
     START_REPLY_TIMEOUT_MS,
   );

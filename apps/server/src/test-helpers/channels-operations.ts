@@ -22,7 +22,6 @@ import { SellpiaManualMatchOperationOwner } from '../channels/adapter/in/operati
 import { MallAdminListingsRepositoryAdapter } from '../channels/adapter/out/repository/mall-admin-listings.repository.adapter';
 import { MallAdminListingsService } from '../channels/application/service/collection/mall-admin-listings.service';
 import { MallAdminListingsOperationOwner } from '../channels/adapter/in/operation/mall-admin-listings-operation-owner';
-import { SourceFailureAlerts } from '../alerts/alerts.service';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 
 const checksum = (payload: unknown[]) => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -55,7 +54,7 @@ export function makeChannelsOperations(prisma: PrismaClient, options: { organiza
     new SellpiaManualMatchRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
   );
   registry.register(new SellpiaManualMatchOperationOwner(manualMatch));
-  const mallAdminRepository = new MallAdminListingsRepositoryAdapter(prismaService, new SourceFailureAlerts(prismaService), productMapping);
+  const mallAdminRepository = new MallAdminListingsRepositoryAdapter(prismaService, productMapping);
   const mallAdmin = new MallAdminListingsService(mallAdminRepository, mallAdminRepository, operations);
   registry.register(new MallAdminListingsOperationOwner(mallAdmin));
 

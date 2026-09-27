@@ -4,6 +4,7 @@ import { apiClient } from '@/lib/api-client';
 import { requestOperationStart } from '@/lib/operation-start';
 import {
   ORDER_CAPTURE_OPERATION_CAPABILITY,
+  OrderOperationStillRunning,
   orderOperationControl,
   startOrderOperation,
   waitForOrderOperation,
@@ -65,6 +66,12 @@ describe('order operations (KID-359 H3)', () => {
     expect(sleeps).toEqual([2_000]);
   });
 
+  it('운영자 조치가 필요한 실패(보리보리 다운로드 비밀번호·GS샵 SMS 인증, OPERATOR_ACTION_REQUIRED)는 옛 수집처럼 인증 필요로 분류한다(KID-380)', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(ID, 'failed', { errorCode: 'OPERATOR_ACTION_REQUIRED', errorMessage: '보리보리 언마스킹 다운로드에 비밀번호가 필요합니다.' }) });
+    await expect(waitForOrderOperation(KIND, ID, { sleep: async () => undefined, timeoutMs: 60_000 }))
+      .rejects.toMatchObject({ errorCode: 'operator_action_required', message: '보리보리 언마스킹 다운로드에 비밀번호가 필요합니다.' });
+  });
+
   it('실패·중단은 운영자 문장으로 던지고, 상한을 넘기면 아직 끝나지 않았다고 알린다', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다. 열려 있는 셀피아 탭에서 로그인한 뒤 다시 조회해 주세요.' }) });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async () => undefined, timeoutMs: 60_000 })).rejects.toThrow('셀피아 로그인이 필요합니다');
@@ -76,6 +83,17 @@ describe('order operations (KID-359 H3)', () => {
     vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(ID, 'executing') });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async (ms) => { now += ms; }, now: () => now, timeoutMs: 5_000 }))
       .rejects.toThrow('아직 끝나지 않았습니다');
+  });
+
+  it('기다림 상한이 지나면 그 실행 id를 실은 OrderOperationStillRunning — 화면이 나중에 결과로 바꿔 적는다(KID-380 D7), 읽기 간격은 고를 수 있다', async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(ID, 'executing') });
+    const error = await waitForOrderOperation(KIND, ID, { sleep: async (ms) => { sleeps.push(ms); now += ms; }, now: () => now, timeoutMs: 30_000, pollMs: 15_000 })
+      .then(() => null, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(OrderOperationStillRunning);
+    expect(error).toMatchObject({ operationId: ID });
+    expect(sleeps).toEqual([15_000, 15_000]);
   });
 
   it('공용 컨트롤: 도는 실행·마지막 성공을 reader에서 읽고, 중단은 확장 → 서버 cancel', async () => {

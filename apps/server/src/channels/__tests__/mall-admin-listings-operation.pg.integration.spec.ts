@@ -5,7 +5,12 @@ import {
   MALL_ADMIN_LISTINGS_KIND,
   MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND,
 } from '@kiditem/shared/channels-operations';
-import type { MallAdminListingRow, MallAdminListingsScan } from '@kiditem/shared/mall-admin-listings';
+import {
+  MALL_ADMIN_LISTING_MALL_KEYS,
+  MALL_ADMIN_LISTING_READERS,
+  type MallAdminListingRow,
+  type MallAdminListingsScan,
+} from '@kiditem/shared/mall-admin-listings';
 import type { OperationBeginResponse } from '@kiditem/shared/operation';
 import {
   makeTestPrisma,
@@ -19,6 +24,8 @@ import { makeChannelsOperations } from '../../test-helpers/channels-operations';
 const KIDKIDS = '11111111-1111-4111-8111-111111111111';
 const ICECREAM = '22222222-2222-4222-8222-222222222222';
 const ONCH = '33333333-3333-4333-8333-333333333333';
+/** 1차 넷 뒤에 옮긴 몰(KID-381). 몰마다 계정 행 하나. */
+const MOVED_MALLS = MALL_ADMIN_LISTING_MALL_KEYS.filter((mallKey) => !['icecream-mall', 'kidkids', 'art09', 'domeggook'].includes(mallKey));
 
 function row(overrides: Partial<MallAdminListingRow> = {}): MallAdminListingRow {
   return {
@@ -103,11 +110,11 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
 
     const source = await channels.mallAdmin.readSource({ organizationId: ORG });
     const kidkids = source.malls.find((mall) => mall.mallKey === 'kidkids');
-    expect(kidkids).toMatchObject({ channelAccountId: KIDKIDS, latestAttempt: null, latestComplete: null, latestOperation: { id: begun.operation.id, status: 'executing' }, latestSucceeded: null });
+    expect(kidkids).toMatchObject({ channelAccountId: KIDKIDS, latestOperation: { id: begun.operation.id, status: 'executing' }, latestSucceeded: null });
   });
 
-  it('refuses a mall that has not moved to the operation, a mall without an account row, and a stale account', async () => {
-    await expect(begin('onch', ONCH)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'mall_admin_operation_mall_unsupported' } });
+  it('refuses a mall without a listing reader, a mall without an account row, and a stale account', async () => {
+    await expect(begin('boribori', ONCH)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'mall_admin_operation_mall_unsupported' } });
     await expect(begin('art09', KIDKIDS)).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND' });
     await expect(begin('kidkids', ICECREAM)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'mall_admin_account_mismatch' } });
     const other = makeChannelsOperations(prisma, { organizationId: OTHER_ORG });
@@ -144,6 +151,46 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
     expect(kidkids?.latestPublication).toEqual({ listings: 3, deactivated: 0, missingNames: 1, codedListings: 1, statuses: { 판매중: 1, 품절: 1, 보류: 1 } });
     expect(await prisma.sourceImportRun.count()).toBe(0);
     expect(await prisma.operationChunk.count()).toBe(0);
+  });
+
+  it('writes the listing and its one option in the mall admin shape, folding the mall status words (옛 시도 스펙에서, KID-381)', async () => {
+    await finish(await begin(), [
+      row(),
+      row({ mallProductCode: '1038722', productName: '5000방울(킬라)_16mm', sellpiaName: '5000방울(킬라)', statusWords: ['일시품절'] }),
+    ]);
+    const listings = await prisma.channelListing.findMany({
+      where: { organizationId: ORG, channelAccountId: KIDKIDS },
+      orderBy: { externalId: 'asc' },
+      select: {
+        externalId: true,
+        channelName: true,
+        status: true,
+        rawJson: true,
+        options: { select: { externalOptionId: true, itemName: true, sellerSku: true, salePrice: true, status: true, rawJson: true } },
+      },
+    });
+    expect(listings.map((listing) => [listing.externalId, listing.status])).toEqual([['1038722', '품절'], ['1098464', '판매중']]);
+    expect(listings[1]).toMatchObject({
+      channelName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
+      rawJson: { source: 'mall_admin_listings', mallKey: 'kidkids', statusWords: ['정상'] },
+      options: [{
+        externalOptionId: '1098464',
+        itemName: '3000왁스팝 말랑이',
+        sellerSku: null,
+        salePrice: 1900,
+        status: '판매중',
+        rawJson: expect.objectContaining({ source: 'mall_admin_listings', sellpiaName: '3000왁스팝 말랑이' }),
+      }],
+    });
+  });
+
+  it('refreshes the listing image on every run and keeps it when a list gives none (KID-313 W3a)', async () => {
+    const image = () => prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: '1098464' }, select: { imageUrl: true } });
+    await finish(await begin(), [row({ imageUrl: 'https://mall.example.com/first.jpg' })]);
+    await finish(await begin(), [row({ imageUrl: 'https://mall.example.com/second.jpg' })]);
+    await expect(image()).resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
+    await finish(await begin(), [row()]);
+    await expect(image()).resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
   });
 
   it('turns off only its own listings that left the list — not a Sabangnet or KidItem listing on the row', async () => {
@@ -207,6 +254,71 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
       latestPublication: { listings: 1 },
     });
     expect(source.malls.find((mall) => mall.mallKey === 'icecream-mall')?.latestOperation).toMatchObject({ status: 'failed' });
+  });
+
+  it('every mall with a reader is an operation mall — each plans under its own account lock (KID-381)', async () => {
+    await prisma.channelAccount.deleteMany({ where: { organizationId: ORG } });
+    for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
+      const account = await prisma.channelAccount.create({
+        data: { organizationId: ORG, channel: mallKey, externalAccountId: `${mallKey}-every`, name: mallKey, status: 'configured' },
+        select: { id: true },
+      });
+      const begun = await begin(mallKey, account.id);
+      expect(begun.operation).toMatchObject({ lockKeys: [`account:${account.id}`], plan: { mallKey, channelAccountId: account.id } });
+      await channels.fail(begun);
+    }
+    const source = await channels.mallAdmin.readSource({ organizationId: ORG });
+    expect(source.malls.map((mall) => mall.mallKey)).toEqual([...MALL_ADMIN_LISTING_MALL_KEYS]);
+    for (const mall of source.malls) {
+      expect(Object.keys(mall).sort()).toEqual(['channelAccountId', 'latestOperation', 'latestPublication', 'latestSucceeded', 'mallKey', 'mallName']);
+      expect(mall.latestOperation).toMatchObject({ status: 'failed' });
+    }
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+  });
+
+  it.each(MOVED_MALLS)('%s (KID-381): publishes its list once under its account lock, a re-run replaces the list, a failed run writes nothing', async (mallKey) => {
+    await prisma.channelAccount.deleteMany({ where: { organizationId: ORG, channel: mallKey } });
+    const account = await prisma.channelAccount.create({
+      data: { organizationId: ORG, channel: mallKey, externalAccountId: `${mallKey}-moved`, name: mallKey, status: 'configured' },
+      select: { id: true },
+    });
+    const begun = await begin(mallKey, account.id);
+    const reader = MALL_ADMIN_LISTING_READERS[mallKey as keyof typeof MALL_ADMIN_LISTING_READERS];
+    expect(begun.operation).toMatchObject({
+      lockKeys: [`account:${account.id}`],
+      plan: { mallKey, channelAccountId: account.id, sourceOrigin: reader.origin, pageSize: reader.pageSize },
+    });
+    const first = await finish(begun, [
+      row({ mallProductCode: 'A-1', productName: '첫 상품', sellpiaName: null, statusWords: ['판매중'] }),
+      row({ mallProductCode: 'A-2', productName: '둘째 상품', sellpiaName: null, statusWords: ['품절'] }),
+    ]);
+    expect(first).toMatchObject({ status: 'succeeded', result: { rows: 2, listings: 2, deactivated: 0 } });
+    // 정책 B: 실행은 알림 행을 쓰지도 닫지도 않는다(성공도 실패도).
+    expect(await prisma.alert.count()).toBe(0);
+
+    const failed = await channels.runBegun(await begin(mallKey, account.id), (plan) => [
+      { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, items: [row({ mallProductCode: 'A-9' })] },
+      { chunkKind: MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND, items: [scan(plan, [row({ mallProductCode: 'A-9' })])] },
+    ], { outcome: 'failed' });
+    expect(failed.status).toBe('failed');
+    expect(await prisma.alert.count()).toBe(0);
+
+    const second = await finish(await begin(mallKey, account.id), [row({ mallProductCode: 'A-1', productName: '첫 상품', sellpiaName: null, statusWords: ['판매중'] })]);
+    expect(second.result).toMatchObject({ listings: 1, deactivated: 1 });
+    const listings = await prisma.channelListing.findMany({
+      where: { organizationId: ORG, channelAccountId: account.id },
+      orderBy: { externalId: 'asc' },
+      select: { externalId: true, isActive: true, lastOperationId: true },
+    });
+    expect(listings).toEqual([
+      { externalId: 'A-1', isActive: true, lastOperationId: second.id },
+      { externalId: 'A-2', isActive: false, lastOperationId: second.id },
+    ]);
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+    expect(await prisma.alert.count()).toBe(0);
+    expect(await prisma.operationLock.count()).toBe(0);
+    const source = await channels.mallAdmin.readSource({ organizationId: ORG });
+    expect(source.malls.find((mall) => mall.mallKey === mallKey)).toMatchObject({ latestSucceeded: { id: second.id }, latestPublication: { listings: 1, deactivated: 1 } });
   });
 
   it('refuses to publish when the hub picks another row for the mall after the plan', async () => {

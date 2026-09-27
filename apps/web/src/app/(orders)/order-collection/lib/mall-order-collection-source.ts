@@ -33,9 +33,8 @@ import {
   type OrderCollectionSourceAttemptControl,
 } from './order-collection-source-owner';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import { isMallOrderAttemptMall } from '@kiditem/shared/orders-operations';
 
-
-export type OrderCollectionMode = 'browser' | 'manual-upload';
 
 /** What one start collects; the owner keeps it on the attempt's plan. */
 export type MallOrderCollectionStartInput = Readonly<{
@@ -143,7 +142,7 @@ export function cancelMallOrderCollectionAttempt(attemptId: string) {
 type MallBeginRequest = Readonly<{
   mallKey: string;
   collectionDate: string | null;
-  collectionMode: OrderCollectionMode;
+  collectionMode: 'browser';
   selectionMode?: 'manual' | 'automatic';
   seenRowKeys?: string[];
 }>;
@@ -226,6 +225,15 @@ async function detectMallCollectionExtension(): Promise<string> {
 }
 
 /**
+ * 옛 주문 attempt 경로에 남은 몰인가 — KID-379: 카카오(`MALL_ORDER_ATTEMPT_MALLS`)만. 나머지 몰은 실행 kind
+ * `orders.mall_orders`(`mall-order-operation-source.ts`)다.
+ */
+export function collectsViaOrderAttempt(mallKey: string): boolean {
+  return isMallOrderAttemptMall(mallKey);
+}
+
+/**
+ * KID-379: 카카오의 옛 attempt 원천(카카오가 실행 kind로 옮기면 이 파일이 사라진다).
  * One mall's order collection for the shared control. The page opens the owner
  * attempt and hands it to the extension procedure this mall needs; the owner's
  * organization-scoped status read is what every browser sees as running, so a
@@ -240,13 +248,11 @@ async function detectMallCollectionExtension(): Promise<string> {
 export function mallOrderCollectionSource({
   organizationId,
   account,
-  collectionMode = 'browser',
   handOff,
   abortLocalRun,
 }: Readonly<{
   organizationId: string | null;
   account: OrderCollectionMallAccount;
-  collectionMode?: OrderCollectionMode;
   /** The mall's own extension hand-off, which runs its collection to the end. */
   handOff: (handoff: MallOrderCollectionHandoff) => Promise<void>;
   /** Ends this browser's procedure for the attempt the operator is stopping. */
@@ -291,13 +297,9 @@ export function mallOrderCollectionSource({
         begin: async (idempotencyKey) => {
           const request: MallBeginRequest = {
             mallKey: account.key,
-            collectionDate: collectionMode === 'browser'
-              ? input.collectionDate ?? todayYmd()
-              : null,
-            collectionMode,
-            ...(collectionMode === 'browser'
-              ? { selectionMode: input.selectionMode ?? 'manual' }
-              : {}),
+            collectionDate: input.collectionDate ?? todayYmd(),
+            collectionMode: 'browser',
+            selectionMode: input.selectionMode ?? 'manual',
             ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
           };
           // 앞선 시작이 begin 의 답을 못 받았으면 그 키와 요청을 그대로 다시 보낸다.

@@ -27,21 +27,36 @@ import '../collectors/sourcing.tiktok_creative';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
+import '../sites/11st/listings';
 import '../sites/1688';
+import '../sites/always';
 import '../sites/art09';
+import '../sites/auction/listings';
+import '../sites/boribori';
 import '../sites/coupang-product';
-import '../sites/coupang-shop';
 import '../sites/coupang-search';
+import '../sites/coupang-shop';
 import '../sites/coupang-supplier';
 import '../sites/domeggook';
+import '../sites/gmarket/listings';
+import '../sites/gs-shop';
+import '../sites/haebub-mall';
 import '../sites/icecream-mall';
+import '../sites/kakao/listings';
 import '../sites/kidkids';
+import '../sites/kidsnote';
+import '../sites/kkomangse';
 import '../sites/live-commerce';
+import '../sites/lotte-on';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
+import '../sites/onch';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
+import '../sites/smartstore/listings';
+import '../sites/teacher-mall';
+import '../sites/thirtymall/listings';
 import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/itemwinner';
@@ -51,12 +66,13 @@ import '../sites/wing/traffic';
 import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
-import { createTabPages } from '../sites/tab-page';
+import { createTabPages, installDialogGuardAnswer, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
 import { installProductCollect } from './sourcing-product-collect';
+import { mallSiteCapabilities } from './mall-site-capabilities';
 
 /**
  * 새 런타임을 옛 워커의 외부 메시지 표(`KidItemDomains`)에 건다. 옛 전역이 없으면(Vitest·번들 스펙) 아무것도 하지 않고
@@ -73,6 +89,10 @@ export function installEntry(): boolean {
     tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
     randomId: () => crypto.randomUUID(),
   };
+  // 서비스워커가 다시 떴다 — 지난 실행이 남긴 알림 창 가드 등록을 지운다(KID-380 D4).
+  void sweepDialogGuards(chrome);
+  // 가드 짝이 묻는 "이 탭이 수집 탭인가"에 답한다(실기기 R1).
+  if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
   const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({
@@ -90,6 +110,7 @@ export function installEntry(): boolean {
   // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
   // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
   // sellpiaOperationKindsV1: 셀피아 재고·매출·상품 손익 kind를 돈다(KID-361).
+  // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드가 사이트를 가진 몰(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
   registerWithLegacyDomains({
     externalActions,
     capabilities: {
@@ -98,9 +119,12 @@ export function installEntry(): boolean {
       orderCaptureOperationKindsV1: true,
       [CHANNELS_OPERATION_CAPABILITY]: true,
       operationLoginV1: true,
+      // operationLoginBlockedV1: operation.start의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는다.
+      operationLoginBlockedV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,
+      ...mallSiteCapabilities(),
     },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

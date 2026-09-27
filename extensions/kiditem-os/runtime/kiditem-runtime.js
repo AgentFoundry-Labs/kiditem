@@ -5407,10 +5407,6 @@ var KidItemRuntime = (() => {
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64)
   }).strict();
-  var MALL_ADMIN_LISTING_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
-  function isMallAdminListingOperationMall(mallKey) {
-    return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
-  }
   var RocketMatchingCsvScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     fileName: external_exports.string().trim().min(1).max(240)
@@ -5499,33 +5495,29 @@ var KidItemRuntime = (() => {
     },
     /*
       사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
-      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
-      1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
-      티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
+      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들도 실행 kind
+      `channels.mall_admin_listings`로 가져온다(KID-381, 확장 `sites/<mallKey>/listings.ts`).
     */
     /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
     domeggook: {
       mallName: "\uB3C4\uB9E4\uAFB9",
       origin: "https://www.domeggook.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
     kidsnote: {
       mallName: "\uD0A4\uC988\uB178\uD2B8",
       origin: "https://shop.kidsnote.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
     "11st": {
       mallName: "11\uBC88\uAC00",
       origin: "https://soffice.11st.co.kr",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /**
      * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
@@ -5535,59 +5527,56 @@ var KidItemRuntime = (() => {
       mallName: "\uC9C0\uB9C8\uCF13",
       origin: "https://item.esmplus.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     auction: {
       mallName: "\uC625\uC158",
       origin: "https://item.esmplus.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
     kakao: {
       mallName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
       origin: "https://shopping-seller.kakao.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
     "lotte-on": {
       mallName: "\uB86F\uB370ON",
       origin: "https://store.lotteon.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     },
     /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
     smartstore: {
       mallName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
       origin: "https://sell.smartstore.naver.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     },
     /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
     "teacher-mall": {
       mallName: "\uD2F0\uCCD0\uBAB0",
       origin: "https://shop.teacherville.co.kr",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     }
   };
   var MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
     MALL_ADMIN_LISTING_READERS
   );
+  function isMallAdminListingMallKey(value) {
+    return typeof value === "string" && Object.hasOwn(MALL_ADMIN_LISTING_READERS, value);
+  }
+  function mallListingSiteCapability(mallKey) {
+    return `mallListingSite.${mallKey}`;
+  }
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
   var requiredText = (max) => boundedText(max).min(1);
-  var MallAdminListingsBeginSchema = external_exports.object({
-    mallKey: MallKeySchema
-  }).strict();
   var MallAdminListingsPlanSchema = external_exports.object({
     sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
     parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
@@ -5605,19 +5594,6 @@ var KidItemRuntime = (() => {
       ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["pageSize"], message: "Unexpected page size" });
     }
   });
-  var MallAdminListingsAttemptSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
-    generation: external_exports.string().regex(/^\d+$/),
-    plan: MallAdminListingsPlanSchema,
-    expiresAt: external_exports.string().datetime(),
-    completedAt: external_exports.string().datetime().nullable(),
-    errorCode: boundedText(100).nullable(),
-    errorMessage: boundedText(300).nullable()
-  }).strict();
-  var MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
-    attemptToken: external_exports.string().uuid()
-  }).strict();
   var MallAdminListingsPublicationSchema = external_exports.object({
     /** 이번에 받은 몰 상품코드 수. */
     listings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
@@ -5640,16 +5616,9 @@ var KidItemRuntime = (() => {
     mallName: requiredText(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
-    latestAttempt: MallAdminListingsAttemptSchema.nullable(),
-    latestComplete: MallAdminListingsAttemptSchema.nullable(),
-    /**
-     * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
-     */
+    /** `latestSucceeded`가 남긴 발행 결과. */
     latestPublication: MallAdminListingsPublicationSchema.nullable(),
-    /**
-     * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
-     * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
-     */
+    /** 그 몰 계정의 `channels.mall_admin_listings` 최근 실행과 최근 성공 실행(KID-363·381). */
     latestOperation: OperationViewSchema.nullable(),
     latestSucceeded: OperationViewSchema.nullable()
   }).strict();
@@ -5680,7 +5649,6 @@ var KidItemRuntime = (() => {
     imageUrl: external_exports.string().url().max(2e3).optional()
   }).strict();
   var MallAdminListingsCollectionSchema = external_exports.object({
-    collectionRunId: external_exports.string().uuid(),
     /** 몰이 알린 전체 상품 수. */
     totalRecords: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     /** 실제로 읽은 상품 줄 수. */
@@ -5691,18 +5659,13 @@ var KidItemRuntime = (() => {
     detailsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     detailsMissing: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
-  var MallAdminListingsSubmissionSchema = external_exports.object({
+  var MallAdminListingsScanSchema = external_exports.object({
     collection: MallAdminListingsCollectionSchema,
-    rows: external_exports.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     proof: external_exports.object({
       mallKey: MallKeySchema,
       pageSize: external_exports.number().int().positive().max(2e4),
       validatedList: external_exports.literal(true)
     }).strict()
-  }).strict();
-  var MallAdminListingsScanSchema = external_exports.object({
-    collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
-    proof: MallAdminListingsSubmissionSchema.shape.proof
   }).strict();
   var MallAdminListingsResultSchema = MallAdminListingsPublicationSchema.extend({
     rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
@@ -5863,7 +5826,7 @@ var KidItemRuntime = (() => {
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS3 = 500;
   function drift(stage) {
-    throw new RuntimeError(MALL_CONTRACT_CHANGED, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${stage}]`, { stage });
+    throw new RuntimeError(MALL_CONTRACT_CHANGED, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage, field: stage });
   }
   function text(value, maximum) {
     if (typeof value !== "string" && typeof value !== "number") return null;
@@ -7197,9 +7160,12 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch", "haebub-mall", "kkomangse", "teacher-mall", "boribori", "gs-shop", "always", "lotte-on"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
+  }
+  function mallOrderSiteCapability(mallKey) {
+    return `mallOrderSite.${mallKey}`;
   }
   var COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = "shipment_dates";
   var COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = "shipment_scan";
@@ -7879,7 +7845,7 @@ var KidItemRuntime = (() => {
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
-    async *collect(rawPlan, site, { signal }) {
+    async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = PlanSchema4.safeParse(rawPlan);
       const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
       if (!parsed2.success || !reader) {
@@ -7894,7 +7860,8 @@ var KidItemRuntime = (() => {
           collectionDate: plan.collectionDate,
           selectionMode: plan.selectionMode ?? "manual",
           seenRowKeys: plan.seenRowKeys ?? [],
-          signal
+          signal,
+          onAttention: attentionReporter(report, { mallKey: plan.mallKey })
         });
         if (signal.aborted) return;
         const progress4 = { mallKey: plan.mallKey, rows: rows.length };
@@ -8389,12 +8356,35 @@ var KidItemRuntime = (() => {
       );
     }
   }
+  var OPERATOR_ACTION_REQUIRED = "OPERATOR_ACTION_REQUIRED";
   function leftForOperator(error) {
-    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED || error.details?.reason === "unexpected_url");
   }
   function hostWithin(url, domains) {
     const host = url.hostname.toLowerCase();
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  }
+  var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
+  var DIALOG_GUARD_BRIDGE_FILE = "content/page-call/dialog-guard-bridge.js";
+  var DIALOG_GUARD_RUN_TAB_ACTION = "kiditem.dialogGuard.isRunTab";
+  var DIALOG_GUARD_SET_RUN_TAB_ACTION = "kiditem.dialogGuard.setRunTab";
+  function installDialogGuardAnswer(chromeApi, tabs) {
+    chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!message || typeof message !== "object" || message.action !== DIALOG_GUARD_RUN_TAB_ACTION) return void 0;
+      const tabId = sender.tab?.id;
+      sendResponse({ runTab: typeof tabId === "number" && tabs.isRunTab(tabId) });
+      return void 0;
+    });
+  }
+  var DIALOG_GUARD_ID_PREFIX = "kiditem-dialog-guard-";
+  async function sweepDialogGuards(chromeApi) {
+    const scripting = chromeApi?.scripting;
+    if (!scripting?.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+    try {
+      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+      if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
+    } catch {
+    }
   }
   var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
   var OPERATOR_POLL_MS = 2e3;
@@ -8407,8 +8397,22 @@ var KidItemRuntime = (() => {
     return cleared;
   }
   var POLL_MS = 250;
+  var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
+  var dialogGuardSerial = 0;
   function createTabPages(deps) {
+    const kept = /* @__PURE__ */ new Map();
+    const runTabs = /* @__PURE__ */ new Set();
+    async function handToOperator(tabId) {
+      runTabs.delete(tabId);
+      await deps.chrome.tabs.sendMessage(tabId, { action: DIALOG_GUARD_SET_RUN_TAB_ACTION, runTab: false }).catch(() => void 0);
+    }
+    async function stillOurs(entry) {
+      const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
+      if (!tab || tab.active === true) return false;
+      const url = tab.url ?? "";
+      return url === entry.url || url === "" || url.startsWith("about:") || LOGIN_LIKE_URL.test(url);
+    }
     function page(tabId, owned) {
       let closed = false;
       async function send(message, timeoutMs, frameId) {
@@ -8429,6 +8433,8 @@ var KidItemRuntime = (() => {
       return {
         tabId,
         async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+          const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
+          if (owned && !closed) runTabs.add(tabId);
           await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
@@ -8437,7 +8443,8 @@ var KidItemRuntime = (() => {
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
             if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
             last = tab.url || last;
-            if (stopAt?.(last) || tab.status === "complete") return last;
+            const committed = !tab.pendingUrl && tab.url !== void 0 && tab.url !== before;
+            if (committed && stopAt?.(last) || tab.status === "complete") return last;
             if (deps.now() >= deadline) {
               if (continueOnTimeout) return last;
               throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });
@@ -8451,7 +8458,7 @@ var KidItemRuntime = (() => {
           for (; ; ) {
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
             if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
-            if (!blocked(tab.url ?? "")) return true;
+            if (!await blocked(tab.url ?? "")) return true;
             if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
             if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
               remindedAt = deps.now();
@@ -8459,6 +8466,10 @@ var KidItemRuntime = (() => {
             }
             await deps.sleep(OPERATOR_POLL_MS);
           }
+        },
+        async focus() {
+          await handToOperator(tabId);
+          await deps.chrome.tabs.update(tabId, { active: true }).catch(() => void 0);
         },
         async currentUrl() {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -8474,7 +8485,10 @@ var KidItemRuntime = (() => {
           };
           await checkHere();
           const first = await send(message, timeoutMs, frameId);
-          if (!inject || !isMissing(first)) return first;
+          if (!inject || !(isMissing(first) || isEmpty(first))) {
+            if (isMissing(first) || isTimeout(first)) await checkHere();
+            return first;
+          }
           await checkHere();
           const target = frameId === void 0 ? { tabId } : { tabId, frameIds: [frameId] };
           await deps.chrome.scripting.executeScript({ target, files: [...inject.isolated] });
@@ -8483,7 +8497,9 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          return send(message, timeoutMs, frameId);
+          const second = await send(message, timeoutMs, frameId);
+          if (isMissing(second) || isTimeout(second)) await checkHere();
+          return second;
         },
         async frames(files) {
           const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
@@ -8500,6 +8516,7 @@ var KidItemRuntime = (() => {
         async close() {
           if (!owned || closed) return;
           closed = true;
+          runTabs.delete(tabId);
           await deps.chrome.tabs.remove(tabId).catch(() => void 0);
         }
       };
@@ -8508,9 +8525,56 @@ var KidItemRuntime = (() => {
       async open(url) {
         const created = await deps.chrome.tabs.create({ url, active: false });
         if (typeof created.id !== "number") throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url });
+        runTabs.add(created.id);
         return page(created.id, true);
       },
       attach: (tabId) => page(tabId, false),
+      async find(urlPattern) {
+        const candidates = (await deps.chrome.tabs.query({ url: urlPattern })).filter((tab) => typeof tab.id === "number");
+        const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ""));
+        const picked = usable.find((tab) => tab.status === "complete") ?? usable[0] ?? null;
+        return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
+      },
+      async keep(key, keptPage) {
+        await handToOperator(keptPage.tabId);
+        const prior = kept.get(key);
+        const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
+        if (!tab) {
+          kept.delete(key);
+        } else {
+          kept.set(key, { tabId: keptPage.tabId, url: tab.url ?? "" });
+        }
+        if (prior && prior.tabId !== keptPage.tabId && await stillOurs(prior)) {
+          await deps.chrome.tabs.remove(prior.tabId).catch(() => void 0);
+        }
+      },
+      async reclaimKept(key) {
+        const entry = kept.get(key);
+        if (!entry) return null;
+        kept.delete(key);
+        if (!await stillOurs(entry)) return null;
+        runTabs.add(entry.tabId);
+        return page(entry.tabId, true);
+      },
+      isRunTab: (tabId) => runTabs.has(tabId),
+      async guardDialogs(hosts) {
+        const scripting = deps.chrome.scripting;
+        dialogGuardSerial += 1;
+        const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
+        const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
+        let registered = false;
+        if (matches.length > 0 && scripting.registerContentScripts) {
+          registered = await scripting.registerContentScripts([
+            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
+            { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+          ]).then(() => true, () => false);
+        }
+        return async () => {
+          if (!registered) return;
+          registered = false;
+          await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => void 0);
+        };
+      },
       async fetchText(url, init) {
         try {
           const response = await deps.fetch(url, { credentials: "include", redirect: "error", ...init });
@@ -8521,8 +8585,131 @@ var KidItemRuntime = (() => {
       }
     };
   }
+  function isEmpty(value) {
+    return typeof value === "object" && value !== null && value.error === "empty_response";
+  }
+  function isTimeout(value) {
+    return typeof value === "object" && value !== null && value.error === "timeout";
+  }
   function isMissing(value) {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";
+  }
+
+  // extensions/src/sites/fresh-tab.ts
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  async function withFreshTab(tabs, url, read, options = {}) {
+    const guardHosts = options.dialogGuardHosts ?? options.signIn?.hosts ?? [];
+    const releaseGuard = guardHosts.length > 0 ? await tabs.guardDialogs(guardHosts) : null;
+    try {
+      return await readInTab(tabs, url, read, options);
+    } finally {
+      await releaseGuard?.();
+    }
+  }
+  async function readInTab(tabs, url, read, options) {
+    const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
+    const site = siteKey(url);
+    const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
+    let keepOpen = false;
+    try {
+      const stopAt = options.signIn ? (landed) => options.signIn.isLoginUrl(landed) : void 0;
+      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...stopAt ? { stopAt } : {} });
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
+    } catch (error) {
+      if (leftForOperator(error)) keepOpen = true;
+      const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
+      if (operatorStep) await page.focus().catch(() => void 0);
+      throw error;
+    } finally {
+      if (!keepOpen) await page.close();
+      else if (!reused) await tabs.keep(site, page);
+    }
+  }
+  function siteKey(url) {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return url;
+    }
+  }
+
+  // extensions/src/sites/mall-maintenance.ts
+  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
+      status: null,
+      reason: "maintenance",
+      url,
+      ...details
+    });
+  }
+
+  // extensions/src/sites/page-call.ts
+  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
+  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
+  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
+  async function callPage(page, call2, args, options) {
+    const answer = await page.ask(
+      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
+      {
+        timeoutMs: options.timeoutMs,
+        guard: options.guard,
+        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
+        inject: {
+          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
+          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
+          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
+        }
+      }
+    );
+    if (answer.ok === true) return answer.value;
+    if (answer.error === "timeout") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      status: null,
+      reason: "page_error",
+      call: call2
+    });
+  }
+
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS2 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan, signIn) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    const guard = { ...spec.guard, loginMessage: login };
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard,
+        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { stage, field: stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_maintenance":
+          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, {
+      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS2,
+      ...signIn ? { signIn } : {},
+      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
+    });
   }
 
   // extensions/src/sites/registry.ts
@@ -8538,9 +8725,31 @@ var KidItemRuntime = (() => {
     return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   }
 
+  // extensions/src/sites/11st/listings.ts
+  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
+  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
+  var ST11_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["11st.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
+    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function create11stListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "11st",
+        displayName: "11\uBC88\uAC00",
+        startUrl: ST11_LISTINGS_URL,
+        file: ST11_LISTINGS_FILE,
+        call: "11st.listings",
+        guard: ST11_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
+
   // extensions/src/sites/1688/index.ts
   var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
   var EXTRACTION_TIMEOUT_MS = 2e4;
   var MAX_RESULTS_PER_KEYWORD = 20;
   var MAX_VERIFICATION_ROUNDS = 5;
@@ -8593,7 +8802,7 @@ var KidItemRuntime = (() => {
           });
         };
         for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: is1688VerificationUrl, continueOnTimeout: true });
           if (is1688VerificationUrl(landed)) {
             if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
               keepOpen = true;
@@ -8640,49 +8849,108 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
 
-  // extensions/src/sites/fresh-tab.ts
-  var NAVIGATION_TIMEOUT_MS2 = 3e4;
-  async function withFreshTab(tabs, url, read, options = {}) {
-    const page = await tabs.open("about:blank");
-    let keepOpen = false;
-    try {
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
-      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
-    } catch (error) {
-      if (leftForOperator(error)) keepOpen = true;
-      throw error;
-    } finally {
-      if (!keepOpen) await page.close();
+  // extensions/src/sites/mall-excel.ts
+  var MALL_FILE_PART_CHARS = 7e5;
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
+  function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
+    const parts = Math.max(1, Math.ceil(base642.length / partChars));
+    return Array.from({ length: parts }, (_, part) => ({
+      fileName,
+      part,
+      parts,
+      base64: base642.slice(part * partChars, (part + 1) * partChars)
+    }));
+  }
+  function mallExcelRows(answer, context) {
+    const message = answer?.error || `${context.displayName} \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
+    if (answer?.success === true) {
+      if (answer.empty === true) return { rows: [] };
+      const base642 = typeof answer.xlsxBase64 === "string" ? answer.xlsxBase64.trim() : "";
+      if (!base642) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `${context.displayName} \uC8FC\uBB38 \uC6D0\uBCF8 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: context.url });
+      }
+      return { rows: filePartRows(answer.fileName || context.fileName, base642) };
     }
+    if (answer?.pendingLogin === true || answer?.errorCode === "login_required") {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
+    }
+    if (answer?.errorCode === "provider_contract_changed") {
+      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
+    }
+    if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
+      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, message, {
+      status: null,
+      reason: answer?.errorCode === "network_failed" ? "network" : "page_error",
+      url: context.url
+    });
   }
 
-  // extensions/src/sites/page-call.ts
-  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
-  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
-  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
-  async function callPage(page, call2, args, options) {
-    const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
-      {
-        timeoutMs: options.timeoutMs,
-        guard: options.guard,
-        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
-        inject: {
-          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
-          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
-          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
-        }
+  // extensions/src/sites/always/listings.ts
+  var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
+  var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
+  function createAlwaysListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "always",
+        displayName: "\uC62C\uC6E8\uC774\uC988",
+        startUrl: ALWAYS_LISTINGS_URL,
+        file: ALWAYS_LISTINGS_FILE,
+        call: "always.listings",
+        guard: ALWAYS_PAGE_GUARD
+      }, plan)
+    };
+  }
+
+  // extensions/src/sites/always/index.ts
+  var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
+  var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
+  var READ_TIMEOUT_MS2 = 12e4;
+  var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var ALWAYS_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
+    isLogin: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createAlwaysSite(tabs) {
+    return {
+      ...createAlwaysListings(tabs),
+      readOrders() {
+        return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "always.orders", {}, {
+            timeoutMs: READ_TIMEOUT_MS2,
+            guard: ALWAYS_PAGE_GUARD,
+            main: [ALWAYS_ORDERS_FILE],
+            displayName: "\uC62C\uC6E8\uC774\uC988"
+          });
+          return mallExcelRows(answer, { displayName: "\uC62C\uC6E8\uC774\uC988", url: ALWAYS_ORDER_URL, fileName: "\uC62C\uC6E8\uC774\uC988.xlsx" });
+        });
       }
-    );
-    if (answer.ok === true) return answer.value;
-    if (answer.error === "timeout") {
-      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
-    }
-    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
-      status: null,
-      reason: "page_error",
-      call: call2
-    });
+    };
+  }
+  registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
+
+  // packages/shared/src/schemas/mall-login.ts
+  var MALL_CREDENTIAL_REJECTIONS = [
+    "\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0",
+    "\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778",
+    "\uBE44\uBC00\uBC88\uD638\uAC00 \uC62C\uBC14\uB974\uC9C0",
+    "\uC544\uC774\uB514 \uB610\uB294 \uBE44\uBC00\uBC88\uD638",
+    "\uC544\uC774\uB514\uC640 \uBE44\uBC00\uBC88\uD638",
+    "\uB4F1\uB85D\uB418\uC9C0 \uC54A\uC740 \uC544\uC774\uB514",
+    "\uC874\uC7AC\uD558\uC9C0 \uC54A\uB294 \uC544\uC774\uB514",
+    "\uC77C\uCE58\uD558\uB294 \uD68C\uC6D0",
+    "\uAC00\uC785\uB418\uC9C0 \uC54A\uC740",
+    "incorrect password",
+    "invalid password",
+    "password does not match"
+  ];
+  function mallRejectedCredentials(message) {
+    const text5 = (message ?? "").toLowerCase();
+    if (!text5) return false;
+    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text5.includes(phrase.toLowerCase()));
   }
 
   // extensions/src/sites/site-login.ts
@@ -8692,7 +8960,7 @@ var KidItemRuntime = (() => {
   var FILL_RETRY_MS = 500;
   var AFTER_SUBMIT_MS = 1500;
   var AFTER_REDIRECT_MS = 1200;
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var NAVIGATION_TIMEOUT_MS4 = 3e4;
   var CALL_TIMEOUT_MS = 5e3;
   var REMAIN_CHECKS = 3;
   var REMAIN_CHECK_GAP_MS = 1500;
@@ -8702,8 +8970,8 @@ var KidItemRuntime = (() => {
     const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
-    if (first === null && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
+    if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -8725,6 +8993,7 @@ var KidItemRuntime = (() => {
           await pageCall(page, "login.watchDialogs", {}, guard, spec, frameId, "main");
         }
         const filled = await pageCall(page, "login.fill", { values }, guard, spec, frameId, "isolated");
+        if (filled?.state === "verification_required") return { status: "verification_required" };
         if (filled?.state === "submitted") return afterSubmit(page, spec, guard, frameId, deps);
       }
       await deps.sleep(FILL_RETRY_MS);
@@ -8738,17 +9007,20 @@ var KidItemRuntime = (() => {
     const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
     const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
-    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
+    if (mallMessage && mallRejectedCredentials(mallMessage)) return { status: "rejected", ...withMessage };
+    const remains = await formRemains(page, deps);
+    const status = remains === "unknown" ? "unconfirmed" : remains ? "form_remains" : "ok";
+    return { status, ...withMessage };
   }
   async function formRemains(page, deps) {
-    let lastSeen = false;
+    let lastSeen = "unknown";
     for (let check = 0; check < REMAIN_CHECKS; check += 1) {
       if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
       const probed = await probe(page);
-      if (probed === NO_ANSWER) return true;
-      if (probed === null || probed.length === 0) continue;
-      lastSeen = probed.some((frame) => frame.result?.loginForm === true);
-      if (!lastSeen) return false;
+      if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
+      const withForm = probed.filter((frame) => frame.result?.loginForm === true);
+      lastSeen = withForm.some((frame) => !(frame.result.filledHere === true && frame.result.submitObserved !== true)) ? true : withForm.length > 0 ? "unknown" : false;
+      if (lastSeen === false) return false;
     }
     return lastSeen;
   }
@@ -8830,7 +9102,7 @@ var KidItemRuntime = (() => {
         return await call2();
       } catch (error) {
         if (!isLoginRequired(error)) throw error;
-        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
+        throw outcome.status === "form_remains" || outcome.status === "rejected" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
       }
     };
   }
@@ -8838,15 +9110,28 @@ var KidItemRuntime = (() => {
     const withLogin = createSiteLoginGate(credentials);
     const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
     return {
+      hosts: spec.hosts,
+      isLoginUrl: (url) => isLogin(spec, url),
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
-        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
         return outcome;
       }),
-      beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
+      beforeTab: async (tabs, call2) => {
+        let releaseGuard = null;
+        try {
+          const site = new URL(spec.loginUrl).origin;
+          return await withLoginTab(withLogin, call2, async () => {
+            releaseGuard = await tabs.guardDialogs(spec.hosts);
+            return await tabs.reclaimKept(site) ?? tabs.open("about:blank");
+          }, login, (kept) => tabs.keep(site, kept));
+        } finally {
+          await releaseGuard?.();
+        }
+      }
     };
   }
-  async function withLoginTab(withLogin, call2, open, login) {
+  async function withLoginTab(withLogin, call2, open, login, onKept) {
     let opened = null;
     try {
       const result = await withLogin(call2, async () => {
@@ -8855,11 +9140,18 @@ var KidItemRuntime = (() => {
       });
       return result;
     } catch (error) {
-      if (leftForOperator(error)) opened = null;
+      if (leftForOperator(error) && opened && !await isBlank(opened)) {
+        await onKept?.(opened);
+        opened = null;
+      }
       throw error;
     } finally {
       await opened?.close();
     }
+  }
+  async function isBlank(page) {
+    const url = await safeUrl(page);
+    return url === "" || url.startsWith("about:");
   }
   function isLoginRequired(error) {
     return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
@@ -8867,49 +9159,17 @@ var KidItemRuntime = (() => {
   var REASON_TEXT = {
     no_credentials: "",
     credentials_rejected: " \uC800\uC7A5\uB41C \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB85C \uB85C\uADF8\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4",
-    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+    // 주문 수집·목록 가져오기가 함께 쓰는 문장이라 동작 말은 중립으로 둔다(KID-381).
+    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.",
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
     return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
       ...error.details ?? {},
       reason,
       ...mallMessage ? { mallMessage } : {}
     }, error);
-  }
-
-  // extensions/src/sites/mall-listings.ts
-  var READ_TIMEOUT_MS = 20 * 6e4;
-  var NAVIGATION_TIMEOUT_MS4 = 45e3;
-  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
-  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
-  function readMallListings(tabs, spec, plan, signIn) {
-    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
-    return withFreshTab(tabs, spec.startUrl, async (page) => {
-      const answer = await callPage(page, spec.call, { plan }, {
-        timeoutMs: READ_TIMEOUT_MS,
-        guard: spec.guard,
-        isolated: [spec.file],
-        displayName: spec.displayName
-      });
-      if (answer?.success === true) return answer.snapshot;
-      const stage = answer?.stage ?? null;
-      switch (answer?.errorCode) {
-        case "mall_login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
-        case "mall_contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
-        case "mall_total_changed":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
-        case "mall_invalid_snapshot":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
-        case "mall_timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
-        default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
-      }
-    }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS4, ...signIn ? { signIn } : {} });
   }
 
   // extensions/src/sites/art09/listings.ts
@@ -8936,17 +9196,18 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/art09/index.ts
   var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
   var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
-  var READ_TIMEOUT_MS2 = 18e4;
-  var LOGIN_MESSAGE = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS3 = 18e4;
+  var LOGIN_MESSAGE2 = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var ART09_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["zzogzzog1.cafe24.com"]),
     isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/order_list\.php$/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE
+    loginMessage: LOGIN_MESSAGE2
   };
   var ART09_LOGIN = {
     displayName: "\uC544\uD2B8\uACF5\uAD6C",
     loginUrl: ART09_ORDER_URL,
-    hosts: ["zzogzzog1.cafe24.com"],
+    // 로그아웃이면 Cafe24 통합 로그인(eclogin.cafe24.com/Shop/, 대표운영자·공급사 탭)으로 넘어간다 — 그 호스트에서도 채운다(실기기 R3).
+    hosts: ["zzogzzog1.cafe24.com", "eclogin.cafe24.com"],
     isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
     fields: ["supplierLoginId", "loginId", "password"]
   };
@@ -8956,13 +9217,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
           const answer = await callPage(page, "art09.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS2,
+            timeoutMs: READ_TIMEOUT_MS3,
             guard: ART09_PAGE_GUARD,
             isolated: [ART09_ORDERS_FILE],
             displayName: "\uC544\uD2B8\uACF5\uAD6C"
           });
           if (answer?.status === "ok") return { rows: answer.rows };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: ART09_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: ART09_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC544\uD2B8\uACF5\uAD6C \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -8973,6 +9234,78 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/gmarket/listings.ts
+  var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
+  var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";
+  function esmListingsGuard(displayName) {
+    return {
+      allows: (url) => hostWithin(url, ["esmplus.com"]),
+      isLogin: (url) => hostWithin(url, ["esmplus.com"]) && (url.hostname.toLowerCase().startsWith("signin.") || /login|signin/i.test(url.pathname)),
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ESM Plus \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`
+    };
+  }
+  function createEsmListings(tabs, mallKey, displayName) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey,
+        displayName,
+        startUrl: ESM_LISTINGS_URL,
+        file: ESM_LISTINGS_FILE,
+        call: "esm.listings",
+        guard: esmListingsGuard(displayName)
+      }, plan)
+    };
+  }
+  registerSite({ name: "gmarket", create: (deps) => createEsmListings(deps.tabs, "gmarket", "\uC9C0\uB9C8\uCF13") });
+
+  // extensions/src/sites/auction/listings.ts
+  registerSite({ name: "auction", create: (deps) => createEsmListings(deps.tabs, "auction", "\uC625\uC158") });
+
+  // extensions/src/sites/boribori/index.ts
+  var BORIBORI_ORDER_URL = "https://seller-club.co.kr/order/orderDeliList";
+  var BORIBORI_ORDERS_FILE = "content/page-call/boribori-orders.js";
+  var BORIBORI_DOWNLOAD_REASON = "\uBC30\uC1A1\uD655\uC778\uD569\uB2C8\uB2E4";
+  var READ_TIMEOUT_MS4 = 12e4;
+  var LOGIN_MESSAGE3 = "\uBCF4\uB9AC\uBCF4\uB9AC \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. seller-club.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var BORIBORI_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["seller-club.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["seller-club.co.kr"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE3
+  };
+  var BORIBORI_LOGIN = {
+    displayName: "\uBCF4\uB9AC\uBCF4\uB9AC",
+    loginUrl: BORIBORI_ORDER_URL,
+    hosts: ["seller-club.co.kr"],
+    isLoginUrl: (url) => BORIBORI_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createBoriboriSite(tabs, downloadPassword, signIn) {
+    return {
+      readOrders() {
+        return withFreshTab(tabs, BORIBORI_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "boribori.orders", {
+            downloadReason: BORIBORI_DOWNLOAD_REASON,
+            downloadPassword
+          }, {
+            timeoutMs: READ_TIMEOUT_MS4,
+            guard: BORIBORI_PAGE_GUARD,
+            main: [BORIBORI_ORDERS_FILE],
+            displayName: "\uBCF4\uB9AC\uBCF4\uB9AC"
+          });
+          return mallExcelRows(answer, { displayName: "\uBCF4\uB9AC\uBCF4\uB9AC", url: BORIBORI_ORDER_URL, fileName: "\uBCF4\uB9AC\uBCF4\uB9AC.xlsx" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({
+    name: "boribori",
+    create: (deps, lease) => createBoriboriSite(
+      deps.tabs,
+      lease.credentials?.password ?? "",
+      createSiteSignIn(BORIBORI_LOGIN, lease.credentials, deps)
+    )
+  });
 
   // extensions/src/sites/coupang-product/index.ts
   var ORIGIN = "https://www.coupang.com";
@@ -9087,130 +9420,6 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: COUPANG_PRODUCT_SITE.name, create: (deps) => createCoupangProductSite(deps.tabs, { sleep: deps.sleep, random: () => Math.random() }) });
-
-  // extensions/src/sites/coupang-shop/index.ts
-  var ORIGIN2 = "https://shop.coupang.com";
-  var PAGE_TIMEOUT_MS2 = 6e4;
-  var CATALOG_TIMEOUT_MS = 9e4;
-  var SORT_TIMEOUT_MS = 2e4;
-  var RENDER_WAIT_MS2 = 1200;
-  var CONTENT_FILE2 = "content/advertising/coupang-shop-catalog.js";
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
-  var COUPANG_SHOP_SITE = {
-    name: "coupang-shop",
-    origin: ORIGIN2,
-    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
-  };
-  var COUPANG_SHOP_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["coupang.com"]),
-    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
-    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  function isExpectedShopUrl(actual, expected) {
-    try {
-      const left = new URL(actual);
-      const right = new URL(expected);
-      return left.protocol === "https:" && left.hostname === "shop.coupang.com" && right.hostname === "shop.coupang.com" && /^\/(?:vid\/)?[A-Za-z0-9_-]+\/?$/.test(right.pathname) && left.pathname === right.pathname && left.search === right.search;
-    } catch {
-      return false;
-    }
-  }
-  function createCoupangShopSite(tabs, deps) {
-    let page = null;
-    let keepOpen = false;
-    const ask = (current, message, timeoutMs) => current.ask(message, { timeoutMs, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SHOP_PAGE_GUARD }).catch((error) => {
-      if (leftForOperator(error)) keepOpen = true;
-      throw error;
-    });
-    return {
-      async catalog(target, productLimit, options = {}) {
-        page ??= await tabs.open("about:blank");
-        const current = page;
-        for (; ; ) {
-          const landed = await current.navigate(target.sellerStoreUrl, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
-          if (isExpectedShopUrl(landed, target.sellerStoreUrl)) break;
-          try {
-            checkPageUrl(COUPANG_SHOP_PAGE_GUARD, landed);
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          const cleared = await waitForOperator(
-            current,
-            (url) => !isExpectedShopUrl(url, target.sellerStoreUrl),
-            { kind: "verification", site: "\uCFE0\uD321", label: target.sellerName },
-            options.onAttention
-          );
-          if (!cleared) {
-            keepOpen = true;
-            throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
-          }
-        }
-        await deps.sleep(RENDER_WAIT_MS2);
-        const sorted = await ask(current, { type: "KIDITEM_COUPANG_SHOP_SORT_NEWEST" }, SORT_TIMEOUT_MS);
-        if (sorted.clicked !== true) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5\uC758 \uCD5C\uC2E0\uC21C \uC815\uB82C\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
-        }
-        await deps.sleep(RENDER_WAIT_MS2);
-        const answer = await ask(current, { type: "KIDITEM_COUPANG_SHOP_CATALOG", maxItems: productLimit }, CATALOG_TIMEOUT_MS);
-        const catalog = answer.ok ? toCatalog(answer, target, productLimit) : null;
-        if (!catalog) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
-        }
-        return catalog;
-      },
-      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
-      async close() {
-        if (page && !keepOpen) await page.close();
-        page = null;
-      }
-    };
-  }
-  function toCatalog(answer, target, productLimit) {
-    const products = [];
-    for (const raw of answer.products ?? []) {
-      if (!raw || typeof raw !== "object") continue;
-      const row = raw;
-      const productId2 = text2(row.productId, 200);
-      const itemId = text2(row.itemId, 200);
-      const vendorItemId = text2(row.vendorItemId, 200);
-      const name = text2(row.name, 500);
-      if (!name || !productId2 && !itemId && !vendorItemId) continue;
-      products.push({
-        sourceRank: products.length + 1,
-        productId: productId2,
-        itemId,
-        vendorItemId,
-        name,
-        priceKrw: count(row.priceKrw),
-        reviewCount: count(row.reviewCount),
-        imageUrl: text2(row.imageUrl, 2e3),
-        link: text2(row.link, 2e3)
-      });
-      if (products.length >= productLimit) break;
-    }
-    if (products.length === 0) return null;
-    const totalProductCount = count(answer.totalProductCount);
-    return {
-      keyword: target.keyword,
-      sellerId: target.sellerId,
-      sellerName: text2(answer.sellerName, 300) ?? target.sellerName,
-      sellerStoreUrl: target.sellerStoreUrl,
-      totalProductCount,
-      collectedProductCount: products.length,
-      isTruncated: totalProductCount !== null && totalProductCount > products.length,
-      sort: "newest",
-      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      products
-    };
-  }
-  function text2(value, max) {
-    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
-  }
-  function count(value) {
-    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
-  }
-  registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
 
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
@@ -9342,24 +9551,24 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-search/serp.ts
-  var ORIGIN3 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS3 = 6e4;
+  var ORIGIN2 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS2 = 6e4;
   var EXTRACTION_TIMEOUT_MS2 = 2e4;
-  var RENDER_WAIT_MS3 = 1200;
+  var RENDER_WAIT_MS2 = 1200;
   var PAGE_DELAY_MS = [1500, 3e3];
   var KEYWORD_DELAY_MS = [4e3, 8e3];
   var WALL_POLL_MS = 5e3;
   var WALL_WAIT_MAX_MS = 10 * 6e4;
   var WALL_REMIND_MS = 3 * 6e4;
-  var CONTENT_FILE3 = "content/advertising/coupang-serp-page.js";
-  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var CONTENT_FILE2 = "content/advertising/coupang-serp-page.js";
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_SERP_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["coupang.com"]),
     isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
     loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
   };
   function buildCoupangSerpUrl(keyword2, page) {
-    return `${ORIGIN3}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+    return `${ORIGIN2}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
   }
   function isExpectedSerpUrl(actual, expected) {
     try {
@@ -9377,13 +9586,13 @@ var KidItemRuntime = (() => {
     let keywordsRead = 0;
     const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
     async function read(current, url) {
-      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3, continueOnTimeout: true });
+      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
       if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
-      await deps.sleep(RENDER_WAIT_MS3);
+      await deps.sleep(RENDER_WAIT_MS2);
       try {
         const answer = await current.ask(
           { type: "KIDITEM_COUPANG_SERP_ITEMS" },
-          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SERP_PAGE_GUARD }
         );
         return { landed, read: answer };
       } catch (error) {
@@ -9398,7 +9607,7 @@ var KidItemRuntime = (() => {
       for (; ; ) {
         if (deps.now() - started >= WALL_WAIT_MAX_MS) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
         }
         await deps.sleep(WALL_POLL_MS);
         if (deps.now() - remindedAt >= WALL_REMIND_MS) {
@@ -9416,7 +9625,7 @@ var KidItemRuntime = (() => {
     async function readInPlace(current) {
       return current.ask(
         { type: "KIDITEM_COUPANG_SERP_ITEMS" },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SERP_PAGE_GUARD }
       ).catch(() => null);
     }
     return {
@@ -9479,7 +9688,7 @@ var KidItemRuntime = (() => {
     for (const candidate of raw) {
       if (!candidate || typeof candidate !== "object") continue;
       const row = candidate;
-      const productId2 = text3(row.productId, 40);
+      const productId2 = text2(row.productId, 40);
       if (!productId2) continue;
       const position = items.length + 1;
       items.push({
@@ -9488,38 +9697,38 @@ var KidItemRuntime = (() => {
         positionInPage: position,
         isAd: row.isAd === true,
         productId: productId2,
-        itemId: text3(row.itemId, 40),
-        vendorItemId: text3(row.vendorItemId, 40),
-        name: text3(row.name, 300),
-        priceKrw: count2(row.priceKrw),
-        reviewCount: count2(row.reviewCount),
+        itemId: text2(row.itemId, 40),
+        vendorItemId: text2(row.vendorItemId, 40),
+        name: text2(row.name, 300),
+        priceKrw: count(row.priceKrw),
+        reviewCount: count(row.reviewCount),
         ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
-        imageUrl: text3(row.imageUrl, 2e3),
-        link: text3(row.link, 2e3)
+        imageUrl: text2(row.imageUrl, 2e3),
+        link: text2(row.link, 2e3)
       });
     }
     return items;
   }
-  function text3(value, max) {
+  function text2(value, max) {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   }
-  function count2(value) {
+  function count(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN4 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS4 = 6e4;
+  var ORIGIN3 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS3 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS = 1500;
-  var CONTENT_FILE4 = "content/sourcing/coupang-search-page.js";
+  var CONTENT_FILE3 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN4,
+    origin: ORIGIN3,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
-    return `${ORIGIN4}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
+    return `${ORIGIN3}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -9535,14 +9744,14 @@ var KidItemRuntime = (() => {
         const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS4 });
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3 });
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
             { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE4] } }
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE3] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
@@ -9569,6 +9778,130 @@ var KidItemRuntime = (() => {
       ...createCoupangSerp(deps.tabs, { sleep: deps.sleep, now: deps.now, random: () => Math.random() })
     })
   });
+
+  // extensions/src/sites/coupang-shop/index.ts
+  var ORIGIN4 = "https://shop.coupang.com";
+  var PAGE_TIMEOUT_MS4 = 6e4;
+  var CATALOG_TIMEOUT_MS = 9e4;
+  var SORT_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS3 = 1200;
+  var CONTENT_FILE4 = "content/advertising/coupang-shop-catalog.js";
+  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SHOP_SITE = {
+    name: "coupang-shop",
+    origin: ORIGIN4,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
+  };
+  var COUPANG_SHOP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isExpectedShopUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      return left.protocol === "https:" && left.hostname === "shop.coupang.com" && right.hostname === "shop.coupang.com" && /^\/(?:vid\/)?[A-Za-z0-9_-]+\/?$/.test(right.pathname) && left.pathname === right.pathname && left.search === right.search;
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangShopSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    const ask = (current, message, timeoutMs) => current.ask(message, { timeoutMs, inject: { isolated: [CONTENT_FILE4] }, guard: COUPANG_SHOP_PAGE_GUARD }).catch((error) => {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    });
+    return {
+      async catalog(target, productLimit, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(target.sellerStoreUrl, { timeoutMs: PAGE_TIMEOUT_MS4, continueOnTimeout: true });
+          if (isExpectedShopUrl(landed, target.sellerStoreUrl)) break;
+          try {
+            checkPageUrl(COUPANG_SHOP_PAGE_GUARD, landed);
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          const cleared = await waitForOperator(
+            current,
+            (url) => !isExpectedShopUrl(url, target.sellerStoreUrl),
+            { kind: "verification", site: "\uCFE0\uD321", label: target.sellerName },
+            options.onAttention
+          );
+          if (!cleared) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+        }
+        await deps.sleep(RENDER_WAIT_MS3);
+        const sorted = await ask(current, { type: "KIDITEM_COUPANG_SHOP_SORT_NEWEST" }, SORT_TIMEOUT_MS);
+        if (sorted.clicked !== true) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5\uC758 \uCD5C\uC2E0\uC21C \uC815\uB82C\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        await deps.sleep(RENDER_WAIT_MS3);
+        const answer = await ask(current, { type: "KIDITEM_COUPANG_SHOP_CATALOG", maxItems: productLimit }, CATALOG_TIMEOUT_MS);
+        const catalog = answer.ok ? toCatalog(answer, target, productLimit) : null;
+        if (!catalog) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        return catalog;
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function toCatalog(answer, target, productLimit) {
+    const products = [];
+    for (const raw of answer.products ?? []) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw;
+      const productId2 = text3(row.productId, 200);
+      const itemId = text3(row.itemId, 200);
+      const vendorItemId = text3(row.vendorItemId, 200);
+      const name = text3(row.name, 500);
+      if (!name || !productId2 && !itemId && !vendorItemId) continue;
+      products.push({
+        sourceRank: products.length + 1,
+        productId: productId2,
+        itemId,
+        vendorItemId,
+        name,
+        priceKrw: count2(row.priceKrw),
+        reviewCount: count2(row.reviewCount),
+        imageUrl: text3(row.imageUrl, 2e3),
+        link: text3(row.link, 2e3)
+      });
+      if (products.length >= productLimit) break;
+    }
+    if (products.length === 0) return null;
+    const totalProductCount = count2(answer.totalProductCount);
+    return {
+      keyword: target.keyword,
+      sellerId: target.sellerId,
+      sellerName: text3(answer.sellerName, 300) ?? target.sellerName,
+      sellerStoreUrl: target.sellerStoreUrl,
+      totalProductCount,
+      collectedProductCount: products.length,
+      isTruncated: totalProductCount !== null && totalProductCount > products.length,
+      sort: "newest",
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      products
+    };
+  }
+  function text3(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count2(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
 
   // extensions/src/sites/coupang-supplier/page.ts
   var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
@@ -9864,19 +10197,19 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/domeggook/index.ts
-  var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
-  var DOMEGGOOK_ORDER_LIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
+  var DOMEGGOOK_ORDER_LIST_URL = "https://www.domeggook.com/sc/order/lstAll";
+  var DOMEGGOOK_ORDER_LIST_API = "https://www.domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
   var DOMEGGOOK_ORDERS_FILE = "content/orders/domeggook-orders.js";
   var DOMEGGOOK_PART_CHARS = 7e5;
   var LIST_RENDER_WAIT_MS = 1500;
   var REQUEST_TIMEOUT_MS = 6e4;
   var POLL_MS2 = 5e3;
   var POLL_ROUNDS = 48;
-  var LOGIN_MESSAGE2 = "\uB3C4\uB9E4\uAFB9 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. domeggook.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE4 = "\uB3C4\uB9E4\uAFB9 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. domeggook.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var DOMEGGOOK_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["domeggook.com"]),
     isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE2
+    loginMessage: LOGIN_MESSAGE4
   };
   var DOMEGGOOK_LOGIN = {
     displayName: "\uB3C4\uB9E4\uAFB9",
@@ -9894,7 +10227,7 @@ var KidItemRuntime = (() => {
       body = null;
     }
     if (!body || typeof body !== "object" || Array.isArray(body) || body.res === false) {
-      throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: DOMEGGOOK_ORDER_LIST_API });
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: DOMEGGOOK_ORDER_LIST_API });
     }
     const list = body.dat;
     return Array.isArray(list) ? list : [];
@@ -9970,6 +10303,134 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/gs-shop/index.ts
+  var GS_SHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
+  var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
+  var READ_TIMEOUT_MS5 = 14e4;
+  var WALL_TIMEOUT_MS = 1e4;
+  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
+  var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
+  var SMS_ATTENTION = { kind: "verification", site: "gs-shop", label: "SMS \uC778\uC99D" };
+  var isGsShopLogin = (url) => hostWithin(url, ["gsshop.com"]) && /\/(?:sign-?in|login)(?:[/?#.]|$)/i.test(url.pathname);
+  var GS_SHOP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["partners.gsshop.com"]),
+    isLogin: isGsShopLogin,
+    loginMessage: LOGIN_MESSAGE5
+  };
+  var WALL_GUARD = { ...GS_SHOP_PAGE_GUARD, isLogin: () => false };
+  var GS_SHOP_LOGIN = {
+    displayName: "GS\uC0F5",
+    loginUrl: GS_SHOP_ORDER_URL,
+    hosts: ["partners.gsshop.com"],
+    isLoginUrl: isGsShopLogin,
+    fields: ["loginId", "password"]
+  };
+  function isLoginRequired2(error) {
+    return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
+  }
+  function createGsShopSite(tabs, signIn) {
+    const orders = (page) => callPage(page, "gs-shop.orders", {}, {
+      timeoutMs: READ_TIMEOUT_MS5,
+      guard: GS_SHOP_PAGE_GUARD,
+      main: [GS_SHOP_ORDERS_FILE],
+      displayName: "GS\uC0F5"
+    });
+    const smsWall = (page) => callPage(page, "gs-shop.smsWall", {}, {
+      timeoutMs: WALL_TIMEOUT_MS,
+      guard: WALL_GUARD,
+      main: [GS_SHOP_ORDERS_FILE],
+      displayName: "GS\uC0F5"
+    }).catch(() => null);
+    async function read(page, onAttention) {
+      let waited = false;
+      const stillWalled = async (value) => {
+        let url;
+        try {
+          url = new URL(value);
+        } catch {
+          return true;
+        }
+        if (!GS_SHOP_PAGE_GUARD.allows(url) || isGsShopLogin(url)) return true;
+        return (await smsWall(page))?.sms !== false;
+      };
+      const waitSms = async (message) => {
+        await page.focus();
+        if (!await waitForOperator(page, stillWalled, SMS_ATTENTION, onAttention)) {
+          throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
+        }
+        waited = true;
+        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
+      };
+      for (; ; ) {
+        let answer;
+        try {
+          answer = await orders(page);
+        } catch (error) {
+          if (!isLoginRequired2(error) || waited || (await smsWall(page))?.sms !== true) throw error;
+          await waitSms(SMS_MESSAGE);
+          continue;
+        }
+        if (answer?.pendingAuth === true && !waited) {
+          await waitSms(answer.error || SMS_MESSAGE);
+          continue;
+        }
+        return mallExcelRows(answer, { displayName: "GS\uC0F5", url: GS_SHOP_ORDER_URL, fileName: "GS\uC0F5.xlsx" });
+      }
+    }
+    return {
+      readOrders(input = {}) {
+        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read(page, input.onAttention), signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "gs-shop", create: (deps, lease) => createGsShopSite(deps.tabs, createSiteSignIn(GS_SHOP_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/haebub-mall/index.ts
+  var HAEBUB_MALL_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
+  var HAEBUB_MALL_ORDERS_FILE = "content/page-call/haebub-mall-orders.js";
+  var HAEBUB_MALL_VENDOR = "\uAC70\uC601\uC544\uC774\uC564\uB514";
+  var READ_TIMEOUT_MS6 = 18e4;
+  var LOGIN_MESSAGE6 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var HOSTS = ["mallseller.genimarket.co.kr"];
+  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /\/(?:[\w-]*_)?login/i.test(url.pathname);
+  var HAEBUB_MALL_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS),
+    isLogin: isHaebubLogin,
+    loginMessage: LOGIN_MESSAGE6
+  };
+  var HAEBUB_MALL_LOGIN = {
+    displayName: "\uD574\uBC95\uBAB0",
+    loginUrl: HAEBUB_MALL_ORDER_URL,
+    hosts: HOSTS,
+    isLoginUrl: isHaebubLogin,
+    fields: ["loginId", "password"]
+  };
+  function createHaebubMallSite(tabs, signIn) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, HAEBUB_MALL_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "haebub-mall.orders", { date: input.collectionDate ?? "", vendor: HAEBUB_MALL_VENDOR }, {
+            timeoutMs: READ_TIMEOUT_MS6,
+            guard: HAEBUB_MALL_PAGE_GUARD,
+            isolated: [HAEBUB_MALL_ORDERS_FILE],
+            displayName: "\uD574\uBC95\uBAB0"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: HAEBUB_MALL_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD574\uBC95\uBAB0", HAEBUB_MALL_ORDER_URL);
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD574\uBC95\uBAB0 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: HAEBUB_MALL_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "haebub-mall", create: (deps, lease) => createHaebubMallSite(deps.tabs, createSiteSignIn(HAEBUB_MALL_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/icecream-mall/listings.ts
   var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
   var ICECREAM_LISTINGS_FILE = "content/orders/icecream-listings.js";
@@ -9995,7 +10456,7 @@ var KidItemRuntime = (() => {
   var LOGIN_WATCH_MS = 500;
   var MENU_TIMEOUT_MS = 45e3;
   var GRID_TIMEOUT_MS = 35e3;
-  var LOGIN_MESSAGE3 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE7 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var ICECREAM_DELIVERY_HEADERS = [
     "No",
     "\uC8FC\uBB38\uBC88\uD638",
@@ -10053,7 +10514,7 @@ var KidItemRuntime = (() => {
   var ICECREAM_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["i-screammall.co.kr"]),
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE3
+    loginMessage: LOGIN_MESSAGE7
   };
   var ICECREAM_LOGIN = {
     displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
@@ -10083,7 +10544,7 @@ var KidItemRuntime = (() => {
     return "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
   }
   function loginRequired2() {
-    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
+    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: ICECREAM_MALL_URL });
   }
   function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
@@ -10146,6 +10607,28 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kakao/listings.ts
+  var KAKAO_LISTINGS_URL = "https://shopping-seller.kakao.com/product/store-seller/list";
+  var KAKAO_LISTINGS_FILE = "content/orders/kakao-listings.js";
+  var KAKAO_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["shopping-seller.kakao.com"]),
+    isLogin: (url) => hostWithin(url, ["kakao.com"]) && (url.hostname.toLowerCase().startsWith("accounts.") || /login/i.test(url.pathname)),
+    loginMessage: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createKakaoListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kakao",
+        displayName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+        startUrl: KAKAO_LISTINGS_URL,
+        file: KAKAO_LISTINGS_FILE,
+        call: "kakao.listings",
+        guard: KAKAO_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "kakao", create: (deps) => createKakaoListings(deps.tabs) });
+
   // extensions/src/sites/kidkids/listings.ts
   var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
   var KIDKIDS_LISTINGS_FILE = "content/orders/kidkids-listings.js";
@@ -10165,12 +10648,12 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
-  var READ_TIMEOUT_MS3 = 18e4;
-  var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS7 = 18e4;
+  var LOGIN_MESSAGE8 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE4
+    loginMessage: LOGIN_MESSAGE8
   };
   var KIDKIDS_LOGIN = {
     displayName: "\uD0A4\uB4DC\uD0A4\uC988",
@@ -10187,15 +10670,16 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS3,
+            timeoutMs: READ_TIMEOUT_MS7,
             guard: KIDKIDS_PAGE_GUARD,
             isolated: [KIDKIDS_ORDERS_FILE],
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uB4DC\uD0A4\uC988", KIDKIDS_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
-            status: null,
+            status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
             reason: "page_error",
             url: KIDKIDS_ORDER_URL
           });
@@ -10205,8 +10689,139 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidsnote/listings.ts
+  var KIDSNOTE_LISTINGS_URL = "https://shop.kidsnote.com/_manage/?body=2010";
+  var KIDSNOTE_LISTINGS_FILE = "content/orders/kidsnote-listings.js";
+  function createKidsnoteListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kidsnote",
+        displayName: "\uD0A4\uC988\uB178\uD2B8",
+        startUrl: KIDSNOTE_LISTINGS_URL,
+        file: KIDSNOTE_LISTINGS_FILE,
+        call: "kidsnote.listings",
+        guard: KIDSNOTE_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
+  // extensions/src/sites/kidsnote/index.ts
+  var KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
+  var KIDSNOTE_ORDERS_FILE = "content/page-call/kidsnote-orders.js";
+  var READ_TIMEOUT_MS8 = 19e4;
+  var LOGIN_MESSAGE9 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
+  var HOSTS2 = ["shop.kidsnote.com"];
+  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /\/login/i.test(url.pathname);
+  var KIDSNOTE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS2),
+    isLogin: isKidsnoteLogin,
+    loginMessage: LOGIN_MESSAGE9
+  };
+  var KIDSNOTE_LOGIN = {
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    loginUrl: KIDSNOTE_ORDER_URL,
+    hosts: HOSTS2,
+    isLoginUrl: isKidsnoteLogin,
+    fields: ["loginId", "password"]
+  };
+  function kidsnoteConvertOrder(order) {
+    return {
+      ono: order.ono,
+      orderedAt: order.orderedAt,
+      paidAt: order.paidAt ?? "",
+      buyer: order.ordererName,
+      total: order.totalAmount,
+      paid: order.paidAmount,
+      payMethod: order.payMethod,
+      status: order.status,
+      receiver: order.receiver || order.ordererName,
+      mobile: order.mobile ?? "",
+      tel: order.tel ?? "",
+      zip: order.zip ?? "",
+      address: order.address ?? "",
+      request: order.request ?? "",
+      items: order.items?.length ? order.items : [{ productName: order.productName, qty: 1, option: "", shipFee: 0 }]
+    };
+  }
+  function createKidsnoteSite(tabs, signIn) {
+    return {
+      ...createKidsnoteListings(tabs, signIn),
+      readOrders(input) {
+        return withFreshTab(tabs, KIDSNOTE_ORDER_URL, async (page) => {
+          const day = input.collectionDate ?? "";
+          const answer = await callPage(page, "kidsnote.orders", { from: day, to: day, status: "", withDetail: true }, {
+            timeoutMs: READ_TIMEOUT_MS8,
+            guard: KIDSNOTE_PAGE_GUARD,
+            isolated: [KIDSNOTE_ORDERS_FILE],
+            displayName: "\uD0A4\uC988\uB178\uD2B8"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: KIDSNOTE_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uC988\uB178\uD2B8", KIDSNOTE_ORDER_URL);
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: KIDSNOTE_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kkomangse/listings.ts
+  var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
+  var KKOMANGSE_LISTINGS_FILE = "content/orders/kkomangse-listings.js";
+  function createKkomangseListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kkomangse",
+        displayName: "\uAF2C\uB9DD\uC138",
+        startUrl: KKOMANGSE_LISTINGS_URL,
+        file: KKOMANGSE_LISTINGS_FILE,
+        call: "kkomangse.listings",
+        guard: KKOMANGSE_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
+  // extensions/src/sites/kkomangse/index.ts
+  var KKOMANGSE_ORDER_URL = "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000";
+  var KKOMANGSE_ORDERS_FILE = "content/page-call/kkomangse-orders.js";
+  var READ_TIMEOUT_MS9 = 9e4;
+  var LOGIN_MESSAGE10 = "\uAF2C\uB9DD\uC138 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. nstore.edupre.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var KKOMANGSE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["edupre.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["edupre.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE10
+  };
+  var KKOMANGSE_LOGIN = {
+    displayName: "\uAF2C\uB9DD\uC138",
+    loginUrl: KKOMANGSE_ORDER_URL,
+    hosts: ["edupre.co.kr"],
+    isLoginUrl: (url) => KKOMANGSE_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createKkomangseSite(tabs, signIn) {
+    return {
+      ...createKkomangseListings(tabs, signIn),
+      readOrders() {
+        return withFreshTab(tabs, KKOMANGSE_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "kkomangse.orders", {}, {
+            timeoutMs: READ_TIMEOUT_MS9,
+            guard: KKOMANGSE_PAGE_GUARD,
+            isolated: [KKOMANGSE_ORDERS_FILE],
+            displayName: "\uAF2C\uB9DD\uC138"
+          });
+          return mallExcelRows(answer, { displayName: "\uAF2C\uB9DD\uC138", url: KKOMANGSE_ORDER_URL, fileName: "kkomangse.xlsx" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS7 = 35e3;
+  var NAVIGATION_TIMEOUT_MS8 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -10246,14 +10861,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -10293,13 +10908,76 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
 
+  // extensions/src/sites/lotte-on/listings.ts
+  var LOTTEON_LISTINGS_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var LOTTEON_LISTINGS_FILE = "content/orders/lotte-on-listings.js";
+  function createLotteonListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "lotte-on",
+        displayName: "\uB86F\uB370ON",
+        startUrl: LOTTEON_LISTINGS_URL,
+        file: LOTTEON_LISTINGS_FILE,
+        call: "lotte-on.listings",
+        world: "main",
+        reuseTabMatching: LOTTE_ON_TAB_PATTERN,
+        guard: LOTTE_ON_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
+  // extensions/src/sites/lotte-on/index.ts
+  var LOTTE_ON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var LOTTE_ON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
+  var LOTTE_ON_TAB_PATTERN = "https://store.lotteon.com/*";
+  var LOTTE_ON_ORDERS_FILE = "content/page-call/lotte-on-orders.js";
+  var LOTTE_ON_DOWNLOAD_REASON = "\uBC30\uC1A1\uC744 \uC704\uD55C \uC8FC\uBB38\uC815\uBCF4 \uB2E4\uC6B4\uB85C\uB4DC";
+  var READ_TIMEOUT_MS10 = 12e4;
+  var LOGIN_FAILURE = /로그인|인증|세션/;
+  var LOGIN_MESSAGE11 = "\uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815\uC758 \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD558\uAC70\uB098 \uB86F\uB370ON \uC5D0 \uC9C1\uC811 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var isLotteOnLogin = (url) => hostWithin(url, ["lotteon.com"]) && /login_so|\/login(?:[/?#.]|$)/i.test(url.pathname);
+  var LOTTE_ON_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["store.lotteon.com"]),
+    isLogin: isLotteOnLogin,
+    loginMessage: LOGIN_MESSAGE11
+  };
+  var LOTTE_ON_LOGIN = {
+    displayName: "\uB86F\uB370ON",
+    loginUrl: LOTTE_ON_LOGIN_URL,
+    hosts: ["store.lotteon.com"],
+    isLoginUrl: isLotteOnLogin,
+    fields: ["loginId", "password"]
+  };
+  function createLotteOnSite(tabs, signIn) {
+    return {
+      ...createLotteonListings(tabs, signIn),
+      readOrders() {
+        return withFreshTab(tabs, LOTTE_ON_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "lotte-on.orders", { downloadReason: LOTTE_ON_DOWNLOAD_REASON }, {
+            timeoutMs: READ_TIMEOUT_MS10,
+            guard: LOTTE_ON_PAGE_GUARD,
+            isolated: [LOTTE_ON_ORDERS_FILE],
+            displayName: "\uB86F\uB370ON"
+          });
+          const loginFailure2 = answer?.success !== true && LOGIN_FAILURE.test(answer?.error ?? "");
+          return mallExcelRows(loginFailure2 ? { ...answer, pendingLogin: true, error: LOGIN_MESSAGE11 } : answer, {
+            displayName: "\uB86F\uB370ON",
+            url: LOTTE_ON_ORDER_URL,
+            fileName: "\uB86F\uB370ON.xlsx"
+          });
+        }, { reuseTabMatching: LOTTE_ON_TAB_PATTERN, ...signIn ? { signIn } : {} });
+      }
+    };
+  }
+  registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/mall-admin-listings/index.ts
   var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
   registerSite({
     name: MALL_ADMIN_LISTINGS_SITE,
     opensOwnTabs: true,
     create: (deps, lease) => ({
-      reader: (mallKey) => isMallAdminListingOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+      reader: (mallKey) => isMallAdminListingMallKey(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
 
@@ -10312,6 +10990,66 @@ var KidItemRuntime = (() => {
       reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
+
+  // extensions/src/sites/onch/listings.ts
+  var ONCH_LISTINGS_URL = "https://www.onch3.co.kr/products_management.php";
+  var ONCH_LISTINGS_FILE = "content/orders/onch-listings.js";
+  function createOnchListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "onch",
+        displayName: "\uC628\uCC44\uB110",
+        startUrl: ONCH_LISTINGS_URL,
+        file: ONCH_LISTINGS_FILE,
+        call: "onch.listings",
+        guard: ONCH_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
+  // extensions/src/sites/onch/index.ts
+  var ONCH_ORDER_URL = "https://www.onch3.co.kr/supplier/orders.php?state=all";
+  var ONCH_ORDERS_FILE = "content/page-call/onch-orders.js";
+  var READ_TIMEOUT_MS11 = 12e4;
+  var LOGIN_MESSAGE12 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var HOSTS3 = ["onch3.co.kr"];
+  var isOnchLogin = (url) => hostWithin(url, HOSTS3) && /\/login\//i.test(url.pathname);
+  var ONCH_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS3),
+    isLogin: isOnchLogin,
+    loginMessage: LOGIN_MESSAGE12
+  };
+  var ONCH_LOGIN = {
+    displayName: "\uC628\uCC44\uB110",
+    loginUrl: ONCH_ORDER_URL,
+    hosts: HOSTS3,
+    isLoginUrl: isOnchLogin,
+    fields: ["loginId", "password"]
+  };
+  function createOnchSite(tabs, signIn) {
+    return {
+      ...createOnchListings(tabs, signIn),
+      readOrders(input) {
+        return withFreshTab(tabs, ONCH_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "onch.orders", { dateFilter: input.collectionDate ?? "" }, {
+            timeoutMs: READ_TIMEOUT_MS11,
+            guard: ONCH_PAGE_GUARD,
+            isolated: [ONCH_ORDERS_FILE],
+            displayName: "\uC628\uCC44\uB110"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE12, { url: ONCH_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uC628\uCC44\uB110", ONCH_ORDER_URL);
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
+            reason: "page_error",
+            url: ONCH_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "onch", create: (deps, lease) => createOnchSite(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/product-page/description.ts
   function parseDescriptionHtml(html) {
@@ -10482,15 +11220,15 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS8 = 45e3;
+  var NAVIGATION_TIMEOUT_MS9 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE5 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
-  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE5
+    loginMessage: LOGIN_MESSAGE13
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -10501,7 +11239,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
         return next;
       })();
       return tab;
@@ -10519,7 +11257,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -10528,7 +11266,7 @@ var KidItemRuntime = (() => {
             bodyHead: null
           });
         case "contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED4, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+          throw new RuntimeError(MALL_CONTRACT_CHANGED5, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
         case "timeout":
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
         default:
@@ -10560,11 +11298,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE6 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE14 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE6
+    loginMessage: LOGIN_MESSAGE14
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -10581,7 +11319,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE14, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -10727,11 +11465,11 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS9 = 45e3;
+  var NAVIGATION_TIMEOUT_MS10 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE7 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
-  var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
+  var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var MALL_CONTRACT_CHANGED6 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
     let opened = null;
@@ -10740,7 +11478,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
         return next;
       })();
       return tab;
@@ -10757,9 +11495,9 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE15, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
-            throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+            throw new RuntimeError(MALL_CONTRACT_CHANGED6, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
           case "http_error":
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
               status: answer.httpStatus,
@@ -10817,8 +11555,111 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
 
+  // extensions/src/sites/smartstore/listings.ts
+  var SMARTSTORE_LISTINGS_URL = "https://sell.smartstore.naver.com/#/products/origin-list";
+  var SMARTSTORE_LISTINGS_FILE = "content/orders/smartstore-listings.js";
+  var SMARTSTORE_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["sell.smartstore.naver.com"]),
+    isLogin: (url) => hostWithin(url, ["accounts.commerce.naver.com", "nid.naver.com"]) || hostWithin(url, ["naver.com"]) && /login/i.test(url.pathname),
+    loginMessage: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createSmartstoreListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "smartstore",
+        displayName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+        startUrl: SMARTSTORE_LISTINGS_URL,
+        file: SMARTSTORE_LISTINGS_FILE,
+        call: "smartstore.listings",
+        world: "main",
+        guard: SMARTSTORE_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
+
+  // extensions/src/sites/teacher-mall/listings.ts
+  var TEACHER_LISTINGS_URL = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
+  var TEACHER_LISTINGS_FILE = "content/orders/teacher-mall-listings.js";
+  function createTeacherListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "teacher-mall",
+        displayName: "\uD2F0\uCCD0\uBAB0",
+        startUrl: TEACHER_LISTINGS_URL,
+        file: TEACHER_LISTINGS_FILE,
+        call: "teacher-mall.listings",
+        guard: TEACHER_MALL_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
+  // extensions/src/sites/teacher-mall/index.ts
+  var TEACHER_MALL_ORDER_URL = "https://shop.teacherville.co.kr/selleradmin/order/catalog";
+  var TEACHER_MALL_ORDERS_FILE = "content/page-call/teacher-mall-orders.js";
+  var TEACHER_MALL_EXCEL_TEMPLATE_SEQ = "117";
+  var TEACHER_MALL_PROVIDER_SEQ = "708";
+  var TEACHER_MALL_DOWNLOAD_REASON = "\uBC30\uC1A1\uC900\uBE44\uD655\uC778";
+  var READ_TIMEOUT_MS12 = 12e4;
+  var LOGIN_MESSAGE16 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var TEACHER_MALL_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE16
+  };
+  var TEACHER_MALL_LOGIN = {
+    displayName: "\uD2F0\uCCD0\uBAB0",
+    loginUrl: TEACHER_MALL_ORDER_URL,
+    hosts: ["teacherville.co.kr"],
+    isLoginUrl: (url) => TEACHER_MALL_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createTeacherMallSite(tabs, signIn) {
+    return {
+      ...createTeacherListings(tabs, signIn),
+      readOrders() {
+        return withFreshTab(tabs, TEACHER_MALL_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "teacher-mall.orders", {
+            templateSeq: TEACHER_MALL_EXCEL_TEMPLATE_SEQ,
+            fallbackProviderSeq: TEACHER_MALL_PROVIDER_SEQ,
+            downloadReason: TEACHER_MALL_DOWNLOAD_REASON
+          }, {
+            timeoutMs: READ_TIMEOUT_MS12,
+            guard: TEACHER_MALL_PAGE_GUARD,
+            main: [TEACHER_MALL_ORDERS_FILE],
+            displayName: "\uD2F0\uCCD0\uBAB0"
+          });
+          return mallExcelRows(answer, { displayName: "\uD2F0\uCCD0\uBAB0", url: TEACHER_MALL_ORDER_URL, fileName: "\uD2F0\uCCD0\uBAB0.xls" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/thirtymall/listings.ts
+  var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";
+  var THIRTYMALL_LISTINGS_FILE = "content/orders/thirtymall-listings.js";
+  var THIRTYMALL_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["shopby.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["shopby.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: "\uB5A0\uB9AC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uB5A0\uB9AC\uBAB0 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createThirtymallListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "thirtymall",
+        displayName: "\uB5A0\uB9AC\uBAB0",
+        startUrl: THIRTYMALL_LISTINGS_URL,
+        file: THIRTYMALL_LISTINGS_FILE,
+        call: "thirtymall.listings",
+        guard: THIRTYMALL_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
+
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS10 = 35e3;
+  var NAVIGATION_TIMEOUT_MS11 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -10889,14 +11730,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -12147,8 +12988,9 @@ var KidItemRuntime = (() => {
     }
     return { tabId: created.id, opened: true };
   }
+  var OPERATOR_ACTION_REQUIRED4 = "OPERATOR_ACTION_REQUIRED";
   function operatorMustAct(error) {
-    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED4 || error.details?.reason === "unexpected_url");
   }
 
   // extensions/src/entry/site-handles.ts
@@ -12267,9 +13109,15 @@ var KidItemRuntime = (() => {
           const outcome = await runOne(deps, collectorFor2, step);
           const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
           if (!next || input.signal.aborted) return outcome;
-          const { idempotencyKey: _previousKey, credentials, ...rest } = step;
-          const sameSite = credentials !== void 0 && (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
-          step = { ...rest, ...sameSite ? { credentials } : {}, kind: next.kind, scope: next.scope };
+          const { idempotencyKey: _previousKey, credentials, loginBlocked, ...rest } = step;
+          const sameSite = (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
+          step = {
+            ...rest,
+            ...sameSite && credentials !== void 0 ? { credentials } : {},
+            ...sameSite && loginBlocked ? { loginBlocked } : {},
+            kind: next.kind,
+            scope: next.scope
+          };
         }
       }
     };
@@ -12413,7 +13261,7 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
-      const login = loginFailureOf(error);
+      const login = loginFailureOf(error, input.loginBlocked === true);
       await deps.client.finish({
         operationId,
         token,
@@ -12432,11 +13280,12 @@ var KidItemRuntime = (() => {
       await lease?.release({ error: failure2 }).catch(() => void 0);
     }
   }
-  function loginFailureOf(error) {
+  function loginFailureOf(error, loginBlocked) {
     if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== "string") return null;
     const mallMessage = error.details.mallMessage;
+    const reason = error.details.reason === "no_credentials" && loginBlocked ? "blocked" : error.details.reason;
     return {
-      reason: error.details.reason.slice(0, 64),
+      reason: reason.slice(0, 64),
       ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
     };
   }
@@ -12477,7 +13326,9 @@ var KidItemRuntime = (() => {
     kind: OperationKindSchema,
     scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
     idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    credentials: OperationStartCredentialsSchema.optional()
+    credentials: OperationStartCredentialsSchema.optional(),
+    /** 웹이 그 몰의 자동 로그인 차단 때문에 자격을 싣지 않았다 — 로그인 화면에서 멈추면 까닭을 `blocked`로 적는다(실기기 R7). */
+    loginBlocked: external_exports.literal(true).optional()
   }).strict();
   var OperationCancelMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_CANCEL_ACTION),
@@ -12508,7 +13359,7 @@ var KidItemRuntime = (() => {
         validate: (message) => validateWith(OperationStartMessageSchema, message),
         async handle(input, environmentId) {
           if (!input.ok) return input.response;
-          const { kind, scope, idempotencyKey, credentials } = input.message;
+          const { kind, scope, idempotencyKey, credentials, loginBlocked } = input.message;
           const controller = new AbortController();
           const owned = [];
           let answer;
@@ -12520,6 +13371,7 @@ var KidItemRuntime = (() => {
             scope,
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
             ...credentials !== void 0 ? { credentials } : {},
+            ...loginBlocked ? { loginBlocked } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
@@ -12648,6 +13500,18 @@ var KidItemRuntime = (() => {
     });
   }
 
+  // extensions/src/entry/mall-site-capabilities.ts
+  function mallSiteCapabilities(resolve = siteFactoryFor) {
+    const capabilities = {};
+    for (const mallKey of MALL_ORDER_OPERATION_MALLS) {
+      if (resolve(mallKey)) capabilities[mallOrderSiteCapability(mallKey)] = true;
+    }
+    for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
+      if (resolve(mallKey)) capabilities[mallListingSiteCapability(mallKey)] = true;
+    }
+    return capabilities;
+  }
+
   // extensions/src/entry/index.ts
   function installEntry() {
     if (!legacyGlobalsPresent()) return false;
@@ -12660,6 +13524,8 @@ var KidItemRuntime = (() => {
       tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
       randomId: () => crypto.randomUUID()
     };
+    void sweepDialogGuards(chrome);
+    if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
@@ -12678,9 +13544,12 @@ var KidItemRuntime = (() => {
         orderCaptureOperationKindsV1: true,
         [CHANNELS_OPERATION_CAPABILITY]: true,
         operationLoginV1: true,
+        // operationLoginBlockedV1: operation.start의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는다.
+        operationLoginBlockedV1: true,
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
-        [SELLPIA_OPERATION_CAPABILITY]: true
+        [SELLPIA_OPERATION_CAPABILITY]: true,
+        ...mallSiteCapabilities()
       }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

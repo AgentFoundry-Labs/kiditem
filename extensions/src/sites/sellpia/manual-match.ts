@@ -65,7 +65,7 @@ export function createSellpiaManualMatch(tabs: TabPages) {
         case 'login_required':
           throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: SELLPIA_MANUAL_MATCH_URL });
         case 'contract_drift':
-          throw new RuntimeError(MALL_CONTRACT_CHANGED, `셀피아 수동상품매칭 화면이 바뀌어 읽지 못했습니다. [${answer.stage}]`, { stage: answer.stage });
+          throw new RuntimeError(MALL_CONTRACT_CHANGED, '셀피아 수동상품매칭 화면이 바뀌어 읽지 못했습니다.', { stage: answer.stage, field: answer.stage });
         case 'http_error':
           throw new RuntimeError(SITE_REQUEST_FAILED, `셀피아 수동상품매칭 요청이 실패했습니다(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus, url: SELLPIA_MANUAL_MATCH_URL, reason: 'http', bodyHead: null,

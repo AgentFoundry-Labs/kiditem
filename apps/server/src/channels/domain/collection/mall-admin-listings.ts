@@ -5,7 +5,6 @@ import {
   type MallAdminListingRow,
   type MallAdminListingsPlan,
   type MallAdminListingsScan,
-  type MallAdminListingsSubmission,
 } from '@kiditem/shared/mall-admin-listings';
 
 /**
@@ -238,7 +237,7 @@ export type MallAdminListingProduct = {
   options: MallAdminListingOption[];
 };
 
-export type MallAdminSubmissionProblem =
+export type MallAdminScanProblem =
   | 'plan_fence_lost'
   | 'incomplete_pages'
   | 'incomplete_records'
@@ -247,30 +246,16 @@ export type MallAdminSubmissionProblem =
   | 'duplicate_code';
 
 /**
- * 제출이 그 몰의 상품 목록 전체인지. 아니면 그 이유.
+ * 읽은 증거(`listing_scan`)와 줄이 그 몰의 상품 목록 전체인지(실행 kind, KID-363). 아니면 그 이유.
  *
- * 없어진 리스팅을 끄는 것은 완전한 스냅샷만 할 수 있다 — 한 쪽만 빠져도 그 쪽의 상품이
- * 몰에서 내려간 것으로 보인다.
- */
-export function mallAdminSubmissionProblem(
-  plan: MallAdminListingsPlan,
-  runId: string,
-  submission: MallAdminListingsSubmission,
-): MallAdminSubmissionProblem | null {
-  const { collectionRunId, ...collection } = submission.collection;
-  if (collectionRunId !== runId) return 'plan_fence_lost';
-  return mallAdminScanProblem(plan, { collection, proof: submission.proof }, submission.rows);
-}
-
-/**
- * 읽은 증거(`listing_scan`)와 줄이 그 몰의 상품 목록 전체인지(실행 kind, KID-363). 옛 제출 검사와 같은 규칙이고
- * 시도 id 대조만 없다 — 실행 계약의 토큰이 그 일을 한다.
+ * 없어진 리스팅을 끄는 것은 완전한 스냅샷만 할 수 있다 — 한 쪽만 빠져도 그 쪽의 상품이 몰에서 내려간 것으로 보인다.
+ * 실행을 가르는 것은 실행 계약의 토큰이 한다.
  */
 export function mallAdminScanProblem(
   plan: MallAdminListingsPlan,
   scan: MallAdminListingsScan,
   rows: readonly MallAdminListingRow[],
-): MallAdminSubmissionProblem | null {
+): MallAdminScanProblem | null {
   const { collection, proof } = scan;
   if (proof.mallKey !== plan.mallKey || proof.pageSize !== plan.pageSize) return 'plan_fence_lost';
   const expectedPages = Math.max(1, Math.ceil(collection.totalRecords / plan.pageSize));

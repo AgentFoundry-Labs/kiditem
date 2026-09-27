@@ -15,6 +15,7 @@ import {
   loadOperationLoginCredentialsForMall,
   noteOperationLoginFailure,
   noteOperationLoginFailureForMall,
+  operationLoginOptions,
 } from './operation-login';
 
 vi.mock('./order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn(), list: vi.fn() } }));
@@ -97,6 +98,13 @@ describe('operation-login — 실행에 실어 보낼 저장 자격(KID-377)', (
     await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
   });
 
+  it('operationLoginOptions: 막힌 몰 키는 자격 대신 loginBlocked를 싣는다(실기기 R7)', async () => {
+    blockMallAutoLogin('coupang-direct', '비밀번호가 일치하지 않습니다.');
+    await expect(operationLoginOptions('coupang-direct')).resolves.toEqual({ loginBlocked: true });
+    vi.mocked(orderMallAccountApi.password).mockResolvedValue({ key: 'coupang', loginId: 'fake-wing-id', supplierLoginId: null, password: 'fake-wing-password' });
+    await expect(operationLoginOptions('coupang')).resolves.toEqual({ credentials: { loginId: 'fake-wing-id', password: 'fake-wing-password' } });
+  });
+
   it('막힌 몰 키는 비밀번호를 읽지 않는다', async () => {
     blockMallAutoLogin('coupang-direct', '비밀번호가 일치하지 않습니다.');
     await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
@@ -111,10 +119,20 @@ describe('operation-login — 끝난 실행의 로그인 결과로 차단을 갱
     expect(toast.error).toHaveBeenCalled();
   });
 
-  it('몰의 말이 거절이 아니거나 없거나, 확인 못 함·자격 없음·본인확인·다른 실패는 막지 않는다', () => {
+  it('credentials_rejected는 몰의 말이 없거나 거절 문장이 아니어도 막는다 — 같은 자격으로 거듭 두드리면 계정이 잠긴다(KID-380 D10)', () => {
+    noteOperationLoginFailure(ACCOUNT, failed({ login: { reason: 'credentials_rejected' } }));
+    expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '저장된 아이디·비밀번호로 로그인하지 못했습니다.', kind: 'login' });
+    expect(toast.error).toHaveBeenCalledWith('키드키즈 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요', {
+      description: '키드키즈: 저장된 아이디·비밀번호로 로그인하지 못했습니다.',
+    });
+
+    resetMallLoginBlocksForTest();
+    noteOperationLoginFailure(ACCOUNT, failed({ login: { reason: 'credentials_rejected', mallMessage: '로그인 정보를 다시 입력하세요.' } }));
+    expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '저장된 아이디·비밀번호로 로그인하지 못했습니다. 몰의 말: 로그인 정보를 다시 입력하세요.' });
+  });
+
+  it('확인 못 함·자격 없음·본인확인·다른 실패는 막지 않는다', () => {
     for (const operation of [
-      failed({ login: { reason: 'credentials_rejected', mallMessage: '점검 중입니다.' } }),
-      failed({ login: { reason: 'credentials_rejected' } }),
       failed({ login: { reason: 'login_unconfirmed' } }),
       failed({ login: { reason: 'no_credentials' } }),
       failed({ login: { reason: 'verification_required' } }),

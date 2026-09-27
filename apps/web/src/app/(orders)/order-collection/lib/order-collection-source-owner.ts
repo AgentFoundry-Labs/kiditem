@@ -2,8 +2,12 @@ import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import { ApiError, isApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
+/*
+ * KID-379: 옛 주문 attempt 경로의 웹 쪽(시작·읽기·실패·브라우저 시도 힌트). 카카오(`MALL_ORDER_ATTEMPT_MALLS`)만
+ * 쓴다 — 서버가 다른 몰의 시작을 거절한다. 카카오가 실행 kind로 옮기면 이 파일이 사라진다. 옛 plan 스키마의
+ * `manual-upload`는 옮기기 전 남은 옛 행을 읽기 위한 것이다(새 수동 업로드는 실행이다, KID-380 T4).
+ */
 export const ORDER_COLLECTION_SOURCE_PATH = '/api/orders/collection';
 export const ORDER_COLLECTION_IN_PROGRESS_MESSAGE =
   '이 몰의 앞선 수집이 아직 끝나지 않았습니다. 끝나거나 30분이 지나 자동으로 정리된 뒤 다시 눌러주세요.';
@@ -141,10 +145,6 @@ export function forgetActiveOrderCollectionAttempt(
   );
 }
 
-export function newOrderCollectionIdempotencyKey(): string {
-  return createSecureRandomUuid();
-}
-
 export function readOrderCollectionSourceAttempt(
   attemptId: string,
 ): Promise<OrderCollectionSourceAttempt> {
@@ -161,22 +161,12 @@ export function readOrderCollectionSourceAttempt(
     });
 }
 
-export function readOrderCollectionSourceAttemptControl(
-  attemptId: string,
-): Promise<OrderCollectionSourceAttemptControl> {
-  return apiClient
-    .getParsed(
-      `${ORDER_COLLECTION_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/control`,
-      OrderCollectionSourceAttemptControlSchema,
-    );
-}
-
 export function beginOrderCollectionSourceAttempt(
   idempotencyKey: string,
   input: {
     mallKey: string;
     collectionDate: string | null;
-    collectionMode?: 'browser' | 'manual-upload';
+    collectionMode?: 'browser';
     selectionMode?: 'manual' | 'automatic';
     seenRowKeys?: string[];
   },
@@ -222,18 +212,4 @@ export function failOrderCollectionSourceAttempt(
       { headers: { 'x-source-attempt-token': run.attemptToken } },
     )
     .then((response) => OrderCollectionSourceAttemptSchema.parse(response));
-}
-
-export function orderCollectionAttemptHeaders(
-  run: OrderCollectionAttemptContext | undefined,
-): Record<string, string> {
-  if (!run) return {};
-  return {
-    'x-order-collection-attempt-id': run.attemptId,
-    'x-source-attempt-token': run.attemptToken,
-  };
-}
-
-export function isOrderCollectionAttemptNotFound(error: unknown): boolean {
-  return isApiError(error) && error.status === 404;
 }

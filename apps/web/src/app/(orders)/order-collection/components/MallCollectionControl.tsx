@@ -43,11 +43,14 @@ export function MallCollectionControl<TStatus>({
 }) {
   const adapter = useMemo(() => buildAdapter(account), [account, buildAdapter]);
   const control = useCollectionSourceControl(adapter);
+  // 도는 수집이 운영자를 기다리면(GS샵 SMS 인증) 그 안내를 카드에 적는다 — 중단 버튼만 서는 카드라 툴팁으로는 안 보인다.
+  const attention = control.running && control.status !== undefined ? adapter.readAttention?.(control.status) ?? null : null;
 
   return (
     <>
       {children({
         control: (
+          <>
           <CollectionStartControl
             control={control}
             // 카드가 이미 몰 이름을 머리에 적는다. 버튼은 짧게 '수집'이고, 읽는 이름과 툴팁이
@@ -65,6 +68,8 @@ export function MallCollectionControl<TStatus>({
             onStop={control.stop}
             className="w-full items-stretch"
           />
+          {attention && <p role="status" className="mt-1 text-xs text-amber-700">{attention}</p>}
+          </>
         ),
         // 시작 요청 중·중단 요청 중도 이 몰이 수집을 붙들고 있는 시간이다.
         running: control.state === 'starting'

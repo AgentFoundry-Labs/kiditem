@@ -90,7 +90,7 @@ export function createSabangnetSite(tabs: TabPages, sleep: (ms: number) => Promi
           status: answer.httpStatus, url: PAGE_URL, reason: 'http', bodyHead: null,
         });
       case 'contract_drift':
-        throw new RuntimeError(MALL_CONTRACT_CHANGED, `사방넷 목록 형식이 바뀌어 가져오기를 멈췄습니다. [${answer.stage}]`, { stage: answer.stage });
+        throw new RuntimeError(MALL_CONTRACT_CHANGED, '사방넷 목록 형식이 바뀌어 가져오기를 멈췄습니다.', { stage: answer.stage, field: answer.stage });
       case 'timeout':
         throw new RuntimeError(SITE_REQUEST_FAILED, '사방넷 응답이 늦어 가져오기를 멈췄습니다.', { status: null, url: PAGE_URL, reason: 'timeout', bodyHead: null });
       default:

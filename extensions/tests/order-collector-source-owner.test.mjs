@@ -14,13 +14,12 @@ const ATTEMPT_TOKEN = '22222222-2222-4222-8222-222222222222';
 const SOURCE_RUN_ID = '33333333-3333-4333-8333-333333333333';
 const CHANNEL_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 
-test('loads the server converter before the order worker in the production service worker', () => {
-  const converterAt = serviceWorkerSource.indexOf('"orders/order-collection-server-converter.js"');
+test('loads the source owner before the order worker and no longer loads the retired server converter (KID-380)', () => {
   const ownerAt = serviceWorkerSource.indexOf('"orders/order-collection-source-owner.js"');
   const workerAt = serviceWorkerSource.indexOf('"orders/worker.js"');
-  assert.ok(converterAt >= 0);
-  assert.ok(ownerAt > converterAt);
-  assert.ok(workerAt > converterAt);
+  assert.ok(ownerAt >= 0);
+  assert.ok(workerAt > ownerAt);
+  assert.equal(serviceWorkerSource.includes('order-collection-server-converter'), false);
 });
 
 function extractFunction(source, name) {
@@ -332,7 +331,7 @@ test('keeps server-owned failure evidence on the owner request without echoing r
   const harness = createHarness({ collectResult: captured });
   const result = await harness.owner.run({
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => captured,
     submit: async () => {
@@ -357,7 +356,7 @@ test('terminalizes known local converter validation errors instead of waiting fo
     const harness = createHarness({ collectResult: captured });
     const result = await harness.owner.run({
       environmentId: 'local',
-      message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+      message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
       mallKey: 'kakao',
       collect: async () => captured,
       submit: async () => {
@@ -389,7 +388,7 @@ test('keeps a nullable legacy browser owner running without provider date inject
   const result = await harness.owner.run({
     environmentId: 'local',
     message: {
-      action: 'collectKidsnoteOrders',
+      action: 'collectKakaoOrders',
       attemptId: ATTEMPT_ID,
       serverOwned: true,
       date: '2026-09-10',
@@ -417,7 +416,7 @@ test('holds reconciliation when pending storage cannot be read after a worker re
   let submitCalls = 0;
   const input = {
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => {
       collectCalls += 1;
@@ -460,7 +459,7 @@ test('does not dispatch conversion until pending storage write succeeds and repl
   const submittedCaptures = [];
   const input = {
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => {
       collectCalls += 1;
@@ -505,7 +504,7 @@ test('recollects after an unpersisted pending capture is lost across a worker re
   let submitCalls = 0;
   const input = {
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => {
       collectCalls += 1;
@@ -583,6 +582,34 @@ test('routes runId-only worker compatibility through the source owner', async ()
   assert.equal(lifecycleCalls, 0);
 });
 
+test('KID-379: 카카오 서버 소유 수집은 변환을 보내지 않고 걷은 캡처 그대로를 실패 증거로 넘긴다(옛 서버 변환기 없음)', async () => {
+  let submit;
+  const runOwnedOrderCollection = vm.runInNewContext(
+    `${extractFunction(workerSource, 'refuseUnsupportedConversion')}; (${extractFunction(workerSource, 'runOwnedOrderCollection')})`,
+    {
+      orderCollectionSourceOwner: {
+        run: async (input) => {
+          submit = input.submit;
+          return { success: true };
+        },
+      },
+    },
+  );
+  await runOwnedOrderCollection(
+    { action: 'collectKakaoOrders', environmentId: 'office', attemptId: ATTEMPT_ID, serverOwned: true },
+    'kakao',
+    async () => ({ success: true }),
+  );
+  const capture = { success: true, orders: [{ paymentId: 1, itemName: '색종이' }], count: 1 };
+  assert.throws(() => submit(capture), (error) => {
+    assert.equal(error.code, 'UNSUPPORTED_CONVERSION');
+    assert.equal(error.sourcePayload, capture);
+    // 요청 전에 거절했다 — 소유자는 결과가 불확실하다고 보지 않고 바로 실패로 닫는다.
+    assert.equal(error.conversionLocal, true);
+    return true;
+  });
+});
+
 test('does not inject a page dispatch date into a nullable legacy plan', async () => {
   const ownerCalls = [];
   let providerPlan;
@@ -593,7 +620,7 @@ test('does not inject a page dispatch date into a nullable legacy plan', async (
         run: async (input) => {
           ownerCalls.push(input);
           return input.collect({}, {
-            mallKey: 'onch',
+            mallKey: 'kakao',
             collectionDate: null,
             legacy: true,
           });
@@ -602,7 +629,7 @@ test('does not inject a page dispatch date into a nullable legacy plan', async (
     },
   );
   const message = {
-    action: 'collectOnchannelOrders',
+    action: 'collectKakaoOrders',
     environmentId: 'office',
     attemptId: ATTEMPT_ID,
     serverOwned: true,
@@ -613,7 +640,7 @@ test('does not inject a page dispatch date into a nullable legacy plan', async (
     return { success: true, orders: [] };
   };
 
-  await runOwnedOrderCollection(message, 'onch', collect);
+  await runOwnedOrderCollection(message, 'kakao', collect);
 
   assert.equal(ownerCalls.length, 1);
   assert.equal(providerPlan.collectionDate, null);
