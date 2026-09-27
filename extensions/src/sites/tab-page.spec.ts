@@ -247,3 +247,34 @@ describe('TabPages.guardDialogs — 불러오는 중 알림 창 가드(KID-380 D
     await expect(release()).resolves.toBeUndefined();
   });
 });
+
+describe('TabPages.keep·reclaimKept — 사이트마다 남긴 탭 하나(KID-380 D8)', () => {
+  it('남긴 탭을 다시 가져오면 이 확장이 연 탭이라 닫을 수 있고, 한 번 가져오면 비운다', async () => {
+    const { chromeApi, log } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const tabs = createTabPages(deps(chromeApi));
+    const page = await tabs.open('about:blank');
+    await tabs.keep('https://store.lotteon.com', page);
+    const again = await tabs.reclaimKept('https://store.lotteon.com');
+    expect(again?.tabId).toBe(9);
+    expect(await tabs.reclaimKept('https://store.lotteon.com')).toBeNull();
+    await again?.close();
+    expect(log).toContain('remove 9');
+  });
+
+  it('닫힌 탭은 가져오지 않고, 같은 사이트에 새로 남기면 먼저 남긴 탭은 닫는다', async () => {
+    const { chromeApi, log } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    chromeApi.tabs.get = async (tabId) => {
+      if (tabId === 3) throw new Error('No tab with id: 3');
+      return { status: 'complete', url: 'https://store.lotteon.com/cm/main/login_SO.wsp' };
+    };
+    const tabs = createTabPages(deps(chromeApi));
+    await tabs.keep('https://store.lotteon.com', tabs.attach(3));
+    expect(await tabs.reclaimKept('https://store.lotteon.com')).toBeNull();
+
+    const first = await tabs.open('about:blank');
+    await tabs.keep('https://store.lotteon.com', first);
+    await tabs.keep('https://store.lotteon.com', { ...first, tabId: 11 });
+    expect(log).toContain('remove 9');
+    expect((await tabs.reclaimKept('https://store.lotteon.com'))?.tabId).toBe(11);
+  });
+});

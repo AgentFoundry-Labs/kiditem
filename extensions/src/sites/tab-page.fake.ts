@@ -19,19 +19,20 @@ export function fakeTabPages(options: {
   waitUrls?: readonly string[];
   /** 모든 프레임에 넣은 파일의 프레임별 값(`frames`). */
   frames?: (files: readonly string[], call: number, url: string) => Array<{ frameId: number; result: unknown }>;
-  /** 알림 창 가드 걸기·풀기(KID-380 D4)도 `log`에 적는다. 없으면 `guards`에만 적는다(탭 순서만 보는 스펙). */
-  logGuards?: boolean;
+  /** 알림 창 가드 걸기·풀기(KID-380 D4)와 남긴 탭 적기·다시 쓰기(D8)도 `log`에 적는다. 없으면 `guards`에만 적는다(탭 순서만 보는 스펙). */
+  logBookkeeping?: boolean;
 }) {
   const log: string[] = [];
   const guards: string[] = [];
   const guardLog = (line: string) => {
     guards.push(line);
-    if (options.logGuards) log.push(line);
+    if (options.logBookkeeping) log.push(line);
   };
   let injected = false;
   const listeners: Array<(message: Record<string, unknown>) => void> = [];
   let current: string | null = null;
   let frameCalls = 0;
+  const kept = new Map<string, number>();
   function page(tabId: number, owned: boolean): TabPage {
     return {
       tabId,
@@ -95,6 +96,17 @@ export function fakeTabPages(options: {
       log.push(`find ${urlPattern}`);
       const tabId = options.existingTab?.(urlPattern) ?? null;
       return tabId === null ? null : page(tabId, false);
+    },
+    async keep(key, kept_) {
+      guardLog(`keep for ${key} ${kept_.tabId}`);
+      kept.set(key, kept_.tabId);
+    },
+    async reclaimKept(key) {
+      const tabId = kept.get(key);
+      if (tabId === undefined) return null;
+      kept.delete(key);
+      guardLog(`reclaim ${key} ${tabId}`);
+      return page(tabId, true);
     },
     async guardDialogs(hosts) {
       guardLog(`guard dialogs ${hosts.join(',')}`);

@@ -8380,6 +8380,7 @@ var KidItemRuntime = (() => {
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
   var dialogGuardSerial = 0;
   function createTabPages(deps) {
+    const kept = /* @__PURE__ */ new Map();
     function page(tabId, owned) {
       let closed = false;
       async function send(message, timeoutMs, frameId) {
@@ -8491,6 +8492,18 @@ var KidItemRuntime = (() => {
         const picked = usable.find((tab) => tab.status === "complete") ?? usable[0] ?? null;
         return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
+      async keep(key, keptPage) {
+        const prior = kept.get(key);
+        kept.set(key, keptPage.tabId);
+        if (prior !== void 0 && prior !== keptPage.tabId) await deps.chrome.tabs.remove(prior).catch(() => void 0);
+      },
+      async reclaimKept(key) {
+        const tabId = kept.get(key);
+        if (tabId === void 0) return null;
+        kept.delete(key);
+        const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+        return tab ? page(tabId, true) : null;
+      },
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
         dialogGuardSerial += 1;
@@ -8535,7 +8548,8 @@ var KidItemRuntime = (() => {
   }
   async function readInTab(tabs, url, read, options) {
     const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
-    const page = reused ?? await tabs.open("about:blank");
+    const site = siteKey(url);
+    const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
       if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
@@ -8546,6 +8560,14 @@ var KidItemRuntime = (() => {
       throw error;
     } finally {
       if (!keepOpen) await page.close();
+      else if (!reused) await tabs.keep(site, page);
+    }
+  }
+  function siteKey(url) {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return url;
     }
   }
 

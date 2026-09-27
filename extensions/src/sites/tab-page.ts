@@ -105,6 +105,13 @@ export interface TabPages {
   /** 브라우저 밖 fetch(서비스워커). 설명 본문처럼 탭 없이 읽을 때만 쓴다. */
   fetchText(url: string, init?: RequestInit): Promise<string | null>;
   /**
+   * 이 확장이 연 탭을 운영자에게 남겼다고 적는다(KID-380 D8). 사이트(`key`)마다 하나만 — 먼저 남긴 다른 탭은 닫는다.
+   * 서비스워커가 다시 뜨면 잊는다.
+   */
+  keep(key: string, page: TabPage): Promise<void>;
+  /** 그 사이트에 남긴 탭이 아직 열려 있으면 이 확장이 연 탭으로 돌려주고 비운다(없으면 null). 새 탭 대신 옮겨 쓴다. */
+  reclaimKept(key: string): Promise<TabPage | null>;
+  /**
    * 그 호스트(하위 도메인 포함)의 문서가 불러오기를 시작할 때(document_start) MAIN world에 알림 창 가드
    * (`DIALOG_GUARD_FILE`)를 거는 등록 content script를 이 실행 몫으로 등록한다(KID-380 D4). 로드 중 `alert`이 백그라운드
    * 탭을 멈추지 않게 주소를 옮기기 전에 건다. 돌려준 함수가 등록을 지운다(두 번 불러도 한 번). 등록이 안 되는 환경이면
@@ -198,6 +205,8 @@ const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no l
 let dialogGuardSerial = 0;
 
 export function createTabPages(deps: TabPageDeps): TabPages {
+  /** 사이트마다 운영자에게 남긴 탭 하나(KID-380 D8). */
+  const kept = new Map<string, number>();
   function page(tabId: number, owned: boolean): TabPage {
     let closed = false;
     async function send<T extends PageAnswer>(message: Record<string, unknown>, timeoutMs: number, frameId?: number): Promise<T> {
@@ -315,6 +324,18 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ''));
       const picked = usable.find((tab) => tab.status === 'complete') ?? usable[0] ?? null;
       return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
+    },
+    async keep(key, keptPage) {
+      const prior = kept.get(key);
+      kept.set(key, keptPage.tabId);
+      if (prior !== undefined && prior !== keptPage.tabId) await deps.chrome.tabs.remove(prior).catch(() => undefined);
+    },
+    async reclaimKept(key) {
+      const tabId = kept.get(key);
+      if (tabId === undefined) return null;
+      kept.delete(key);
+      const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+      return tab ? page(tabId, true) : null;
     },
     async guardDialogs(hosts) {
       const scripting = deps.chrome.scripting;

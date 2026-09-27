@@ -35,7 +35,9 @@ async function readInTab<T>(
   options: { navigationTimeoutMs?: number; signIn?: SiteSignIn; reuseTabMatching?: string },
 ): Promise<T> {
   const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
-  const page = reused ?? (await tabs.open('about:blank'));
+  // 지난 실행이 운영자에게 남긴 이 사이트 탭(로그인 화면)이 있으면 새 탭 대신 옮겨 쓴다 — 실패마다 탭이 쌓이지 않게(KID-380 D8).
+  const site = siteKey(url);
+  const page = reused ?? (await tabs.reclaimKept(site)) ?? (await tabs.open('about:blank'));
   let keepOpen = false;
   try {
     // 재사용한 운영자 탭은 옮기지 않는다(옛 `borrowOpenTab`과 같다) — 그 탭의 세션으로 지금 화면에서 읽는다.
@@ -48,5 +50,14 @@ async function readInTab<T>(
     throw error;
   } finally {
     if (!keepOpen) await page.close();
+    else if (!reused) await tabs.keep(site, page);
+  }
+}
+
+function siteKey(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return url;
   }
 }
