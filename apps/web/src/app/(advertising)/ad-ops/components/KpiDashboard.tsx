@@ -91,7 +91,7 @@ export default function KpiDashboard({ summary, period }: KpiDashboardProps) {
 
   const smallKpis: SmallKpi[] = [
     { label: "ROAS", value: formatPercent(metrics?.roas ?? null), basis: "광고 전환 매출 ÷ 집행 광고비", accentColor: "#733de5", icon: BarChart3 },
-    { label: "광고비/전환매출", value: formatPercent(spendToAdRevenue), basis: "집행 광고비 ÷ 광고 전환 매출", accentColor: "#dc2626", icon: Megaphone },
+    { label: "집행 광고비/전환매출", value: formatPercent(spendToAdRevenue), basis: "집행 광고비 ÷ 광고 전환 매출", accentColor: "#dc2626", icon: Megaphone },
     { label: "CTR", value: formatPercent(metrics?.ctr ?? null), basis: "클릭 ÷ 노출", accentColor: "#0891b2", icon: Zap },
     { label: "CVR", value: formatPercent(metrics?.cvr ?? null), basis: "전환 ÷ 클릭", accentColor: "#059669", icon: TrendingUp },
   ];
@@ -143,7 +143,7 @@ export default function KpiDashboard({ summary, period }: KpiDashboardProps) {
         </div>
       </div>
 
-      {/* ─── 우측: ROAS · 광고비/전환매출 · CTR · CVR ─── */}
+      {/* ─── 우측: ROAS · 집행 광고비/전환매출 · CTR · CVR ─── */}
       {smallKpis.map((kpi) => <SmallKpiCard key={kpi.label} kpi={kpi} />)}
     </div>
   );

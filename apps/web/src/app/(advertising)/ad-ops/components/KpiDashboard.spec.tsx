@@ -43,7 +43,7 @@ describe('KpiDashboard', () => {
     expect(screen.getByText('5,154원')).toBeInTheDocument();
     expect(screen.getByText('250건')).toBeInTheDocument();
     expect(screen.getByText('679.5%')).toBeInTheDocument();
-    expect(screen.getByText('광고비/전환매출')).toBeInTheDocument();
+    expect(screen.getByText('집행 광고비/전환매출')).toBeInTheDocument();
     expect(screen.getByText('14.7%')).toBeInTheDocument();
     expect(screen.getByText('2.5%')).toBeInTheDocument();
     expect(screen.getByText('8.3%')).toBeInTheDocument();

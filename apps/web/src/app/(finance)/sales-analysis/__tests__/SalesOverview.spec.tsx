@@ -219,6 +219,7 @@ describe('<SalesOverview> 3-state (Plan D.3)', () => {
     expect(cardValue('총이익')).toBe('-');
     expect(cardValue('총비용')).toBe('-');
     expect(screen.getByText(/쿠팡 광고 수집 0\/30일/)).toBeTruthy();
+    expect(screen.getByText(/광고비\(청구·VAT 포함\)와 순이익은 광고가 모든 날짜에 수집된 뒤 표시합니다/)).toBeTruthy();
   });
 
   it("renders a fully collected month's return count and rate as '-' with no orphan badge", async () => {
