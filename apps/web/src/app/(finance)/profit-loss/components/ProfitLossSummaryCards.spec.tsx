@@ -4,8 +4,7 @@ import type { FinanceWindowTotals } from '@kiditem/shared/finance';
 import { AD_COST_TEXT_COLOR } from '@/lib/utils';
 import ProfitLossSummaryCards from './ProfitLossSummaryCards';
 
-// No grain difference: every ad row is product-grain (KID-372).
-const allocated = {
+const allocated: FinanceWindowTotals = {
   revenue: 20_000,
   orderCount: 1,
   cost: 3_001,
@@ -14,8 +13,9 @@ const allocated = {
   profitRate: 85,
   adCostRate: 10,
   unallocatedAdCost: 0,
+  adAccountAdjustment: null,
   unallocatedShipping: 0,
-} as FinanceWindowTotals;
+};
 
 /** KID-85 follow-up 3c — what the month total carries beyond its product rows. */
 describe('ProfitLossSummaryCards parts no product row carries', () => {
@@ -49,15 +49,21 @@ describe('ProfitLossSummaryCards account adjustment', () => {
     expect(screen.getByText('계정 조정 광고비 330원 포함')).toBeInTheDocument();
   });
 
-  it('shows an unavailable account adjustment as -, and hides the line when the server sends none', () => {
-    const { unmount } = render(
-      <ProfitLossSummaryCards totals={{ ...allocated, adAccountAdjustment: null }} />,
-    );
-    expect(screen.getByText('계정 조정 광고비 - 포함')).toBeInTheDocument();
+  it('hides the line when the adjustment is unavailable or the server sends none', () => {
+    const { unmount } = render(<ProfitLossSummaryCards totals={allocated} />);
+    expect(screen.queryByText(/계정 조정 광고비/)).toBeNull();
     unmount();
 
-    render(<ProfitLossSummaryCards totals={allocated} />);
+    const { adAccountAdjustment: _omitted, ...withoutAdjustment } = allocated;
+    render(<ProfitLossSummaryCards totals={withoutAdjustment} />);
     expect(screen.queryByText(/계정 조정 광고비/)).toBeNull();
+  });
+
+  it('states the ad cost share of revenue in Korean', () => {
+    render(<ProfitLossSummaryCards totals={allocated} />);
+
+    expect(screen.getByText('매출 대비 10.0%')).toBeInTheDocument();
+    expect(screen.queryByText(/ of /)).toBeNull();
   });
 });
 

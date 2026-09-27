@@ -57,9 +57,9 @@ export default function ProfitLossSummaryCards({ totals }: Props) {
       <div className="card">
         <div className="card-label">{PROFIT_AD_COST_LABEL}</div>
         <div className={cn('card-value', getAdCostColor(totals.adCost))}>{won(totals.adCost)}</div>
-        <div className="text-xs text-slate-400">{`${formatPercent(totals.adCostRate)} of 매출`}</div>
+        <div className="text-xs text-slate-400">{`매출 대비 ${formatPercent(totals.adCostRate)}`}</div>
         {/* 캠페인에 붙일 수 없는 정산. 광고비에 들어 있고 서버가 따로 준다(KID-368). */}
-        {totals.adAccountAdjustment !== undefined && (
+        {totals.adAccountAdjustment != null && (
           <div className="text-xs text-slate-400">
             {`${AD_ACCOUNT_ADJUSTMENT_LABEL} ${won(totals.adAccountAdjustment)} 포함`}
           </div>

@@ -237,10 +237,10 @@ describe('<ProfitLossPage> 3-state', () => {
     renderWithProvider();
 
     await waitFor(() => {
-      expect(screen.getByText('12.3% of 매출')).toBeTruthy();
+      expect(screen.getByText('매출 대비 12.3%')).toBeTruthy();
     });
     // 3,000 / 20,000 would be 15.0%: the card shows the server's share.
-    expect(screen.queryByText('15.0% of 매출')).toBeNull();
+    expect(screen.queryByText('매출 대비 15.0%')).toBeNull();
     expect(screen.getByText(
       '상품 행에 없는 금액 — 판매 없는 상품의 광고비(청구·VAT 포함) 1,000원 · 매출로 배분할 수 없는 배송비 500원. 상품 행은 각각 반올림해 합계와 몇 원 다를 수 있습니다.',
     )).toBeTruthy();
