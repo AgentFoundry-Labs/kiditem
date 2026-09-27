@@ -2,6 +2,7 @@ import {
   REGISTRATION_EVIDENCE_CHUNK_KIND,
   REGISTRATION_FILL_CHUNK_KIND,
   REGISTRATION_KIND,
+  RegistrationAvailabilityPayloadSchema,
   RegistrationPlanSchema,
   type RegistrationEvidence,
   type RegistrationFill,
@@ -13,7 +14,7 @@ import { RuntimeError } from '../../core/errors';
 import type { CollectedChunk, CollectFinish, Collector } from '../collector';
 import { registerCollector } from '../index';
 import { findChannel } from '@kiditem/shared/channel-registry';
-import { RegistrationAvailabilityPayloadSchema, RegistrationDocumentPayloadSchema } from './payload';
+import { RegistrationDocumentPayloadSchema } from './payload';
 
 /** 관문(`sites/mall-write/submit-gate.ts`)이 정한 것. 누르지 않으면 까닭(없으면 부탁받지 않았다). */
 export type RegistrationSubmitDecision = { press: true } | { press: false; skipped: string | null };
@@ -82,15 +83,8 @@ export interface RegistrationSite {
 
 const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 
-/**
- * 몰 증거 한 줄. `payloadHash`는 이 증거가 가리키는 얼린 문서(plan 값)다 — owner finalize가 대조한다(M1 `RegistrationEvidenceSchema`
- * 추가 칸, 합류 전 계약 타입에는 아직 없다).
- */
-export type RegistrationEvidenceRow = RegistrationEvidence & {
-  payloadHash: string;
-  /** 품절·재개(옵션 단위 몰): 보낸 뒤 다시 읽은 얼린 옵션의 재고·상태(M1 추가 칸). */
-  observedOptions?: Array<{ externalOptionId: string; stock: number | null; status: string | null }>;
-};
+/** 몰 증거 한 줄(`RegistrationEvidenceSchema` — `payloadHash`는 plan 값, 품절·재개 옵션 단위 몰은 `observedOptions`). */
+export type RegistrationEvidenceRow = RegistrationEvidence;
 export const REGISTRATION_ACCOUNT_MISMATCH = 'REGISTRATION_ACCOUNT_MISMATCH' as const;
 export const MALL_WRITE_FAILED = 'MALL_WRITE_FAILED' as const;
 
