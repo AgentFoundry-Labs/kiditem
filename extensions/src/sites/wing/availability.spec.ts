@@ -268,6 +268,12 @@ describe('쿠팡 윙 지금 재고 읽기', () => {
     expect(log).toContain('close 7');
   });
 
+  it('재고를 숫자로 읽지 못한 옵션은 NaN이 아니라 모름(null)이다', async () => {
+    const { api } = wingMall({ products: { 16340985357: [{ vendorItemId: 1, stockQuantity: null }, { vendorItemId: 2, stockQuantity: 'N/A' as unknown as number }, { vendorItemId: 3, stockQuantity: 7 }] } });
+    const result = await api.read({ codes: ['16340985357'] });
+    expect(result.success && result.products[0]!.options.map((option) => option.stock)).toEqual([null, null, 7]);
+  });
+
   it('윙이 막으면 그렇게 답한다 · 한 번에 50개까지 읽는다', async () => {
     const blocked = wingMall({ products: { 16340985357: [{ vendorItemId: 95903875495, stockQuantity: 0 }] }, throttle: { reads: 100, posts: 0 } });
     const limited = await blocked.api.read({ codes: ['16340985357'] });

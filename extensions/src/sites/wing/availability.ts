@@ -80,6 +80,12 @@ function withWingPage<T>(context: AvailabilityContext, work: (run: PageRun) => P
 }
 
 const isOptionId = (code: string) => /^\d{1,15}$/.test(code);
+/** 윙 재고 칸 — 음이 아닌 정수만 재고다. 비었거나 숫자가 아니면 모름(null)이지 NaN이 아니다. */
+const stockOf = (value: unknown): number | null => {
+  if (value === null || value === undefined || (typeof value === 'string' && value.trim() === '')) return null;
+  const stock = Number(value);
+  return Number.isSafeInteger(stock) && stock >= 0 ? stock : null;
+};
 
 /** 보낸 뒤 다시 읽은 옵션 중 증거로 싣는 것: 짚은 옵션이면서 일반(NORMAL) 등록이고 재고가 음이 아닌 정수인 것. */
 function observedNormalOptions(items: MallJson[], selected: Set<string>) {
@@ -283,7 +289,7 @@ async function read(context: AvailabilityContext, codes: readonly string[]): Pro
       }
       found.push({
         code: product,
-        options: result.items.map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: item.registrationType === 'RFM' })),
+        options: result.items.map((item) => ({ optionCode: String(item.vendorItemId), stock: stockOf(item.stockQuantity), rocket: item.registrationType === 'RFM' })),
       });
     }
     return null;

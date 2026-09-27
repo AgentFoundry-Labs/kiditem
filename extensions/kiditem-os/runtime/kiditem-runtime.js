@@ -19290,6 +19290,11 @@ var KidItemRuntime = (() => {
     return withSellerPage(context, ORIGIN21, wingListUrl(), (run) => work(run), { isolated: [WING_IDENTITY_FILE] });
   }
   var isOptionId = (code2) => /^\d{1,15}$/.test(code2);
+  var stockOf = (value) => {
+    if (value === null || value === void 0 || typeof value === "string" && value.trim() === "") return null;
+    const stock = Number(value);
+    return Number.isSafeInteger(stock) && stock >= 0 ? stock : null;
+  };
   function observedNormalOptions(items, selected) {
     return items.filter((item) => selected.has(String(item.vendorItemId)) && item.registrationType === "NORMAL" && (typeof item.stockQuantity === "number" || typeof item.stockQuantity === "string" && /^\d+$/.test(item.stockQuantity)) && Number.isSafeInteger(Number(item.stockQuantity)) && Number(item.stockQuantity) >= 0).map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: false }));
   }
@@ -19472,7 +19477,7 @@ var KidItemRuntime = (() => {
         }
         found.push({
           code: product,
-          options: result.items.map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: item.registrationType === "RFM" }))
+          options: result.items.map((item) => ({ optionCode: String(item.vendorItemId), stock: stockOf(item.stockQuantity), rocket: item.registrationType === "RFM" }))
         });
       }
       return null;
