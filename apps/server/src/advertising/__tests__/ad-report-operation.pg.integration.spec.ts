@@ -429,6 +429,29 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     await expect(prisma.channelAdKeywordDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
   });
 
+  it('fills a missing ad group id from the campaign list by group name and keys an unresolved one as empty', async () => {
+    const run = await beginRun();
+    await collect(run, {
+      products: [
+        // 큰 보고서(TSV)는 광고그룹 id가 없다: 캠페인 목록의 (캠페인, 그룹 이름)으로 푼다.
+        productRow({ date: day(0), adGroupId: null, adGroupName: '그룹 가', spend: 400 }),
+        productRow({ date: day(0), adGroupId: '101', placementGroup: '비검색', spend: 100 }),
+        // 삭제 캠페인은 목록에도 없어 풀 수 없다: 키는 ''.
+        productRow({ date: day(0), campaignId: '77', campaignName: '지난 캠페인', adGroupId: null, adGroupName: '옛 그룹', spend: 30 }),
+        productRow({ date: day(0), campaignId: '77', campaignName: '지난 캠페인', adGroupId: null, adGroupName: '옛 그룹', placementGroup: '비검색', spend: 20 }),
+      ],
+      keywords: [keywordRow({ date: day(0), adGroupId: null, adGroupName: '그룹 가', keyword: '블록' })],
+    });
+    await finish(run).expect(200);
+    const products = await prisma.channelAdProductDailySnapshot.findMany({ where: { organizationId: ORG }, orderBy: { campaignId: 'asc' } });
+    expect(products.map((row) => [row.campaignId, row.adGroupId, row.spend])).toEqual([
+      ['11', '101', 500],
+      ['77', '', 50],
+    ]);
+    const keywords = await prisma.channelAdKeywordDailySnapshot.findMany({ where: { organizationId: ORG } });
+    expect(keywords.map((row) => [row.keyword, row.adGroupId])).toEqual([['블록', '101']]);
+  });
+
   it('refuses a capture without report rows or under another vendor, and a failed run writes nothing', async () => {
     const empty = await beginRun();
     await collect(empty, {});

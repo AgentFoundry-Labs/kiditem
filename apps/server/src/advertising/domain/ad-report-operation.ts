@@ -36,6 +36,9 @@ const KNOWN_CHUNK_KINDS = new Set<string>([
   AD_REPORT_PERIOD_CHUNK_KIND,
 ]);
 
+/** 상품 보고서가 광고그룹 id를 주지 않았고 캠페인 목록으로도 풀지 못한 행의 키 값. */
+export const UNKNOWN_AD_GROUP_ID = '';
+
 type Metrics = { impressions: number; clicks: number; spend: number; orders: number; units: number; revenue: number };
 const METRICS = ['impressions', 'clicks', 'spend', 'orders', 'units', 'revenue'] as const;
 
@@ -98,7 +101,8 @@ export function adReportPlanWindow(scope: AdReportScope, closedDay: string): { s
  * `advertising.ad_report` 완결 판정과 원장 행 만들기(KID-371). 기간 증거 `ad_period`가 정확히 하나이고 plan 창·업체코드와
  * 맞아야 하며, 상품·키워드 행이 하나도 없으면 거절한다(모두 VALIDATION_FAILED). 창 끝은 전날 보류 규칙으로 정하고
  * (`confirmedAdReportEnd`), 확정 창 밖 행은 버린다. 상품 행은 (날짜, 캠페인, 광고그룹, 광고 옵션)으로, 키워드 행은
- * 거기에 키워드를 더해 합한다. 키워드 행의 빈 광고그룹은 상품 보고서의 (캠페인, 그룹 이름)으로 채운다.
+ * 거기에 키워드를 더해 합한다. 빈 광고그룹은 캠페인 목록과 상품 보고서의 (캠페인, 그룹 이름)으로 채우고, 그래도 없으면
+ * 상품 행은 `''`, 키워드 행은 null로 둔다.
  */
 export function completeAdReport(
   chunks: readonly OperationStagedChunk[],
@@ -139,23 +143,27 @@ export function completeAdReport(
   });
   const inWindow = (date: string) => date >= plan.startDate && date <= confirmedEnd;
 
+  const adGroupIdByName = adGroupIdsByName(campaigns, productRows);
+  const resolveAdGroupId = (row: { campaignId: string; adGroupId: string | null; adGroupName: string }) =>
+    row.adGroupId ?? adGroupIdByName.get(`${row.campaignId}:${row.adGroupName}`) ?? null;
   const products = new Map<string, Omit<AdReportProductFact, 'billedSpend'>>();
   for (const row of productRows) {
     if (!inWindow(row.date)) continue;
-    const key = [row.date, row.campaignId, row.adGroupId, row.advertisedVendorItemId].join(':');
+    // 풀지 못한 광고그룹(큰 보고서의 삭제 캠페인)은 '' 한 칸으로 모아 키를 지킨다.
+    const adGroupId = resolveAdGroupId(row) ?? UNKNOWN_AD_GROUP_ID;
+    const key = [row.date, row.campaignId, adGroupId, row.advertisedVendorItemId].join(':');
     const current = products.get(key);
     if (current) addMetrics(current, row);
-    else products.set(key, { date: row.date, campaignId: row.campaignId, adGroupId: row.adGroupId, optionId: row.advertisedVendorItemId, ...metricsOf(row) });
+    else products.set(key, { date: row.date, campaignId: row.campaignId, adGroupId, optionId: row.advertisedVendorItemId, ...metricsOf(row) });
   }
   const productFacts = [...products.values()];
   const windowSettlements = settlementRows.filter((row) => inWindow(row.date));
   const settled = settleAdReport({ products: productFacts, settlements: windowSettlements });
 
-  const adGroupIdByName = adGroupIdsByName(productRows);
   const keywords = new Map<string, AdReportKeywordFact>();
   for (const row of keywordRows) {
     if (!inWindow(row.date)) continue;
-    const adGroupId = row.adGroupId ?? adGroupIdByName.get(`${row.campaignId}:${row.adGroupName}`) ?? null;
+    const adGroupId = resolveAdGroupId(row);
     const key = [row.date, row.campaignId, adGroupId ?? '', row.advertisedVendorItemId, row.keyword].join(':');
     const current = keywords.get(key);
     if (current) addMetrics(current, row);
@@ -186,14 +194,26 @@ export function completeAdReport(
   };
 }
 
-/** (캠페인, 그룹 이름) → 광고그룹 id. 같은 이름이 다른 id 둘을 가리키면 맞추지 않는다. */
-function adGroupIdsByName(rows: ReadonlyArray<{ campaignId: string; adGroupName: string; adGroupId: string }>): Map<string, string> {
+/**
+ * (캠페인, 그룹 이름) → 광고그룹 id. 캠페인 목록의 그룹과 id가 있는 상품 행에서 모은다. 같은 이름이 다른 id 둘을
+ * 가리키면 맞추지 않는다.
+ */
+function adGroupIdsByName(
+  campaigns: readonly AdReportCampaign[],
+  rows: ReadonlyArray<{ campaignId: string; adGroupName: string; adGroupId: string | null }>,
+): Map<string, string> {
   const ids = new Map<string, string | null>();
-  for (const row of rows) {
-    const key = `${row.campaignId}:${row.adGroupName}`;
+  const add = (campaignId: string, name: string, adGroupId: string) => {
+    const key = `${campaignId}:${name}`;
     const current = ids.get(key);
-    if (current === undefined) ids.set(key, row.adGroupId);
-    else if (current !== row.adGroupId) ids.set(key, null);
+    if (current === undefined) ids.set(key, adGroupId);
+    else if (current !== adGroupId) ids.set(key, null);
+  };
+  for (const campaign of campaigns) {
+    for (const group of campaign.adGroups) add(campaign.campaignId, group.name, group.adGroupId);
+  }
+  for (const row of rows) {
+    if (row.adGroupId !== null) add(row.campaignId, row.adGroupName, row.adGroupId);
   }
   return new Map([...ids].filter((entry): entry is [string, string] => entry[1] !== null));
 }
