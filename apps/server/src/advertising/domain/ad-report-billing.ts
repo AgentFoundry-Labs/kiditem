@@ -3,6 +3,7 @@ import type {
   AdReportSettlementRow,
   AdSettlementDomain,
 } from '@kiditem/shared/advertising-operations';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 
 /**
  * 광고 보고서 정산 배분(KID-367·368·371). 상품 행의 청구액 = 집행액 × (그 캠페인·그날 정산 청구액 ÷ 보고서 집행액 합).
@@ -15,7 +16,7 @@ import type {
  */
 export function allocateBilledSpend(spends: readonly number[], billed: number): number[] {
   const total = spends.reduce((sum, spend) => sum + spend, 0);
-  if (total <= 0) throw new Error('allocateBilledSpend: spend total must be positive');
+  if (total <= 0) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'allocation_without_spend' } });
   const shares = spends.map((spend) => Math.floor((spend * billed) / total));
   let remainder = billed - shares.reduce((sum, share) => sum + share, 0);
   const order = spends.map((spend, index) => ({ spend, index })).sort((a, b) => b.spend - a.spend || a.index - b.index);
