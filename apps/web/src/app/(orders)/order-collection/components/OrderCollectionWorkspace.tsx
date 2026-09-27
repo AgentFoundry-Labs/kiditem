@@ -34,6 +34,7 @@ import { useSellpiaShipmentTracking } from '../hooks/use-sellpia-shipment-tracki
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
+import { getHistoryOrderCount } from '../lib/order-history-count';
 import {
   collectsViaCoupangDirectship,
   coupangDirectshipStartAlreadyRunning,
@@ -276,6 +277,7 @@ export function OrderCollectionWorkspace() {
   const {
     events,
     logActivity,
+    logReusedFile,
     clearMallErrorActivity,
     failedMallAccounts,
     failedMallReasonByKey,
@@ -295,6 +297,8 @@ export function OrderCollectionWorkspace() {
       historyItem.collectionMode === 'browser' &&
       isDuplicateGeneratedFile(historyRef.current, historyItem)
     ) {
+      // 이미 변환된 주문이다 — 파일은 새로 두지 않고 최근 활동에만 남긴다(실기기 R6).
+      logReusedFile(historyItem.mallName ?? '주문', getHistoryOrderCount(historyItem) ?? 0);
       return;
     }
     setHistory((current) => [
@@ -304,7 +308,7 @@ export function OrderCollectionWorkspace() {
     void saveGeneratedOrderFile(historyItem).catch(() => {
       toast.error('생성 파일 목록 저장 실패');
     });
-  }, []);
+  }, [logReusedFile]);
 
   const addGeneratedTrackingFile = useCallback((artifact: GeneratedTrackingArtifact) => {
     addGeneratedFile(createStoredTrackingFile({

@@ -17,4 +17,13 @@ describe('useOrderActivityEvents — 실행 하나의 활동 행만 지우기(KI
     act(() => result.current.clearMallErrorActivity('키드키즈'));
     expect(result.current.events).toEqual([]);
   });
+
+  it('파일 재사용 행은 그 건수를 싣고, 그 몰을 실패 몰로 세지 않는다(실기기 R6)', () => {
+    const account = { key: 'haebub-mall', name: '해법몰' } as Parameters<typeof useOrderActivityEvents>[0][number];
+    const { result } = renderHook(() => useOrderActivityEvents([account]));
+    act(() => result.current.logActivity('error', '해법몰', '실패'));
+    act(() => result.current.logReusedFile('해법몰', 1));
+    expect(result.current.events[0]).toMatchObject({ kind: 'reused', mallName: '해법몰', orders: 1 });
+    expect(result.current.failedMallAccounts).toEqual([]);
+  });
 });
