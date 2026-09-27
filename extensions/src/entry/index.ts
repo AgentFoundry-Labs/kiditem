@@ -35,6 +35,7 @@ import '../sites/11st/registration';
 import '../sites/1688';
 import '../sites/ad-center';
 import '../sites/always';
+import '../sites/always/availability';
 import '../sites/always/registration';
 import '../sites/art09';
 import '../sites/art09/registration';
