@@ -321,3 +321,22 @@ describe('sweepDialogGuards — 서비스워커가 다시 뜰 때 남은 가드 
     await expect(sweepDialogGuards(chromeApi)).resolves.toBeUndefined();
   });
 });
+
+describe('sweepDialogGuards — 시작 시 남은 대화상자 가드 정리', () => {
+  it('scripting이 없는 chrome(옛 하네스)에서는 던지지 않고 끝낸다', async () => {
+    await expect(sweepDialogGuards(undefined)).resolves.toBeUndefined();
+    await expect(sweepDialogGuards({} as never)).resolves.toBeUndefined();
+  });
+
+  it('kiditem-dialog-guard- 접두 id만 해제한다', async () => {
+    const unregistered: string[][] = [];
+    await sweepDialogGuards({
+      scripting: {
+        executeScript: async () => [],
+        getRegisteredContentScripts: async () => [{ id: 'kiditem-dialog-guard-a' }, { id: 'other' }, { id: 'kiditem-dialog-guard-b' }],
+        unregisterContentScripts: async (filter?: { ids?: string[] }) => { unregistered.push(filter?.ids ?? []); },
+      },
+    } as never);
+    expect(unregistered).toEqual([['kiditem-dialog-guard-a', 'kiditem-dialog-guard-b']]);
+  });
+});

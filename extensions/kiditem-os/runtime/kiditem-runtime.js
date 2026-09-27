@@ -8367,8 +8367,8 @@ var KidItemRuntime = (() => {
   var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
   var DIALOG_GUARD_ID_PREFIX = "kiditem-dialog-guard-";
   async function sweepDialogGuards(chromeApi) {
-    const scripting = chromeApi.scripting;
-    if (!scripting.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+    const scripting = chromeApi?.scripting;
+    if (!scripting?.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
     try {
       const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
       if (ids.length > 0) await scripting.unregisterContentScripts({ ids });

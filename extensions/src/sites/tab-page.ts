@@ -131,9 +131,10 @@ const DIALOG_GUARD_ID_PREFIX = 'kiditem-dialog-guard-';
  * 서비스워커가 다시 뜨면 지난 실행이 건 가드 등록이 남는다(해제 함수를 잃었다) — 입구가 뜰 때 이 확장의 가드 등록을 다
  * 지운다(리뷰 MUST 2). 던지지 않는다.
  */
-export async function sweepDialogGuards(chromeApi: Pick<TabPageChrome, 'scripting'>): Promise<void> {
-  const scripting = chromeApi.scripting;
-  if (!scripting.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+export async function sweepDialogGuards(chromeApi: Partial<Pick<TabPageChrome, 'scripting'>> | undefined): Promise<void> {
+  // 옛 워커의 가짜 chrome(테스트 하네스)엔 `scripting`이 없다 — 지울 게 없으면 조용히 끝낸다.
+  const scripting = chromeApi?.scripting;
+  if (!scripting?.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
   try {
     const ids = (await scripting.getRegisteredContentScripts())
       .map((script) => script.id)
