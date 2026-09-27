@@ -14,7 +14,7 @@ export const dom = globalThis as unknown as Dom;
 type PageCall = (args: unknown) => Promise<Record<string, any>>;
 
 /** 저장·등록 버튼 글자(누르면 몰에 올라가거나 임시저장된다). */
-const SAVE_WORDS = /^(?:등록|저장|임시저장|저장하기|등록하기|상품등록|상품 등록|전체저장|임시 저장|상품정보 임시저장|판매요청)$/;
+const SAVE_WORDS = /^(?:등록|저장|임시저장|저장하기|등록하기|상품등록|상품 등록|전체저장|임시 저장|상품정보 임시저장|판매요청|승인요청|전송)$/;
 
 export interface WritePage {
   calls: Record<string, PageCall>;

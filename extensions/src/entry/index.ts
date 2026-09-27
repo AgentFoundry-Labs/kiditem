@@ -35,6 +35,7 @@ import '../sites/always/registration';
 import '../sites/art09';
 import '../sites/auction/listings';
 import '../sites/boribori';
+import '../sites/boribori/registration';
 import '../sites/coupang-product';
 import '../sites/coupang-search';
 import '../sites/coupang-shop';

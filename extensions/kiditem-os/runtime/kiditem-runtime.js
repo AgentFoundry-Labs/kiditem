@@ -10447,6 +10447,56 @@ var KidItemRuntime = (() => {
     )
   });
 
+  // extensions/src/sites/boribori/registration.ts
+  var BORIBORI_REGISTRATION_FORM = {
+    label: "\uBCF4\uB9AC\uBCF4\uB9AC",
+    origin: "https://seller-club.co.kr",
+    pathPrefix: "/product/productRegister",
+    // 칸이 폼 밖에 있다. 라디오를 문서 전체에서 찾게 넓은 표식을 쓴다.
+    formSelector: "body",
+    // 화면이 그려졌는지는 이걸로 본다. 백오피스가 느려서 넉넉히 기다린다.
+    readySelector: '[name="siteCd"]',
+    formWaitMs: 2e4,
+    /**
+     * ⚠️ **순서가 곧 실행 순서다.** 사이트 → 분류 1·2·3단이 먼저다.
+     * 계단식이라 앞 단을 고르기 전에 뒤 단을 건드리면 목록이 비어 아무것도 안 들어간다.
+     */
+    selectorFields: [
+      { key: "site", selector: '[name="siteCd"]', label: "\uC0AC\uC774\uD2B8(\uBCF4\uB9AC\uBCF4\uB9AC)", waitMs: 2500 },
+      { key: "category1", selector: '[name="stdCtgrNo1"]', label: "\uBD84\uB958 1\uB2E8", waitMs: 2500 },
+      { key: "category2", selector: '[name="stdCtgrNo2"]', label: "\uBD84\uB958 2\uB2E8", waitMs: 2500 },
+      { key: "category3", selector: '[name="stdCtgrNo3"]', label: "\uBD84\uB958 3\uB2E8", waitMs: 1500 },
+      // 필수이고 **우리가 정하는 코드**다. 옆에 중복체크 버튼이 있다.
+      { key: "sellerCode", selector: '[name="prdCd"]', label: "\uC5C5\uCCB4\uC0C1\uD488\uCF54\uB4DC" },
+      // ⚠️ 신규 화면에서는 잠겨 있는 때가 있다. 그러면 경고가 남고 사람이 고른다.
+      { key: "md", selector: '[name="mdNo"]', label: "\uB2F4\uB2F9MD" },
+      { key: "name", selector: '[name="prdNm"]', label: "\uC0C1\uD488\uBA85" },
+      { key: "brandGroup", selector: '[name="prdGroupNm"]', label: "\uC0C1\uC138\uBE0C\uB79C\uB4DC" },
+      { key: "brand", selector: '[name="brandNm"]', label: "\uBE0C\uB79C\uB4DC" },
+      { key: "listPrice", selector: '[name="normPrc"]', label: "\uC815\uC0C1\uAC00" },
+      { key: "salePrice", selector: '[name="selPrc"]', label: "\uD310\uB9E4\uAC00" },
+      { key: "marginRate", selector: '[name="mrgnRt"]', label: "\uB9C8\uC9C4\uC728" },
+      { key: "optionName", selector: '[name="optItemNm1"]', label: "\uC635\uC158 \uC774\uB984" },
+      { key: "optionValue", selector: '[name="optItemVal1"]', label: "\uC635\uC158 \uAC12" },
+      { key: "decoWord", selector: '[name="decoWord"]', label: "\uC218\uC2DD\uC5B4" },
+      { key: "tags", selector: '[name="prdTag"]', label: "\uC0C1\uD488\uD0DC\uADF8" }
+    ],
+    imageFileInputs: [
+      { key: "representative", label: "\uB300\uD45C\uC774\uBBF8\uC9C0", selector: 'input[name="uploadImgMain"]' },
+      { key: "additional", label: "\uCD94\uAC00\uC774\uBBF8\uC9C0", selector: 'input[name="uploadImgAdd"]' }
+    ]
+    // ⚠️ `detailHost` 를 두지 않는다. 상세설명 칸은 저장 뒤에야 생겨서 이번 회차에
+    // 넣을 곳이 없다 — 남의 몰 호스팅에 미리 올려 둘 이유도 없다(ESM 에서 배운 것).
+  };
+  registerMallWriter({
+    mallKey: "boribori",
+    displayName: "\uBCF4\uB9AC\uBCF4\uB9AC",
+    guard: registrationGuard(BORIBORI_PAGE_GUARD, "\uBCF4\uB9AC\uBCF4\uB9AC"),
+    dialogHosts: ["seller-club.co.kr"],
+    login: BORIBORI_LOGIN,
+    form: BORIBORI_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/coupang-product/index.ts
   var ORIGIN = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS = 6e4;
