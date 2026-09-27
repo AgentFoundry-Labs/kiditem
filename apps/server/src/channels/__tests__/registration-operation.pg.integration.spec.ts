@@ -494,6 +494,25 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(after.body.items).toEqual([expect.objectContaining({ executionId: begun.operation.id, status: 'succeeded', providerOutcome: 'succeeded' })]);
   });
 
+  it('accepts a mall account the mall account screen configured, and refuses a paused one (KID-330 usable accounts)', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
+    await prisma.channelAccount.update({ where: { id: fixture.accountId }, data: { status: 'configured' } });
+    const read = await beginOk({ channelAccountId: fixture.accountId, mallKey: 'kidkids', externalListingIds: ['provider-listing-1'] }, MALL_AVAILABILITY_READ_KIND);
+    await request(httpUrl).post(`/api/operations/${read.operation.id}/cancel`).expect(200);
+    const registered = await beginOk(registerScope(fixture, { channelListingId: fixture.listingId }));
+    expect(planOf(registered)).toMatchObject({ channelAccountId: fixture.accountId, mallKey: 'kidkids' });
+    await request(httpUrl).post(`/api/operations/${registered.operation.id}/cancel`).expect(200);
+
+    await prisma.channelAccount.update({ where: { id: fixture.accountId }, data: { status: 'paused' } });
+    for (const refused of [
+      await begin({ channelAccountId: fixture.accountId, mallKey: 'kidkids', externalListingIds: ['provider-listing-1'] }, MALL_AVAILABILITY_READ_KIND),
+      await begin(registerScope(fixture, { channelListingId: fixture.listingId })),
+    ]) {
+      expect(refused.status).toBe(422);
+      expect(refused.body).toMatchObject({ code: 'CHANNELS_ACCOUNT_INACTIVE' });
+    }
+  });
+
   it('keeps the mall availability rows it read in the result without touching the ledger', async () => {
     const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
     const begun = await beginOk({ channelAccountId: fixture.accountId, mallKey: 'kidkids', externalListingIds: ['provider-listing-1', 'gone-1'] }, MALL_AVAILABILITY_READ_KIND);

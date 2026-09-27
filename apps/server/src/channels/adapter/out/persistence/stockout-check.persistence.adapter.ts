@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { projectChannelOptionCapacity } from '@kiditem/shared/channel-option-capacity';
@@ -47,7 +48,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
     const productsLock = await this.products.lock({ client: tx }, organizationId);
     const listings = await tx.channelListing.findMany({
       where: { organizationId, id: { in: [...listingIds] }, isActive: true,
-        channelAccount: { organizationId, status: 'active' } },
+        channelAccount: { organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } } },
       select: { id: true, externalId: true, channelAccountId: true, status: true, lastImportRunId: true, lastOperationId: true,
         channelAccount: { select: { channel: true } },
         // 품절 송신도 등록 동결과 같은 가격 게이트를 지난다(KID-310).

@@ -1,3 +1,4 @@
+import { isUsableChannelAccountStatus, USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
@@ -80,7 +81,7 @@ export class RegistrationOperationRepositoryAdapter implements RegistrationOpera
       select: { id: true, channel: true, vendorId: true, externalAccountId: true, status: true },
     });
     if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
-    if (account.status !== 'active') throw new KiditemPreconditionError('CHANNELS_ACCOUNT_INACTIVE');
+    if (!isUsableChannelAccountStatus(account.status)) throw new KiditemPreconditionError('CHANNELS_ACCOUNT_INACTIVE');
     return { id: account.id, channel: account.channel, expectedProviderAccountId: this.adapters.get(account.channel).providerAccountId(account) };
   }
 
@@ -117,7 +118,7 @@ export class RegistrationOperationRepositoryAdapter implements RegistrationOpera
         FOR UPDATE
       `);
       const account = await tx.channelAccount.findFirst({
-        where: { id: target.channelAccountId, organizationId, status: 'active' },
+        where: { id: target.channelAccountId, organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
         select: { id: true, channel: true, vendorId: true, externalAccountId: true },
       });
       if (!account) throw new KiditemPreconditionError('CHANNELS_ACCOUNT_INACTIVE');
