@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { AdLedgerReadPersistenceAdapter } from './adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdLedgerMonthlyAllocationPersistenceAdapter } from './adapter/out/persistence/ad-ledger-monthly-allocation.persistence.adapter';
+import { AD_LEDGER_MONTHLY_ALLOCATION_PORT } from './application/port/out/repository/ad-ledger-monthly-allocation.repository.port';
 import { ADVERTISING_LEDGER_READ_PORT } from './application/port/in/capability/advertising-ledger-read.port';
 import { AD_LEDGER_READ_REPOSITORY_PORT } from './application/port/out/repository/ad-ledger-read.repository.port';
 import { AdvertisingLedgerReadService } from './application/service/advertising-ledger-read.service';
@@ -15,6 +17,8 @@ import { AdvertisingLedgerReadService } from './application/service/advertising-
   providers: [
     AdLedgerReadPersistenceAdapter,
     { provide: AD_LEDGER_READ_REPOSITORY_PORT, useExisting: AdLedgerReadPersistenceAdapter },
+    AdLedgerMonthlyAllocationPersistenceAdapter,
+    { provide: AD_LEDGER_MONTHLY_ALLOCATION_PORT, useExisting: AdLedgerMonthlyAllocationPersistenceAdapter },
     AdvertisingLedgerReadService,
     { provide: ADVERTISING_LEDGER_READ_PORT, useExisting: AdvertisingLedgerReadService },
   ],

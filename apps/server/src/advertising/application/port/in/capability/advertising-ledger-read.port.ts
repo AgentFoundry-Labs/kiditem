@@ -82,9 +82,12 @@ export interface AdvertisingLedgerReadPort {
   readAdCoverage(transaction: OwnerTransaction, window: AdCalendarWindow): Promise<AdCoverage>;
   readAdWindowFacts(transaction: OwnerTransaction, window: AdCalendarWindow): Promise<AdWindowFacts>;
   readListingAdWindowFacts(transaction: OwnerTransaction, window: AdCalendarWindow): Promise<AdListingWindowFacts[]>;
-  /** KID-372 ①b가 구현한다(기여이익). `months`는 `YYYY-MM` 목록. */
+  /**
+   * 기여이익 월 배분(읽을 때 계산). `months`는 `YYYY-MM` 목록, `from`(포함)·`to`(제외)는 달력일 창 — 주면 그 안의 측정일만
+   * 배분한다(기간이 달 중간에서 시작·끝날 때).
+   */
   readMonthlyAdAllocation(
     transaction: OwnerTransaction,
-    input: Readonly<{ organizationId: string; months: readonly string[] }>,
+    input: Readonly<{ organizationId: string; months: readonly string[]; from?: string; to?: string }>,
   ): Promise<MonthlyAdAllocation[]>;
 }

@@ -225,8 +225,6 @@ export class ProductQueryUseCase implements ProductQueryPort {
       organizationId,
       ...basis,
       sellpiaOperationId: dataStatus.sourceVector.sellpia!.sourceImportRunId,
-      advertisingSourceImportRunId:
-        dataStatus.sourceVector.advertising!.sourceImportRunId,
       masterProductIds,
     });
   }

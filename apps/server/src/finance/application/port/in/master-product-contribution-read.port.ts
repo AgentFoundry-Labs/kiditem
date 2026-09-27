@@ -9,7 +9,6 @@ export type MasterProductContributionReadInput = Readonly<{
   basisFromDate: string;
   basisCutoffDate: string;
   sellpiaOperationId: string | null;
-  advertisingSourceImportRunId: string | null;
   /** Response filter only; global denominators and ranks remain unchanged. */
   masterProductIds?: readonly string[];
 }>;
