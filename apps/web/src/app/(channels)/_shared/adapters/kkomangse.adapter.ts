@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   KKOMANGSE_COMMISSION_RATE,
   KKOMANGSE_DEFAULT_CATEGORY,
@@ -9,13 +9,13 @@ import {
   kkomangseSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kkomangse-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -141,11 +141,7 @@ export const kkomangseAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, 'kkomangse');
     const certNumber = values.certNumber?.trim();
     const category = parseCategory(values.categoryCodes);
@@ -154,7 +150,6 @@ export const kkomangseAdapter: MallPublishAdapter = {
       ...(category ? { categoryCodes: category } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('kkomangse', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

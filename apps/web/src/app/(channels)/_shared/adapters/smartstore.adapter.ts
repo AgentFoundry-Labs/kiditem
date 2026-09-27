@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   SMARTSTORE_BRAND_NAME,
   SMARTSTORE_DEFAULT_CATEGORY,
@@ -8,13 +8,13 @@ import {
   smartstorePricing,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/smartstore-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -143,14 +143,10 @@ export const smartstoreAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const category = categoryFrom(values.smartstoreCategory);
     if (!category) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '스마트스토어 카테고리 형식이 틀렸습니다.' };
+      throw new Error('스마트스토어 카테고리 형식이 틀렸습니다.');
     }
     const { draft } = await prepareRegistration(item, 'smartstore');
     const certNumber = values.certNumber?.trim();
@@ -159,7 +155,6 @@ export const smartstoreAdapter: MallPublishAdapter = {
       category,
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('smartstore', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

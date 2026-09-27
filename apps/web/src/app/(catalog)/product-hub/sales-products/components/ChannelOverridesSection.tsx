@@ -5,30 +5,30 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { ArrowDown, ArrowUp, Plus, Save, Send, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getMallPublishAdapter } from '@/app/(channels)/_shared/adapters';
+import { executeTargetRegistration } from '@/app/(channels)/_shared/target-registration-execution';
 import {
-  executeTargetRegistration,
-  isActiveTargetExecution,
-} from '@/app/(channels)/_shared/target-registration-execution';
-import {
-  registrationExecutionKeys,
-  targetRegistrationExecutionApi,
-} from '@/app/(channels)/_shared/registration-execution-api';
+  newRegistrationIdempotencyKey,
+  readRegistrationOperation,
+  registrationOperationKeys,
+  RegistrationOperationInProgress,
+  startRegistrationOperation,
+  type RegistrationOperationRead,
+} from '@/app/(channels)/_shared/registration-operation';
+import { RegistrationOperationResolution } from '@/app/(channels)/_shared/RegistrationOperationResolution';
 import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
 import { useRegistrationState } from '@/app/(channels)/_shared/use-registration-state';
-import { isApiError } from '@/lib/api-error';
+import { friendlyError, isApiError } from '@/lib/api-error';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { SUPPLY_PRICE_MALLS } from '../lib/mall-supply-price';
 import { mallFieldsDraftOf, mallFieldsFromDraft, type MallFieldsDraft } from '../lib/mall-fields-draft';
 import { formatWon } from '../lib/sales-product-labels';
 import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
-import { TargetExecutionConfirmationForm } from './TargetExecutionConfirmationForm';
 import {
   type RegistrationAccountState,
   type RegistrationMallInput,
   type RegistrationTarget,
   type RegistrationTargetUpdateInput,
   type SalesProduct,
-  type TargetExecutionResult,
 } from '@kiditem/shared/sales-product';
 
 /** 등록 대상은 옵션을 고르기만 한다 — 이름 · 가격은 판매 상품 한 곳에 있다(KID-313 W2). */
@@ -118,12 +118,6 @@ function selectedCount(draft: TargetDraft): number {
   return draft.options.filter((option) => option.selected).length;
 }
 
-function newExecutionIntentKey(): string {
-  const cryptoApi = globalThis.crypto as Crypto | undefined;
-  return cryptoApi?.randomUUID?.()
-    ?? `target-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 function moveSelectedOption(draft: TargetDraft, index: number, direction: -1 | 1): TargetDraft {
   const selectedIndexes = draft.options.flatMap((option, at) => option.selected ? [at] : []);
   const position = selectedIndexes.indexOf(index);
@@ -134,16 +128,13 @@ function moveSelectedOption(draft: TargetDraft, index: number, direction: -1 | 1
   return { ...draft, options };
 }
 
-function canStartPreparedExecution(execution: TargetExecutionResult | undefined): boolean {
-  return execution?.status === 'prepared' && execution.providerOutcome === 'not_attempted';
+/** 등록 상태 reader가 가리킨 마지막 실행이 아직 끝나지 않았는가(진행 중 · 확인 필요). */
+function isLiveOperationStatus(status: string | undefined): boolean {
+  return status === 'prepared' || status === 'executing' || status === 'reconciling';
 }
 
-function canManuallyConfirmExecution(execution: TargetExecutionResult): boolean {
-  return execution.status === 'executing' || execution.status === 'reconciling';
-}
-
-function isCompositionExecution(execution: TargetExecutionResult | undefined): boolean {
-  return execution?.payload.kind === 'composition_change';
+function isCompositionExecution(read: RegistrationOperationRead | undefined): boolean {
+  return read?.operation.plan?.executionKind === 'composition_change';
 }
 
 function executionTimeLabel(createdAt: string | null): string {
@@ -203,9 +194,7 @@ function compositionOptionLabel(
 }
 
 function compositionApiError(error: unknown): string {
-  return isApiError(error)
-    ? error.message
-    : error instanceof Error ? error.message : '구성 변경 실행을 기록하지 못했습니다.';
+  return friendlyError(error, '구성 변경 실행을 기록하지 못했습니다.') ?? '구성 변경 실행을 기록하지 못했습니다.';
 }
 
 /** 몰마다 고르는 값: 몰 카테고리와 몰 공급가(`mallFields.supplyPrice`). 판매가는 판매상품 값이다. */
@@ -406,16 +395,16 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
 }
 
 /**
- * 기존 몰 상품의 구성 변경 의도만 기록한다.
+ * 기존 몰 상품의 구성 변경 실행(`channels.registration` · `composition_change`)을 시작한다.
  *
- * 구성 변경은 현재 provider adapter가 지원하지 않는 수동 작업이다. 이
- * boundary는 Channels 실행 장부를 먼저 열고, 실제 몰 수정과 결과 확인은
- * 운영자가 별도로 수행하게 한다. 이름이나 배열 순서로 옵션을 추측하지
- * 않고, 화면에 보이는 UUID 선택만 request에 넣는다.
+ * 구성 변경은 몰 폼을 채우지 않는 수동 작업이다. 실행은 잠금과 얼린 전이를 기록하고, 실제 몰 수정과 결과 확인은
+ * 운영자가 한다(확인 필요 → 몰에서 확인). 이름이나 배열 순서로 옵션을 추측하지 않고, 화면에 보이는 UUID 선택만
+ * scope에 넣는다.
  */
 function CompositionChangeLauncher({
   product,
   target,
+  mallKey,
   activeExecution,
   historyLoading,
   historyError,
@@ -423,7 +412,9 @@ function CompositionChangeLauncher({
 }: {
   product: SalesProduct;
   target: RegistrationTarget;
-  activeExecution: TargetExecutionResult | undefined;
+  /** 이 대상 계정의 몰 키(쓰기 사이트·저장 자격을 고른다). 모르면 시작하지 않는다. */
+  mallKey: string | null;
+  activeExecution: RegistrationOperationRead | undefined;
   /** 등록 상태(과 살아 있는 실행)를 아직 읽는 중이다. */
   historyLoading: boolean;
   historyError: boolean;
@@ -451,16 +442,10 @@ function CompositionChangeLauncher({
   );
   const activeComposition = isCompositionExecution(activeExecution) ? activeExecution : undefined;
   const activeExecutionBlocksNewIntent = Boolean(activeExecution);
-  const canStartPreparedComposition = Boolean(
-    activeComposition && canStartPreparedExecution(activeComposition),
-  );
 
   const start = useMutation({
     mutationFn: async () => {
-      if (activeComposition) {
-        if (!canStartPreparedComposition) return activeComposition;
-        return targetRegistrationExecutionApi.start(activeComposition.executionId);
-      }
+      if (!mallKey) throw new Error('이 계정의 쇼핑몰을 확인하지 못했습니다.');
       if (!selectedListing) throw new Error('구성 변경 대상 쇼핑몰 상품을 고르세요.');
       const transitions = selectedListing.options.flatMap((option) => {
         const salesProductOptionId = optionMappings[option.id]?.trim();
@@ -479,28 +464,29 @@ function CompositionChangeLauncher({
         transitions,
       });
       if (intentKey.current?.signature !== signature) {
-        intentKey.current = { signature, key: newExecutionIntentKey() };
+        intentKey.current = { signature, key: newRegistrationIdempotencyKey('composition') };
       }
-      const prepared = await targetRegistrationExecutionApi.prepare(target.id, {
-        expectedVersion: target.version,
-        kind: 'composition_change',
-        channelListingId: selectedListing.id,
-        optionTransitions: transitions,
-        applyCompositionTemplate: false,
+      // 구성 변경은 몰 폼을 채우지 않는다 — 제출 의도 없이 실행 하나만 연다.
+      return startRegistrationOperation({
+        mallKey,
         idempotencyKey: intentKey.current.key,
+        scope: {
+          executionKind: 'composition_change',
+          registrationTargetId: target.id,
+          expectedVersion: target.version,
+          channelListingId: selectedListing.id,
+          optionTransitions: transitions,
+          applyCompositionTemplate: false,
+          submit: false,
+        },
       });
-      // Composition changes deliberately stop at the execution fence. The
-      // maySubmit bit is not permission to call a registration adapter here.
-      return targetRegistrationExecutionApi.start(prepared.executionId);
     },
-    onSuccess: (execution) => {
+    onSuccess: () => {
       inFlight.current = false;
       setStarted(true);
       setValidationError(null);
       onRecorded();
-      if (execution.status === 'executing' || execution.status === 'reconciling') {
-        toast.warning('구성 변경 실행을 기록했습니다. 실제 몰에서 수정한 뒤 확인 결과를 기록할 때까지 자동 재고 처리를 보류합니다.');
-      }
+      toast.warning('구성 변경 실행을 기록했습니다. 실제 몰에서 수정한 뒤 확인 결과를 기록할 때까지 자동 재고 처리를 보류합니다.');
     },
     onError: (error) => {
       inFlight.current = false;
@@ -519,7 +505,7 @@ function CompositionChangeLauncher({
       setValidationError('등록 상태를 확인하지 못해 새 구성 변경 실행을 열 수 없습니다.');
       return;
     }
-    if (activeExecutionBlocksNewIntent && !canStartPreparedComposition) {
+    if (activeExecutionBlocksNewIntent) {
       setValidationError('진행 중인 실행이 있어 새 구성 변경 실행을 열 수 없습니다. 기존 실행 결과를 먼저 확인하세요.');
       return;
     }
@@ -541,19 +527,7 @@ function CompositionChangeLauncher({
       </p>
       {activeComposition ? (
         <div className="mt-2 rounded border border-sky-200 bg-white/70 px-2.5 py-2 text-[11px] text-sky-800">
-          {canStartPreparedComposition
-            ? '준비된 구성 변경 실행이 있습니다. 아래 버튼으로 한 번만 시작하세요.'
-            : '구성 변경 실행이 진행 중입니다. 실제 몰 수정 후 아래 확인 양식에 결과를 기록하세요.'}
-          {canStartPreparedComposition && (
-            <button
-              type="button"
-              className="ml-2 rounded bg-sky-700 px-2 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
-              disabled={start.isPending || started}
-              onClick={submit}
-            >
-              {start.isPending ? '기록 중…' : '준비된 구성 변경 시작'}
-            </button>
-          )}
+          구성 변경 실행이 진행 중입니다. 실제 몰 수정 후 아래 확인 양식에 결과를 기록하세요.
         </div>
       ) : (
         <>
@@ -655,21 +629,12 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
   const liveExecutionQueries = useQueries({
     queries: rowAccounts.map((account) => {
       const last = account?.lastExecution ?? null;
-      const execution = last && isActiveTargetExecution({
-        status: last.status as TargetExecutionResult['status'],
-        providerOutcome: last.providerOutcome as TargetExecutionResult['providerOutcome'],
-      })
-        ? last
-        : null;
+      const live = last && isLiveOperationStatus(last.status) ? last : null;
       return {
-        // 상태 · 몰 결과가 키에 들어가 reader 가 둘 중 하나의 변화를 알릴 때만 다시 읽는다 — 이 읽기는 스스로 폴링하지 않는다.
-        queryKey: [
-          ...registrationExecutionKeys.execution(execution?.id ?? ''),
-          execution?.status ?? null,
-          execution?.providerOutcome ?? null,
-        ] as const,
-        queryFn: () => targetRegistrationExecutionApi.get(execution!.id),
-        enabled: execution !== null,
+        // 상태가 키에 들어가 reader 가 변화를 알릴 때만 다시 읽는다 — 이 읽기는 스스로 폴링하지 않는다.
+        queryKey: [...registrationOperationKeys.detail(live?.id ?? ''), live?.status ?? null] as const,
+        queryFn: () => readRegistrationOperation(live!.id),
+        enabled: live !== null,
       };
     }),
   });
@@ -679,8 +644,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
   const [drafts, setDrafts] = useState<Record<string, TargetDraft>>({});
   const [newDraft, setNewDraft] = useState<TargetDraft | null>(null);
   const [openTargetId, setOpenTargetId] = useState<string | 'new' | null>(null);
-  // Keep the same intent across a report timeout or a user retry. A target
-  // version change starts a new intent; an unresolved execution never does.
+  // 같은 대상 · 같은 버전의 되풀이 시작은 같은 실행을 돌려받는다(끊긴 답을 다시 보낼 때). 버전이 바뀌면 새 실행이다.
   const executionIntentKeys = useRef<Record<string, { version: number; key: string }>>({});
 
   const accountById = useMemo(
@@ -720,53 +684,57 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
   const execute = useMutation({
     mutationFn: ({ target, account }: { target: RegistrationTarget; account: MallAccount }) => {
       const activeExecution = liveExecutionQueries[targetRows.indexOf(target)]?.data;
-      if (isCompositionExecution(activeExecution)) {
-        throw new Error('구성 변경 실행은 외부 송신을 호출하지 않습니다. 아래 수동 확인 흐름을 사용하세요.');
+      if (activeExecution) {
+        throw new RegistrationOperationInProgress('진행 중인 등록 실행이 있습니다. 아래에서 결과를 확인하세요.', activeExecution.operation.id);
       }
       const adapter = getMallPublishAdapter(account.mallKey);
       if (!adapter) throw new Error(`${account.mallName} 등록 어댑터가 없습니다.`);
+      const current = executionIntentKeys.current[target.id];
+      const idempotencyKey = current?.version === target.version ? current.key : newRegistrationIdempotencyKey('target');
+      executionIntentKeys.current[target.id] = { version: target.version, key: idempotencyKey };
       return executeTargetRegistration({
-        targetId: target.id,
-        expectedVersion: target.version,
-        channelAccountId: target.channelAccountId,
+        target,
         mallKey: account.mallKey,
         adapter,
-        ...(activeExecution ? { existingExecution: activeExecution } : {
-          idempotencyKey: (() => {
-            const current = executionIntentKeys.current[target.id];
-            if (current?.version === target.version) return current.key;
-            const key = newExecutionIntentKey();
-            executionIntentKeys.current[target.id] = { version: target.version, key };
-            return key;
-          })(),
-        }),
+        item: {
+          candidateId: product.id,
+          name: product.name,
+          salePrice: product.options[0]?.salePrice ?? null,
+          thumbnailUrl: product.imageUrls[0] ?? null,
+          source: 'sales_product',
+          optionCount: product.options.length,
+        },
+        idempotencyKey,
       });
     },
-    onSuccess: ({ execution, outcome }, { target }) => {
+    onSuccess: ({ operation, outcome }, { target }) => {
       refreshRegistrationState();
-      // A definitive no-submit is a safe new intent boundary. Uncertain,
-      // submitted, and approval states retain the key so a retry cannot send
-      // the provider request again.
-      if (execution.status === 'failed' && execution.providerOutcome === 'definitive_failure') {
+      // 몰에 닿지 않고 끝난 실행(실패 · 멈춤 · 시작 전 막힘)만 새 시작을 연다. 확인 필요 · 진행 중은 같은 키를 지켜
+      // 되풀이 시작이 같은 실행을 돌려받게 한다.
+      if (!operation || operation.state === 'failed' || operation.state === 'cancelled') {
         delete executionIntentKeys.current[target.id];
+      }
+      if (operation?.state === 'needs_confirmation') {
+        toast.warning('몰에 제출됐지만 등록상품ID를 읽지 못했습니다. 아래에서 확인해 주세요.');
+        return;
       }
       if (!outcome.ok && outcome.error) {
         toast.error(outcome.error);
         return;
       }
-      if (execution.status === 'reconciling') {
-        toast.warning('기존 등록 실행이 재조정 대기 중입니다. 외부 송신은 다시 하지 않았습니다.');
-        return;
-      }
-      if (execution.status === 'succeeded') {
+      if (operation?.state === 'confirmed' && outcome.confirmed) {
         toast.success('등록 실행 결과를 확인했습니다.');
         return;
       }
-      toast.success('등록 실행 결과를 기록했습니다. 몰 화면의 승인 절차를 확인하세요.');
+      if (operation?.state === 'running') {
+        toast.info('등록 실행이 아직 끝나지 않았습니다. 잠시 뒤 등록 상태를 확인하세요.');
+        return;
+      }
+      toast.success('폼을 채웠습니다. 몰 화면에서 [등록]을 확인하세요.');
     },
     onError: (error) => {
       refreshRegistrationState();
-      toast.error(isApiError(error) ? error.message : error instanceof Error ? error.message : '등록 실행을 시작하지 못했습니다.');
+      toast.error(friendlyError(error, '등록 실행을 시작하지 못했습니다.'));
     },
   });
 
@@ -814,7 +782,6 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
               const stateLoading = registration.isLoading || Boolean(liveQuery?.isLoading);
               const liveError = Boolean(liveQuery?.isError);
               const registered = account?.state === 'registered' && !activeExecution;
-              const statusOnlyExecution = Boolean(activeExecution && !canStartPreparedExecution(activeExecution));
               const compositionExecution = isCompositionExecution(activeExecution);
               const hasSameAccountListing = product.channelListings.some(
                 (listing) => listing.channelAccountId === target.channelAccountId,
@@ -843,7 +810,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
                         <button
                           type="button"
                           className="btn-secondary btn-sm inline-flex items-center gap-1 disabled:opacity-40"
-                          disabled={execute.isPending || compositionExecution || registered || stateLoading || stateError || liveError || !accountById.get(target.channelAccountId) || !adapterAvailable}
+                          disabled={execute.isPending || Boolean(activeExecution) || registered || stateLoading || stateError || liveError || !accountById.get(target.channelAccountId) || !adapterAvailable}
                           onClick={() => {
                             const account = accountById.get(target.channelAccountId);
                             if (account && !compositionExecution) execute.mutate({ target, account });
@@ -854,18 +821,16 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
                             ? '이미 몰에 등록됐습니다. 바뀐 값은 몰에 올라간 상품에서 다시 보냅니다.'
                             : compositionExecution
                             ? '구성 변경 실행은 실제 몰에서 수동으로 처리하고 아래 확인 흐름으로 결과를 기록합니다.'
-                            : statusOnlyExecution
-                            ? '진행 중인 등록 실행 상태를 확인합니다. 외부 송신은 다시 하지 않습니다.'
                             : activeExecution
-                              ? '준비된 등록 실행을 이어갑니다. 서버가 허용할 때만 외부 송신합니다.'
-                            : '저장된 등록 대상 snapshot으로 외부 송신'}
+                            ? '진행 중인 등록 실행이 있습니다. 외부 송신은 다시 하지 않습니다.'
+                            : '저장된 등록 대상으로 등록 실행(서버가 값을 얼린 뒤 확장이 몰 폼을 채웁니다)'}
                         >
                           <Send size={13} aria-hidden />
                           {execute.isPending && execute.variables?.target.id === target.id
                             ? '확인 중…'
                             : compositionExecution ? '구성 변경 확인 대기'
                             : registered ? '등록됨'
-                            : statusOnlyExecution ? '상태 확인' : activeExecution ? '계속 실행' : '외부 송신'}
+                            : activeExecution ? activeExecution.label : '외부 송신'}
                         </button>
                         <button
                           type="button"
@@ -884,6 +849,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
                         <CompositionChangeLauncher
                           product={product}
                           target={target}
+                          mallKey={accountById.get(target.channelAccountId)?.mallKey ?? null}
                           activeExecution={activeExecution}
                           historyLoading={stateLoading}
                           historyError={stateError || liveError}
@@ -896,11 +862,12 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
                           <p className="mt-1 text-[11px] text-slate-400">진행 중인 실행을 불러오는 중…</p>
                         ) : liveError ? (
                           <p className="mt-1 text-[11px] text-red-600">진행 중인 실행을 확인하지 못해 외부 송신을 잠시 막았습니다.</p>
-                        ) : activeExecution && canManuallyConfirmExecution(activeExecution) ? (
-                          <TargetExecutionConfirmationForm
-                            key={activeExecution.executionId}
-                            execution={activeExecution}
-                            onReported={refreshRegistrationState}
+                        ) : activeExecution ? (
+                          <RegistrationOperationResolution
+                            key={activeExecution.operation.id}
+                            className="mt-2"
+                            read={activeExecution}
+                            onResolved={refreshRegistrationState}
                           />
                         ) : null}
                       </td>

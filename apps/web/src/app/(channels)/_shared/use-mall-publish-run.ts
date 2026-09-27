@@ -3,15 +3,15 @@
 import { useCallback, useRef, useState } from 'react';
 import { registrationTargetApi } from '@/lib/registration-target-api';
 import { isApiError } from '@/lib/api-error';
-import { executeTargetRegistration, isActiveTargetExecution } from './target-registration-execution';
-import { listRegistrationTargetExecutions } from './registration-execution-api';
+import { OperationStartFailure } from '@/lib/operation-start';
+import { executeTargetRegistration } from './target-registration-execution';
+import { newRegistrationIdempotencyKey, type RegistrationOperationRead } from './registration-operation';
 import { getMallPublishAdapter } from './adapters';
 import type { MallPublishAdapter, MallPublishItem, MallSendOutcome } from './mall-publish-adapter';
 
 /**
  * 몰 등록 실행(등록 마법사 · 수집상품 화면이 같은 것을 쓴다, KID-321). 작업 하나 = 몰 하나 × 상품 묶음.
- * 폼 · API 몰은 상품마다 등록 대상 실행(준비 → 시작 → 어댑터 → 결과)을 지나고, 양식 파일(`sheet`) 몰은
- * 등록 실행 없이 파일만 만든다.
+ * 상품마다 등록 대상의 등록 실행(`channels.registration`) 하나를 시작하고 결과를 기다린다(KID-364).
  */
 export type PublishTaskStatus = 'pending' | 'running' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -28,6 +28,8 @@ export interface PublishTask {
   adapterValues: Record<string, string>;
   status: PublishTaskStatus;
   outcome: MallSendOutcome | null;
+  /** 이 작업이 시작했거나 만난 등록 실행(상품마다). `reconciling`이면 화면이 확인 · 닫기를 연다. */
+  operations?: RegistrationOperationRead[];
   error: string | null;
   /**
    * 실패가 서버 거절이면 그 거절의 `code`(예: 이미 등록된 계정 — `REGISTRATION_ALREADY_REGISTERED_CODE`).
@@ -41,15 +43,11 @@ function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function newIdempotencyKey(): string {
-  const cryptoApi = globalThis.crypto as Crypto | undefined;
-  return cryptoApi?.randomUUID?.() ?? `publish-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
-function taskStatusForExecution(status: string): PublishTaskStatus {
-  if (status === 'succeeded') return 'succeeded';
-  if (status === 'prepared' || status === 'executing' || status === 'reconciling') return 'reconciling';
-  if (status === 'cancelled') return 'cancelled';
+function taskStatusForOperation(operation: RegistrationOperationRead | null, outcome: MallSendOutcome): PublishTaskStatus {
+  if (!operation) return outcome.ok ? 'succeeded' : 'failed';
+  if (operation.state === 'confirmed') return 'succeeded';
+  if (operation.state === 'needs_confirmation' || operation.state === 'running') return 'reconciling';
+  if (operation.state === 'cancelled') return 'cancelled';
   return 'failed';
 }
 
@@ -69,15 +67,6 @@ function combineOutcomes(outcomes: readonly MallSendOutcome[]): MallSendOutcome 
       ? { error: outcomes.find((outcome) => outcome.error)?.error }
       : {}),
   };
-}
-
-function latestActive(history: Awaited<ReturnType<typeof listRegistrationTargetExecutions>>) {
-  return [...history]
-    .sort((left, right) => {
-      const time = (value: typeof left.createdAt) => value instanceof Date ? value.getTime() : Date.parse(value ?? '');
-      return time(right.createdAt) - time(left.createdAt);
-    })
-    .find(isActiveTargetExecution);
 }
 
 type RegistrationTarget = Awaited<ReturnType<typeof registrationTargetApi.resolve>>;
@@ -113,17 +102,9 @@ async function saveAdapterTargetInput(
 async function executeItem(
   task: PublishTask,
   item: MallPublishItem,
-): Promise<{ status: PublishTaskStatus; outcome: MallSendOutcome }> {
+): Promise<{ status: PublishTaskStatus; outcome: MallSendOutcome; operation: RegistrationOperationRead | null }> {
   const adapter = getMallPublishAdapter(task.mallKey);
   if (!adapter) throw new Error(`${task.mallName} 어댑터가 없습니다.`);
-
-  // A `sheet` delivery only creates a file for the operator. It has no selected
-  // account or provider submit, so it stays a grouped, ephemeral run.
-  if (adapter.mode === 'sheet') {
-    const outcome = await adapter.send({ items: [item], values: task.values });
-    return { status: outcome.ok ? 'succeeded' : 'failed', outcome };
-  }
-
   if (!task.channelAccountId) throw new Error(`${task.mallName} 계정 식별자를 확인하지 못했습니다.`);
   // 수집 시점부터 판매상품 초안이 있다(ADR-0022) — 만들 것 없이 후보가 이미 아는
   // salesProductId 를 그대로 쓴다. 상품 × 몰 계정당 등록 설정은 하나뿐이라
@@ -137,21 +118,19 @@ async function executeItem(
     channelAccountId: task.channelAccountId,
   });
   const target = await saveAdapterTargetInput(resolved, adapter, task.mallKey, task.values);
-  const history = await listRegistrationTargetExecutions(target.id);
-  const activeExecution = latestActive(history);
   const adapterValues = task.adapterValues;
   const result = await executeTargetRegistration({
-    targetId: target.id,
-    expectedVersion: target.version,
-    channelAccountId: task.channelAccountId,
+    target,
     mallKey: task.mallKey,
     adapter,
-    ...(activeExecution ? { existingExecution: activeExecution } : { idempotencyKey: newIdempotencyKey() }),
+    item,
+    idempotencyKey: newRegistrationIdempotencyKey('publish'),
     ...(Object.keys(adapterValues).length > 0 ? { adapterValues } : {}),
   });
   return {
-    status: taskStatusForExecution(result.execution.status),
+    status: taskStatusForOperation(result.operation, result.outcome),
     outcome: result.outcome,
+    operation: result.operation,
   };
 }
 
@@ -203,37 +182,36 @@ export function useMallPublishRun() {
           }
           patch(task.id, { status: 'running', error: null });
           const itemOutcomes: MallSendOutcome[] = [];
+          const operations: RegistrationOperationRead[] = [];
           let finalStatus: PublishTaskStatus = 'succeeded';
           let errorMessage: string | null = null;
           let errorCode: string | null = null;
           try {
-            if (adapter.mode === 'sheet') {
-              const outcome = await adapter.send({ items: task.items, values: task.values });
-              itemOutcomes.push(outcome);
-              finalStatus = outcome.ok ? 'succeeded' : 'failed';
-            } else {
-              for (const item of task.items) {
-                if (cancelledRef.current) {
-                  finalStatus = 'cancelled';
-                  break;
-                }
-                const result = await executeItem(task, item);
-                itemOutcomes.push(result.outcome);
-                if (result.status === 'failed') finalStatus = 'failed';
-                else if (result.status === 'reconciling' && finalStatus !== 'failed') finalStatus = 'reconciling';
+            for (const item of task.items) {
+              if (cancelledRef.current) {
+                finalStatus = 'cancelled';
+                break;
               }
+              const result = await executeItem(task, item);
+              itemOutcomes.push(result.outcome);
+              if (result.operation) operations.push(result.operation);
+              if (result.status === 'failed') finalStatus = 'failed';
+              else if (result.status === 'reconciling' && finalStatus !== 'failed') finalStatus = 'reconciling';
             }
           } catch (error) {
             finalStatus = 'failed';
             const message = toMessage(error);
             errorMessage = adapter.describeError?.(message) ?? message;
-            errorCode = isApiError(error) ? error.details.reason ?? (error.code === 'UNKNOWN' ? null : error.code) : null;
+            errorCode = error instanceof OperationStartFailure
+              ? error.code
+              : isApiError(error) ? error.details.reason ?? (error.code === 'UNKNOWN' ? null : error.code) : null;
           }
           const result = {
             status: finalStatus,
             outcome: itemOutcomes.length > 0 ? combineOutcomes(itemOutcomes) : null,
             error: errorMessage,
             ...(errorCode ? { errorCode } : {}),
+            ...(operations.length > 0 ? { operations } : {}),
           };
           patch(task.id, result);
           finished.push({ ...task, ...result });

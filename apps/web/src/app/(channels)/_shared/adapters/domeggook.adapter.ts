@@ -1,17 +1,17 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   domeggookFormFromDraft,
   DOMEGGOOK_BASE_VALUE,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/domeggook-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -156,11 +156,7 @@ export const domeggookAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, 'domeggook');
     const form = domeggookFormFromDraft(draft, {
       unitQty: parsePositive(values.unitQty, 1),
@@ -169,7 +165,6 @@ export const domeggookAdapter: MallPublishAdapter = {
       ...(values.itemCode?.trim() ? { itemCode: values.itemCode.trim() } : {}),
       ...(values.certNumber?.trim() ? { certNumber: values.certNumber.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('domeggook', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

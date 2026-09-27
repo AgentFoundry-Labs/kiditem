@@ -17,9 +17,7 @@ import {
   type MallPublishItem,
 } from '../../_shared/mall-publish-adapter';
 import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
-import {
-  detectMallFormSubmitMalls,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { extensionMallWriteSites } from '../../_shared/registration-operation';
 import { useMallPublishRun } from '../../_shared/use-mall-publish-run';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
@@ -97,16 +95,17 @@ export function RegistrationWizard() {
     queryFn: mallPublishingApi.targets,
   });
 
-  // 확장이 [등록]까지 누르는 몰(ADR-0015) — 확장 핑이 알려 주는 폼 스펙 이름을 몰 계정 키로 바꾼다.
-  const submitMallsQuery = useQuery({
-    queryKey: ['mall-listings', 'form-submit-malls'],
-    queryFn: detectMallFormSubmitMalls,
+  // 확장이 [등록]까지 누를 수 있는 몰(ADR-0019) — 그 몰의 쓰기 사이트(`mallWriteSite.<key>`)가 있고 어댑터가 사람의
+  // 제출을 요구하지 않는 몰. 누를지는 확장 관문 한 곳이 다시 정한다(검증된 제출이 있는 spec은 WING뿐).
+  const writeSitesQuery = useQuery({
+    queryKey: ['mall-listings', 'mall-write-sites'],
+    queryFn: extensionMallWriteSites,
     staleTime: 60_000,
   });
   const autoSubmitMalls = useMemo(() => new Set(
-    (Array.isArray(submitMallsQuery.data) ? submitMallsQuery.data : [])
-      .filter((mall): mall is string => typeof mall === 'string'),
-  ), [submitMallsQuery.data]);
+    (Array.isArray(writeSitesQuery.data) ? writeSitesQuery.data : [])
+      .filter((mallKey) => getMallPublishAdapter(mallKey)?.requiresOperatorSubmit === false),
+  ), [writeSitesQuery.data]);
 
   const pageItems = useMemo<MallPublishItem[]>(
     () => source === 'sales_product'

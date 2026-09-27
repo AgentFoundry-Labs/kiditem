@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   GSSHOP_BRAND,
   GSSHOP_DEFAULT_CATEGORY,
@@ -12,13 +12,13 @@ import {
   parseGsshopSection,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/gsshop-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, publishItemSalesProductId, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem, publishItemSalesProductId } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -186,22 +186,12 @@ export const gsShopAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const category = categoryFrom(values.gsshopCategory);
     const sectionId = sectionFrom(values.gsshopSection);
     const codeProblem = supplierCodeProblem(values.gsshopSupplierCode);
     if (!category || !sectionId || codeProblem) {
-      return {
-        ok: false,
-        confirmed: false,
-        manualSteps: [],
-        warnings: [],
-        error: codeProblem ?? 'GS샵 분류·전시 카테고리 형식이 틀렸습니다.',
-      };
+      throw new Error(codeProblem ?? 'GS샵 분류·전시 카테고리 형식이 틀렸습니다.');
     }
     const { draft } = await prepareRegistration(item, 'gs-shop');
     const certNumber = values.certNumber?.trim();
@@ -213,7 +203,6 @@ export const gsShopAdapter: MallPublishAdapter = {
       ...(supplierProductCode ? { supplierProductCode } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('gs-shop', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

@@ -12,6 +12,13 @@ import {
 const api = vi.hoisted(() => ({ get: vi.fn(), getParsed: vi.fn() }));
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() } }));
+// 빠른 등록 = 폼만 채우는 등록 실행(KID-364). 확장·서버 경계(시작·대기)만 가짜다.
+const operation = vi.hoisted(() => ({ start: vi.fn(), wait: vi.fn() }));
+vi.mock('@/app/(channels)/_shared/registration-operation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/app/(channels)/_shared/registration-operation')>()),
+  startRegistrationOperation: operation.start,
+  waitForRegistrationOperation: operation.wait,
+}));
 
 import { useMallQuickRegister } from './useMallQuickRegister';
 import { coupangWingAdapter } from '@/app/(channels)/_shared/adapters';
@@ -37,6 +44,8 @@ function serveDraft(salePrice: number | null) {
   api.get.mockImplementation(async (url: string) => {
     if (url === routes.candidate) return sourcingCandidateResponse({ sellPrice: 3500 });
     if (url === routes.media) return EMPTY_REGISTRATION_MEDIA;
+    // 빠른 등록도 등록 실행이라 몰 키 → 계정 행을 읽는다(등록 마법사와 같은 조회).
+    if (url.endsWith('/targets')) return [];
     throw new Error(`unexpected get ${url}`);
   });
 }
@@ -62,7 +71,8 @@ describe('useMallQuickRegister', () => {
 
     await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
     expect(api.getParsed).toHaveBeenCalledWith(routes.draft, expect.anything());
-    expect(api.get.mock.calls.map(([url]) => url).sort()).toEqual([routes.candidate, routes.media].sort());
+    expect(api.get.mock.calls.map(([url]) => url).filter((url) => !url.endsWith('/targets')).sort())
+      .toEqual([routes.candidate, routes.media].sort());
   });
 
   it('값이 없으면 그 몰만 막고 이유를 남긴다', async () => {
@@ -100,8 +110,15 @@ describe('useMallQuickRegister', () => {
 
   it('확인 창에서 정한 값과 계정으로 폼만 채우고 그 줄에 결과를 남긴다', async () => {
     serveDraft(3500);
-    const send = vi.spyOn(coupangWingAdapter, 'send').mockResolvedValue({
-      ok: true, confirmed: false, submitted: false, manualSteps: ['열린 탭에서 확인하세요.'], warnings: [],
+    const build = vi.spyOn(coupangWingAdapter, 'buildForm').mockResolvedValue({ product: { productName: '이름' } });
+    operation.start.mockResolvedValue({ operationId: 'op-1', reused: false });
+    operation.wait.mockResolvedValue({
+      operation: { id: 'op-1' }, state: 'confirmed', label: '확인 완료', message: null,
+      result: {
+        providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: null,
+        externalListingId: null, mallMessage: null, evidence: null,
+        fill: { steps: [], warnings: [], manualSteps: ['열린 탭에서 확인하세요.'], dialogs: [] },
+      },
     });
     const hook = render(client());
     await waitFor(() => expect(hook.result.current.isLoading).toBe(false));
@@ -111,10 +128,11 @@ describe('useMallQuickRegister', () => {
       await hook.result.current.fillConfirmed('coupang', { values: { productName: '이름' }, channelAccount: account });
     });
 
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ channelAccount: account }));
-    expect(send.mock.calls[0]![0].items[0]).not.toHaveProperty('targetExecution');
+    expect(build).toHaveBeenCalledWith(expect.objectContaining({ channelAccount: account }));
+    expect(operation.start.mock.calls[0]![0].scope).toMatchObject({ executionKind: 'register', submit: false, channelAccountId: 'account-1' });
+    expect(operation.start.mock.calls[0]![0].scope).not.toHaveProperty('registrationTargetId');
     expect(hook.result.current.results.coupang?.status).toBe('filled');
-    send.mockRestore();
+    build.mockRestore();
   });
 
   it('상세를 못 읽는 동안에는 버튼을 열지 않는다', () => {

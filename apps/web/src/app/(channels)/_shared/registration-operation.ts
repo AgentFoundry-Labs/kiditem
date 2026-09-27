@@ -20,6 +20,7 @@ import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { operationLoginOptions } from '@/lib/operation-login';
 import { requestOperationStart } from '@/lib/operation-start';
 import { attemptFailureText } from '@/lib/operator-error';
+import type { MallSendOutcome } from './mall-publish-adapter';
 
 /**
  * 몰 쓰기 = 등록 실행 `channels.registration` 하나(KID-364·256, ADR-0014·0019·0025).
@@ -172,6 +173,53 @@ export function describeRegistrationOperation(operation: OperationView): Registr
     result: parsed?.success ? parsed.data : null,
     message,
   };
+}
+
+const NEEDS_CONFIRMATION_STEP = '몰에 제출됐지만 등록상품ID를 읽지 못했습니다. 몰에서 확인해 등록상품ID를 넣거나 "등록되지 않음"으로 닫아 주세요.';
+const STILL_RUNNING = '실행이 아직 끝나지 않았습니다. 잠시 후 등록 실행 목록에서 확인해 주세요.';
+
+/**
+ * 등록 실행 → 화면의 송신 결과 한 줄. 확인됨은 서버가 몰 증거로 확인한 것뿐이다. `reconciling`은 제출됐지만 모르는 것,
+ * 관문이 [등록]을 거른 성공은 "폼만 채움"(사람이 누를 일을 적는다), 실패·멈춤은 운영자 문장이다.
+ */
+export function registrationSendOutcome(read: RegistrationOperationRead): MallSendOutcome {
+  const result = read.result;
+  const warnings = result?.fill.warnings ?? [];
+  const productNo = result?.externalListingId ?? result?.evidence?.externalListingId ?? null;
+  switch (read.state) {
+    case 'confirmed':
+      if (result && !result.submitted) {
+        return {
+          ok: true,
+          confirmed: false,
+          submitted: false,
+          manualSteps: [...(result.submitSkipped ? [result.submitSkipped] : []), ...result.fill.manualSteps],
+          warnings,
+        };
+      }
+      return { ok: true, confirmed: true, submitted: true, accepted: true, productNo, manualSteps: [], warnings };
+    case 'needs_confirmation':
+      return {
+        ok: false,
+        confirmed: false,
+        submitted: result?.submitted ?? true,
+        accepted: null,
+        productNo,
+        manualSteps: [NEEDS_CONFIRMATION_STEP],
+        warnings,
+      };
+    case 'running':
+      return { ok: false, confirmed: false, manualSteps: [], warnings: [STILL_RUNNING] };
+    default:
+      return {
+        ok: false,
+        confirmed: false,
+        submitted: result?.submitted ?? false,
+        manualSteps: [],
+        warnings,
+        error: read.message ?? '몰에 보내지 못했습니다.',
+      };
+  }
 }
 
 /** 실행 하나(`GET /api/operations/:id`). */

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectExtensionId, sendToExtension } from './extension-bridge';
-import { extensionAcceptsOperationLogin, requestOperationStart } from './operation-start';
+import { extensionAcceptsOperationLogin, OperationStartFailure, requestOperationStart } from './operation-start';
 
 vi.mock('./extension-auth', () => ({ transferExtensionAuthTo: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('./extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
@@ -68,6 +68,16 @@ describe('requestOperationStart', () => {
     await expect(requestOperationStart('channels.registration', {}, {
       capability: ['channelsRegistrationOperationKindV1', 'mallWriteSite.art09'],
     })).resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
+  });
+
+  it('서버가 시작을 거절하면 그 등록 코드를 실어 던진다(화면이 까닭을 코드로 가른다)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true } }
+        : { success: false, errorCode: 'REGISTRATION_ALREADY_REGISTERED', error: '이미 이 몰 계정에 등록된 상품입니다.' });
+    const started = requestOperationStart('channels.registration', {});
+    await expect(started).rejects.toBeInstanceOf(OperationStartFailure);
+    await expect(started).rejects.toMatchObject({ code: 'REGISTRATION_ALREADY_REGISTERED', message: '이미 이 몰 계정에 등록된 상품입니다.' });
   });
 
   it('extensionAcceptsOperationLogin은 ping의 operationLoginV1을 본다', async () => {

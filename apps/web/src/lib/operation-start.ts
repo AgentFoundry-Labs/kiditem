@@ -28,6 +28,17 @@ export type OperationStartOutcome =
   /** `existingOperationId`: 잠금을 쥔 실행(확장이 거절에 실어 줄 때만). */
   | Readonly<{ outcome: 'refused'; message: string; existingOperationId?: string | null }>;
 
+/** 확장·서버가 시작을 거절했다. `code`는 서버 등록 코드(있으면) — 화면은 문장이 아니라 코드로 까닭을 가른다. */
+export class OperationStartFailure extends Error {
+  readonly code: string | null;
+
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = 'OperationStartFailure';
+    this.code = code;
+  }
+}
+
 type StartReply =
   | { success: true; operationId: string; reused: boolean }
   | { success: false; errorCode?: string; error?: string; details?: { existing?: { operationId?: unknown } | null } | null };
@@ -99,7 +110,7 @@ export async function requestOperationStart(
       ...(typeof existing === 'string' ? { existingOperationId: existing } : {}),
     };
   }
-  throw new Error(operatorReason(failure?.error, START_FAILED));
+  throw new OperationStartFailure(operatorReason(failure?.error, START_FAILED), failure?.errorCode ?? null);
 }
 
 /** 이 브라우저에서 돌고 있는 실행을 멈춘다(`operation.cancel` — 확장이 서버 cancel도 부른다). */

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { SalesProduct, TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
+import type { SalesProduct } from '@kiditem/shared/sales-product';
 
 const suggestions = vi.hoisted(() => vi.fn());
 vi.mock('./wing-category-resolution', () => ({ resolveWingCategories: suggestions }));
@@ -13,7 +13,6 @@ const {
   salesProductToWingProduct,
   stripLeadingPriceCode,
   validateWingMallValues,
-  wingProductForExecution,
   wingTargetInput,
 } = await import('./wing-product');
 
@@ -82,21 +81,6 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
   } as unknown as SalesProduct;
 }
 
-function snapshot(adapterPayload: Record<string, unknown>): TargetExecutionSnapshot {
-  return {
-    targetId: '33333333-3333-4333-8333-333333333333',
-    targetVersion: 2,
-    channelAccountId: '44444444-4444-4444-8444-444444444444',
-    kind: 'register',
-    channelListingId: null,
-    applyCompositionTemplate: false,
-    product: product(),
-    detailPage: { revisionId: '55555555-5555-4555-8555-555555555555', html: '<p>detail</p>' },
-    registrationInput: { mallCategory: null, mallFields: {}, adapter: {} },
-    adapterPayload,
-  } as TargetExecutionSnapshot;
-}
-
 describe('WING 노출상품명 조립', () => {
   it('라이브 판매중 상품과 같은 형식으로 조립한다', () => {
     expect(buildWingDisplayName('선인장 딸깍 키링', ['휴대용', '열쇠고리', '핸드토이', '스트레스해소']))
@@ -149,52 +133,6 @@ describe('판매상품 → WING 상품', () => {
     expect(wing.productName).toBe('선인장딸깍키링 1p  휴대용 열쇠고리');
     expect(wing.variants[0]?.purchaseOptions).toEqual([{ type: '색상', value: '단일' }, { type: '수량', value: '1' }]);
     expect(wing.variants[0]?.stock).toBe(999);
-  });
-});
-
-describe('등록 실행의 WING 상품', () => {
-  it('실행이 얼린 adapterPayload 의 WING 값(카테고리 · 이름 · 옵션 · 재고 · 업체상품코드)을 쓰고 상품에서 다시 만들지 않는다', () => {
-    const wing = wingProductForExecution(snapshot({
-      wingProduct: {
-        categoryCell: KEYRING,
-        productName: '얼린 노출상품명',
-        sellerProductName: '얼린 등록상품명',
-        variants: [{ purchaseOptions: [{ type: '색상', value: '파랑' }], stock: 7, vendorItemCode: 'KID-FROZEN' }],
-      },
-      vendorItemCode: 'KID-FROZEN',
-    }), { wingCategoryKey: '77390', productName: '화면 값' });
-
-    expect(wing.categoryCell).toBe(KEYRING);
-    expect(wing.productName).toBe('얼린 노출상품명');
-    expect(wing.sellerProductName).toBe('얼린 등록상품명');
-    expect(wing.variants[0]).toMatchObject({
-      purchaseOptions: [{ type: '색상', value: '파랑' }],
-      stock: 7,
-      vendorItemCode: 'KID-FROZEN',
-      salePrice: 2200,
-      representativeImageUrl: 'https://img.example/rep.jpg',
-    });
-  });
-
-  it('등록 실행이 얼린 대표이미지 자산이 있으면 그 사진이 WING 대표이미지다(KID-313 W3a)', () => {
-    const frozen = wingProductForExecution(snapshot({
-      wingProduct: { productName: '이름' },
-      representativeImage: { assetId: '22222222-2222-4222-8222-222222222222', url: 'https://storage.example/adopted.png' },
-    }), { wingCategoryKey: '64687' });
-    expect(frozen.variants[0]?.representativeImageUrl).toBe('https://storage.example/adopted.png');
-
-    const withoutAsset = wingProductForExecution(snapshot({ wingProduct: { productName: '이름' } }), { wingCategoryKey: '64687' });
-    expect(withoutAsset.variants[0]?.representativeImageUrl).toBe('https://img.example/rep.jpg');
-  });
-
-  it('얼린 WING 상품에 카테고리가 없으면 실행 값의 카테고리를 쓴다(등록 마법사)', () => {
-    const wing = wingProductForExecution(snapshot({ wingProduct: { productName: '이름' }, vendorItemCode: 'KID-1' }), {
-      wingCategoryKey: '64687',
-    });
-
-    expect(wing.categoryCell).toBe(KEYRING);
-    expect(wing.productName).toBe('이름');
-    expect(wing.variants[0]?.vendorItemCode).toBe('KID-1');
   });
 });
 

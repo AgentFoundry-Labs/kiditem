@@ -1,14 +1,13 @@
 import { prepareRegistration } from '../sales-product-registration';
-import {
-  fillKidsnoteRegistrationForm,
-  prepareKidsnoteRegistration,
-} from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-api';
+import { prepareKidsnoteRegistration } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   buildKidsnoteDisplayName,
   KIDSNOTE_CATEGORY_PRESET,
   KIDSNOTE_DEFAULT_CATEGORY,
   KIDSNOTE_SALES_POLICY,
   KIDSNOTE_SELLER_VALUE,
+  kidsnoteFormFromDraft,
   type KidsnoteCategoryKey,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-form';
 import { formatNumber } from '@/lib/utils';
@@ -18,8 +17,8 @@ import type {
   MallPreviewRow,
   MallPublishAdapter,
   MallPublishItem,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -153,26 +152,15 @@ export const kidsnoteAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const categoryKey = values.category ?? KIDSNOTE_DEFAULT_CATEGORY;
     const { draft } = item.source === 'sales_product'
       ? await prepareRegistration(item, 'kidsnote')
       : await prepareKidsnoteRegistration(publishItemSalesProductId(item));
-    const result = await fillKidsnoteRegistrationForm(draft, {
+    // 폼을 채운 것은 등록이 아니다. 사람이 제출하고 몰이 승인해야 등록이다.
+    return checkedMallForm(draft, kidsnoteFormFromDraft(draft, {
       ...(isCategoryKey(categoryKey) ? { category: categoryKey } : {}),
       quantity: parseQuantity(values.quantity),
-    });
-    return {
-      ok: result.ok,
-      // 폼을 채운 것은 등록이 아니다. 사람이 제출하고 몰이 승인해야 등록이다.
-      confirmed: false,
-      manualSteps: result.manualSteps,
-      warnings: result.warnings,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    }));
   },
 };
