@@ -118,6 +118,8 @@ export type FinanceWindowBasis = z.infer<typeof FinanceWindowBasisSchema>;
  *   nothing in the window, so no row exists for it.
  * - `adAccountAdjustment`: the account adjustment (billing rows no campaign
  *   carries, VAT included); it is part of `adCost` and belongs to no row.
+ * - `unmatchedAdCost`: billed spend × 1.1 of ad-report product rows the report
+ *   could not match to a listing; part of `adCost`, carried by no row.
  * - `unallocatedShipping`: the shipping of orders with no revenue to weigh it
  *   by, and the revenue share of lines sold under no listing option.
  *
@@ -144,6 +146,8 @@ export const FinanceWindowTotalsSchema = z.object({
    * `adCost`에 포함돼 있고 별도 줄로 보여 준다. `adCost`가 없으면 `null`.
    */
   adAccountAdjustment: z.number().int().nullable(),
+  /** 리스팅에 맞추지 못한 광고 보고서 상품 행의 청구액 × 1.1(KID-372). `adCost`에 포함, 어느 줄에도 없다. `adCost`가 없으면 `null`. */
+  unmatchedAdCost: z.number().int().nullable(),
   /** Shipping no line revenue can weigh onto a row; `null` when revenue is unavailable. */
   unallocatedShipping: z.number().int().nullable(),
 }).strict();

@@ -71,10 +71,19 @@ describe('profitWindowTotals — 이익 광고비 규칙', () => {
       adCost: 8_031, // (7_001 + 300) × 1.1 = 8_031.1
       adAccountAdjustment: 330,
       unallocatedAdCost: 2_200, // L2 sold nothing: 2_000 × 1.1
+      unmatchedAdCost: 0, // every product row matched a listing
       cost: 58_031,
       netProfit: 41_969,
     });
     expect(totals).not.toHaveProperty('adCostGrainDifference');
+  });
+
+  it('publishes billed spend on report rows matched to no listing as its own part', () => {
+    // Account rows bill 8_001 while listing rows carry 7_001: 1_000 × 1.1 belongs to no listing.
+    expect(profitWindowTotals(facts({ accountBilledSpend: 8_001 }))).toMatchObject({
+      adCost: 9_131, // (8_001 + 300) × 1.1
+      unmatchedAdCost: 1_100,
+    });
   });
 
   it('publishes no ad cost, adjustment or unallocated part while the window is only partly measured', () => {
@@ -82,6 +91,7 @@ describe('profitWindowTotals — 이익 광고비 규칙', () => {
       adCost: null,
       adAccountAdjustment: null,
       unallocatedAdCost: null,
+      unmatchedAdCost: null,
       netProfit: null,
     });
   });
@@ -91,6 +101,7 @@ describe('profitWindowTotals — 이익 광고비 규칙', () => {
       adCost: 0,
       adAccountAdjustment: 0,
       unallocatedAdCost: 0,
+      unmatchedAdCost: 0,
       netProfit: 50_000,
     });
   });

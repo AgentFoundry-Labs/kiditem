@@ -16,7 +16,7 @@ import {
   setupMaster,
   setupProductOption,
 } from '../../../../../test-helpers/finance-seeds';
-import { seedAdBillings, seedAdReportWindow, seedListingAdDay } from '../../../../../test-helpers/ad-ledger-seeds';
+import { seedAdBillings, seedAdProductDays, seedAdReportWindow, seedListingAdDay } from '../../../../../test-helpers/ad-ledger-seeds';
 import { seedSourceProduct } from '../../../../../test-helpers/inventory-seeds';
 import {
   makeTestPrisma,
@@ -646,6 +646,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       adCostRate: 11,
       unallocatedAdCost: 0,
       adAccountAdjustment: 0,
+      unmatchedAdCost: 0,
       unallocatedShipping: 0,
     });
     expect(result.basis.revenue).toMatchObject({
@@ -769,7 +770,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       expect(result.rows).toEqual([]);
       expect(result.totals).toEqual({
         revenue: null, orderCount: null, cost: null, adCost: null, netProfit: null, profitRate: null,
-        adCostRate: null, unallocatedAdCost: null, adAccountAdjustment: null, unallocatedShipping: null,
+        adCostRate: null, unallocatedAdCost: null, adAccountAdjustment: null, unmatchedAdCost: null, unallocatedShipping: null,
       });
       expect(result.basis.requestedWindow).toEqual({ from: '2026-04-01', to: '2026-04-30' });
       // The effective window ends the day before it starts: zero closed days.
@@ -847,6 +848,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       adCostRate: 16.5,
       unallocatedAdCost: 1_100,
       adAccountAdjustment: 0,
+      unmatchedAdCost: 0,
       unallocatedShipping: 500,
     });
   });
@@ -882,7 +884,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     });
   });
 
-  it('publishes the account adjustment on its own line beside spend on a listing that sold nothing', async () => {
+  it('publishes the account adjustment and unmatched report rows on their own lines beside spend on a listing that sold nothing', async () => {
     const sold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ADJ-SOLD');
     const unsold = await setupListing(prisma, TEST_ORGANIZATION_ID, 'ADJ-UNSOLD');
     await createOrder(prisma, TEST_ORGANIZATION_ID, {
@@ -897,6 +899,11 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
     await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: unsold.listing.id, date: '2026-04-15', spend: 400,
     });
+    // A report row the report could not match to any listing.
+    await seedAdProductDays(prisma, [{
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, operationId,
+      date: '2026-04-15', listingId: null, vendorItemId: 'VI-UNMATCHED', spend: 100, billedSpend: 100,
+    }]);
     // Settlement the report could not attach to any campaign (campaign key '').
     await seedAdBillings(prisma, [{
       organizationId: TEST_ORGANIZATION_ID, channelAccountId, operationId,
@@ -910,12 +917,14 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
       expect.objectContaining({ listingId: sold.listing.id, adCost: 2_200 }),
     ]);
     expect(result.totals).toMatchObject({
-      // (2,000 + 400 billed + 200 adjustment) × 1.1.
-      adCost: 2_860,
+      // (2,000 + 400 + 100 unmatched billed + 200 adjustment) × 1.1.
+      adCost: 2_970,
       // Billed spend of the listing that sold nothing, with VAT.
       unallocatedAdCost: 440,
       // The adjustment row with VAT, part of adCost and carried by no row.
       adAccountAdjustment: 220,
+      // The billed spend of the row matched to no listing, with VAT.
+      unmatchedAdCost: 110,
     });
   });
 

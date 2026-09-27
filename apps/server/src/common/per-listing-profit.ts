@@ -670,26 +670,32 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
       ? null
       : Math.round((adCost / revenue) * 1000) / 10,
     unallocatedAdCost: adCost === null ? null : profitAdCost({ billedSpend: adParts.unsoldListingBilledSpend }),
+    unmatchedAdCost: adCost === null
+      ? null
+      : profitAdCost({ billedSpend: accountBilledSpend - adParts.listingBilledSpend }),
     adAccountAdjustment: adCost === null ? null : profitAdCost({ billedSpend: 0, adjustment: accountAdjustment }),
     unallocatedShipping: revenue === null ? null : Math.round(facts.unallocatedShipping),
   } satisfies FinanceWindowTotals;
 }
 
 /**
- * The part of the window's ad cost no product row carries, from exact billed
- * spend: listings with no collected line. The account adjustment is published
- * on its own line (`adAccountAdjustment`); product rows the report could not
- * match to a listing stay in the account total only. Rounding is never a part.
+ * The parts of the window's ad cost no product row carries, from exact billed
+ * spend: listings with no collected line, and — through the listing total —
+ * report rows matched to no listing (account billed spend minus every
+ * listing's). The account adjustment is its own line (`adAccountAdjustment`).
+ * Rounding is never a part.
  */
 function adCostParts(
   facts: Pick<ProfitWindowFacts, 'lines' | 'listingBilledSpend'>,
-): { unsoldListingBilledSpend: number } {
+): { unsoldListingBilledSpend: number; listingBilledSpend: number } {
   const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
   let unsoldListingBilledSpend = 0;
+  let listingBilledSpend = 0;
   for (const [listingId, billedSpend] of facts.listingBilledSpend) {
+    listingBilledSpend += billedSpend;
     if (!soldListingIds.has(listingId)) unsoldListingBilledSpend += billedSpend;
   }
-  return { unsoldListingBilledSpend };
+  return { unsoldListingBilledSpend, listingBilledSpend };
 }
 
 /** The basis of values counted from collected order lines alone, over the evaluated window. */

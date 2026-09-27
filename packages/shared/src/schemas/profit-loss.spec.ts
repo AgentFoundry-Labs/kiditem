@@ -34,6 +34,7 @@ const unavailableTotals = {
   adCostRate: null,
   unallocatedAdCost: null,
   adAccountAdjustment: null,
+  unmatchedAdCost: null,
   unallocatedShipping: null,
 };
 
@@ -215,13 +216,16 @@ describe('values the server publishes so the browser does no finance arithmetic 
       adCostRate: 15,
       unallocatedAdCost: 1_000,
       adAccountAdjustment: 330,
+      unmatchedAdCost: 110,
       unallocatedShipping: 500,
-    })).toMatchObject({ adCostRate: 15, unallocatedAdCost: 1_000, adAccountAdjustment: 330, unallocatedShipping: 500 });
+    })).toMatchObject({ adCostRate: 15, unallocatedAdCost: 1_000, adAccountAdjustment: 330, unmatchedAdCost: 110, unallocatedShipping: 500 });
   });
 
   it('requires the account adjustment line and rejects the retired advertising grain difference', () => {
     const { adAccountAdjustment: _omitted, ...withoutAdjustment } = unavailableTotals;
     expect(FinanceWindowTotalsSchema.safeParse(withoutAdjustment).success).toBe(false);
+    const { unmatchedAdCost: _unmatched, ...withoutUnmatched } = unavailableTotals;
+    expect(FinanceWindowTotalsSchema.safeParse(withoutUnmatched).success).toBe(false);
     expect(FinanceWindowTotalsSchema.safeParse({ ...unavailableTotals, adCostGrainDifference: 0 }).success).toBe(false);
   });
 
