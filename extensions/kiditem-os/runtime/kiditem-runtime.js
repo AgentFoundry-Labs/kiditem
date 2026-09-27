@@ -8617,7 +8617,8 @@ var KidItemRuntime = (() => {
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
-      if (isRuntimeError(error) && error.code === OPERATOR_ACTION_REQUIRED) await page.focus().catch(() => void 0);
+      const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
+      if (operatorStep) await page.focus().catch(() => void 0);
       throw error;
     } finally {
       if (!keepOpen) await page.close();
@@ -8992,6 +8993,7 @@ var KidItemRuntime = (() => {
           await pageCall(page, "login.watchDialogs", {}, guard, spec, frameId, "main");
         }
         const filled = await pageCall(page, "login.fill", { values }, guard, spec, frameId, "isolated");
+        if (filled?.state === "verification_required") return { status: "verification_required" };
         if (filled?.state === "submitted") return afterSubmit(page, spec, guard, frameId, deps);
       }
       await deps.sleep(FILL_RETRY_MS);
@@ -9016,8 +9018,9 @@ var KidItemRuntime = (() => {
       if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
       const probed = await probe(page);
       if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
-      lastSeen = probed.some((frame) => frame.result?.loginForm === true);
-      if (!lastSeen) return false;
+      const withForm = probed.filter((frame) => frame.result?.loginForm === true);
+      lastSeen = withForm.some((frame) => !(frame.result.filledHere === true && frame.result.submitObserved !== true)) ? true : withForm.length > 0 ? "unknown" : false;
+      if (lastSeen === false) return false;
     }
     return lastSeen;
   }

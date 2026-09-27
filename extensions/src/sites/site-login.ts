@@ -67,7 +67,8 @@ export interface LoginDeps {
 }
 
 type FillAnswer = { state?: string; reason?: string; method?: string };
-type FrameProbe = { loginForm?: boolean };
+/** `filledHere`: 폼을 채운 그 문서다. `submitObserved`: 그 문서에서 막히지 않은 보내기가 나갔다(login-fill.js, 재QA 3 D1). */
+type FrameProbe = { loginForm?: boolean; filledHere?: boolean; submitObserved?: boolean };
 const NO_ANSWER = Symbol('no-answer');
 
 /** 이 탭에서 로그인한다. 던지지 않는다 — 탭이 닫힌 것처럼 부를 수 없는 일만 그대로 넘긴다. */
@@ -110,6 +111,8 @@ export async function ensureLoggedIn(
         await pageCall(page, 'login.watchDialogs', {}, guard, spec, frameId, 'main');
       }
       const filled = await pageCall<FillAnswer>(page, 'login.fill', { values }, guard, spec, frameId, 'isolated');
+      // 캡차가 붙은 폼 — 칸만 채웠고 운영자가 풀어야 보내진다(재QA 3 D1). 막지 않고 탭을 운영자에게 남긴다.
+      if (filled?.state === 'verification_required') return { status: 'verification_required' };
       if (filled?.state === 'submitted') return afterSubmit(page, spec, guard, frameId, deps);
     }
     await deps.sleep(FILL_RETRY_MS);
@@ -145,8 +148,13 @@ async function formRemains(page: TabPage, deps: LoginDeps): Promise<boolean | 'u
     if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
     const probed = await probe(page);
     if (probed === NO_ANSWER || probed === null || probed.length === 0) continue;
-    lastSeen = probed.some((frame) => frame.result?.loginForm === true);
-    if (!lastSeen) return false;
+    const withForm = probed.filter((frame) => frame.result?.loginForm === true);
+    // 폼이 채운 그 문서에 그대로 있고 보내기가 나가지 않았다 — 몰의 폼 검사(form_check·캡차)가 막아 아무것도 보내지 않았다.
+    // 거절로 단정하지 않는다(재QA 3 D1): 보내기가 실제로 나간 뒤 폼이 다시 온 것만 form_remains다.
+    lastSeen = withForm.some((frame) => !(frame.result.filledHere === true && frame.result.submitObserved !== true))
+      ? true
+      : withForm.length > 0 ? 'unknown' : false;
+    if (lastSeen === false) return false;
   }
   return lastSeen;
 }

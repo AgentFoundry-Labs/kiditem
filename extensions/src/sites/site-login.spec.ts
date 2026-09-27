@@ -17,7 +17,8 @@ const SPEC: LoginSpec = {
 
 const reply = <T>(value: unknown): T => value as T;
 
-type Submitted = { url?: string; formStays?: boolean; dialog?: string };
+/** `sent: false`: 눌렀지만 몰의 폼 검사(form_check·캡차)가 막아 아무것도 보내지 않았다 — 같은 문서에 폼이 남는다. */
+type Submitted = { url?: string; formStays?: boolean; dialog?: string; sent?: boolean };
 
 /**
  * 로그인 화면 하나를 흉내 내는 가짜 탭(경계: `TabPage`). 주소마다 폼이 있는지 정하고, 제출하면 `submit`이 다음 화면을 정한다.
@@ -27,13 +28,14 @@ function loginTab(options: {
   url: string;
   landAt?: (url: string) => string;
   formAt?: (url: string) => boolean;
-  fill?: 'submit' | 'incomplete';
+  fill?: 'submit' | 'incomplete' | 'verification';
   submit?: (values: Record<string, unknown>) => Submitted;
   /** 이 주소에서는 프레임을 들여다보지 못한다(about:blank처럼 확장 권한 밖 — executeScript가 던진다). */
   unreadableAt?: (url: string) => boolean;
 }) {
   const clock = { now: 0 };
-  const state = { url: options.url, form: false, dialogs: [] as string[] };
+  // `filledHere`: 폼을 채운 그 문서에 아직 있다. `submitObserved`: 그 문서에서 보내기가 나갔다(login-fill.js 살피기 값).
+  const state = { url: options.url, form: false, dialogs: [] as string[], filledHere: false, submitObserved: false };
   const formAt = options.formAt ?? ((url: string) => url.startsWith('https://auth.test'));
   state.form = formAt(state.url);
   const log: string[] = [];
@@ -72,9 +74,14 @@ function loginTab(options: {
         if (options.fill === 'incomplete') return reply<T>({ ok: true, value: { state: 'incomplete', reason: 'id-input-not-found' } });
         const values = (message.args as { values: Record<string, unknown> }).values;
         filled.push(values);
+        if (options.fill === 'verification') return reply<T>({ ok: true, value: { state: 'verification_required', reason: 'captcha' } });
         const next = options.submit?.(values) ?? {};
         if (next.url) state.url = next.url;
         state.form = next.formStays ?? false;
+        // 보내기가 나가면 새 문서다(채운 흔적이 없다). 막혔으면 채운 그 문서에 폼이 그대로 남는다.
+        const sent = next.sent !== false;
+        state.filledHere = !sent;
+        state.submitObserved = false;
         if (next.dialog) state.dialogs.push(next.dialog);
         return reply<T>({ ok: true, value: { state: 'submitted', method: 'exact-text' } });
       }
@@ -83,7 +90,7 @@ function loginTab(options: {
     async frames<T>(files: readonly string[]) {
       log.push(`frames ${files.join(',')}`);
       if (options.unreadableAt?.(state.url)) throw new Error(`Cannot access contents of url "${state.url}"`);
-      return [{ frameId: 0, result: { loginForm: state.form } as T }];
+      return [{ frameId: 0, result: { loginForm: state.form, filledHere: state.filledHere, submitObserved: state.submitObserved } as T }];
     },
     listen: () => () => undefined,
     async close() {
@@ -187,6 +194,20 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
       status: 'rejected',
       mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.',
     });
+  });
+
+  it('캡차가 붙은 폼이면 채우기가 verification_required로 답하고 누르지 않는다 — 운영자가 풀 일이다(재QA 3 D1)', async () => {
+    const tab = loginTab({ url: 'https://auth.test/login', fill: 'verification' });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'verification_required' });
+  });
+
+  it('눌렀는데 몰의 폼 검사가 막아 아무것도 보내지 않았으면(같은 문서에 폼) form_remains가 아니라 unconfirmed(재QA 3 D1)', async () => {
+    const blocked = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, sent: false }) });
+    await expect(ensureLoggedIn(blocked.page, SPEC, CREDENTIALS, blocked.deps)).resolves.toEqual({ status: 'unconfirmed' });
+
+    // 실제로 보내고 폼이 다시 온 것(새 문서)은 그대로 form_remains다.
+    const sent = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true }) });
+    await expect(ensureLoggedIn(sent.page, SPEC, CREDENTIALS, sent.deps)).resolves.toEqual({ status: 'form_remains' });
   });
 
   it('로그인 폼이 어디에도 없으면 no_form — 채우지 않는다', async () => {

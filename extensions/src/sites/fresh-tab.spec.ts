@@ -64,3 +64,19 @@ describe('sites/fresh-tab — 로그인 화면에 닿으면 다 그려지기를 
     expect(fake.stops).toEqual(['https://mall.test/login?next=orders']);
   });
 });
+
+describe('sites/fresh-tab — 본인확인·캡차에서 멈춘 로그인 탭(재QA 3 D1)', () => {
+  it('로그인 단계가 verification_required로 멈추면 탭을 남기고 앞으로 가져온다 — 운영자가 그 탭에서 캡차를 푼다', async () => {
+    const fake = fakeTabPages({ answer: () => ({ ok: true }) });
+    await expect(withFreshTab(fake.tabs, 'https://mall.test/orders', async () => {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, '로그인', { reason: 'verification_required' });
+    })).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    expect(fake.log).toEqual(['open about:blank', 'navigate https://mall.test/orders', 'focus 7']);
+
+    const plain = fakeTabPages({ answer: () => ({ ok: true }) });
+    await withFreshTab(plain.tabs, 'https://mall.test/orders', async () => {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, '로그인', { reason: 'no_credentials' });
+    }).catch(() => undefined);
+    expect(plain.log).not.toContain('focus 7');
+  });
+});

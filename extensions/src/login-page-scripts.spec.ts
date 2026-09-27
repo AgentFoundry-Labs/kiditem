@@ -50,11 +50,13 @@ function loginButton() {
 function screen(inputs: FakeInput[]) {
   const button = loginButton();
   const password = inputs.find((input) => input.type === 'password') ?? null;
-  const form = password ? { password, querySelectorAll: (selector: string) => (selector === 'input' ? inputs : [button]) } : null;
+  // 컨트롤 셀렉터에만 버튼을 준다(캡차 위젯 셀렉터 같은 다른 물음에는 없다).
+  const pick = (selector: string) => (selector === 'input' ? inputs : /button|\ba\b|role|onclick|submit/.test(selector) ? [button] : []);
+  const form = password ? { password, querySelectorAll: pick } : null;
   for (const input of inputs) input.form = form;
   const document = {
     querySelector: (selector: string) => (selector.includes('#password') ? password : null),
-    querySelectorAll: (selector: string) => (selector === 'input' ? inputs : [button]),
+    querySelectorAll: pick,
   };
   const isolated: Record<string, unknown> = {};
   // 파일의 마지막 식 값(`frames`가 받는 값)을 보려고 eval로 돌린다.
