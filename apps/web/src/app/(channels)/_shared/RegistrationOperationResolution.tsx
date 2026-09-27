@@ -67,7 +67,7 @@ function planExternalListingId(read: RegistrationOperationRead): string {
 }
 
 export function RegistrationOperationResolution({
-  read,
+  read: initialRead,
   onResolved,
   className,
 }: {
@@ -76,13 +76,13 @@ export function RegistrationOperationResolution({
   onResolved?: () => void;
   className?: string;
 }) {
-  const mode = confirmationMode(read);
-  const [externalListingId, setExternalListingId] = useState(read.result?.externalListingId ?? planExternalListingId(read));
+  const mode = confirmationMode(initialRead);
+  const [externalListingId, setExternalListingId] = useState(initialRead.result?.externalListingId ?? planExternalListingId(initialRead));
   const [observedUrl, setObservedUrl] = useState('');
   const [optionIds, setOptionIds] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const options = useMemo(() => planOptions(read), [read]);
-  const operationId = read.operation.id;
+  const options = useMemo(() => planOptions(initialRead), [initialRead]);
+  const operationId = initialRead.operation.id;
 
   const confirm = useMutation({
     mutationFn: () => confirmRegistrationOperation(operationId, {
@@ -114,6 +114,8 @@ export function RegistrationOperationResolution({
     onError: (cause) => setError(friendlyError(cause, '실행을 닫지 못했습니다.')),
   });
 
+  // 서버가 돌려준 새 상태가 이긴다 — 목록을 다시 읽지 않는 화면(마법사 결과 · 품절 결과 · 칸 창)에서 옛 입력이 남지 않게.
+  const read = confirm.data ?? close.data ?? initialRead;
   const busy = confirm.isPending || close.isPending;
   const needsConfirmation = read.state === 'needs_confirmation';
 

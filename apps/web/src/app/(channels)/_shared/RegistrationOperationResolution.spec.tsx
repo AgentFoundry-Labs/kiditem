@@ -58,6 +58,14 @@ describe('RegistrationOperationResolution — reconciling 등록 실행 확인(K
     await waitFor(() => expect(onResolved).toHaveBeenCalled());
   });
 
+  it('확인·닫기가 서버에 닿으면 카드가 새 상태로 바뀐다 — 목록을 다시 읽지 않는 화면에서도 옛 입력이 남지 않는다', async () => {
+    render(wrap(<RegistrationOperationResolution read={describeRegistrationOperation(operation({}))} />));
+    fireEvent.change(screen.getByLabelText('등록상품ID'), { target: { value: '9001' } });
+    fireEvent.click(screen.getByRole('button', { name: '몰에서 확인' }));
+    expect(await screen.findByText('확인 완료')).toBeTruthy();
+    expect(screen.queryByLabelText('등록상품ID')).toBeNull();
+  });
+
   it('등록상품ID 없이 확인을 누를 수 없다', () => {
     render(wrap(<RegistrationOperationResolution read={describeRegistrationOperation(operation({}))} />));
     expect((screen.getByRole('button', { name: '몰에서 확인' }) as HTMLButtonElement).disabled).toBe(true);
