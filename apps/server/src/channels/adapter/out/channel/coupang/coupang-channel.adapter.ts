@@ -119,7 +119,7 @@ export class CoupangChannelAdapter implements ChannelAdapter {
     const existingId = text(existing.externalListingId);
     if (existingId) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', {
-        message: `이 계정에 같은 상품이 이미 있습니다(몰 상품 id ${existingId}) — 그 상품으로 확인하세요.`,
+        message: `이 계정에 같은 상품이 이미 있습니다(몰 상품 번호 ${existingId}).`,
         details: { reason: 'EXISTING_CHANNEL_LISTING', existing: { externalListingId: existingId } },
       });
     }

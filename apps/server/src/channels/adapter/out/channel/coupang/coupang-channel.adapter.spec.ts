@@ -138,6 +138,6 @@ describe('CoupangChannelAdapter', () => {
     });
     expect(adapter.freezeForm(null, {})).toBeNull();
     expect(() => adapter.freezeForm(form, { existingChannelListing: { externalListingId: '9876543210' } }))
-      .toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', details: expect.objectContaining({ reason: 'EXISTING_CHANNEL_LISTING' }) }));
+      .toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', message: '이 계정에 같은 상품이 이미 있습니다(몰 상품 번호 9876543210).', details: expect.objectContaining({ reason: 'EXISTING_CHANNEL_LISTING' }) }));
   });
 });
