@@ -140,6 +140,12 @@ describe('createActionCandidate over the ad report ledger', () => {
       });
     });
 
+    it('proposes no budget change for an active campaign with no spend in the window', () => {
+      expect(createActionCandidate(campaign({ abcGrade: 'C', spend: 0, revenue: 0 }), new Map())).toBeNull();
+      expect(createActionCandidate(campaign({ abcGrade: null, spend: 0, revenue: 0 }), new Map())).toBeNull();
+      expect(createActionCandidate(campaign({ abcGrade: 'A', spend: 0, revenue: 5_000 }), new Map())).toBeNull();
+    });
+
     it('skips a campaign without a budget', () => {
       expect(createActionCandidate(campaign({ abcGrade: 'C', budget: null }), new Map())).toBeNull();
     });

@@ -108,6 +108,10 @@ export function createActionCandidate(
     );
   }
 
+  // A campaign that spent nothing in the window has no performance to judge
+  // its budget on (a ROAS of 0 there is no evidence of a poor campaign).
+  if (spend === 0) return null;
+
   // Rule 3: A-grade campaign with strong ROAS → budget expansion.
   if (grade === 'A' && roas >= 480) {
     const nextBudget = roundBudget(budget * 1.2);
