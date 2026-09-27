@@ -99,8 +99,12 @@ describe('<CellActionPopover /> availability action', () => {
     expect(sendMallAvailability).not.toHaveBeenCalled();
   });
 
-  it('does not enable an availability send for a cell whose listing row is unknown', () => {
+  it('칸의 리스팅 행은 표 리더가 싣는다 — 버튼을 툴팁으로 막지 않고, 행이 없으면 보내지 않고 까닭을 말한다', async () => {
     mount({ channelAccountId: ACCOUNT_ID, channelListingId: null });
-    expect(screen.getByRole('button', { name: /판매 재개/ })).toBeDisabled();
+    const button = screen.getByRole('button', { name: /판매 재개/ });
+    expect(button).toBeEnabled();
+    fireEvent.click(button);
+    await waitFor(() => expect(mocks.error).toHaveBeenCalled());
+    expect(sendMallAvailability).not.toHaveBeenCalled();
   });
 });

@@ -172,7 +172,7 @@ interface CellActionPopoverProps {
   state: MallListingState;
   rawStatus: string | null;
   externalId: string | null;
-  /** 이 칸의 우리 리스팅 행(판매 상품이 이어진 칸만 안다). 품절·재개 실행이 이 리스팅을 짚는다. */
+  /** 이 칸의 우리 리스팅 행(표 리더가 싣는다 — 몰에서 가져온 칸은 리스팅 행이 있다). 품절·재개 실행이 이 리스팅을 짚는다. */
   channelListingId?: string | null;
   /** 몰 매장의 상품 페이지(확인한 규칙이 있는 몰만). 있으면 "몰에서 보기"로 연다. */
   productUrl?: string | null;
@@ -359,8 +359,7 @@ export function CellActionPopover({
             // 몰이 지원하고(available) 우리에게 길이 있고(run) 이 몰에서 이 상품을
             // 부르는 코드까지 있어야(externalId) 누를 수 있다. 셋 중 하나라도 없으면
             // 왜 못 누르는지 title 이 말한다.
-            const runnable = Boolean(spec.run) && spec.available && Boolean(externalId) && Boolean(column.channelAccountId)
-              && Boolean(channelListingId);
+            const runnable = Boolean(spec.run) && spec.available && Boolean(externalId) && Boolean(column.channelAccountId);
             const busy = running === spec.key;
             return (
               <li key={spec.key}>
@@ -372,7 +371,6 @@ export function CellActionPopover({
                     spec.reason
                     ?? (spec.run && !externalId ? '이 몰의 상품코드를 아직 모릅니다. 먼저 이 몰의 리스팅을 가져오세요.' : null)
                     ?? (spec.run && !column.channelAccountId ? '이 몰 계정 식별자가 없어 실행을 열 수 없습니다.' : null)
-                    ?? (spec.run && !channelListingId ? '이 칸은 판매상품에 이어진 리스팅이 아니라 품절·재개 실행이 짚을 리스팅이 없습니다.' : null)
                     ?? (runnable ? spec.label : NOT_WIRED)
                   }
                   className={cn(
