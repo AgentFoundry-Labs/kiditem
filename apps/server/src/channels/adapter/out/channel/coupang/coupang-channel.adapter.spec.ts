@@ -121,4 +121,23 @@ describe('CoupangChannelAdapter', () => {
       product: { name: 'x', options: [{ id: 'a', optionCode: null }] } as never,
     }))).rejects.toThrow('KID');
   });
+  it('lays the frozen WING values and image over the web form, and refuses a product already on this account (KID-364)', () => {
+    const adapter = new CoupangChannelAdapter({ preflightExternalProductRegistration: preflight() }, runner);
+    const form = {
+      categoryCell: '웹 카테고리', productName: '웹 노출명', sellerProductName: '웹 등록명', brand: 'kiditem',
+      variants: [{ purchaseOptions: [{ type: '색상', value: '단일' }], stock: 999, salePrice: 12900, representativeImageUrl: 'https://img/web.png' }],
+    };
+    const frozen = adapter.freezeForm(form, {
+      wingProduct: { sellerProductName: '윙 등록명', productName: '윙 노출명', variants: [{ stock: 5, vendorItemCode: 'KID00000123' }] },
+      representativeImage: { assetId: 'a', url: 'https://img/asset.png' },
+      existingChannelListing: null,
+    });
+    expect(frozen).toEqual({
+      categoryCell: '웹 카테고리', productName: '윙 노출명', sellerProductName: '윙 등록명', brand: 'kiditem',
+      variants: [{ purchaseOptions: [{ type: '색상', value: '단일' }], stock: 5, salePrice: 12900, representativeImageUrl: 'https://img/asset.png', vendorItemCode: 'KID00000123' }],
+    });
+    expect(adapter.freezeForm(null, {})).toBeNull();
+    expect(() => adapter.freezeForm(form, { existingChannelListing: { externalListingId: '9876543210' } }))
+      .toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', details: expect.objectContaining({ reason: 'EXISTING_CHANNEL_LISTING' }) }));
+  });
 });

@@ -41,6 +41,10 @@ export class GenericMallChannelAdapter implements ChannelAdapter {
     return {};
   }
 
+  freezeForm(form: Record<string, unknown> | null): Record<string, unknown> | null {
+    return form;
+  }
+
   availabilityOption(): AvailabilityOptionKind {
     return 'sendable';
   }

@@ -267,7 +267,7 @@ describe('ChannelsModule canonical owner wiring', () => {
     expectBinding(providers, CHANNEL_ADAPTER_REGISTRY_PORT, ChannelAdapterRegistryAdapter);
     expect(providers).toEqual(expect.arrayContaining([CoupangChannelAdapter, CoupangRepresentativeImageRunnerAdapter]));
     expectFactoryBinding(providers, ThumbnailExecutionService, [
-      CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, CHANNEL_ADAPTER_REGISTRY_PORT, CHANNEL_INTEGRITY_PORT,
+      CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT,
     ]);
     expectBinding(salesProductProviders, SABANGNET_PRODUCT_IMPORT_PORT, SabangnetProductImportService);
     expectBinding(salesProductProviders, SALES_PRODUCT_LINK_PORT, SalesProductLinkService);

@@ -184,7 +184,7 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     ChannelAdapterRegistryAdapter,
     { provide: CHANNEL_ADAPTER_REGISTRY_PORT, useExisting: ChannelAdapterRegistryAdapter },
     { provide: CHANNEL_REGISTRABLE_THUMBNAIL_PORT, useExisting: RegistrableThumbnailAdapter },
-    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT, CHANNEL_ADAPTER_REGISTRY_PORT, CHANNEL_INTEGRITY_PORT] },
+    { provide: ThumbnailExecutionService, useFactory: (...dependencies: ConstructorParameters<typeof ThumbnailExecutionService>) => new ThumbnailExecutionService(...dependencies), inject: [CHANNEL_REGISTRABLE_THUMBNAIL_PORT, THUMBNAIL_EXECUTION_PERSISTENCE_PORT] },
     { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,
@@ -269,6 +269,7 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     CHANNEL_REGISTRATION_PORT,
     CHANNEL_ADAPTER_REGISTRY_PORT,
     CHANNEL_REGISTRABLE_THUMBNAIL_PORT,
+    CHANNELS_THUMBNAIL_EXECUTION_PORT,
   ],
 })
 export class ChannelsModule {}

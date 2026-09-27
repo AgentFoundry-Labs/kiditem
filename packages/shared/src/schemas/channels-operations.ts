@@ -184,6 +184,11 @@ export type RegistrationFill = z.infer<typeof RegistrationFillSchema>;
 
 /** 옛 `ReportTargetExecutionInputSchema.evidence`와 같은 모양. `options`는 몰이 준 옵션 id ↔ 판매 옵션. */
 export const RegistrationEvidenceSchema = z.object({
+  /**
+   * 이 증거가 가리키는 얼린 문서(plan `payloadHash`). 다르면 이 실행의 증거가 아니다(`OPERATION`이 아니라 등록 fence의 거절,
+   * `CHANNELS_EXECUTION_FENCE_LOST{PAYLOAD_HASH_MISMATCH}`). KID-364 M1 추가.
+   */
+  payloadHash: z.string().min(1),
   channelAccountId: z.string().uuid(),
   externalListingId: z.string().trim().min(1).nullable(),
   observedUrl: z.string().url().nullable(),
@@ -216,6 +221,8 @@ export const RegistrationResultSchema = z.object({
   mallMessage: z.string().nullable(),
   fill: RegistrationFillSchema,
   evidence: RegistrationEvidenceSchema.nullable(),
+  /** owner finalize가 연결 · 생성한 리스팅(확인된 등록만). 확장은 보내지 않는다. KID-364 M1 추가. */
+  channelListingId: z.string().uuid().nullable().optional(),
 }).strict();
 export type RegistrationResult = z.infer<typeof RegistrationResultSchema>;
 
