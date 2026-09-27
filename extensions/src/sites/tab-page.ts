@@ -121,10 +121,33 @@ export interface TabPages {
    * 가드 없이 이어 간다.
    */
   guardDialogs(hosts: readonly string[]): Promise<() => Promise<void>>;
+  /** 이 탭이 지금 실행이 쥔 수집 탭인가(이 런타임이 열었거나 다시 가져와 쓰는 중, 닫거나 운영자에게 남기기 전) — 실기기 R1. */
+  isRunTab(tabId: number): boolean;
 }
 
 /** 불러오는 중 알림 창 가드 파일(MAIN world, document_start). */
 export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
+/** 가드의 ISOLATED 짝 — 수집 탭인지 런타임에 묻는다(실기기 R1). */
+export const DIALOG_GUARD_BRIDGE_FILE = 'content/page-call/dialog-guard-bridge.js';
+export const DIALOG_GUARD_RUN_TAB_ACTION = 'kiditem.dialogGuard.isRunTab';
+/** 런타임 → 가드 짝: 이 탭을 운영자에게 넘겼다(`runTab: false`)·다시 쓴다(리뷰 2 SHOULD 2·3). */
+export const DIALOG_GUARD_SET_RUN_TAB_ACTION = 'kiditem.dialogGuard.setRunTab';
+
+/**
+ * 가드 짝의 물음(`kiditem.dialogGuard.isRunTab`)에 답한다: 보낸 탭이 지금 실행이 쥔 수집 탭이면 `{runTab: true}`. 다른 메시지는
+ * 받지 않는다(다른 수신자가 답한다). 입구가 한 번 건다.
+ */
+export function installDialogGuardAnswer(
+  chromeApi: { runtime: { onMessage: { addListener(listener: (message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown): void } } },
+  tabs: Pick<TabPages, 'isRunTab'>,
+): void {
+  chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || typeof message !== 'object' || (message as { action?: unknown }).action !== DIALOG_GUARD_RUN_TAB_ACTION) return undefined;
+    const tabId = sender.tab?.id;
+    sendResponse({ runTab: typeof tabId === 'number' && tabs.isRunTab(tabId) });
+    return undefined;
+  });
+}
 const DIALOG_GUARD_ID_PREFIX = 'kiditem-dialog-guard-';
 
 /**
@@ -180,7 +203,7 @@ export interface TabPageChrome {
   tabs: {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
     update(tabId: number, properties: { url?: string; active?: boolean }): Promise<unknown>;
-    get(tabId: number): Promise<{ status?: string; url?: string; active?: boolean }>;
+    get(tabId: number): Promise<{ status?: string; url?: string; pendingUrl?: string; active?: boolean }>;
     query(query: { url: string }): Promise<Array<{ id?: number; url?: string; status?: string }>>;
     remove(tabId: number): Promise<void>;
     sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
@@ -197,7 +220,7 @@ export interface TabPageChrome {
       id: string;
       matches: string[];
       js: string[];
-      world: 'MAIN';
+      world: 'MAIN' | 'ISOLATED';
       runAt: 'document_start';
       allFrames: boolean;
       persistAcrossSessions: boolean;
@@ -230,6 +253,13 @@ let dialogGuardSerial = 0;
 export function createTabPages(deps: TabPageDeps): TabPages {
   /** 사이트마다 운영자에게 남긴 탭 하나와 남길 때의 주소(KID-380 D8). */
   const kept = new Map<string, { tabId: number; url: string }>();
+  /** 지금 실행이 쥔 수집 탭(이 런타임이 열었거나 다시 가져온 탭). 닫거나 운영자에게 남기면 뺀다(실기기 R1). */
+  const runTabs = new Set<number>();
+  /** 탭을 운영자에게 넘긴다 — 수집 탭에서 빼고 그 탭의 가드 짝에 알려 진짜 창으로 돌린다(짝이 없으면 조용히 넘어간다). */
+  async function handToOperator(tabId: number): Promise<void> {
+    runTabs.delete(tabId);
+    await deps.chrome.tabs.sendMessage(tabId, { action: DIALOG_GUARD_SET_RUN_TAB_ACTION, runTab: false }).catch(() => undefined);
+  }
   /**
    * 남긴 탭을 이 확장이 다시 써도 되는가: 아직 열려 있고, 운영자가 보고 있지 않고(active 아님), 남길 때 주소나 로그인·빈 화면에
    * 머물러 있다. 운영자가 로그인해 다른 화면으로 옮긴 탭은 운영자 것이다(리뷰 SHOULD 3).
@@ -260,6 +290,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     return {
       tabId,
       async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+        // 옮기기 전 문서의 주소. Chrome은 새 주소를 커밋할 때까지 pendingUrl에 두고 url은 옛 문서다 — 옛 로그인 문서에서
+        // stopAt이 먼저 맞으면 새 화면이 뜨기 전에 옛 문서에 채우게 된다(리뷰 2 MUST 1).
+        const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
+        // 이 런타임이 연 탭을 옮기면 다시 수집 탭이다(운영자 조치 뒤 이어 읽기) — 새 문서의 가드 짝이 묻는다.
+        if (owned && !closed) runTabs.add(tabId);
         await deps.chrome.tabs.update(tabId, { url });
         const deadline = deps.now() + timeoutMs;
         let last = url;
@@ -269,7 +304,8 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
           if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
           last = tab.url || last;
-          if (stopAt?.(last) || tab.status === 'complete') return last;
+          const committed = !tab.pendingUrl && tab.url !== undefined && tab.url !== before;
+          if ((committed && stopAt?.(last)) || tab.status === 'complete') return last;
           if (deps.now() >= deadline) {
             if (continueOnTimeout) return last;
             throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지를 여는 데 시간이 너무 오래 걸립니다.', { url });
@@ -293,6 +329,8 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         }
       },
       async focus() {
+        // 운영자가 이 탭에서 할 일이 있다(GS샵 SMS 인증·운영자 조치) — 진짜 알림 창을 보게 넘긴다(리뷰 2 SHOULD 2).
+        await handToOperator(tabId);
         await deps.chrome.tabs.update(tabId, { active: true }).catch(() => undefined);
       },
       async currentUrl() {
@@ -309,7 +347,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         };
         await checkHere();
         const first = await send<T>(message, timeoutMs, frameId);
-        if (!inject || !isMissing(first)) return first;
+        if (!inject || !isMissing(first)) {
+          if (isMissing(first) || isTimeout(first)) await checkHere();
+          return first;
+        }
         // 묻는 사이에 탭이 옮겨 갔을 수 있다(로그인 리다이렉트) — 주입 직전에 다시 본다.
         await checkHere();
         const target: { tabId: number } | { tabId: number; frameIds: number[] } = frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] };
@@ -319,7 +360,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: 'MAIN' });
         }
         await deps.sleep(500);
-        return send<T>(message, timeoutMs, frameId);
+        const second = await send<T>(message, timeoutMs, frameId);
+        // 읽는 사이 탭이 로그인·사이트 밖 화면으로 넘어갔으면(카카오 accounts 리다이렉트) 처리기가 없거나 답하지 못한다 —
+        // 그 답을 실패로 넘기지 않고 주소 규칙으로 가른다(로그인이면 탭을 남긴다, 실기기 R4).
+        if (isMissing(second) || isTimeout(second)) await checkHere();
+        return second;
       },
       async frames<T>(files: readonly string[]) {
         const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
@@ -339,6 +384,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       async close() {
         if (!owned || closed) return;
         closed = true;
+        runTabs.delete(tabId);
         await deps.chrome.tabs.remove(tabId).catch(() => undefined);
       },
     };
@@ -348,6 +394,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     async open(url) {
       const created = await deps.chrome.tabs.create({ url, active: false });
       if (typeof created.id !== 'number') throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭을 열지 못했습니다.', { url });
+      runTabs.add(created.id);
       return page(created.id, true);
     },
     attach: (tabId) => page(tabId, false),
@@ -359,6 +406,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
     },
     async keep(key, keptPage) {
+      await handToOperator(keptPage.tabId);
       const prior = kept.get(key);
       const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
       if (!tab) {
@@ -375,8 +423,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       const entry = kept.get(key);
       if (!entry) return null;
       kept.delete(key);
-      return (await stillOurs(entry)) ? page(entry.tabId, true) : null;
+      if (!(await stillOurs(entry))) return null;
+      runTabs.add(entry.tabId);
+      return page(entry.tabId, true);
     },
+    isRunTab: (tabId) => runTabs.has(tabId),
     async guardDialogs(hosts) {
       const scripting = deps.chrome.scripting;
       dialogGuardSerial += 1;
@@ -386,12 +437,13 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       if (matches.length > 0 && scripting.registerContentScripts) {
         registered = await scripting.registerContentScripts([
           { id, matches, js: [DIALOG_GUARD_FILE], world: 'MAIN', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
+          { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: 'ISOLATED', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
         ]).then(() => true, () => false);
       }
       return async () => {
         if (!registered) return;
         registered = false;
-        await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => undefined);
+        await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => undefined);
       };
     },
     async fetchText(url, init) {
@@ -403,6 +455,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       }
     },
   };
+}
+
+function isTimeout(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && (value as { error?: unknown }).error === 'timeout';
 }
 
 function isMissing(value: unknown): boolean {

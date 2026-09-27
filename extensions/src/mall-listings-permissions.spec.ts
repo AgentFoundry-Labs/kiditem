@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MALL_ADMIN_LISTING_READERS, type MallAdminListingMallKey } from '@kiditem/shared/mall-admin-listings';
 import manifestSource from '../kiditem-os/manifest.json?raw';
+import { ART09_LOGIN } from './sites/art09';
 import { ST11_LISTINGS_URL } from './sites/11st/listings';
 import { ALWAYS_LISTINGS_URL } from './sites/always/listings';
 import { ESM_LISTINGS_URL } from './sites/gmarket/listings';
@@ -48,5 +49,12 @@ describe('mall admin listing hosts (KID-381)', () => {
         expect(hostPermissions, `${mallKey} ${host}`).toContain(`${host}/*`);
       }
     }
+  });
+});
+
+describe('mall login hosts (실기기 R3)', () => {
+  it('아트공구 로그인 입구의 호스트(Cafe24 통합 로그인 eclogin 포함)가 확장 권한에 있다 — 없으면 폼을 살피지도 채우지도 못한다', () => {
+    const hostPermissions = (JSON.parse(manifestSource) as { host_permissions: string[] }).host_permissions;
+    for (const host of ART09_LOGIN.hosts) expect(hostPermissions, host).toContain(`https://${host}/*`);
   });
 });

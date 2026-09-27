@@ -61,7 +61,9 @@ describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () =
   });
 
   it('아트공구: Cafe24 주문목록으로 들어가 쇼핑몰 아이디·공급사 아이디·비밀번호 세 칸', () => {
-    expect(ART09_LOGIN).toMatchObject({ loginUrl: ART09_ORDER_URL, hosts: ['zzogzzog1.cafe24.com'], fields: ['supplierLoginId', 'loginId', 'password'] });
+    // 로그아웃이면 Cafe24 통합 로그인(eclogin.cafe24.com/Shop/)으로 넘어간다 — 그 호스트에서도 폼을 채운다(실기기 R3).
+    expect(ART09_LOGIN).toMatchObject({ loginUrl: ART09_ORDER_URL, hosts: ['zzogzzog1.cafe24.com', 'eclogin.cafe24.com'], fields: ['supplierLoginId', 'loginId', 'password'] });
+    expect(ART09_LOGIN.isLoginUrl(new URL('https://eclogin.cafe24.com/Shop/'))).toBe(true);
     expect(ART09_LOGIN.isLoginUrl(new URL('https://zzogzzog1.cafe24.com/admin/php/login.php'))).toBe(true);
     expect(ART09_LOGIN.isLoginUrl(new URL(ART09_ORDER_URL))).toBe(false);
   });
@@ -71,6 +73,8 @@ describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () =
     expect(DOMEGGOOK_LOGIN.isLoginUrl(new URL('https://domeggook.com/ssl/member/mem_loginForm.php'))).toBe(true);
     expect(ICECREAM_LOGIN).toMatchObject({ loginUrl: ICECREAM_MALL_URL, hosts: ['i-screammall.co.kr'], fields: ['loginId', 'password'], settleMs: 8_000 });
     expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/loginForm.do'))).toBe(true);
+    // 틀린 자격으로 누르면 아이스크림몰은 /error/loginExpired로 넘긴다 — 로그인 화면이다(실기기 R5).
+    expect(ICECREAM_LOGIN.isLoginUrl(new URL('https://po.i-screammall.co.kr/error/loginExpired'))).toBe(true);
   });
 });
 

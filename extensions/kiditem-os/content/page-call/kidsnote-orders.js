@@ -85,18 +85,23 @@
       }
 
       // 셀피아 변환용 상세 — "주문서 인쇄"(POST order@order_print.frm, check_pno) 가 마스킹 없이 깔끔.
+      // HTTP 오류 화면을 상세로 읽지 않는다(실기기 R2).
+      const okText = async (res) => {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      };
       if (withDetail && orders.length) {
         const parseDetail = async (o) => {
           try {
             const body = "body=order@order_print.frm&check_pno[]=" + encodeURIComponent(o.pno || "");
-            const dhtml = await (
+            const dhtml = await okText(
               await fetch("/_manage/?", {
                 method: "POST",
                 credentials: "include",
                 headers: { "content-type": "application/x-www-form-urlencoded" },
                 body: body,
-              })
-            ).text();
+              }),
+            );
             const ddoc = new DOMParser().parseFromString(dhtml, "text/html");
             // 인쇄페이지는 섹션헤더(○)가 td/th 아님 → innerText 라인 단위 파싱(라벨 다음 줄=값).
             const lines = (ddoc.body ? ddoc.body.innerText : "").split("\n").map((s) => s.trim()).filter(Boolean);
@@ -130,11 +135,11 @@
             // viewOrder head: [_, 주문번호, 제품명, 상품가격, 수량, 할인적용, 금액, 배송비, 소계, 주문상태, 속성]
             o.items = [];
             try {
-              const vhtml = await (
+              const vhtml = await okText(
                 await fetch("/_manage/?body=order@order_view.frm&ono=" + encodeURIComponent(o.ono), {
                   credentials: "include",
-                })
-              ).text();
+                }),
+              );
               const vdoc = new DOMParser().parseFromString(vhtml, "text/html");
               // 입금일시 = 상태이력의 "결제완료" 처리일시(분 단위; 초는 화면에 없음). 주문시각보다 정확.
               const vtext = (vdoc.body ? vdoc.body.innerText : "").replace(/[ \t]+/g, " ");

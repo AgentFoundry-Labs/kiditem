@@ -26,6 +26,8 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 폼 채우기는 `content/page-call/login-fill.js`에 페이지 호출 인자로 그 탭에만 가며, 옛 `executeScript` 인자와 같은
 노출이다. 실패한 로그인은 `SITE_LOGIN_REQUIRED` details.reason(`credentials_rejected`·`no_credentials`·
 `verification_required`·`login_unconfirmed`)으로 알리고, runner가 failed finish의 `result.login`에 까닭과 몰의 말만 싣는다.
+웹이 차단 때문에 자격을 싣지 않은 실행(`operation.start`의 `loginBlocked`, `operationLoginBlockedV1`)은 `no_credentials` 대신
+`blocked`로 적는다(실기기 R7).
 웹(`apps/web/src/lib/operation-login.ts`)은 `credentials_rejected`면 몰의 말과 상관없이 그 몰의 자동 로그인을 멈춘다(KID-380 D10 —
 같은 자격으로 거듭 두드리면 계정이 잠긴다). 푸는 것은 사람이고, 스스로 도는 수집의 한 시간 간격은 그대로다.
 
@@ -43,9 +45,15 @@ SMS·본인확인 화면(GS샵)은 `waitForOperator`로 멈췄다 잇는다.
 불러오는 중 알림 창 가드(KID-380 D4): 몰이 로드 중 `alert`·`confirm`을 띄우면 백그라운드 탭이 멈춘다. `withFreshTab`(로그인
 입구의 `hosts` 또는 `dialogGuardHosts`)과 로그인하러 여는 탭은 주소를 옮기기 전에 `TabPages.guardDialogs`로 그 호스트에
 MAIN world·document_start 등록 content script(`content/page-call/dialog-guard.js`, 실행마다 id 하나)를 걸고 끝나면 지운다.
-가드는 숨은 수집 탭에서만 문장을 `window.__kiditemDialogs`에 모으고 바로 돌아간다 — `confirm` 자동 확인도 숨은 탭에서만이고,
-보이는 탭(운영자 탭·남긴 탭·앞으로 가져온 GS샵 SMS 탭)은 진짜 창을 띄운다. 서비스워커가 다시 뜨면 입구가
-`sweepDialogGuards`로 남은 가드 등록을 지운다. `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
+MAIN 가드와 함께 ISOLATED 짝(`dialog-guard-bridge.js`)을 건다. 짝은 런타임에 물어(`kiditem.dialogGuard.isRunTab`, 런타임이 연
+탭 목록 `TabPages.isRunTab`) 수집 탭이면 `run-tab`, 아니면 `operator-tab` 표시를 MAIN에 보낸다. 답이 오기 전과 수집 탭에서
+`alert`은 문장만 `window.__kiditemDialogs`에 모으고 바로 돌아간다(알림은 안내일 뿐이고 창이 로드를 막는다 — 실행 동안만).
+`confirm`은 수집 탭에서만 자동 확인하고, 답이 오기 전에는 진짜 창이다 — 짝의 답보다 먼저 로드 중에 뜬 `confirm`은 수집 탭이라도
+진짜 창이 뜬다(경합). 운영자 탭은 둘 다 진짜 창이다. 런타임이 탭을 운영자에게 넘기면(`TabPage.focus` — 앞으로 가져온 GS샵 SMS
+인증 탭 — 과 운영자에게 남긴 탭 `keep`) 수집 탭에서 빼고 짝에 `kiditem.dialogGuard.setRunTab`을 보내 진짜 창으로 돌리며, 이 런타임이
+그 탭을 다시 옮기면 다시 수집 탭이다. 탭이 보이는지(`visibilityState`)로 가리지 않는다 — DevTools가 붙은 Chrome은 백그라운드 탭도
+visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDialogGuards`로 남은 가드 등록을 지운다. 수집 탭과 로그인 단계는 로그인 화면에 닿으면 다
+그려지기를 기다리지 않는다(`stopAt`). `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
 `alert`을 바꿨다가 되돌린다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의

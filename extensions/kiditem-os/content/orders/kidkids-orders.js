@@ -10,6 +10,21 @@
   "use strict";
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
 
+  /**
+   * 키드키즈 화면은 EUC-KR이다(.text()로 읽으면 주문자명이 깨졌다) — 2xx는 늘 EUC-KR로 읽는다. HTTP 오류 화면(점검 404는
+   * UTF-8)만 응답 머리의 문자셋을 따른다(없거나 모르는 이름이면 EUC-KR, 리뷰 2 SHOULD 1).
+   */
+  function decodeBody(buffer, response) {
+    if (!response || response.ok !== false) return new TextDecoder("euc-kr").decode(buffer);
+    const contentType = response.headers && typeof response.headers.get === "function" ? response.headers.get("content-type") || "" : "";
+    const match = /charset=["']?([\w-]+)/i.exec(contentType);
+    try {
+      return new TextDecoder(match ? match[1] : "euc-kr").decode(buffer);
+    } catch {
+      return new TextDecoder("euc-kr").decode(buffer);
+    }
+  }
+
   calls["kidkids.orders"] = async function kidkidsOrders(args) {
     const dateFilter = typeof args?.dateFilter === "string" ? args.dateFilter : "";
     const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
@@ -32,10 +47,15 @@
       }
       // 1) 출고관리 목록 (page_view_cnt 크게 = 전부). management 는 partner.kidkids.net 동일 origin.
       // 목록도 euc-kr → arrayBuffer 로 받아 명시 디코딩(아니면 주문자명 한글 깨짐).
+      // 응답의 문자셋(content-type)을 먼저 따르고 없으면 EUC-KR — 점검 화면은 404 UTF-8로 온다(실기기 R2).
       const listRes = await fetch("/logis/logis_index.htm?from_logis_index=Y&page_view_cnt=500", { credentials: "include" });
       const finalUrl = String(listRes.url || "").toLowerCase();
-      const listHtml = new TextDecoder("euc-kr").decode(await listRes.arrayBuffer());
+      const listHtml = decodeBody(await listRes.arrayBuffer(), listRes);
       const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
+      if (!listRes.ok) {
+        if (/(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(ldoc.body ? ldoc.body.textContent : "")) return { status: "maintenance" };
+        return { status: "failed", httpStatus: listRes.status, error: "키드키즈 출고관리 목록 조회 실패 (HTTP " + listRes.status + ")" };
+      }
       // 미로그인이면 logis_index 요청이 로그인 페이지(partnerLogin/partner_login)로 리다이렉트되어
       // CheckBox2 행이 하나도 없다. 이걸 "주문 0건"과 구분하지 못하면 프론트가 "출고예정일 미지정"으로
       // 잘못 안내한다. 로그인 리다이렉트/비밀번호 폼을 감지해 명시적으로 로그인 필요를 신호한다.
@@ -148,7 +168,8 @@
             headers: { "content-type": "application/x-www-form-urlencoded" },
             body: body.toString(),
           });
-          const html = new TextDecoder("euc-kr").decode(await res.arrayBuffer()); // 발주서 = euc-kr
+          if (!res.ok) throw new Error("HTTP " + res.status); // 청크 실패 — 아래에서 건너뛴다
+          const html = decodeBody(await res.arrayBuffer(), res); // 발주서 = euc-kr(머리에 문자셋이 없으면)
           down4Rows.push(...parseDown4(html));
         } catch {
           /* 청크 실패 — 스킵 */

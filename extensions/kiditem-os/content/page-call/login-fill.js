@@ -23,6 +23,15 @@
     const loginInput = values.supplierLoginId
       ? pickCafe24ShopIdInput(passwordInput, supplierLoginInput)
       : pickLoginIdInput(passwordInput);
+    // Cafe24(아트공구) 로그인은 대표운영자 탭이 열린 채로 뜬다 — 공급사 아이디가 있는데 칸이 모자라면 공급사 탭을 눌러
+    // 세 칸 폼을 열고 다음 바퀴에 채운다(실기기 R3).
+    if (values.supplierLoginId && (!loginInput || !supplierLoginInput)) {
+      const supplierTab = findSupplierTab();
+      if (supplierTab) {
+        activate(supplierTab, "supplier-tab");
+        return { state: "incomplete", reason: "supplier-tab-opened" };
+      }
+    }
     // 비번칸은 떴는데 ID칸이 아직 안 보임 → 다음 스캔에서 재시도.
     if (!loginInput) return { state: "incomplete", reason: "id-input-not-found" };
     if (values.supplierLoginId && !supplierLoginInput) return { state: "incomplete", reason: "supplier-id-input-not-found" };
@@ -78,6 +87,15 @@
     if (inputs.length < 2 && form !== document) inputs = textInputs(document);
     const candidates = inputs.filter((input) => input !== supplierInput);
     return candidates.find((input) => /쇼핑몰|mall.?id|shop.?id|cafe24/.test(inputDescriptor(input))) || candidates[0] || null;
+  }
+
+  /** 로그인 화면의 "공급사" 탭(Cafe24 eclogin). 폼 안의 버튼·안내 링크가 아닌, 글자가 딱 "공급사"(로그인)인 보이는 컨트롤. */
+  function findSupplierTab() {
+    const matches = Array.from(document.querySelectorAll("a,button,li,label,[role='tab'],[role='button']"))
+      .filter(isVisibleControl)
+      .filter((element) => /^공급사(?:\s*(?:로그인|관리자))?$/.test(String(element.textContent || "").replace(/\s+/g, " ").trim()));
+    // 가장 안쪽(클릭 처리기가 붙는 a·button)을 누른다 — <li><a>공급사</a></li>에서 li를 누르면 a의 처리기가 돌지 않는다.
+    return matches.find((element) => !matches.some((other) => other !== element && element.contains(other))) || null;
   }
 
   function textInputs(root) {

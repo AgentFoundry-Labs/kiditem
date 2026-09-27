@@ -42,7 +42,9 @@ async function readInTab<T>(
   let keepOpen = false;
   try {
     // 재사용한 운영자 탭은 옮기지 않는다(옛 `borrowOpenTab`과 같다) — 그 탭의 세션으로 지금 화면에서 읽는다.
-    if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
+    // 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다 — 곧 로그인 문턱이 그 화면을 본다(실기기 R1).
+    const stopAt = options.signIn ? (landed: string) => options.signIn!.isLoginUrl(landed) : undefined;
+    if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...(stopAt ? { stopAt } : {}) });
     return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
   } catch (error) {
     if (leftForOperator(error)) keepOpen = true;

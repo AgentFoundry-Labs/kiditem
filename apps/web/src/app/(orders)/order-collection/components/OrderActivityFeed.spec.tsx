@@ -40,4 +40,9 @@ describe('OrderActivityFeed', () => {
     expect(screen.getByText('수집·변환 1건')).toBeInTheDocument();
     expect(screen.queryByText(/셀피아 전송 요청/)).not.toBeInTheDocument();
   });
+
+  it('이미 변환된 주문을 다시 수집해 파일을 재사용하면 그 건수로 최근 활동에 남는다(실기기 R6)', () => {
+    render(<OrderActivityFeed history={[]} events={[{ id: 'e1', kind: 'reused', mallName: '해법몰', message: '', at: Date.UTC(2026, 8, 27, 5), orders: 1 }]} />);
+    expect(screen.getByText('이미 변환된 주문 1건 (파일 재사용) · 해법몰')).toBeInTheDocument();
+  });
 });

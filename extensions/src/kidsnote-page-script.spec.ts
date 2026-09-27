@@ -116,6 +116,17 @@ describe('kidsnote orders page script', () => {
     expect(requests.every((request) => !request.body || request.body.startsWith('body=order@order_print.frm'))).toBe(true);
   });
 
+  it('주문서 인쇄가 HTTP 오류면 오류 화면을 상세로 읽지 않고 detailError에 상태를 남긴다(실기기 R2)', async () => {
+    const { handler } = load({
+      [listUrl(1)]: { html: LIST_PAGE_1 },
+      'POST body=order@order_print.frm&check_pno[]=P2': { ok: false, status: 500, html: '<html><body>서버 오류</body></html>' },
+      '/_manage/?body=order@order_view.frm&ono=20260926-00002': { html: VIEW_P2 },
+    });
+    const answer = await handler({ from: '2026-09-26', to: '2026-09-26', status: '', withDetail: true });
+    const order = answer.orders!.find((entry) => entry.ono === '20260926-00002')!;
+    expect(order.detailError).toBe('HTTP 500');
+  });
+
   it('주문번호 표가 있는 빈 목록은 점검 예고 배너가 있어도 0건 성공이다(리뷰 SHOULD 1)', async () => {
     const { handler } = load({ [listUrl(1)]: { html: '<html><body><p>시스템 점검 안내</p><table><tr><td>주문번호</td><td>상품명</td></tr></table></body></html>' } });
     await expect(handler({ from: '2026-09-26', to: '2026-09-26', status: '', withDetail: true })).resolves.toEqual({ status: 'ok', orders: [] });

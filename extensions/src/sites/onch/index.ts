@@ -1,6 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { withFreshTab } from '../fresh-tab';
+import { mallMaintenance } from '../mall-maintenance';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
@@ -36,7 +37,8 @@ export const ONCH_LOGIN: LoginSpec = {
 type OnchAnswer =
   | { status: 'ok'; orders: unknown[] }
   | { status: 'login_required' }
-  | { status: 'failed'; error: string };
+  | { status: 'failed'; error: string; httpStatus?: number }
+  | { status: 'maintenance' };
 
 /**
  * 온채널(onch3.co.kr) 주문 읽기(KID-380, `orders.mall_orders`). 새 백그라운드 탭에서 공급사 주문 목록을 열어 ISOLATED
@@ -56,8 +58,9 @@ export function createOnchSite(tabs: TabPages, signIn?: SiteSignIn) {
         });
         if (answer?.status === 'ok') return { rows: answer.orders };
         if (answer?.status === 'login_required') throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: ONCH_ORDER_URL });
+        if (answer?.status === 'maintenance') throw mallMaintenance('온채널', ONCH_ORDER_URL);
         throw new RuntimeError(SITE_REQUEST_FAILED, `온채널 주문을 읽지 못했습니다: ${answer?.status === 'failed' ? answer.error : '알 수 없음'}`, {
-          status: null,
+          status: answer?.status === 'failed' && typeof answer.httpStatus === 'number' ? answer.httpStatus : null,
           reason: 'page_error',
           url: ONCH_ORDER_URL,
         });

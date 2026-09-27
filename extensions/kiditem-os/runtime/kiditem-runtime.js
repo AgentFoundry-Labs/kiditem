@@ -8365,6 +8365,17 @@ var KidItemRuntime = (() => {
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   }
   var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
+  var DIALOG_GUARD_BRIDGE_FILE = "content/page-call/dialog-guard-bridge.js";
+  var DIALOG_GUARD_RUN_TAB_ACTION = "kiditem.dialogGuard.isRunTab";
+  var DIALOG_GUARD_SET_RUN_TAB_ACTION = "kiditem.dialogGuard.setRunTab";
+  function installDialogGuardAnswer(chromeApi, tabs) {
+    chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!message || typeof message !== "object" || message.action !== DIALOG_GUARD_RUN_TAB_ACTION) return void 0;
+      const tabId = sender.tab?.id;
+      sendResponse({ runTab: typeof tabId === "number" && tabs.isRunTab(tabId) });
+      return void 0;
+    });
+  }
   var DIALOG_GUARD_ID_PREFIX = "kiditem-dialog-guard-";
   async function sweepDialogGuards(chromeApi) {
     const scripting = chromeApi?.scripting;
@@ -8391,6 +8402,11 @@ var KidItemRuntime = (() => {
   var dialogGuardSerial = 0;
   function createTabPages(deps) {
     const kept = /* @__PURE__ */ new Map();
+    const runTabs = /* @__PURE__ */ new Set();
+    async function handToOperator(tabId) {
+      runTabs.delete(tabId);
+      await deps.chrome.tabs.sendMessage(tabId, { action: DIALOG_GUARD_SET_RUN_TAB_ACTION, runTab: false }).catch(() => void 0);
+    }
     async function stillOurs(entry) {
       const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
       if (!tab || tab.active === true) return false;
@@ -8417,6 +8433,8 @@ var KidItemRuntime = (() => {
       return {
         tabId,
         async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+          const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
+          if (owned && !closed) runTabs.add(tabId);
           await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
@@ -8425,7 +8443,8 @@ var KidItemRuntime = (() => {
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
             if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
             last = tab.url || last;
-            if (stopAt?.(last) || tab.status === "complete") return last;
+            const committed = !tab.pendingUrl && tab.url !== void 0 && tab.url !== before;
+            if (committed && stopAt?.(last) || tab.status === "complete") return last;
             if (deps.now() >= deadline) {
               if (continueOnTimeout) return last;
               throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });
@@ -8449,6 +8468,7 @@ var KidItemRuntime = (() => {
           }
         },
         async focus() {
+          await handToOperator(tabId);
           await deps.chrome.tabs.update(tabId, { active: true }).catch(() => void 0);
         },
         async currentUrl() {
@@ -8465,7 +8485,10 @@ var KidItemRuntime = (() => {
           };
           await checkHere();
           const first = await send(message, timeoutMs, frameId);
-          if (!inject || !isMissing(first)) return first;
+          if (!inject || !isMissing(first)) {
+            if (isMissing(first) || isTimeout(first)) await checkHere();
+            return first;
+          }
           await checkHere();
           const target = frameId === void 0 ? { tabId } : { tabId, frameIds: [frameId] };
           await deps.chrome.scripting.executeScript({ target, files: [...inject.isolated] });
@@ -8474,7 +8497,9 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          return send(message, timeoutMs, frameId);
+          const second = await send(message, timeoutMs, frameId);
+          if (isMissing(second) || isTimeout(second)) await checkHere();
+          return second;
         },
         async frames(files) {
           const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
@@ -8491,6 +8516,7 @@ var KidItemRuntime = (() => {
         async close() {
           if (!owned || closed) return;
           closed = true;
+          runTabs.delete(tabId);
           await deps.chrome.tabs.remove(tabId).catch(() => void 0);
         }
       };
@@ -8499,6 +8525,7 @@ var KidItemRuntime = (() => {
       async open(url) {
         const created = await deps.chrome.tabs.create({ url, active: false });
         if (typeof created.id !== "number") throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url });
+        runTabs.add(created.id);
         return page(created.id, true);
       },
       attach: (tabId) => page(tabId, false),
@@ -8509,6 +8536,7 @@ var KidItemRuntime = (() => {
         return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
       async keep(key, keptPage) {
+        await handToOperator(keptPage.tabId);
         const prior = kept.get(key);
         const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
         if (!tab) {
@@ -8524,8 +8552,11 @@ var KidItemRuntime = (() => {
         const entry = kept.get(key);
         if (!entry) return null;
         kept.delete(key);
-        return await stillOurs(entry) ? page(entry.tabId, true) : null;
+        if (!await stillOurs(entry)) return null;
+        runTabs.add(entry.tabId);
+        return page(entry.tabId, true);
       },
+      isRunTab: (tabId) => runTabs.has(tabId),
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
         dialogGuardSerial += 1;
@@ -8534,13 +8565,14 @@ var KidItemRuntime = (() => {
         let registered = false;
         if (matches.length > 0 && scripting.registerContentScripts) {
           registered = await scripting.registerContentScripts([
-            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
+            { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
           ]).then(() => true, () => false);
         }
         return async () => {
           if (!registered) return;
           registered = false;
-          await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => void 0);
+          await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => void 0);
         };
       },
       async fetchText(url, init) {
@@ -8552,6 +8584,9 @@ var KidItemRuntime = (() => {
         }
       }
     };
+  }
+  function isTimeout(value) {
+    return typeof value === "object" && value !== null && value.error === "timeout";
   }
   function isMissing(value) {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";
@@ -8574,7 +8609,8 @@ var KidItemRuntime = (() => {
     const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
-      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
+      const stopAt = options.signIn ? (landed) => options.signIn.isLoginUrl(landed) : void 0;
+      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...stopAt ? { stopAt } : {} });
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
@@ -8892,6 +8928,27 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
 
+  // packages/shared/src/schemas/mall-login.ts
+  var MALL_CREDENTIAL_REJECTIONS = [
+    "\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0",
+    "\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778",
+    "\uBE44\uBC00\uBC88\uD638\uAC00 \uC62C\uBC14\uB974\uC9C0",
+    "\uC544\uC774\uB514 \uB610\uB294 \uBE44\uBC00\uBC88\uD638",
+    "\uC544\uC774\uB514\uC640 \uBE44\uBC00\uBC88\uD638",
+    "\uB4F1\uB85D\uB418\uC9C0 \uC54A\uC740 \uC544\uC774\uB514",
+    "\uC874\uC7AC\uD558\uC9C0 \uC54A\uB294 \uC544\uC774\uB514",
+    "\uC77C\uCE58\uD558\uB294 \uD68C\uC6D0",
+    "\uAC00\uC785\uB418\uC9C0 \uC54A\uC740",
+    "incorrect password",
+    "invalid password",
+    "password does not match"
+  ];
+  function mallRejectedCredentials(message) {
+    const text5 = (message ?? "").toLowerCase();
+    if (!text5) return false;
+    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text5.includes(phrase.toLowerCase()));
+  }
+
   // extensions/src/sites/site-login.ts
   var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
   var LOGIN_DIALOGS_FILE = "content/page-call/login-dialogs.js";
@@ -8910,7 +8967,7 @@ var KidItemRuntime = (() => {
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
     if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -8945,6 +9002,7 @@ var KidItemRuntime = (() => {
     const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
     const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
+    if (mallMessage && mallRejectedCredentials(mallMessage)) return { status: "rejected", ...withMessage };
     const remains = await formRemains(page, deps);
     const status = remains === "unknown" ? "unconfirmed" : remains ? "form_remains" : "ok";
     return { status, ...withMessage };
@@ -9038,7 +9096,7 @@ var KidItemRuntime = (() => {
         return await call2();
       } catch (error) {
         if (!isLoginRequired(error)) throw error;
-        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
+        throw outcome.status === "form_remains" || outcome.status === "rejected" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
       }
     };
   }
@@ -9047,6 +9105,7 @@ var KidItemRuntime = (() => {
     const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
     return {
       hosts: spec.hosts,
+      isLoginUrl: (url) => isLogin(spec, url),
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
         if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
@@ -9099,7 +9158,7 @@ var KidItemRuntime = (() => {
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
     return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
       ...error.details ?? {},
       reason,
@@ -9141,7 +9200,8 @@ var KidItemRuntime = (() => {
   var ART09_LOGIN = {
     displayName: "\uC544\uD2B8\uACF5\uAD6C",
     loginUrl: ART09_ORDER_URL,
-    hosts: ["zzogzzog1.cafe24.com"],
+    // 로그아웃이면 Cafe24 통합 로그인(eclogin.cafe24.com/Shop/, 대표운영자·공급사 탭)으로 넘어간다 — 그 호스트에서도 채운다(실기기 R3).
+    hosts: ["zzogzzog1.cafe24.com", "eclogin.cafe24.com"],
     isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
     fields: ["supplierLoginId", "loginId", "password"]
   };
@@ -10613,7 +10673,7 @@ var KidItemRuntime = (() => {
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
           if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uB4DC\uD0A4\uC988", KIDKIDS_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
-            status: null,
+            status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
             reason: "page_error",
             url: KIDKIDS_ORDER_URL
           });
@@ -10973,8 +11033,9 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE12, { url: ONCH_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uC628\uCC44\uB110", ONCH_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
-            status: null,
+            status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
             reason: "page_error",
             url: ONCH_ORDER_URL
           });
@@ -13042,9 +13103,15 @@ var KidItemRuntime = (() => {
           const outcome = await runOne(deps, collectorFor2, step);
           const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
           if (!next || input.signal.aborted) return outcome;
-          const { idempotencyKey: _previousKey, credentials, ...rest } = step;
-          const sameSite = credentials !== void 0 && (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
-          step = { ...rest, ...sameSite ? { credentials } : {}, kind: next.kind, scope: next.scope };
+          const { idempotencyKey: _previousKey, credentials, loginBlocked, ...rest } = step;
+          const sameSite = (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
+          step = {
+            ...rest,
+            ...sameSite && credentials !== void 0 ? { credentials } : {},
+            ...sameSite && loginBlocked ? { loginBlocked } : {},
+            kind: next.kind,
+            scope: next.scope
+          };
         }
       }
     };
@@ -13188,7 +13255,7 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
-      const login = loginFailureOf(error);
+      const login = loginFailureOf(error, input.loginBlocked === true);
       await deps.client.finish({
         operationId,
         token,
@@ -13207,11 +13274,12 @@ var KidItemRuntime = (() => {
       await lease?.release({ error: failure2 }).catch(() => void 0);
     }
   }
-  function loginFailureOf(error) {
+  function loginFailureOf(error, loginBlocked) {
     if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== "string") return null;
     const mallMessage = error.details.mallMessage;
+    const reason = error.details.reason === "no_credentials" && loginBlocked ? "blocked" : error.details.reason;
     return {
-      reason: error.details.reason.slice(0, 64),
+      reason: reason.slice(0, 64),
       ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
     };
   }
@@ -13252,7 +13320,9 @@ var KidItemRuntime = (() => {
     kind: OperationKindSchema,
     scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
     idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    credentials: OperationStartCredentialsSchema.optional()
+    credentials: OperationStartCredentialsSchema.optional(),
+    /** 웹이 그 몰의 자동 로그인 차단 때문에 자격을 싣지 않았다 — 로그인 화면에서 멈추면 까닭을 `blocked`로 적는다(실기기 R7). */
+    loginBlocked: external_exports.literal(true).optional()
   }).strict();
   var OperationCancelMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_CANCEL_ACTION),
@@ -13283,7 +13353,7 @@ var KidItemRuntime = (() => {
         validate: (message) => validateWith(OperationStartMessageSchema, message),
         async handle(input, environmentId) {
           if (!input.ok) return input.response;
-          const { kind, scope, idempotencyKey, credentials } = input.message;
+          const { kind, scope, idempotencyKey, credentials, loginBlocked } = input.message;
           const controller = new AbortController();
           const owned = [];
           let answer;
@@ -13295,6 +13365,7 @@ var KidItemRuntime = (() => {
             scope,
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
             ...credentials !== void 0 ? { credentials } : {},
+            ...loginBlocked ? { loginBlocked } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
@@ -13448,6 +13519,7 @@ var KidItemRuntime = (() => {
       randomId: () => crypto.randomUUID()
     };
     void sweepDialogGuards(chrome);
+    if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
@@ -13466,6 +13538,8 @@ var KidItemRuntime = (() => {
         orderCaptureOperationKindsV1: true,
         [CHANNELS_OPERATION_CAPABILITY]: true,
         operationLoginV1: true,
+        // operationLoginBlockedV1: operation.start의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는다.
+        operationLoginBlockedV1: true,
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
         [SELLPIA_OPERATION_CAPABILITY]: true,

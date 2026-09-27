@@ -25,6 +25,8 @@ export const OperationStartMessageSchema = z.object({
   scope: z.record(z.string(), z.unknown()).default({}),
   idempotencyKey: z.string().min(1).max(128).optional(),
   credentials: OperationStartCredentialsSchema.optional(),
+  /** 웹이 그 몰의 자동 로그인 차단 때문에 자격을 싣지 않았다 — 로그인 화면에서 멈추면 까닭을 `blocked`로 적는다(실기기 R7). */
+  loginBlocked: z.literal(true).optional(),
 }).strict();
 export type OperationStartMessage = z.infer<typeof OperationStartMessageSchema>;
 

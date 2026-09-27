@@ -15,6 +15,7 @@ import {
   loadOperationLoginCredentialsForMall,
   noteOperationLoginFailure,
   noteOperationLoginFailureForMall,
+  operationLoginOptions,
 } from './operation-login';
 
 vi.mock('./order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn(), list: vi.fn() } }));
@@ -95,6 +96,13 @@ describe('operation-login — 실행에 실어 보낼 저장 자격(KID-377)', (
     await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
     vi.mocked(orderMallAccountApi.password).mockRejectedValueOnce(new Error('403'));
     await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
+  });
+
+  it('operationLoginOptions: 막힌 몰 키는 자격 대신 loginBlocked를 싣는다(실기기 R7)', async () => {
+    blockMallAutoLogin('coupang-direct', '비밀번호가 일치하지 않습니다.');
+    await expect(operationLoginOptions('coupang-direct')).resolves.toEqual({ loginBlocked: true });
+    vi.mocked(orderMallAccountApi.password).mockResolvedValue({ key: 'coupang', loginId: 'fake-wing-id', supplierLoginId: null, password: 'fake-wing-password' });
+    await expect(operationLoginOptions('coupang')).resolves.toEqual({ credentials: { loginId: 'fake-wing-id', password: 'fake-wing-password' } });
   });
 
   it('막힌 몰 키는 비밀번호를 읽지 않는다', async () => {

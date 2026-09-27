@@ -41,9 +41,10 @@ function loginTab(options: {
   const messages: Array<Record<string, unknown>> = [];
   const page: TabPage = {
     tabId: 9,
-    async navigate(url) {
+    async navigate(url, navigateOptions) {
       log.push(`navigate ${url}`);
       state.url = options.landAt ? options.landAt(url) : url;
+      if (navigateOptions?.stopAt?.(state.url)) log.push(`stop at ${state.url}`);
       state.form = formAt(state.url);
       return state.url;
     },
@@ -103,6 +104,8 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     const tab = loginTab({ url: 'https://mall.test/admin', landAt: () => 'https://auth.test/login', submit: () => ({ url: 'https://mall.test/admin' }) });
     await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({ status: 'ok' });
     expect(tab.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
+    // 로그인 화면에 닿으면 다 그려지기를 기다리지 않는다(실기기 R1).
+    expect(tab.log).toContain('stop at https://auth.test/login');
     expect(tab.log[0]).toBe('frames content/page-call/login-fill.js');
     expect(tab.log).toContain('navigate https://mall.test/admin');
     expect(tab.log).toContain('call login.watchDialogs frame 0');
@@ -120,9 +123,15 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
   });
 
   it('눌렀는데 폼이 남으면 form_remains와 몰이 알림 창으로 남긴 말', async () => {
-    const tab = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, dialog: ' 아이디 또는  비밀번호가 일치하지 않습니다. ' }) });
+    const tab = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, dialog: ' 입력하신  정보를 다시 확인해 주세요. ' }) });
     await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({
       status: 'form_remains',
+      mallMessage: '입력하신 정보를 다시 확인해 주세요.',
+    });
+    // 거절 문장이면 폼이 남았는지 보기 전에 rejected다(실기기 R5).
+    const rejected = loginTab({ url: 'https://auth.test/login', submit: () => ({ formStays: true, dialog: ' 아이디 또는  비밀번호가 일치하지 않습니다. ' }) });
+    await expect(ensureLoggedIn(rejected.page, SPEC, CREDENTIALS, rejected.deps)).resolves.toEqual({
+      status: 'rejected',
       mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
     });
     expect(tab.filled).toHaveLength(1);
@@ -167,6 +176,17 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('누른 뒤 몰이 거절 문장을 알림 창으로 남기면 화면이 다른 곳으로 넘어가도 rejected(실기기 R5 — 아이스크림몰 /error/loginExpired)', async () => {
+    const tab = loginTab({
+      url: 'https://auth.test/login',
+      submit: () => ({ url: 'https://mall.test/error/loginExpired', dialog: '아이디 혹은 비밀번호가 일치하지 않습니다.' }),
+    });
+    await expect(ensureLoggedIn(tab.page, SPEC, CREDENTIALS, tab.deps)).resolves.toEqual({
+      status: 'rejected',
+      mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.',
+    });
   });
 
   it('로그인 폼이 어디에도 없으면 no_form — 채우지 않는다', async () => {
@@ -256,6 +276,13 @@ describe('sites/site-login — createSiteLoginGate(로그인 화면이면 한 �
       const gate = createSiteLoginGate(CREDENTIALS);
       expect(await failure(gate(async () => { throw loginRequired(); }, async () => ({ status })))).toMatchObject({ details: { reason: 'login_unconfirmed' } });
     }
+  });
+
+  it('rejected도 credentials_rejected — 몰의 말은 details.mallMessage에만 싣고 오류 문장은 레지스트리 말 그대로다(실기기 R5)', async () => {
+    const gate = createSiteLoginGate(CREDENTIALS);
+    const error = await failure(gate(async () => { throw loginRequired(); }, async () => ({ status: 'rejected', mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.' })));
+    expect(error).toMatchObject({ code: SITE_LOGIN_REQUIRED, details: { reason: 'credentials_rejected', mallMessage: '아이디 혹은 비밀번호가 일치하지 않습니다.' } });
+    expect(error.message).toBe('테스트몰 로그인이 필요합니다. 저장된 아이디·비밀번호로 로그인하지 못했습니다.');
   });
 
   it('본인확인이면 다시 하지 않고 verification_required', async () => {

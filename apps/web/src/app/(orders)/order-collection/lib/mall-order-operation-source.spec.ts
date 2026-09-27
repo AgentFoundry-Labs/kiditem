@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
-import { mallAutoLoginBlock, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
+import { blockMallAutoLogin, mallAutoLoginBlock, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { detectOrderCollectionSessionExtensionStatus } from './order-collection-extension';
@@ -135,6 +135,14 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
     await adapter.start!({}, { status: undefined });
     expect(loadLoginCredentials).toHaveBeenCalledWith(account, { automatic: false });
     expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'mallOrderSite.kidkids' });
+  });
+
+  it('시작: 자동 로그인이 막힌 몰이라 자격을 싣지 않으면 loginBlocked를 싣는다 — 멈춘 실행의 까닭이 blocked가 된다(실기기 R7)', async () => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    blockMallAutoLogin('kidkids', '비밀번호가 일치하지 않습니다.');
+    const { adapter } = source({ loadLoginCredentials: vi.fn().mockResolvedValue(undefined) });
+    await adapter.start!({}, { status: undefined });
+    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'mallOrderSite.kidkids', loginBlocked: true });
   });
 
   it('계정 행이 없는 몰은 아무것도 부르지 않고 설정 안내, 같은 계정이 이미 돌면 거절 문장이나 그 실행', async () => {

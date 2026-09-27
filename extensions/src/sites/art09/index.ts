@@ -31,7 +31,8 @@ export const ART09_PAGE_GUARD: PageGuard = {
 export const ART09_LOGIN: LoginSpec = {
   displayName: '아트공구',
   loginUrl: ART09_ORDER_URL,
-  hosts: ['zzogzzog1.cafe24.com'],
+  // 로그아웃이면 Cafe24 통합 로그인(eclogin.cafe24.com/Shop/, 대표운영자·공급사 탭)으로 넘어간다 — 그 호스트에서도 채운다(실기기 R3).
+  hosts: ['zzogzzog1.cafe24.com', 'eclogin.cafe24.com'],
   isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
   fields: ['supplierLoginId', 'loginId', 'password'],
 };

@@ -35,6 +35,22 @@ describe('requestOperationStart', () => {
     expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.coupang_shipment_summary', scope: {} }, 60_000);
   });
 
+  it('차단 때문에 자격을 싣지 않을 때 loginBlocked를 싣는다 — operationLoginBlockedV1을 싣는 빌드에만(실기기 R7)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, operationLoginV1: true, operationLoginBlockedV1: true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await requestOperationStart('orders.mall_orders', {}, { loginBlocked: true });
+    expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.mall_orders', scope: {}, loginBlocked: true }, 60_000);
+
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, operationLoginV1: true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await requestOperationStart('orders.mall_orders', {}, { loginBlocked: true });
+    expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.mall_orders', scope: {} }, 60_000);
+  });
+
   it('extensionAcceptsOperationLogin은 ping의 operationLoginV1을 본다', async () => {
     await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(true);
     vi.mocked(sendToExtension).mockResolvedValueOnce({ success: true, capabilities: { operationRuntime: true } });

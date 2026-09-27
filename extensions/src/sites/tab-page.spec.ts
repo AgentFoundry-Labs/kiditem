@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../core/errors';
-import { createTabPages, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
+import { createTabPages, installDialogGuardAnswer, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
 
 function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
@@ -226,7 +226,8 @@ describe('TabPages.guardDialogs — 불러오는 중 알림 창 가드(KID-380 D
 
     const release = await tabs.guardDialogs(['i-screammall.co.kr']);
     await expect(page.navigate('https://po.i-screammall.co.kr/main.do', { timeoutMs: 1 })).resolves.toBe('https://po.i-screammall.co.kr/main.do');
-    expect(registered).toHaveLength(1);
+    // MAIN 가드와 ISOLATED 짝(수집 탭인지 런타임에 묻는다, 실기기 R1)을 함께 건다.
+    expect(registered).toHaveLength(2);
     expect(registered[0]).toMatchObject({
       matches: ['https://i-screammall.co.kr/*', 'https://*.i-screammall.co.kr/*'],
       js: ['content/page-call/dialog-guard.js'],
@@ -235,9 +236,18 @@ describe('TabPages.guardDialogs — 불러오는 중 알림 창 가드(KID-380 D
       allFrames: true,
       persistAcrossSessions: false,
     });
+    expect(registered[1]).toMatchObject({
+      matches: ['https://i-screammall.co.kr/*', 'https://*.i-screammall.co.kr/*'],
+      js: ['content/page-call/dialog-guard-bridge.js'],
+      world: 'ISOLATED',
+      runAt: 'document_start',
+      allFrames: true,
+      persistAcrossSessions: false,
+    });
+    expect(String(registered[1]!.id)).toMatch(/^kiditem-dialog-guard-/);
     await release();
     await release();
-    expect(removed).toEqual([[registered[0]!.id]]);
+    expect(removed).toEqual([[registered[0]!.id, registered[1]!.id]]);
   });
 
   it('등록이 안 되는 환경이면 가드 없이 이어 간다', async () => {
@@ -338,5 +348,149 @@ describe('sweepDialogGuards — 시작 시 남은 대화상자 가드 정리', (
       },
     } as never);
     expect(unregistered).toEqual([['kiditem-dialog-guard-a', 'kiditem-dialog-guard-b']]);
+  });
+});
+
+describe('installDialogGuardAnswer — 수집 탭인지 답한다(실기기 R1)', () => {
+  it('이 런타임이 연 탭(수집 중)만 수집 탭이다 — 닫거나 운영자에게 남기면 아니다, 붙인 운영자 탭은 아니다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const tabs = createTabPages(deps(chromeApi));
+    const listeners: Array<(message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown> = [];
+    installDialogGuardAnswer({ runtime: { onMessage: { addListener: (listener) => listeners.push(listener) } } }, tabs);
+    const ask = (tabId: number | undefined, message: unknown = { action: 'kiditem.dialogGuard.isRunTab' }) => {
+      const answers: unknown[] = [];
+      const handled = listeners[0]!(message, tabId === undefined ? {} : { tab: { id: tabId } }, (answer) => answers.push(answer));
+      return { handled, answers };
+    };
+    const page = await tabs.open('about:blank');
+    expect(ask(9).answers).toEqual([{ runTab: true }]);
+    expect(ask(4).answers).toEqual([{ runTab: false }]);
+    expect(ask(undefined).answers).toEqual([{ runTab: false }]);
+    // 다른 메시지는 받지 않는다(다른 수신자가 답한다).
+    expect(ask(9, { action: 'other' })).toEqual({ handled: undefined, answers: [] });
+
+    await tabs.keep('https://mall.test', page);
+    expect(ask(9).answers).toEqual([{ runTab: false }]);
+    const again = await tabs.reclaimKept('https://mall.test');
+    expect(again?.tabId).toBe(9);
+    expect(ask(9).answers).toEqual([{ runTab: true }]);
+    await again!.close();
+    expect(ask(9).answers).toEqual([{ runTab: false }]);
+    tabs.attach(4);
+    expect(ask(4).answers).toEqual([{ runTab: false }]);
+  });
+});
+
+describe('TabPage.ask — 읽기가 답하지 못하면 탭 주소를 다시 본다(실기기 R4)', () => {
+  const GUARD: PageGuard = {
+    allows: (url) => url.hostname === 'shopping-seller.kakao.com',
+    isLogin: (url) => url.hostname === 'accounts.kakao.com',
+    loginMessage: '카카오 로그인이 필요합니다.',
+  };
+
+  it('읽는 사이 로그인 화면으로 넘어가 처리기가 없으면(content_script_missing) SITE_LOGIN_REQUIRED — 탭은 운영자에게 남는다', async () => {
+    const { chromeApi } = fakeChrome({
+      sendMessage: async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); },
+      urls: ['https://shopping-seller.kakao.com/product/store-seller/list', 'https://shopping-seller.kakao.com/product/store-seller/list', 'https://accounts.kakao.com/login?continue=x'],
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    const error = await page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard: GUARD }).then(() => null, (caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SITE_LOGIN_REQUIRED', message: '카카오 로그인이 필요합니다.' });
+    expect(leftForOperator(error)).toBe(true);
+  });
+
+  it('주소가 그대로면 답을 그대로 돌려준다', async () => {
+    const { chromeApi } = fakeChrome({
+      sendMessage: async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); },
+      url: 'https://shopping-seller.kakao.com/product/store-seller/list',
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard: GUARD })).resolves.toEqual({ ok: false, error: 'content_script_missing' });
+  });
+});
+
+describe('TabPage.navigate — stopAt은 새 문서가 커밋된 뒤에만(리뷰 2 MUST 1)', () => {
+  it('옛 로그인 문서가 아직 커밋된 동안(pendingUrl·같은 주소)은 멈추지 않고, 새 로그인 문서에 닿으면 멈춘다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const answers = [
+      { status: 'complete', url: 'https://mall.test/login' },
+      { status: 'loading', url: 'https://mall.test/login', pendingUrl: 'https://mall.test/orders' },
+      { status: 'loading', url: 'https://mall.test/login' },
+      { status: 'loading', url: 'https://mall.test/login?next=orders' },
+    ];
+    let gets = 0;
+    chromeApi.tabs.get = async () => answers[Math.min(gets++, answers.length - 1)]!;
+    let now = 0;
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async (ms: number) => { now += ms; }, now: () => now });
+    const landed = await tabs.attach(3).navigate('https://mall.test/orders', { timeoutMs: 10_000, stopAt: (url) => url.includes('/login') });
+    expect(landed).toBe('https://mall.test/login?next=orders');
+    expect(gets).toBe(4);
+  });
+
+  it('주소가 바뀌지 않는 이동(같은 주소로 다시)은 stopAt 대신 complete를 기다린다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    const answers = [
+      { status: 'complete', url: 'https://mall.test/login' },
+      { status: 'loading', url: 'https://mall.test/login' },
+      { status: 'complete', url: 'https://mall.test/login' },
+    ];
+    let gets = 0;
+    chromeApi.tabs.get = async () => answers[Math.min(gets++, answers.length - 1)]!;
+    let now = 0;
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async (ms: number) => { now += ms; }, now: () => now });
+    await expect(tabs.attach(3).navigate('https://mall.test/login', { timeoutMs: 10_000, stopAt: (url) => url.includes('/login') })).resolves.toBe('https://mall.test/login');
+    expect(gets).toBe(3);
+  });
+});
+
+describe('TabPage.ask — 시간 초과 뒤 주소 다시 보기(리뷰 2 MUST 2)', () => {
+  const GUARD: PageGuard = {
+    allows: (url) => url.hostname === 'shopping-seller.kakao.com',
+    isLogin: (url) => url.hostname === 'accounts.kakao.com',
+    loginMessage: '카카오 로그인이 필요합니다.',
+  };
+  const never = () => new Promise<never>(() => undefined);
+
+  it('시간 초과 사이 로그인 화면으로 넘어갔으면 SITE_LOGIN_REQUIRED — 탭은 운영자에게 남는다', async () => {
+    const { chromeApi } = fakeChrome({
+      sendMessage: never,
+      urls: ['https://shopping-seller.kakao.com/product/store-seller/list', 'https://accounts.kakao.com/login?continue=x'],
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    const error = await page.ask({ type: 'X' }, { timeoutMs: 5, guard: GUARD }).then(() => null, (caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SITE_LOGIN_REQUIRED' });
+    expect(leftForOperator(error)).toBe(true);
+  });
+
+  it('시간 초과인데 주소가 그대로면 timeout 답을 돌려준다(부른 쪽이 SITE_REQUEST_FAILED로 끝낸다)', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: never, url: 'https://shopping-seller.kakao.com/product/store-seller/list' });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.ask({ type: 'X' }, { timeoutMs: 5, guard: GUARD })).resolves.toEqual({ ok: false, error: 'timeout' });
+  });
+});
+
+describe('운영자에게 넘긴 탭은 수집 탭이 아니다(리뷰 2 SHOULD 2·3)', () => {
+  it('focus(운영자 조치)·keep이면 수집 탭에서 빼고 그 탭의 가드 짝에 알리며, 이 런타임이 다시 옮기면 다시 수집 탭이다', async () => {
+    const sent: unknown[] = [];
+    const { chromeApi } = fakeChrome({ sendMessage: async (message) => { sent.push(message); return undefined; } });
+    const tabs = createTabPages(deps(chromeApi));
+    const page = await tabs.open('about:blank');
+    expect(tabs.isRunTab(9)).toBe(true);
+    await page.focus();
+    expect(tabs.isRunTab(9)).toBe(false);
+    expect(sent).toContainEqual({ action: 'kiditem.dialogGuard.setRunTab', runTab: false });
+    await page.navigate('https://mall.test/orders', { timeoutMs: 1_000 });
+    expect(tabs.isRunTab(9)).toBe(true);
+    sent.length = 0;
+    await tabs.keep('https://mall.test', page);
+    expect(tabs.isRunTab(9)).toBe(false);
+    expect(sent).toEqual([{ action: 'kiditem.dialogGuard.setRunTab', runTab: false }]);
+  });
+
+  it('붙인 운영자 탭은 옮겨도 수집 탭이 되지 않는다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => undefined });
+    const tabs = createTabPages(deps(chromeApi));
+    await tabs.attach(4).navigate('https://mall.test/orders', { timeoutMs: 1_000 });
+    expect(tabs.isRunTab(4)).toBe(false);
   });
 });

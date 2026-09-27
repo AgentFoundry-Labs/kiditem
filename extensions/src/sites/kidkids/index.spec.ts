@@ -58,4 +58,10 @@ describe('sites/kidkids — 몰 주문 읽기', () => {
     expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'maintenance', url: KIDKIDS_ORDER_URL } });
     expect(error.message).toBe('키드키즈 사이트가 점검 중입니다. 점검이 끝난 뒤 다시 수집해 주세요.');
   });
+
+  it('출고관리 목록이 HTTP 오류면 SITE_REQUEST_FAILED에 그 상태를 싣는다(실기기 R2)', async () => {
+    const fake = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'failed', httpStatus: 502, error: '키드키즈 출고관리 목록 조회 실패 (HTTP 502)' } }) });
+    const error = await failure(createKidkidsSite(fake.tabs).readOrders(INPUT));
+    expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { status: 502, reason: 'page_error', url: KIDKIDS_ORDER_URL } });
+  });
 });

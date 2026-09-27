@@ -15,6 +15,11 @@
       const listRes = await fetch("/supplier/orders.php?state=all", { credentials: "include" });
       const listHtml = await listRes.text();
       const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
+      // HTTP 오류는 0건이 아니다 — 점검 화면이면 점검, 아니면 상태를 싣고 실패(실기기 R2).
+      if (!listRes.ok) {
+        if (/(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(ldoc.body ? ldoc.body.textContent : "")) return { status: "maintenance" };
+        return { status: "failed", httpStatus: listRes.status, error: "온채널 주문 목록 조회 실패 (HTTP " + listRes.status + ")" };
+      }
       const rows = [];
       const seen = new Set();
       for (const tr of ldoc.querySelectorAll("tr")) {
@@ -115,6 +120,7 @@
                 headers: { "content-type": "application/x-www-form-urlencoded" },
                 body: "orderCode=" + encodeURIComponent(r.orderCode),
               });
+              if (!res.ok) throw new Error("HTTP " + res.status); // 오류 화면을 상세로 읽지 않는다
               orders.push({ orderCode: r.orderCode, date: r.date, ...parseModal(await res.text()) });
             } catch {
               orders.push({ orderCode: r.orderCode, date: r.date }); // 모달 실패 시 최소 정보

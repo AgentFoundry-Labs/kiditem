@@ -77,4 +77,11 @@ describe('sites/onch — 몰 주문 읽기(KID-380)', () => {
     expect(login.state.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
     expect(fake.log.at(-1)).toBe('close 7');
   });
+
+  it('점검이면 SITE_REQUEST_FAILED{reason: maintenance}, HTTP 오류는 그 상태를 싣는다(실기기 R2)', async () => {
+    const maintenance = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'maintenance' } }) });
+    await expect(createOnchSite(maintenance.tabs).readOrders(INPUT)).rejects.toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'maintenance' } });
+    const broken = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'failed', httpStatus: 500, error: 'HTTP 500' } }) });
+    await expect(createOnchSite(broken.tabs).readOrders(INPUT)).rejects.toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { status: 500 } });
+  });
 });

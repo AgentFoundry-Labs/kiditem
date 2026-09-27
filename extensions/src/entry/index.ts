@@ -66,7 +66,7 @@ import '../sites/wing/traffic';
 import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
-import { createTabPages, sweepDialogGuards } from '../sites/tab-page';
+import { createTabPages, installDialogGuardAnswer, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
@@ -91,6 +91,8 @@ export function installEntry(): boolean {
   };
   // 서비스워커가 다시 떴다 — 지난 실행이 남긴 알림 창 가드 등록을 지운다(KID-380 D4).
   void sweepDialogGuards(chrome);
+  // 가드 짝이 묻는 "이 탭이 수집 탭인가"에 답한다(실기기 R1).
+  if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
   const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({
@@ -117,6 +119,8 @@ export function installEntry(): boolean {
       orderCaptureOperationKindsV1: true,
       [CHANNELS_OPERATION_CAPABILITY]: true,
       operationLoginV1: true,
+      // operationLoginBlockedV1: operation.start의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는다.
+      operationLoginBlockedV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,
