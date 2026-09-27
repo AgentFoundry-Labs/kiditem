@@ -64,6 +64,7 @@ import '../sites/kakao/registration';
 import '../sites/kidkids';
 import '../sites/kidkids/registration';
 import '../sites/kidsnote';
+import '../sites/kidsnote/availability';
 import '../sites/kidsnote/registration';
 import '../sites/kkomangse';
 import '../sites/kkomangse/availability';
