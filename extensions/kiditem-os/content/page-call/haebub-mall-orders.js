@@ -58,8 +58,11 @@
         if (/login|로그인/i.test(String(listRes.url || ""))) return { status: "login_required" };
         const ldoc = new DOMParser().parseFromString(listHtml, "text/html");
         if (ldoc.querySelector('input[type="password"]')) return { status: "login_required" };
-        // 목록 체크박스가 하나도 없는 점검 안내 화면은 0건이 아니다(KID-380 D3).
-        if (!ldoc.querySelector('input[name="select_checkbox"]') && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(ldoc.body ? ldoc.body.textContent : "")) {
+        // 목록 표 자체가 없는(체크박스도 주문번호 머리도 없는) 점검 안내 화면은 0건이 아니다(KID-380 D3). 목록 표가 있으면 점검
+        // 예고 배너가 있어도 정상 빈 목록이다.
+        const listTable = Boolean(ldoc.querySelector('input[name="select_checkbox"]'))
+          || [...ldoc.querySelectorAll("table")].some((t) => /주문번호/.test(t.textContent));
+        if (!listTable && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(ldoc.body ? ldoc.body.textContent : "")) {
           return { status: "maintenance" };
         }
 

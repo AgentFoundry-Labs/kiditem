@@ -60,6 +60,12 @@ function load(options: {
 }
 
 describe('haebub-mall orders page script', () => {
+  it('목록 표 머리가 있는 빈 목록은 점검 예고 배너가 있어도 0건 성공이다(리뷰 SHOULD 1)', async () => {
+    const empty = '<html><body><p>서버 점검 안내: 10월 1일 새벽</p><table><tr><th>선택</th><th>주문날짜</th><th>주문번호</th><th>주문자명</th></tr></table></body></html>';
+    const { handler } = load({ lists: { '1': empty } });
+    await expect(handler({ date: '2026-07-31', vendor: '거영아이앤디' })).resolves.toEqual({ status: 'ok', orders: [] });
+  });
+
   it('목록 대신 점검 안내면 0건 성공이 아니라 maintenance(KID-380 D3)', async () => {
     const { handler } = load({ lists: { '1': '<html><body><h2>서비스 점검 안내</h2><p>보다 나은 서비스를 위해 시스템 점검을 진행하고 있습니다.</p></body></html>' } });
     await expect(handler({ date: '2026-07-31', vendor: '거영아이앤디' })).resolves.toEqual({ status: 'maintenance' });

@@ -100,6 +100,11 @@ describe('kidkids orders page script', () => {
     await expect(load({ listHtml: '<html><body><h2>서비스 점검 안내</h2><p>보다 나은 서비스를 위해 시스템 점검을 진행하고 있습니다.</p></body></html>' }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'maintenance' });
   });
 
+  it('목록 표가 있는 빈 목록은 점검 예고 배너가 있어도 0건 성공이다(리뷰 SHOULD 1)', async () => {
+    const empty = '<html><body><div>시스템 점검 안내: 10월 1일 새벽</div><table><tr><td>선택</td><td>주문번호</td><td>주문일</td><td>상품명</td></tr></table></body></html>';
+    await expect(load({ listHtml: empty }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'ok', orders: [] });
+  });
+
   it('로그인한 빈 목록은 0건 성공, 본인확인 화면·로그인 리다이렉트는 login_required', async () => {
     await expect(load({ listHtml: '<html><body><p>주문 없음</p></body></html>' }).handler({ dateFilter: '2026-09-26' }))
       .resolves.toEqual({ status: 'ok', orders: [] });
