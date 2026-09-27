@@ -243,7 +243,7 @@ export function parseReportNdjson(body: string): Record<string, unknown>[] {
 
 /** 큰 보고서 excel-report(TSV): 첫 줄이 열 이름. 10만 행 이하 보고서는 xlsx로 오므로(문서 §13.11) 받지 않는다. */
 export function parseReportTsv(body: string): Record<string, unknown>[] {
-  if (body.startsWith('PK')) throw failed('excel_report_not_tsv', '쿠팡 광고센터 큰 보고서가 TSV가 아닙니다.');
+  if (body.startsWith('PK')) throw failed('excel_report_not_tsv', '쿠팡 광고센터 큰 보고서가 탭 구분 표가 아닙니다.');
   const lines = body.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim() !== '');
   const [head, ...rest] = lines;
   if (!head) return [];

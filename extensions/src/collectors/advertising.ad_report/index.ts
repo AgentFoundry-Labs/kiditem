@@ -128,8 +128,14 @@ export const adReportCollector: Collector<AdReportPlan, Record<string, unknown>,
 
     // 캠페인 현재 상태를 먼저 읽는다 — 큰 보고서(TSV)에는 광고그룹 ID가 없어 캠페인의 그룹으로 채운다.
     const campaigns = await readCampaigns(site);
+    // 같은 캠페인에 같은 그룹 이름이 둘이면 먼저 나온 그룹 ID로 채운다(TSV에는 이름뿐이라 가를 수 없다).
     const campaignGroups = new Map<string, string>();
-    for (const campaign of campaigns) for (const group of campaign.adGroups) campaignGroups.set(groupKey(campaign.campaignId, group.name), group.adGroupId);
+    for (const campaign of campaigns) {
+      for (const group of campaign.adGroups) {
+        const key = groupKey(campaign.campaignId, group.name);
+        if (!campaignGroups.has(key)) campaignGroups.set(key, group.adGroupId);
+      }
+    }
 
     // 3. 상품 보고서.
     if (signal.aborted) return;

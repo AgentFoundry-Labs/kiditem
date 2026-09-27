@@ -5030,7 +5030,12 @@ var KidItemRuntime = (() => {
       const [productReport, keywordReport] = requested;
       const campaigns = await readCampaigns(site);
       const campaignGroups = /* @__PURE__ */ new Map();
-      for (const campaign of campaigns) for (const group of campaign.adGroups) campaignGroups.set(groupKey(campaign.campaignId, group.name), group.adGroupId);
+      for (const campaign of campaigns) {
+        for (const group of campaign.adGroups) {
+          const key = groupKey(campaign.campaignId, group.name);
+          if (!campaignGroups.has(key)) campaignGroups.set(key, group.adGroupId);
+        }
+      }
       if (signal.aborted) return;
       const productRecords = await site.downloadReport({ id: productReport.reportId, isLargeReport: productReport.isLargeReport });
       const productRows2 = [];
@@ -10023,7 +10028,7 @@ var KidItemRuntime = (() => {
     return rows;
   }
   function parseReportTsv(body) {
-    if (body.startsWith("PK")) throw failed2("excel_report_not_tsv", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD070 \uBCF4\uACE0\uC11C\uAC00 TSV\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+    if (body.startsWith("PK")) throw failed2("excel_report_not_tsv", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD070 \uBCF4\uACE0\uC11C\uAC00 \uD0ED \uAD6C\uBD84 \uD45C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
     const lines = body.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim() !== "");
     const [head, ...rest] = lines;
     if (!head) return [];
