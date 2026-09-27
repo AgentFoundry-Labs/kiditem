@@ -66,7 +66,7 @@ import '../sites/wing/traffic';
 import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
-import { createTabPages } from '../sites/tab-page';
+import { createTabPages, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
@@ -89,6 +89,8 @@ export function installEntry(): boolean {
     tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
     randomId: () => crypto.randomUUID(),
   };
+  // 서비스워커가 다시 떴다 — 지난 실행이 남긴 알림 창 가드 등록을 지운다(KID-380 D4).
+  void sweepDialogGuards(chrome);
   const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({

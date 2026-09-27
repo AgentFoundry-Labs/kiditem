@@ -8365,6 +8365,16 @@ var KidItemRuntime = (() => {
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   }
   var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
+  var DIALOG_GUARD_ID_PREFIX = "kiditem-dialog-guard-";
+  async function sweepDialogGuards(chromeApi) {
+    const scripting = chromeApi.scripting;
+    if (!scripting.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+    try {
+      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+      if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
+    } catch {
+    }
+  }
   var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
   var OPERATOR_POLL_MS = 2e3;
   var OPERATOR_WAIT_MAX_MS = 10 * 6e4;
@@ -8507,7 +8517,7 @@ var KidItemRuntime = (() => {
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
         dialogGuardSerial += 1;
-        const id = `kiditem-dialog-guard-${deps.now()}-${dialogGuardSerial}`;
+        const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
         const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
         let registered = false;
         if (matches.length > 0 && scripting.registerContentScripts) {
@@ -13420,6 +13430,7 @@ var KidItemRuntime = (() => {
       tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
       randomId: () => crypto.randomUUID()
     };
+    void sweepDialogGuards(chrome);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({

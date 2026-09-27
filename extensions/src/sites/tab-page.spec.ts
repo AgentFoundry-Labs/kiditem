@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../core/errors';
-import { createTabPages, leftForOperator, type PageGuard, type TabPageChrome } from './tab-page';
+import { createTabPages, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
 
 function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
@@ -276,5 +276,25 @@ describe('TabPages.keep·reclaimKept — 사이트마다 남긴 탭 하나(KID-3
     await tabs.keep('https://store.lotteon.com', { ...first, tabId: 11 });
     expect(log).toContain('remove 9');
     expect((await tabs.reclaimKept('https://store.lotteon.com'))?.tabId).toBe(11);
+  });
+});
+
+describe('sweepDialogGuards — 서비스워커가 다시 뜰 때 남은 가드 지우기(리뷰 MUST 2)', () => {
+  it('등록된 content script 중 kiditem-dialog-guard-* 만 지운다', async () => {
+    const removed: string[][] = [];
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    chromeApi.scripting.getRegisteredContentScripts = async () => [
+      { id: 'kiditem-dialog-guard-1-1' }, { id: 'other-script' }, { id: 'kiditem-dialog-guard-2-5' },
+    ];
+    chromeApi.scripting.unregisterContentScripts = async (filter) => { removed.push([...(filter?.ids ?? [])]); };
+    await sweepDialogGuards(chromeApi);
+    expect(removed).toEqual([['kiditem-dialog-guard-1-1', 'kiditem-dialog-guard-2-5']]);
+  });
+
+  it('남은 가드가 없거나 API가 없으면 아무것도 하지 않고, 실패해도 던지지 않는다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    await expect(sweepDialogGuards(chromeApi)).resolves.toBeUndefined();
+    chromeApi.scripting.getRegisteredContentScripts = async () => { throw new Error('boom'); };
+    await expect(sweepDialogGuards(chromeApi)).resolves.toBeUndefined();
   });
 });

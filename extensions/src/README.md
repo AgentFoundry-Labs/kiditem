@@ -43,8 +43,9 @@ SMS·본인확인 화면(GS샵)은 `waitForOperator`로 멈췄다 잇는다.
 불러오는 중 알림 창 가드(KID-380 D4): 몰이 로드 중 `alert`·`confirm`을 띄우면 백그라운드 탭이 멈춘다. `withFreshTab`(로그인
 입구의 `hosts` 또는 `dialogGuardHosts`)과 로그인하러 여는 탭은 주소를 옮기기 전에 `TabPages.guardDialogs`로 그 호스트에
 MAIN world·document_start 등록 content script(`content/page-call/dialog-guard.js`, 실행마다 id 하나)를 걸고 끝나면 지운다.
-가드는 문장만 `window.__kiditemDialogs`에 모으고 바로 돌아간다(`confirm`은 확인). `chrome.scripting`은 `sites/tab-page.ts`만
-만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
+가드는 숨은 수집 탭에서만 문장을 `window.__kiditemDialogs`에 모으고 바로 돌아간다 — `confirm` 자동 확인도 숨은 탭에서만이고,
+보이는 탭(운영자 탭·남긴 탭·앞으로 가져온 GS샵 SMS 탭)은 진짜 창을 띄운다. 서비스워커가 다시 뜨면 입구가
+`sweepDialogGuards`로 남은 가드 등록을 지운다. `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
 `alert`을 바꿨다가 되돌린다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의

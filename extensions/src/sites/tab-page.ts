@@ -122,6 +122,24 @@ export interface TabPages {
 
 /** 불러오는 중 알림 창 가드 파일(MAIN world, document_start). */
 export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
+const DIALOG_GUARD_ID_PREFIX = 'kiditem-dialog-guard-';
+
+/**
+ * 서비스워커가 다시 뜨면 지난 실행이 건 가드 등록이 남는다(해제 함수를 잃었다) — 입구가 뜰 때 이 확장의 가드 등록을 다
+ * 지운다(리뷰 MUST 2). 던지지 않는다.
+ */
+export async function sweepDialogGuards(chromeApi: Pick<TabPageChrome, 'scripting'>): Promise<void> {
+  const scripting = chromeApi.scripting;
+  if (!scripting.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
+  try {
+    const ids = (await scripting.getRegisteredContentScripts())
+      .map((script) => script.id)
+      .filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+    if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
+  } catch {
+    // 지우지 못해도 다음 실행은 새 id로 건다.
+  }
+}
 
 export const SITE_TAB_UNAVAILABLE = 'SITE_TAB_UNAVAILABLE' as const;
 
@@ -181,6 +199,7 @@ export interface TabPageChrome {
       persistAcrossSessions: boolean;
     }>): Promise<unknown>;
     unregisterContentScripts?(filter?: { ids?: string[] }): Promise<unknown>;
+    getRegisteredContentScripts?(filter?: { ids?: string[] }): Promise<Array<{ id: string }>>;
   };
   runtime: {
     onMessage: {
@@ -340,7 +359,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     async guardDialogs(hosts) {
       const scripting = deps.chrome.scripting;
       dialogGuardSerial += 1;
-      const id = `kiditem-dialog-guard-${deps.now()}-${dialogGuardSerial}`;
+      const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
       const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
       let registered = false;
       if (matches.length > 0 && scripting.registerContentScripts) {
