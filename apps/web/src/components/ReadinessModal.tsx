@@ -17,7 +17,7 @@ import {
   shouldAutoOpen,
   type AutoOpenWhen,
 } from './readiness/readiness-modal-model';
-import { ActionCheckCard, AdKeywordRow, AdSyncRow, CompactOkRow, StockSyncRow } from './readiness/ReadinessRows';
+import { ActionCheckCard, AdReportRow, CompactOkRow, StockSyncRow } from './readiness/ReadinessRows';
 import { useReadinessCollection } from './readiness/useReadinessCollection';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
@@ -234,8 +234,7 @@ export default function ReadinessModal({
                   </p>
                 </div>
                 <div className="space-y-2.5">
-                  <AdSyncRow />
-                  <AdKeywordRow />
+                  <AdReportRow />
                   <StockSyncRow />
                   {additionalCollection}
                 </div>

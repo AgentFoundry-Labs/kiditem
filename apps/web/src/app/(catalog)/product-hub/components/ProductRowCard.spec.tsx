@@ -17,6 +17,12 @@ describe('ProductRowCard', () => {
     expect(screen.queryByRole('img', { name: '테스트 상품 상품 이미지' })).not.toBeInTheDocument();
   });
 
+  it('names the row ad cost as the billed ad cost, VAT included', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText(/광고비\(청구·VAT 포함\) 3,500원/)).toBeInTheDocument();
+  });
+
   it('keeps an operator product code visible in the catalog row', () => {
     render(<ProductRowCard product={product()} />);
 

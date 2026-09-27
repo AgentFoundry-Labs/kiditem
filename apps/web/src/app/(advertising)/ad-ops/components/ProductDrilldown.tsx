@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { roasColor } from '../lib/status-colors';
-import { displayKeyword, stripEmbeddedOptionId } from '../lib/ad-product-display';
+import { adProductCatalogHref, displayKeyword, stripEmbeddedOptionId } from '../lib/ad-product-display';
 import type { AdProductSnapshot } from '@kiditem/shared/advertising';
 import type { CampaignSelection } from './CampaignTable';
 
@@ -18,18 +19,11 @@ interface Props {
 const PAGE_SIZES = [10, 20, 50, 100] as const;
 
 /**
- * Per-campaign product detail table, mirroring the Coupang ad-center campaign
- * detail grid.
+ * Per-campaign product detail table over the ad report's product rows
+ * (`/api/ads/products?campaignIdentity=`), summed over the page period.
  *
- * Source is `/api/ads/products?campaign=` — product-GRAIN rows only. This used
- * to read `/api/ads/campaigns?campaign=`, which returns campaign-grain rollups,
- * so the "product" rows were really the campaign's own aggregate row. Mixing
- * the two grains is what produced the 2026-07-17 double count.
- *
- * Only campaigns whose detail grid was actually swept have rows here. Live
- * 2026-07-17: `쿠팡윙 집중광고` has 29 product rows; no other campaign has any.
- * Those campaigns get an explicit "not collected" empty state rather than a
- * fabricated zero table.
+ * A campaign with no product row in the period gets an explicit empty state
+ * rather than a fabricated zero table.
  */
 export function ProductDrilldown({ campaign, period }: Props) {
   const [page, setPage] = useState(0);
@@ -125,8 +119,8 @@ export function ProductDrilldown({ campaign, period }: Props) {
             이 캠페인의 상품별 데이터가 수집되지 않았습니다.
           </p>
           <p className="text-xs mt-1.5" style={{ color: 'var(--text-tertiary)' }}>
-            상품별 지표는 쿠팡 광고센터의 캠페인 상세 화면에서만 제공됩니다.
-            광고 동기화가 해당 캠페인 상세까지 도달해야 채워집니다.
+            상품별 지표는 광고 보고서 수집이 받은 날의 상품 보고서에서 채워집니다.
+            이 기간에 이 캠페인의 상품 행이 없었습니다.
           </p>
         </div>
       ) : (
@@ -173,8 +167,12 @@ export function ProductDrilldown({ campaign, period }: Props) {
                         <div className="min-w-0">
                           <div className="font-medium truncate text-sm" style={{ color: 'var(--text-primary)' }}>
                             {/* 쿠팡은 상품명 셀에 옵션ID 를 같이 렌더한다.
-                                아래 줄에서 따로 보여주므로 중복을 걷어낸다. */}
-                            {stripEmbeddedOptionId(p.productName, p.externalOptionId) ?? '이름 없음'}
+                                아래 줄에서 따로 보여주므로 중복을 걷어낸다.
+                                상품 링크는 카탈로그 리스팅에 매칭된 줄만 건다. */}
+                            <ProductName
+                              name={stripEmbeddedOptionId(p.productName, p.externalOptionId) ?? '이름 없음'}
+                              href={adProductCatalogHref(p.listing)}
+                            />
                           </div>
                           {p.externalOptionId && (
                             <div className="text-[11px] tabular-nums" style={{ color: 'var(--text-tertiary)' }}>
@@ -238,5 +236,14 @@ export function ProductDrilldown({ campaign, period }: Props) {
         </>
       )}
     </div>
+  );
+}
+
+function ProductName({ name, href }: { name: string; href: string | null }) {
+  if (!href) return <>{name}</>;
+  return (
+    <Link href={href} className="hover:underline" style={{ color: 'var(--primary)' }}>
+      {name}
+    </Link>
   );
 }

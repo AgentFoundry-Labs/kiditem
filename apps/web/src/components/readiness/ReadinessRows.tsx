@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronDown,
   Database,
-  KeyRound,
   LineChart,
   Loader2,
   Megaphone,
@@ -22,19 +21,18 @@ import {
   sourceReadinessStatus,
   type SourceReadinessStatus,
 } from '@kiditem/shared/source-readiness';
-import { adCampaignSweepCollection } from '@/app/(advertising)/ad-ops/lib/ad-campaign-collection';
-import { adKeywordCollection } from '@/app/(advertising)/ad-ops/lib/ad-keyword-collection';
+import { AdReportCollection } from '@/app/(advertising)/ad-ops/components/AdReportCollection';
 import { useWingRankCollection } from '@/app/(advertising)/rank-tracking/lib/wing-rank-collection';
 import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/SellpiaSyncAction';
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import {
   sellpiaSalesCollection,
   sellpiaSalesReadinessRange,
 } from '@/lib/sellpia-sales-source-collection';
-import { cn, formatNumber, timeAgo } from '@/lib/utils';
+import { cn, timeAgo } from '@/lib/utils';
 import { InfoDisclosure } from '@/components/ui/InfoDisclosure';
 import { CatalogReadinessAction, CatalogReadinessStatus } from './CatalogReadinessControl';
 import type { LucideIcon } from 'lucide-react';
@@ -99,19 +97,6 @@ function SourceReadinessChip({ status }: { status: SourceReadinessStatus }) {
       {meta.text}
     </span>
   );
-}
-
-/** Campaign and keyword owners cover through the end date of their latest completed plan. */
-function ownerSourceReadiness(source: {
-  ready: boolean;
-  latestComplete: { plan: { endDate: string } } | null;
-}): SourceReadinessStatus {
-  return sourceReadinessStatus({
-    ready: source.ready,
-    latestComplete: source.latestComplete
-      ? { actualCutoff: source.latestComplete.plan.endDate }
-      : null,
-  });
 }
 
 /** Sellpia inventory is ready after a completed collection; it has no age cutoff. */
@@ -302,7 +287,7 @@ export function ActionCheckCard({
   const missingCount = check.missingDates?.length ?? 0;
   // 상품 받기 is the selected Coupang account's shared collection control.
   const isCatalog = check.key === 'coupang_products';
-  // The campaign sweep keeps one control in this modal, 광고 동기화 below;
+  // The ad report keeps one control in this modal, 광고 보고서 수집 below;
   // the ad readiness card only points to it.
   const collectsThroughAdSync = check.key === 'coupang_ads';
   // Sellpia sales keeps one shared control across readiness and the sales screens.
@@ -370,7 +355,7 @@ export function ActionCheckCard({
 
         {collectsThroughAdSync ? (
           <p className="shrink-0 self-center text-[11px] text-[var(--text-muted)]">
-            {'아래 ‘광고 동기화’에서 받아요'}
+            {'아래 ‘광고 보고서 수집’에서 받아요'}
           </p>
         ) : collectsThroughSalesControl ? (
           <SellpiaSalesCardControl check={check} />
@@ -415,123 +400,35 @@ export function ActionCheckCard({
 }
 
 /**
- * The campaign sweep's one control in the readiness modal. Start, refusal,
- * running scope and stop come from the shared collection control.
+ * The ad report's control in the readiness modal (`advertising.ad_report`,
+ * KID-371). It is the one ad collector: the same shared control as the ad
+ * operations status tab, so start, running scope and stop come from there.
  */
-export function AdSyncRow() {
-  const control = useCollectionSourceControl(adCampaignSweepCollection);
-  const source = control.status;
-  const readiness = source ? ownerSourceReadiness(source) : null;
-  const attempt = source?.latestAttempt ?? null;
-
+export function AdReportRow() {
   return (
     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
-      <div className="flex items-start gap-3 p-4">
+      <div className="flex flex-wrap items-start gap-3 p-4">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
           <Megaphone className="h-5 w-5" />
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">광고 동기화</h3>
-            <InfoDisclosure label="광고 동기화">
-              <p>최근 31일 캠페인과 광고상품을 전체 순회해요. 기존 완료본은 수집 중에도 유지됩니다.</p>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">광고 보고서 수집</h3>
+            <InfoDisclosure label="광고 보고서 수집">
+              <p>광고센터 상품·키워드 보고서와 정산을 한 번에 받아요. 받은 날만 광고 성과로 셉니다.</p>
             </InfoDisclosure>
-            {readiness && <SourceReadinessChip status={readiness} />}
           </div>
-          <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            {source?.latestComplete
-              ? `사용 중인 데이터: ${source.latestComplete.plan.startDate} ~ ${source.latestComplete.plan.endDate}`
-              : '완료된 데이터가 없습니다. 전체 순회 완료 후 결과를 표시합니다.'}
-          </p>
-          {attempt && (
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              {attempt.state === 'FAILED'
-                ? (stoppedAttempt(attempt)
-                  ? COLLECTION_STOPPED_MESSAGE
-                  : operatorReason(attempt.errorMessage, '수집 실패. 새로 수집해 주세요.'))
-                : attempt.state === 'RUNNING'
-                  ? `캠페인 ${attempt.campaignCount}개 수집 중 · 미발행`
-                  : `전체 수집 완료${attempt.rawOnlyCampaignCount ? ` · ${attempt.rawOnlyCampaignCount}개 원본만 보존` : ''}`}
-            </p>
-          )}
         </div>
 
-        <CollectionStartControl
-          control={control}
-          startLabel="광고 동기화"
-          onStart={() => control.start()}
-          onStop={control.stop}
-        />
+        <AdReportCollection />
       </div>
     </div>
   );
 }
 
 /**
- * Standalone keyword collection row.
- *
- * Kept separate from `AdSyncRow` because the two collect different things:
- * the ad sync walks 31 days of campaign/product facts, while this pulls the
- * keyword table of every advertised product. Keyword collection also runs on
- * its own — it does not need the 31-day sweep to finish first.
- */
-export function AdKeywordRow() {
-  const control = useCollectionSourceControl(adKeywordCollection);
-  const source = control.status;
-  const readiness = source ? ownerSourceReadiness(source) : null;
-  const attempt = source?.latestAttempt ?? null;
-
-  return (
-    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface)] transition-all">
-      <div className="flex items-start gap-3 p-4">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--primary-soft)] text-[var(--primary)]">
-          <KeyRound className="h-5 w-5" />
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5">
-            <h3 className="text-sm font-semibold text-[var(--text-primary)]">광고 키워드 수집</h3>
-            <InfoDisclosure label="광고 키워드 수집">
-              <p>전체 캠페인의 광고상품별 노출 키워드를 수집해요. 완료 전에는 이전 완료본을 사용합니다.</p>
-            </InfoDisclosure>
-            {readiness && <SourceReadinessChip status={readiness} />}
-          </div>
-          <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-            완료본 유지 · 필요하면 명시적으로 다시 실행
-          </p>
-          {attempt && (
-            <p className="mt-1 text-xs text-[var(--text-secondary)]">
-              {attempt.state === 'FAILED'
-                ? (stoppedAttempt(attempt)
-                  ? COLLECTION_STOPPED_MESSAGE
-                  : operatorReason(attempt.errorMessage, '수집 실패. 새로 수집해 주세요.'))
-                : attempt.state === 'COMPLETE'
-                  ? '전체 수집 완료'
-                  : `수집 진행 ${attempt.completedGroupCount}/${attempt.groupCount} 광고그룹 · 미발행`}
-            </p>
-          )}
-          {source?.latestComplete && (
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              사용 중인 데이터: {source.latestComplete.plan.startDate} ~{' '}
-              {source.latestComplete.plan.endDate}
-            </p>
-          )}
-        </div>
-
-        <CollectionStartControl
-          control={control}
-          startLabel="키워드 수집"
-          onStart={() => control.start()}
-          onStop={control.stop}
-        />
-      </div>
-    </div>
-  );
-}
-
-/**
- * 셀피아 동기화 행. AdSyncRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
+ * 셀피아 동기화 행. AdReportRow 와 마찬가지로 readiness check 가 아닌 별도 행이라
  * 진행바 분모(N/5)를 바꾸지 않는다. 시작, 진행 중, 중단은 재고 화면과 같은 공용 수집
  * 컨트롤이 보여 주고, 행은 freshness 로 준비 상태만 표시한다.
  */

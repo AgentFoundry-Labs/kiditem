@@ -33,7 +33,7 @@ function session(
 ): BrowserCollectionSessionView {
   return {
     attemptId: ATTEMPT_ID,
-    producer: 'advertising.ad_keyword',
+    producer: 'orders.mall_admin_listings',
     progress: {
       current: 2,
       total: 4,

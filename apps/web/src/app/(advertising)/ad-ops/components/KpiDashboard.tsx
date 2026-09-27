@@ -90,8 +90,8 @@ export default function KpiDashboard({ summary, period }: KpiDashboardProps) {
     : "-";
 
   const smallKpis: SmallKpi[] = [
-    { label: "ROAS", value: formatPercent(metrics?.roas ?? null), basis: "광고 전환 매출 ÷ 광고비", accentColor: "#733de5", icon: BarChart3 },
-    { label: "광고비/전환매출", value: formatPercent(spendToAdRevenue), basis: "광고비 ÷ 광고 전환 매출", accentColor: "#dc2626", icon: Megaphone },
+    { label: "ROAS", value: formatPercent(metrics?.roas ?? null), basis: "광고 전환 매출 ÷ 집행 광고비", accentColor: "#733de5", icon: BarChart3 },
+    { label: "집행 광고비/전환매출", value: formatPercent(spendToAdRevenue), basis: "집행 광고비 ÷ 광고 전환 매출", accentColor: "#dc2626", icon: Megaphone },
     { label: "CTR", value: formatPercent(metrics?.ctr ?? null), basis: "클릭 ÷ 노출", accentColor: "#0891b2", icon: Zap },
     { label: "CVR", value: formatPercent(metrics?.cvr ?? null), basis: "전환 ÷ 클릭", accentColor: "#059669", icon: TrendingUp },
   ];
@@ -138,12 +138,12 @@ export default function KpiDashboard({ summary, period }: KpiDashboardProps) {
         </div>
         <div className="mt-3 pt-3 space-y-1.5" style={{ borderTop: "1px solid rgba(5,150,105,0.15)" }}>
           <DetailRow label="CPC" value={won(costPerClick)} />
-          <DetailRow label="일평균 광고비" value={won(dailySpend)} />
-          <DetailRow label="건당 광고비" value={won(costPerConversion)} />
+          <DetailRow label="일평균 집행 광고비" value={won(dailySpend)} />
+          <DetailRow label="전환당 집행 광고비" value={won(costPerConversion)} />
         </div>
       </div>
 
-      {/* ─── 우측: ROAS · 광고비/전환매출 · CTR · CVR ─── */}
+      {/* ─── 우측: ROAS · 집행 광고비/전환매출 · CTR · CVR ─── */}
       {smallKpis.map((kpi) => <SmallKpiCard key={kpi.label} kpi={kpi} />)}
     </div>
   );

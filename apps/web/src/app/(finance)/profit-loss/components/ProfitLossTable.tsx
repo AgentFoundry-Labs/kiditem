@@ -3,6 +3,7 @@
 import { cn, formatKRW, formatPercent, getAdCostColor, getGradeColor, getProfitColor } from '@/lib/utils';
 import type { PLData } from '@kiditem/shared/finance';
 import SortableHeader from '@/components/ui/SortableHeader';
+import { PROFIT_AD_COST_LABEL } from '@/lib/ad-spend-labels';
 
 // Plan D.1 T7 note: `orderCount` is intentionally NOT sortable — the plan narrows
 // sortable dimensions to the 8 financial fields below. Pre-T7 users could sort by
@@ -116,7 +117,7 @@ export default function ProfitLossTable({
                 />
                 <SortableHeader<SortField>
                   field="adCost"
-                  label="광고비"
+                  label={PROFIT_AD_COST_LABEL}
                   activeField={sortField}
                   direction={sortDirection}
                   onSort={onToggleSort}

@@ -587,6 +587,8 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     // 명시적인 0 은 0 이다. 세 칸 모두 지우지 않는다.
     expect(screen.getByTestId('headline-adConvRevenue')).toHaveTextContent('0원');
     expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('0원');
+    // 광고 성과 줄은 집행 광고비다. 이익 줄의 청구·VAT 포함 광고비와 다른 값이다.
+    expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('집행 광고비');
     expect(screen.getByTestId('headline-roas')).toHaveTextContent('0%');
   });
 
@@ -698,6 +700,8 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
+    // 이익 줄의 광고비는 청구액·부가세 포함이다 — 광고 성과 줄의 집행 광고비와 다른 값이다.
+    expect(screen.getByTestId('headline-adCost')).toHaveTextContent('광고비(청구·VAT 포함)');
     // 서버가 낸 순이익을 그대로 쓴다 — 입력으로 다시 계산하지 않는다.
     const profit = screen.getByTestId('headline-profit');
     expect(profit).toHaveTextContent('777원');

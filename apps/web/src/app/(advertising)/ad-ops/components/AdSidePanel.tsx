@@ -38,7 +38,7 @@ export default function AdSidePanel({ rules, strategy }: AdSidePanelProps) {
       if (issues.lowRoas.length > 0) {
         issueItems.push({
           label: `저ROAS 상품 ${issues.lowRoas.length}개`,
-          detail: "예산 축소 또는 입찰가 조정 필요",
+          detail: "예산 축소 검토 필요",
           priority: "high",
         });
       }

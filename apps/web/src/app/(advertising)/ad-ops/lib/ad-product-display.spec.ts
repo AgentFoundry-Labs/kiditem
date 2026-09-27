@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayKeyword, stripEmbeddedOptionId } from './ad-product-display';
+import { adProductCatalogHref, displayKeyword, stripEmbeddedOptionId } from './ad-product-display';
 
 describe('stripEmbeddedOptionId', () => {
   // Live row from the 쿠팡윙 집중광고 campaign detail grid (2026-07-17).
@@ -51,5 +51,25 @@ describe('displayKeyword', () => {
   it('treats blank and missing as no keyword', () => {
     expect(displayKeyword('   ')).toBeNull();
     expect(displayKeyword(null)).toBeNull();
+  });
+});
+
+describe('adProductCatalogHref', () => {
+  // The product link is the catalog product the ad row resolved to; an ad
+  // center URL is never a product link.
+  it('links an ad row matched to a catalog listing to its product hub page', () => {
+    expect(
+      adProductCatalogHref({
+        listingId: '11111111-1111-4111-8111-111111111111',
+        externalId: '92548632917',
+        channelName: '스핀 워터건',
+        masterProduct: { id: '22222222-2222-4222-8222-222222222222', code: 'KI-1', name: '스핀 워터건' },
+        option: null,
+      }),
+    ).toBe('/product-hub/22222222-2222-4222-8222-222222222222');
+  });
+
+  it('gives no link to an ad row without a catalog listing', () => {
+    expect(adProductCatalogHref(null)).toBeNull();
   });
 });
