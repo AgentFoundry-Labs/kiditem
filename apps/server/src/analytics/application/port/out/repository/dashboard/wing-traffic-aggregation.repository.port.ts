@@ -123,7 +123,10 @@ export interface WingDailyTrendRow {
 
 export interface CoupangAdsDailyRow {
   date: string;
+  /** 집행 광고비(성과, KID-368) — 광고 대시보드 일별 차트. */
   ad_cost: number;
+  /** 광고비(청구·VAT 포함, 이익): 그날 (청구액 + 계정 조정) × 1.1, 원 단위 — 추세·셀피아 손익. */
+  profit_ad_cost: number;
 }
 
 export interface WingTrafficAggregationRepositoryPort {

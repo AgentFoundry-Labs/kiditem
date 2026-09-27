@@ -244,7 +244,8 @@ describe('analytics.sellpia_sales owner over the operation contract + disposable
       row('2026-07-15', 200, { amount: 2, buyPrice: 80 }),
       row('2026-07-16', 300, { amount: 3, buyPrice: 120 }),
     ]);
-    dailyAdsRead = [{ date: '2026-07-14', ad_cost: 110 }, { date: '2026-07-16', ad_cost: 230 }];
+    // Profit reads the billed, VAT-included cost; the delivered ad_cost is a performance figure.
+    dailyAdsRead = [{ date: '2026-07-14', ad_cost: 100, profit_ad_cost: 110 }, { date: '2026-07-16', ad_cost: 210, profit_ad_cost: 230 }];
     const response = await summary('2026-07-14', '2026-07-16');
     expect(response.body).toMatchObject({
       totalRevenue: 600,
