@@ -4,7 +4,7 @@ import guardSource from '../kiditem-os/content/page-call/dialog-guard.js?raw';
 import fillSource from '../kiditem-os/content/page-call/form-fill.js?raw';
 import { GMARKET_REGISTRATION_FORM } from './sites/gmarket/registration';
 import { normalizeForm } from './sites/mall-write/form';
-import { dom, loadWritePage, payloadFor, runPageCall } from './sites/mall-write/write-page.fake';
+import { dom, loadedImage, loadWritePage, payloadFor, runPageCall } from './sites/mall-write/write-page.fake';
 
 // ESM Plus(지마켓·옥션 한 번에, 실측 2026-09-11 빈 폼 `item.esmplus.com/goods/new`): `<form>`·`name`·`id`가 없는 Next.js 화면이라
 // 화면에 찍힌 섹션 제목이 유일한 손잡이다. 칸은 load 뒤 8~10초 더 지나야 그려진다 — 페이지 안에서 기다린다.
@@ -59,6 +59,50 @@ describe('지마켓·옥션(ESM Plus) 상품등록 폼(KID-256)', () => {
     const page = load();
     const { call, payload } = payloadFor(GMARKET_REGISTRATION_FORM, FORM);
     await runPageCall(page, call, payload, { onFakeClock: fieldsArriveLate });
+    expect(page.saves).toEqual([]);
+  });
+});
+
+// 사진·상세(옛 node 스펙 `mall-form-esmplus` 이미지·상세 절 이식): 상품이미지 칸은 하나인데 `multiple`이라 대표·추가를 한 번에
+// 넣고(첫 장이 대표), 상세는 [이미지 업로드] 탭 안의 전용 파일 칸(`div.box__board` 안 — 상품이미지 칸과 이름이 같다)에 올리고
+// 안내 문구가 "등록된 이미지가 있습니다"로 바뀔 때까지 지켜본다.
+const IMAGE_FIELDS = `${FIELDS}
+  ${section('상품이미지', '<input type="file" class="form__file" multiple>')}
+  ${section('상세설명', '<ul class="list__tab-board"><li><button class="button__tab">HTML 작성</button></li><li><button class="button__tab">이미지 업로드</button></li></ul><div class="box__board"></div>')}`;
+
+const imageFieldsArriveLate = () => setTimeout(() => {
+  const { document } = dom;
+  document.querySelector('#fields').innerHTML = IMAGE_FIELDS;
+  const board = document.querySelector('div.box__board');
+  const tabs = [...document.querySelectorAll('button.button__tab')] as Array<{ textContent: string; addEventListener(type: string, listener: () => void): void }>;
+  tabs.find((tab) => tab.textContent === '이미지 업로드')!.addEventListener('click', () => {
+    board.innerHTML = '<p>등록된 이미지가 없습니다</p><input type="file" class="form__file">';
+    board.querySelector('input.form__file').addEventListener('change', () => setTimeout(() => {
+      board.querySelector('p').textContent = '등록된 이미지가 있습니다';
+    }, 4_000));
+  });
+}, 9_000);
+
+const IMAGES = { imageGroups: { esmplus: [loadedImage('rep'), loadedImage('extra')] }, detailImage: loadedImage('detail') };
+
+describe('지마켓·옥션(ESM Plus) 사진·상세(KID-256 리뷰 2)', () => {
+  it('상품이미지 칸 하나에 대표·추가를 한 번에 넣고, 상세는 이미지 업로드 탭의 보드 안 파일 칸에 올려 안내 문구로 확인한다', async () => {
+    const page = load();
+    const { call, payload } = payloadFor(GMARKET_REGISTRATION_FORM, FORM, IMAGES);
+
+    const outcome = await runPageCall(page, call, payload, { onFakeClock: imageFieldsArriveLate });
+
+    const { document } = dom;
+    const [productImages, detailFile] = [...document.querySelectorAll('input.form__file')] as Array<{ files: File[] }>;
+    expect(productImages!.files.map((file) => file.name)).toEqual(['rep.jpg', 'extra.jpg']);
+    expect(detailFile!.files.map((file) => file.name)).toEqual(['detail.jpg']);
+    expect(outcome.steps).toEqual(expect.arrayContaining(['상품이미지 2장', '상세설명(이미지 업로드)']));
+  });
+
+  it('사진·상세가 실린 채워도 임시저장·등록하기를 누르지 않는다(KID-237 잠금)', async () => {
+    const page = load();
+    const { call, payload } = payloadFor(GMARKET_REGISTRATION_FORM, FORM, IMAGES);
+    await runPageCall(page, call, payload, { onFakeClock: imageFieldsArriveLate });
     expect(page.saves).toEqual([]);
   });
 });

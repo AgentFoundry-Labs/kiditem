@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 import { normalizeForm, type MallFormSpec } from './form';
-import { fillPayload } from './form-register';
+import { fillPayload, type PreparedForm } from './form-register';
+import type { LoadedImage } from './images';
 
 /**
  * 스펙용 — 몰 쓰기 페이지 처리기(`content/page-call/form-fill.js`와 전용 몰 `<mall>-register.js`)를 실제 파일 그대로 jsdom
@@ -44,6 +45,16 @@ export function loadWritePage(html: string, sources: readonly string[], options:
       }
     };
   }
+  // 처리기가 파일 칸에 `files`를 넣는다 — jsdom은 진짜 FileList만 받으므로 넣은 목록을 그대로 쥔다(스펙이 읽는다).
+  Object.defineProperty(window.HTMLInputElement.prototype, 'files', {
+    configurable: true,
+    get(this: any) {
+      return this.__kiditemFiles ?? [];
+    },
+    set(this: any, value: unknown) {
+      this.__kiditemFiles = Array.from(value as ArrayLike<unknown>);
+    },
+  });
   // jsdom은 배치를 하지 않아 `offsetParent`가 늘 null이다 — 처리기가 '보이는 칸'을 가릴 때 쓰므로 숨김(hidden·display none)만 가린다.
   Object.defineProperty(window.HTMLElement.prototype, 'offsetParent', {
     configurable: true,
@@ -99,10 +110,24 @@ export async function runPageCall(page: WritePage, call: string, args: unknown, 
   return JSON.parse(JSON.stringify(answer)) as Record<string, any>;
 }
 
-/** 명세와 폼 지시로 페이지 처리기 인자를 만든다(사진·상세 없이 — 서비스워커 준비는 `form-register.spec.ts`가 본다). */
-export function payloadFor(spec: MallFormSpec, form: Record<string, unknown>): { call: string; payload: Record<string, unknown> } {
+/** 서비스워커가 읽어 넘긴 사진 하나(`toDataUrls` 결과 모양). 바이트는 JPEG 머리 몇 바이트다. */
+export function loadedImage(name: string): LoadedImage {
+  return { name, dataUrl: 'data:image/jpeg;base64,/9j/4AAQ', fileName: `${name}.jpg` };
+}
+
+/**
+ * 명세와 폼 지시로 페이지 처리기 인자를 만든다. 사진·상세(`prepared`)는 서비스워커가 준비한 모양 그대로 넘긴다 — 없으면
+ * 사진·상세 없이(서비스워커 준비 자체는 `form-register.spec.ts`가 본다).
+ */
+export function payloadFor(
+  spec: MallFormSpec,
+  form: Record<string, unknown>,
+  prepared: Partial<Pick<PreparedForm, 'images' | 'imageGroups' | 'repImage' | 'detailImage' | 'detailHtml'>> = {},
+): { call: string; payload: Record<string, unknown> } {
   const normalized = normalizeForm(spec, form);
-  const { call, payload } = fillPayload(spec, { form: normalized, images: [], imageGroups: {}, repImage: null, detailImage: null, detailHtml: '', warnings: [] });
+  const { call, payload } = fillPayload(spec, {
+    form: normalized, images: [], imageGroups: {}, repImage: null, detailImage: null, detailHtml: '', warnings: [], ...prepared,
+  });
   return { call, payload };
 }
 

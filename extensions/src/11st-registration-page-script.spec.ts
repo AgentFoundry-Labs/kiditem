@@ -4,7 +4,7 @@ import guardSource from '../kiditem-os/content/page-call/dialog-guard.js?raw';
 import fillSource from '../kiditem-os/content/page-call/form-fill.js?raw';
 import { ST11_REGISTRATION_FORM } from './sites/11st/registration';
 import { normalizeForm } from './sites/mall-write/form';
-import { dom, loadWritePage, payloadFor, runPageCall } from './sites/mall-write/write-page.fake';
+import { dom, loadedImage, loadWritePage, payloadFor, runPageCall } from './sites/mall-write/write-page.fake';
 
 // 11번가 셀러오피스 신규상품 등록(라이브 실측 2026-09-10): 폼은 iframe 안의 Vue 앱이고, 칸 이름이 런타임 해시라 블록 id + 행
 // 제목으로 잡는다. 배송 템플릿은 계정마다 다른 번호라 보이는 글자로 고른다. 광고 블록은 켜지면 셀러캐시가 나가므로 건드리지 않는다.
@@ -56,6 +56,50 @@ describe('11번가 상품등록 폼(KID-256)', () => {
     const { page } = load();
     const { call, payload } = payloadFor(ST11_REGISTRATION_FORM, FORM);
     await runPageCall(page, call, payload);
+    expect(page.saves).toEqual([]);
+  });
+});
+
+// 사진·상세(옛 node 스펙 이식): 사진은 줄의 '+'가 여는 창(id가 매번 다른 `dialog-…`) 안의 파일 칸에 넣고, 같은 제목으로 시작하는
+// 라디오 줄이 있어 '+'가 있는 줄만 고른다. 상세는 HTML이 기본 선택된 편집기 뒤 textarea에 넣는다(`#section-description textarea`).
+function loadWithImages() {
+  const { page } = load();
+  const { document } = dom;
+  document.querySelector('#app').insertAdjacentHTML('beforeend', `
+    <div id="section-image">
+      ${box('추가이미지 사용', '<input type="radio" name="useAdd">')}
+      ${box('대표 이미지', '<button type="button" class="c-addimg__btn-add" data-dialog="rep">+</button>')}
+      ${box('추가이미지', '<button type="button" class="c-addimg__btn-add" data-dialog="add">+</button>')}
+    </div>
+    <div id="section-description"><textarea></textarea></div>`);
+  for (const button of document.querySelectorAll('button.c-addimg__btn-add')) {
+    button.addEventListener('click', () => {
+      const id = `dialog-${button.dataset.dialog}${Date.now()}`;
+      document.body.insertAdjacentHTML('beforeend', `<div id="${id}"><input type="file" multiple></div>`);
+      // 사진을 받으면 몰이 자기 CDN에 올리고 창을 스스로 닫는다.
+      const dialog = document.getElementById(id);
+      dialog.querySelector('input').addEventListener('change', () => { dialog.style.display = 'none'; });
+    });
+  }
+  return page;
+}
+
+describe('11번가 사진·상세(KID-256 리뷰 2)', () => {
+  it('줄의 +가 연 창 안 파일 칸에 사진을 넣고(라디오 줄은 건너뛴다), 상세는 HTML textarea에 넣으며, 사진이 실려도 저장하지 않는다', async () => {
+    const page = loadWithImages();
+    const detailHtml = '<center><img referrerpolicy="no-referrer" src="https://kids-wi.kakaocdn.net/dn/aa/bb/1.jpg"></center>';
+    const { call, payload } = payloadFor(ST11_REGISTRATION_FORM, FORM, {
+      imageGroups: { representative: [loadedImage('rep')], additional: [loadedImage('a1'), loadedImage('a2')] },
+      detailHtml,
+    });
+
+    const outcome = await runPageCall(page, call, payload);
+
+    const { document } = dom;
+    const dialogs = [...document.querySelectorAll('[id^="dialog-"] input[type=file]')] as Array<{ files: File[] }>;
+    expect(dialogs.map((input) => input.files.map((file) => file.name))).toEqual([['rep.jpg'], ['a1.jpg', 'a2.jpg']]);
+    expect(document.querySelector('#section-description textarea').value).toBe(detailHtml);
+    expect(outcome.steps).toEqual(expect.arrayContaining(['대표 이미지 1장', '추가 이미지 2장', '상세설명']));
     expect(page.saves).toEqual([]);
   });
 });
