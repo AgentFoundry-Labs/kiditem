@@ -13,7 +13,19 @@
 //   campaign/raw-scrape handlers.
 
 import type { AdTargetType } from './util/ad-target-key';
-import type { ListingOptionDailyState } from '../application/port/out/repository/channel-option-daily.repository.port';
+
+/** Option-day winner state a scraped option row carries (`ChannelListingOptionDailySnapshot` columns). */
+export interface ListingOptionDailyState {
+  optionName?: string | null;
+  salePrice?: number | null;
+  stockQty?: number | null;
+  saleStatus?: string | null;
+  isActive?: boolean | null;
+  isOfferWinner?: boolean | null;
+  myPrice?: number | null;
+  winnerPrice?: number | null;
+  winnerGapPrice?: number | null;
+}
 
 /** Listing-level state that one Wing item-winner row can observe. */
 export interface ListingDailyState {

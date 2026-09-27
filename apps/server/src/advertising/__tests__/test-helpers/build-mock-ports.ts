@@ -6,7 +6,7 @@
 //
 // One builder per port. Cover every port file in
 // `apps/server/src/advertising/application/port/out/` (sans the type-only
-// `daily-fact-meta.ts` / `repository-transaction.ts`).
+// `repository-transaction.ts`).
 
 import { vi } from 'vitest';
 import type { AdBenchmarkRepositoryPort } from '../../application/port/out/repository/ad-benchmark.repository.port';
