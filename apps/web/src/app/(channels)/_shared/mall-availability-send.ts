@@ -13,8 +13,8 @@ import { attemptFailureText } from '@/lib/operator-error';
 import { mallStopBadge, type MallStopKind } from './mall-presentation';
 import {
   newRegistrationIdempotencyKey,
-  readRegistrationOperation,
   RegistrationOperationInProgress,
+  startAfterOtherOperations,
   startRegistrationOperation,
   waitForRegistrationOperation,
   type RegistrationOperationRead,
@@ -201,23 +201,22 @@ export type MallAvailabilityItem =
 export const MALL_AVAILABILITY_BATCH_MAX = MALL_AVAILABILITY_READ_MAX_LISTINGS;
 
 export interface MallAvailabilityRun {
-  /** 시작했거나 이미 돌던 실행. */
-  operation: RegistrationOperationRead | null;
-  /** 이번 호출이 새 실행을 시작했다. */
-  started: boolean;
-  /** 이미 돌던 실행을 만났을 때의 서버 문장. */
-  message: string | null;
+  /** 이 호출이 시작한 실행(잠금을 쥔 다른 실행은 기다렸다 제 것을 시작한다). */
+  operation: RegistrationOperationRead;
+  started: true;
+  message: null;
 }
 
 interface WaitOptions {
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 /**
- * 몰 계정 하나의 품절·재개 묶음을 실행 하나로 보낸다. 같은 계정의 같은 리스팅 실행이 이미 돌면 다시 보내지 않고 그 실행을
- * 돌려준다. 결과는 `reconciling`(몰에서 확인 필요)까지 기다린다.
+ * 몰 계정 하나의 품절·재개 묶음을 실행 하나로 보낸다. 계정 잠금을 쥔 다른 실행이 있으면 끝날 때까지(최대 3분) 기다렸다
+ * 시작한다. 결과는 `reconciling`(몰에서 확인 필요)까지 기다린다.
  */
 export async function sendMallAvailability(
   input: {
@@ -233,24 +232,27 @@ export async function sendMallAvailability(
   if (input.items.length > MALL_AVAILABILITY_BATCH_MAX) {
     throw new Error(`한 번에 ${MALL_AVAILABILITY_BATCH_MAX}개까지 보냅니다. 나눠 보내 주세요.`);
   }
-  let operationId: string;
-  try {
-    ({ operationId } = await startRegistrationOperation({
-      mallKey: input.mallKey,
-      idempotencyKey: input.idempotencyKey ?? newRegistrationIdempotencyKey(input.action),
-      scope: {
-        executionKind: input.action,
-        channelAccountId: input.channelAccountId,
-        items: input.items.map((item) => (item.channelListingId
-          ? { channelListingId: item.channelListingId }
-          : { channelListingOptionIds: [...(item.channelListingOptionIds ?? [])] })),
-      },
-    }));
-  } catch (error) {
-    if (!(error instanceof RegistrationOperationInProgress)) throw error;
-    const existing = error.existingOperationId ? await readRegistrationOperation(error.existingOperationId) : null;
-    return { operation: existing, started: false, message: error.message };
-  }
+  const idempotencyKey = input.idempotencyKey ?? newRegistrationIdempotencyKey(input.action);
+  // 같은 계정 잠금을 쥔 다른 실행(자동 읽기 · 다른 품절 묶음)은 끝날 때까지 기다린다 — 그 실행을 제 것으로 삼지 않는다.
+  const operationId = await startAfterOtherOperations<string>(async () => {
+    try {
+      const { operationId: started } = await startRegistrationOperation({
+        mallKey: input.mallKey,
+        idempotencyKey,
+        scope: {
+          executionKind: input.action,
+          channelAccountId: input.channelAccountId,
+          items: input.items.map((item) => (item.channelListingId
+            ? { channelListingId: item.channelListingId }
+            : { channelListingOptionIds: [...(item.channelListingOptionIds ?? [])] })),
+        },
+      });
+      return { started };
+    } catch (error) {
+      if (error instanceof RegistrationOperationInProgress) return { busyWith: error.existingOperationId };
+      throw error;
+    }
+  }, options);
   return { operation: await waitForRegistrationOperation(operationId, options), started: true, message: null };
 }
 
@@ -300,16 +302,18 @@ async function readChunk(
   input: { mallKey: string; channelAccountId: string; codes: readonly string[]; automatic: boolean },
   options: WaitOptions,
 ): Promise<MallAvailabilityRow[]> {
-  const outcome = await requestOperationStart(MALL_AVAILABILITY_READ_KIND, {
-    channelAccountId: input.channelAccountId,
-    mallKey: input.mallKey,
-    externalListingIds: [...input.codes],
-  }, {
-    capability: CHANNELS_REGISTRATION_OPERATION_CAPABILITY,
-    ...(await operationLoginOptions(input.mallKey, { automatic: input.automatic })),
-  });
-  const operationId = outcome.outcome === 'refused' ? outcome.existingOperationId : outcome.operationId;
-  if (!operationId) throw new Error(outcome.outcome === 'refused' ? outcome.message : READ_FAILED);
+  const login = await operationLoginOptions(input.mallKey, { automatic: input.automatic });
+  // 같은 계정 잠금을 쥔 다른 실행(품절 · 다른 페이지 읽기)은 끝날 때까지 기다린다 — 그 결과를 빌려 쓰지 않는다.
+  const operationId = await startAfterOtherOperations<string>(async () => {
+    const outcome = await requestOperationStart(MALL_AVAILABILITY_READ_KIND, {
+      channelAccountId: input.channelAccountId,
+      mallKey: input.mallKey,
+      externalListingIds: [...input.codes],
+    }, { capability: CHANNELS_REGISTRATION_OPERATION_CAPABILITY, ...login });
+    if (outcome.outcome === 'refused') return { busyWith: outcome.existingOperationId ?? null };
+    if (!outcome.operationId) throw new Error(READ_FAILED);
+    return { started: outcome.operationId };
+  }, options);
   const operation = await waitForAvailabilityRead(operationId, options);
   // 저장 자격이 몰에서 거절됐으면 그 몰의 자동 로그인을 멈춘다(D10 — 거듭 두드리면 계정이 잠긴다).
   if (operation.status === 'failed') noteOperationLoginFailureForMall(input.mallKey, operation);

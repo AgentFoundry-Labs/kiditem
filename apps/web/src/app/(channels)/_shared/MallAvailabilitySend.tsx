@@ -159,14 +159,14 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
             action: 'sold_out',
             items: batch.map((listing) => ({ channelListingOptionIds: listing.channelListingOptionIds })),
           });
-          const warnings = result.operation?.result?.fill.warnings ?? [];
+          const warnings = result.operation.result?.fill.warnings ?? [];
           showAvailabilityWarnings(warnings);
           setRunItems((current) => [...current, {
             key,
             groupLabel,
             listingCount: batch.length,
             run: result,
-            message: result.message ?? result.operation?.message ?? (result.operation ? result.operation.label : '품절 실행을 확인하지 못했습니다.'),
+            message: result.operation.message ?? result.operation.label,
           }]);
         } catch (error) {
           setRunItems((current) => [...current, {

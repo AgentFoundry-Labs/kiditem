@@ -123,18 +123,6 @@ describe('품절 · 재개 = 몰 계정 묶음 등록 실행 하나(KID-364)', (
     expect(starts).toEqual([]);
   });
 
-  it('같은 계정의 실행이 이미 돌면 다시 보내지 않고 그 실행을 보인다', async () => {
-    vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
-      const body = message as Record<string, unknown>;
-      if (body.action === 'ping') {
-        return { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true, 'mallWriteSite.coupang': true } } as never;
-      }
-      return { success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 대상의 다른 실행이 진행 중입니다.', details: { existing: { operationId: OPERATION_ID } } } as never;
-    });
-    vi.mocked(apiClient.get).mockResolvedValue({ operation: operation({ status: 'executing', finishedAt: null }) });
-    const run = await sendMallAvailability({ mallKey: 'coupang', channelAccountId: ACCOUNT, action: 'sold_out', items: [{ channelListingId: LISTING }] }, noSleep);
-    expect(run).toMatchObject({ started: false, message: '같은 대상의 다른 실행이 진행 중입니다.', operation: { state: 'running' } });
-  });
 });
 
 describe('몰 지금 재고', () => {
@@ -288,5 +276,90 @@ describe('품절 문장', () => {
     expect(mallSoldOutNote('gmarket')).toContain('13개월');
     expect(mallSoldOutNote('11st')).toContain('판매중지');
     expect(mallSoldOutNote('kakao')).toBeNull();
+  });
+});
+
+/**
+ * 잠금 공유(리더 결정 6): 읽기·품절·재개는 `account:<id>` 잠금을 나눠 쓴다. 다른 실행이 잠금을 쥐고 있으면 웹은 그 실행을
+ * 제 것으로 삼지 않고 끝날 때까지 기다린 뒤 제 시작을 다시 보낸다(최대 3분).
+ */
+const OTHER_ID = '99999999-9999-4999-8999-999999999999';
+const OWN_ID = '88888888-8888-4888-8888-888888888888';
+
+function busyThenFree(capabilities: Record<string, boolean>) {
+  const starts: Array<Record<string, unknown>> = [];
+  vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+    const body = message as Record<string, unknown>;
+    if (body.action === 'ping') return { success: true, capabilities } as never;
+    starts.push(body);
+    return (starts.length === 1
+      ? { success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 대상의 다른 실행이 진행 중입니다.', details: { existing: { operationId: OTHER_ID } } }
+      : { success: true, operationId: OWN_ID, reused: false }) as never;
+  });
+  return starts;
+}
+
+const READ_CAPS = { operationRuntime: true, channelsRegistrationOperationKindV1: true, 'mallWriteSite.coupang': true };
+
+describe('잠금을 쥔 다른 실행은 기다린다 — 제 것으로 삼지 않는다', () => {
+  it('⭐ 품절 실행이 계정을 쥐고 있으면 읽기는 그것이 끝나길 기다렸다 제 읽기를 시작하고 제 결과만 쓴다', async () => {
+    const starts = busyThenFree(READ_CAPS);
+    let otherReads = 0;
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+      if (href.endsWith(OTHER_ID)) {
+        otherReads += 1;
+        return { operation: operation({ id: OTHER_ID, status: otherReads < 2 ? 'executing' : 'succeeded', plan: { executionKind: 'sold_out' } }) };
+      }
+      return { operation: operation({
+        id: OWN_ID, kind: 'channels.mall_availability_read',
+        result: { rowCount: 1, missingExternalListingIds: [], rows: [
+          { externalListingId: '1', externalOptionId: 'o', available: true, stock: 3, rocket: false, observedStatus: null, observedAt: '2026-09-27T09:00:30.000Z' },
+        ] },
+      }) };
+    });
+
+    const products = await readMallAvailabilityMany({ mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['1'] }, noSleep);
+
+    expect(starts).toHaveLength(2);
+    expect(otherReads).toBe(2);
+    expect(products.get('1')).toEqual([{ optionCode: 'o', stock: 3, rocket: false }]);
+  });
+
+  it('다른 페이지의 읽기가 도는 중이어도 그 결과를 빌려 쓰지 않고 끝난 뒤 제 읽기를 시작한다', async () => {
+    const starts = busyThenFree(READ_CAPS);
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => (href.endsWith(OTHER_ID)
+      ? { operation: operation({ id: OTHER_ID, kind: 'channels.mall_availability_read', status: 'succeeded',
+        result: { rowCount: 1, missingExternalListingIds: [], rows: [
+          { externalListingId: 'OTHER', externalOptionId: null, available: false, stock: 0, rocket: false, observedStatus: null, observedAt: '2026-09-27T09:00:30.000Z' },
+        ] } }) }
+      : { operation: operation({ id: OWN_ID, kind: 'channels.mall_availability_read', result: { rowCount: 0, missingExternalListingIds: ['1'], rows: [] } }) }));
+
+    const products = await readMallAvailabilityMany({ mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['1'] }, noSleep);
+
+    expect(starts).toHaveLength(2);
+    expect(products.has('OTHER')).toBe(false);
+  });
+
+  it('⭐ 자동 읽기가 도는 중의 품절 클릭은 그 읽기가 끝나길 기다렸다 제 품절 실행을 시작한다', async () => {
+    const starts = busyThenFree(READ_CAPS);
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => (href.endsWith(OTHER_ID)
+      ? { operation: operation({ id: OTHER_ID, kind: 'channels.mall_availability_read', status: 'succeeded' }) }
+      : { operation: operation({ id: OWN_ID, status: 'reconciling', finishedAt: null, plan: { executionKind: 'sold_out' } }) }));
+
+    const run = await sendMallAvailability({ mallKey: 'coupang', channelAccountId: ACCOUNT, action: 'sold_out', items: [{ channelListingId: LISTING }] }, noSleep);
+
+    expect(starts).toHaveLength(2);
+    expect(run.operation?.operation.id).toBe(OWN_ID);
+  });
+
+  it('3분 안에 잠금이 풀리지 않으면 다른 실행이 진행 중이라고 말하고 시작하지 않는다', async () => {
+    const starts = busyThenFree(READ_CAPS);
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: operation({ id: OTHER_ID, status: 'executing', finishedAt: null }) });
+    let clock = 0;
+    await expect(sendMallAvailability(
+      { mallKey: 'coupang', channelAccountId: ACCOUNT, action: 'sold_out', items: [{ channelListingId: LISTING }] },
+      { sleep: () => Promise.resolve(), now: () => (clock += 30_000) },
+    )).rejects.toThrow('다른 실행이 진행 중입니다.');
+    expect(starts).toHaveLength(1);
   });
 });

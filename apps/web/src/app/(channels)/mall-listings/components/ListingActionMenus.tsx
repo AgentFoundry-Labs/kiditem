@@ -311,21 +311,16 @@ export function CellActionPopover({
         items: [{ channelListingId }],
       });
       setLastRun(result.operation);
-      showAvailabilityWarnings(result.operation?.result?.fill.warnings ?? []);
-      if (!result.started) {
-        toast.warning(`${column.mallName} 상품에 진행 중인 실행이 있습니다. 다시 보내지 않았습니다.`, {
-          description: result.message ?? undefined,
-          duration: 10_000,
-        });
-      } else if (result.operation?.state === 'confirmed') {
+      showAvailabilityWarnings(result.operation.result?.fill.warnings ?? []);
+      if (result.operation.state === 'confirmed') {
         toast.success(`${column.mallName} ${word}를 몰에서 확인했습니다.`);
-      } else if (result.operation?.state === 'failed' || result.operation?.state === 'cancelled') {
+      } else if (result.operation.state === 'failed' || result.operation.state === 'cancelled') {
         toast.error(result.operation.message ?? `${column.mallName} ${word}를 보내지 못했습니다.`);
       } else {
         toast.warning(`${column.mallName}에 ${word}를 보냈습니다. 몰에서 반영을 확인해 주세요.`, { duration: 10_000 });
       }
       void queryClient.invalidateQueries({ queryKey: queryKeys.mallPublishing.all });
-      if (result.started && liveReadable) readLive();
+      if (liveReadable) readLive();
     } catch (error) {
       toast.error(friendlyError(error, '보내지 못했습니다.'));
     } finally {

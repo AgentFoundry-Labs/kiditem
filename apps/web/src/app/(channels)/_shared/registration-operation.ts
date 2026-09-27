@@ -10,6 +10,7 @@ import {
   type RegistrationResult,
 } from '@kiditem/shared/channels-operations';
 import {
+  isOperationTerminal,
   OperationFinishResponseSchema,
   OperationListResponseSchema,
   type OperationListResponse,
@@ -267,6 +268,47 @@ export async function waitForRegistrationOperation(
     if (read.state === 'failed') noteLoginFailure(read.operation);
     if (read.state !== 'running' || now() >= deadline) return read;
     await sleep(options.pollMs ?? POLL_MS);
+  }
+}
+
+// ── 잠금을 쥔 다른 실행 기다리기 (리더 결정 6) ─────────────────────────────────────
+
+/** 잠금을 쥔 다른 실행을 기다리는 상한. 넘으면 시작하지 않는다. */
+export const OTHER_OPERATION_WAIT_MS = 180_000;
+const OTHER_OPERATION_POLL_MS = 3_000;
+export const OTHER_OPERATION_RUNNING = '다른 실행이 진행 중입니다. 잠시 뒤 다시 시도해 주세요.';
+
+export interface WaitForOthersOptions {
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * 같은 계정 잠금(`account:<id>`)을 쥔 다른 실행(다른 kind · 다른 scope)을 끝날 때까지 기다린 뒤 `attempt`를 다시 부른다.
+ * 그 실행을 제 것으로 삼지 않는다 — 결과는 늘 제 실행의 것이다. 확인 필요(`reconciling`)로 멈춘 실행은 사람이 닫아야
+ * 풀리므로 기다리지 않는다. 3분 안에 풀리지 않으면 `OTHER_OPERATION_RUNNING`으로 거절한다.
+ * `attempt`는 시작했으면 `{ started }`, 잠금에 걸렸으면 `{ busyWith }`(잠금을 쥔 실행 id, 모르면 null)를 돌려준다.
+ */
+export async function startAfterOtherOperations<T>(
+  attempt: () => Promise<{ started: T } | { busyWith: string | null }>,
+  options: WaitForOthersOptions = {},
+): Promise<T> {
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const deadline = now() + OTHER_OPERATION_WAIT_MS;
+  for (;;) {
+    const outcome = await attempt();
+    if ('started' in outcome) return outcome.started;
+    if (!outcome.busyWith) throw new Error(OTHER_OPERATION_RUNNING);
+    for (;;) {
+      if (now() >= deadline) throw new Error(OTHER_OPERATION_RUNNING);
+      const { operation } = OperationFinishResponseSchema.parse(
+        await apiClient.get(`/api/operations/${encodeURIComponent(outcome.busyWith)}`),
+      );
+      if (isOperationTerminal(operation.status)) break;
+      if (operation.status === 'reconciling') throw new Error(OTHER_OPERATION_RUNNING);
+      await sleep(OTHER_OPERATION_POLL_MS);
+    }
   }
 }
 
