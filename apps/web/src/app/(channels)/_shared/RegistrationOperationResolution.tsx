@@ -53,6 +53,19 @@ function planOptions(read: RegistrationOperationRead): PlanOption[] {
   });
 }
 
+/** 실행 종류별 확인 방식. 새 등록은 몰이 준 등록상품ID로, 기존 몰 상품 수정은 그 상품번호로, 묶음 품절·재개는 닫기만. */
+function confirmationMode(read: RegistrationOperationRead): 'listing_id' | 'existing_listing' | 'close_only' {
+  const kind = read.operation.plan?.executionKind;
+  if (kind === 'sold_out' || kind === 'resume') return 'close_only';
+  if (kind === 'update' || kind === 'thumbnail_update') return 'existing_listing';
+  return 'listing_id';
+}
+
+function planExternalListingId(read: RegistrationOperationRead): string {
+  const value = read.operation.plan?.externalListingId;
+  return typeof value === 'string' ? value : '';
+}
+
 export function RegistrationOperationResolution({
   read,
   onResolved,
@@ -63,7 +76,8 @@ export function RegistrationOperationResolution({
   onResolved?: () => void;
   className?: string;
 }) {
-  const [externalListingId, setExternalListingId] = useState(read.result?.externalListingId ?? '');
+  const mode = confirmationMode(read);
+  const [externalListingId, setExternalListingId] = useState(read.result?.externalListingId ?? planExternalListingId(read));
   const [observedUrl, setObservedUrl] = useState('');
   const [optionIds, setOptionIds] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -88,10 +102,13 @@ export function RegistrationOperationResolution({
   });
 
   const close = useMutation({
-    mutationFn: () => closeRegistrationOperation(operationId),
+    mutationFn: () => closeRegistrationOperation(
+      operationId,
+      mode === 'listing_id' ? undefined : '운영자가 몰에서 확인: 반영되지 않음',
+    ),
     onSuccess: () => {
       setError(null);
-      toast.success('등록되지 않음으로 닫았습니다.');
+      toast.success(mode === 'listing_id' ? '등록되지 않음으로 닫았습니다.' : '반영되지 않음으로 닫았습니다.');
       onResolved?.();
     },
     onError: (cause) => setError(friendlyError(cause, '실행을 닫지 못했습니다.')),
@@ -109,9 +126,29 @@ export function RegistrationOperationResolution({
         )}
       </div>
       {read.message && <p className="mt-1">{read.message}</p>}
-      {needsConfirmation && (
+      {needsConfirmation && mode === 'close_only' && (
         <div className="mt-2 space-y-2">
-          <p>몰에 제출됐지만 등록상품ID를 읽지 못했습니다. 몰 관리자에서 확인해 주세요.</p>
+          <p>몰에 보냈지만 반영을 다시 읽어 확인하지 못했습니다. 몰 관리자에서 확인한 뒤, 반영됐으면 몰 상품을 다시 가져오고, 반영되지 않았으면 닫아 주세요.</p>
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded border border-slate-300 bg-white px-2 py-1 font-medium text-slate-700 disabled:opacity-40"
+              disabled={busy}
+              onClick={() => close.mutate()}
+            >
+              <XCircle size={12} aria-hidden />
+              반영되지 않음
+            </button>
+          </div>
+        </div>
+      )}
+      {needsConfirmation && mode !== 'close_only' && (
+        <div className="mt-2 space-y-2">
+          <p>
+            {mode === 'listing_id'
+              ? '몰에 제출됐지만 등록상품ID를 읽지 못했습니다. 몰 관리자에서 확인해 주세요.'
+              : '몰에 보냈지만 반영을 다시 읽어 확인하지 못했습니다. 몰 관리자에서 확인해 주세요.'}
+          </p>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <label className="block">
               <span className="mb-0.5 block font-medium">등록상품ID</span>
@@ -159,7 +196,7 @@ export function RegistrationOperationResolution({
               onClick={() => close.mutate()}
             >
               <XCircle size={12} aria-hidden />
-              등록되지 않음
+              {mode === 'listing_id' ? '등록되지 않음' : '반영되지 않음'}
             </button>
             <button
               type="button"

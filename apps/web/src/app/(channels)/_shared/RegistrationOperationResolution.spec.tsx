@@ -81,6 +81,23 @@ describe('RegistrationOperationResolution — reconciling 등록 실행 확인(K
     expect(alert.textContent).not.toContain('OPERATION_FENCE_LOST');
   });
 
+  it('묶음 품절·재개는 등록상품ID를 묻지 않고 "반영되지 않음"으로만 닫는다', async () => {
+    render(wrap(<RegistrationOperationResolution read={describeRegistrationOperation(operation({ plan: { executionKind: 'sold_out' } }))} />));
+    expect(screen.queryByLabelText('등록상품ID')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '반영되지 않음' }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
+      `/api/channels/registration-operations/${OPERATION}/close`,
+      { reason: '운영자가 몰에서 확인: 반영되지 않음' },
+    ));
+  });
+
+  it('기존 몰 상품 수정(가격·썸네일)은 그 상품번호를 채워 두고 확인한다', () => {
+    render(wrap(<RegistrationOperationResolution read={describeRegistrationOperation(operation({
+      plan: { executionKind: 'update', externalListingId: 'MALL-9' }, result: null,
+    }))} />));
+    expect((screen.getByLabelText('등록상품ID') as HTMLInputElement).value).toBe('MALL-9');
+  });
+
   it('확인 필요가 아닌 실행은 상태만 보이고 입력을 열지 않는다', () => {
     render(wrap(<RegistrationOperationResolution read={describeRegistrationOperation(operation({ status: 'executing', result: null }))} />));
     expect(screen.getByText('진행 중')).toBeTruthy();

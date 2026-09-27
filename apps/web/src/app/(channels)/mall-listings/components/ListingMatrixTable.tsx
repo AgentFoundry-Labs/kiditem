@@ -481,6 +481,7 @@ function MatrixRow({
                   state={state}
                   rawStatus={cell?.rawStatus ?? null}
                   externalId={externalId}
+                  channelListingId={cell?.registration?.channelListingId ?? null}
                   productUrl={cell?.productUrl ?? null}
                   live={liveCell}
                   onRefreshLive={() => (externalId ? live.refresh(column.mallKey, externalId) : Promise.resolve())}
