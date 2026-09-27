@@ -106,6 +106,24 @@ describe('<MallAvailabilitySend />', () => {
     }));
   });
 
+  it('옵션이 200개를 넘는 몰 상품은 항목당 200개씩 나눠 담는다(계약 상한)', async () => {
+    const many = Array.from({ length: 201 }, (_, index) => candidate({
+      channelListingOptionId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      mallOptionCode: `V-${index}`,
+    }));
+    vi.mocked(mallPublishingApi.availabilityPreview).mockResolvedValue({ ...preview, candidates: many, total: 201, loaded: 201 });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MallAvailabilitySend />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /쿠팡 · 스토어 A/ }));
+    await waitFor(() => expect(sendMallAvailability).toHaveBeenCalledOnce());
+    const items = vi.mocked(sendMallAvailability).mock.calls[0]![0].items as Array<{ channelListingOptionIds: string[] }>;
+    expect(items.map((item) => item.channelListingOptionIds.length)).toEqual([200, 1]);
+  });
+
   it('a start refusal is shown in the operator’s words, never the raw error', async () => {
     mocks.send.mockRejectedValue(new Error('OPERATION_RUNTIME_MISSING'));
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });

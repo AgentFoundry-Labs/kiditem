@@ -37,6 +37,15 @@ import { friendlyError } from '@/lib/api-error';
  */
 const PREVIEW_LIMIT = 3_000;
 
+/** 계약 상한 — 묶음 항목 하나에 담는 몰 옵션 id 수(`RegistrationScopeSchema.items[].channelListingOptionIds`). */
+const OPTION_IDS_PER_ITEM = 200;
+
+function chunk<T>(values: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let start = 0; start < values.length; start += size) chunks.push(values.slice(start, start + size));
+  return chunks;
+}
+
 /** 경고는 앞의 몇 개만 띄운다. 나머지는 개수로 말한다 — 상품마다 한 장씩 띄우면 화면이 덮인다. */
 const WARNING_TOASTS = 3;
 
@@ -148,16 +157,19 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
     const groupLabel = `${group.mallName} · ${group.channelAccountLabel}`;
     try {
       const listings = group.listings.filter((listing) => listing.channelListingOptionIds.length > 0);
-      for (let start = 0; start < listings.length; start += MALL_AVAILABILITY_BATCH_MAX) {
-        const batch = listings.slice(start, start + MALL_AVAILABILITY_BATCH_MAX);
+      // 계약 상한: 항목 하나는 옵션 id 200개까지, 실행 하나는 항목 500개까지.
+      const items = listings.flatMap((listing) => chunk(listing.channelListingOptionIds, OPTION_IDS_PER_ITEM)
+        .map((channelListingOptionIds) => ({ channelListingOptionIds })));
+      for (let start = 0; start < items.length; start += MALL_AVAILABILITY_BATCH_MAX) {
+        const batch = items.slice(start, start + MALL_AVAILABILITY_BATCH_MAX);
         const key = `${group.key}:${start}`;
-        setProgress({ done: start, total: listings.length });
+        setProgress({ done: start, total: items.length });
         try {
           const result = await sendMallAvailability({
             mallKey: group.mallKey,
             channelAccountId: group.channelAccountId,
             action: 'sold_out',
-            items: batch.map((listing) => ({ channelListingOptionIds: listing.channelListingOptionIds })),
+            items: batch,
           });
           const warnings = result.operation.result?.fill.warnings ?? [];
           showAvailabilityWarnings(warnings);
@@ -177,7 +189,7 @@ export function MallAvailabilitySend({ compact = false }: { compact?: boolean })
             message: friendlyError(error, '품절 실행을 시작하지 못했습니다.') ?? '품절 실행을 시작하지 못했습니다.',
           }]);
         }
-        setProgress({ done: Math.min(start + batch.length, listings.length), total: listings.length });
+        setProgress({ done: Math.min(start + batch.length, items.length), total: items.length });
       }
       toast.warning(`${groupLabel} ${formatNumber(listings.length)}개 상품의 품절 실행을 마쳤습니다.`, {
         description: '몰에서 확인한 것만 완료로 기록됩니다. 확인 필요로 남은 실행은 아래에서 결과를 기록하세요.',
