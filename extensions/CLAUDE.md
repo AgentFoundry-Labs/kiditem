@@ -38,7 +38,9 @@ containing test-style underscore paths.
   `src/sites/<mall>/registration.ts` and `availability.ts` behind the
   `sites/mall-write` router; only `src/sites/mall-write/submit-gate.ts` decides
   a press ([ADR-0019](../docs/adr/0019-mall-registrations-submit-all-the-way.md)).
-  Do not add mall-write paths to the old JS workers.
+  Report pressed, accepted, and refused separately; publication is a later
+  re-read. Never press delete, sale-ban, or other irreversible controls. Do not
+  add mall-write paths to the old JS workers.
 - A collector declares the site shape it needs as an interface in its folder;
   `entry/site-handles.ts` hands it the `sites/<site>` implementation. The Wing
   catalog kinds (`channels.wing_catalog_*`, KID-354) are the reference collectors.
