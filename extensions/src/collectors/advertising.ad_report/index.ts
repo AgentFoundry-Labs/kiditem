@@ -138,17 +138,24 @@ export const adReportCollector: Collector<AdReportPlan, Record<string, unknown>,
     const reportGroups = new Map<string, string>();
     for (const [index, record] of productRecords.entries()) {
       const row = productRow(record, index, campaignGroups);
-      if (!row) continue;
       productRows.push(row);
-      if (row.adGroupId) reportGroups.set(groupKey(row.campaignId, row.adGroupName), row.adGroupId);
+      // 같은 캠페인에 같은 그룹 이름이 둘이면 먼저 나온 그룹 ID가 키워드 행을 채운다(이름만으로는 가를 수 없다).
+      const key = groupKey(row.campaignId, row.adGroupName);
+      if (row.adGroupId && !reportGroups.has(key)) reportGroups.set(key, row.adGroupId);
     }
-    yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows, '상품 보고서 행', { phase: 'product_rows' });
+    yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows, '상품 보고서 행', {
+      phase: 'product_rows',
+      advertisedFallbackRows: productRecords.filter(advertisedMissing).length,
+    });
 
     // 4. 키워드 보고서 — 광고그룹 ID는 상품 보고서의 (캠페인, 그룹 이름)으로 채운다.
     if (signal.aborted) return;
     const keywordRecords = await site.downloadReport({ id: keywordReport.reportId, isLargeReport: keywordReport.isLargeReport });
-    const keywordRows = keywordRecords.flatMap((record, index) => keywordRow(record, index, reportGroups) ?? []);
-    yield* chunked(AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, keywordRows, '키워드 보고서 행', { phase: 'keyword_rows' });
+    const keywordRows = keywordRecords.map((record, index) => keywordRow(record, index, reportGroups));
+    yield* chunked(AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, keywordRows, '키워드 보고서 행', {
+      phase: 'keyword_rows',
+      advertisedFallbackRows: keywordRecords.filter(advertisedMissing).length,
+    });
 
     // 5. 캠페인·광고 현재 상태.
     yield* chunked(AD_REPORT_CAMPAIGNS_CHUNK_KIND, campaigns, '캠페인', { phase: 'campaigns' });
@@ -231,10 +238,22 @@ async function readAds(site: AdReportSite, campaignId: string, adGroupId: string
   }
 }
 
-/** 상품 보고서 행. 광고 옵션이 없는 행(캠페인·그룹 합계 행)은 상품 사실이 아니므로 뺀다. */
-function productRow(record: Record<string, unknown>, index: number, campaignGroups: Map<string, string>): AdReportProductRow | null {
-  const advertisedVendorItemId = id(record.advertised_vendor_item_id);
-  if (advertisedVendorItemId === null && blank(record.advertised_vendor_item_id)) return null;
+/**
+ * 광고한 옵션. 비어 있으면 옛 수익성 가져오기(`profitability-report.js` externalOptionIdFromReportRow)처럼 판매 옵션으로
+ * 대신한다. 둘 다 없으면 행을 조용히 버리지 않고 `report_row_invalid`로 멈춘다.
+ */
+function advertisedOf(record: Record<string, unknown>): string | null {
+  return id(record.advertised_vendor_item_id) ?? (blank(record.advertised_vendor_item_id) ? id(record.vendor_item_id) : null);
+}
+
+/** 광고 옵션이 비어 판매 옵션으로 대신한 행인가(진행 보고의 수). */
+function advertisedMissing(record: Record<string, unknown>): boolean {
+  return blank(record.advertised_vendor_item_id) && id(record.vendor_item_id) !== null;
+}
+
+/** 상품 보고서 행. */
+function productRow(record: Record<string, unknown>, index: number, campaignGroups: Map<string, string>): AdReportProductRow {
+  const advertisedVendorItemId = advertisedOf(record);
   const campaignId = id(record.campaign_id);
   const adGroupName = text(record.ad_group_name);
   const adGroupId = id(record.ad_group_id) ?? (campaignId && adGroupName !== null ? campaignGroups.get(groupKey(campaignId, adGroupName)) ?? null : null);
@@ -249,9 +268,8 @@ function productRow(record: Record<string, unknown>, index: number, campaignGrou
   return { date, campaignId, campaignName, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, placementGroup, ...metrics(record, 'product', index) };
 }
 
-function keywordRow(record: Record<string, unknown>, index: number, reportGroups: Map<string, string>): AdReportKeywordRow | null {
-  const advertisedVendorItemId = id(record.advertised_vendor_item_id);
-  if (advertisedVendorItemId === null && blank(record.advertised_vendor_item_id)) return null;
+function keywordRow(record: Record<string, unknown>, index: number, reportGroups: Map<string, string>): AdReportKeywordRow {
+  const advertisedVendorItemId = advertisedOf(record);
   const date = reportDate(record.dt);
   const campaignId = id(record.campaign_id);
   const adGroupName = text(record.ad_group_name);

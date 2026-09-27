@@ -5037,15 +5037,21 @@ var KidItemRuntime = (() => {
       const reportGroups = /* @__PURE__ */ new Map();
       for (const [index, record4] of productRecords.entries()) {
         const row = productRow(record4, index, campaignGroups);
-        if (!row) continue;
         productRows2.push(row);
-        if (row.adGroupId) reportGroups.set(groupKey(row.campaignId, row.adGroupName), row.adGroupId);
+        const key = groupKey(row.campaignId, row.adGroupName);
+        if (row.adGroupId && !reportGroups.has(key)) reportGroups.set(key, row.adGroupId);
       }
-      yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows2, "\uC0C1\uD488 \uBCF4\uACE0\uC11C \uD589", { phase: "product_rows" });
+      yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows2, "\uC0C1\uD488 \uBCF4\uACE0\uC11C \uD589", {
+        phase: "product_rows",
+        advertisedFallbackRows: productRecords.filter(advertisedMissing).length
+      });
       if (signal.aborted) return;
       const keywordRecords = await site.downloadReport({ id: keywordReport.reportId, isLargeReport: keywordReport.isLargeReport });
-      const keywordRows = keywordRecords.flatMap((record4, index) => keywordRow(record4, index, reportGroups) ?? []);
-      yield* chunked(AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, keywordRows, "\uD0A4\uC6CC\uB4DC \uBCF4\uACE0\uC11C \uD589", { phase: "keyword_rows" });
+      const keywordRows = keywordRecords.map((record4, index) => keywordRow(record4, index, reportGroups));
+      yield* chunked(AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, keywordRows, "\uD0A4\uC6CC\uB4DC \uBCF4\uACE0\uC11C \uD589", {
+        phase: "keyword_rows",
+        advertisedFallbackRows: keywordRecords.filter(advertisedMissing).length
+      });
       yield* chunked(AD_REPORT_CAMPAIGNS_CHUNK_KIND, campaigns, "\uCEA0\uD398\uC778", { phase: "campaigns" });
       const ads = [];
       for (const campaign of campaigns) {
@@ -5115,9 +5121,14 @@ var KidItemRuntime = (() => {
       if (list.length === 0) throw failed("ads_incomplete", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uBAA9\uB85D\uC774 \uC804\uCCB4 \uC218\uBCF4\uB2E4 \uC801\uAC8C \uC654\uC2B5\uB2C8\uB2E4.", { adGroupId, totalCount, received: ads.length });
     }
   }
+  function advertisedOf(record4) {
+    return id(record4.advertised_vendor_item_id) ?? (blank(record4.advertised_vendor_item_id) ? id(record4.vendor_item_id) : null);
+  }
+  function advertisedMissing(record4) {
+    return blank(record4.advertised_vendor_item_id) && id(record4.vendor_item_id) !== null;
+  }
   function productRow(record4, index, campaignGroups) {
-    const advertisedVendorItemId = id(record4.advertised_vendor_item_id);
-    if (advertisedVendorItemId === null && blank(record4.advertised_vendor_item_id)) return null;
+    const advertisedVendorItemId = advertisedOf(record4);
     const campaignId = id(record4.campaign_id);
     const adGroupName = text(record4.ad_group_name);
     const adGroupId = id(record4.ad_group_id) ?? (campaignId && adGroupName !== null ? campaignGroups.get(groupKey(campaignId, adGroupName)) ?? null : null);
@@ -5131,8 +5142,7 @@ var KidItemRuntime = (() => {
     return { date, campaignId, campaignName, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, placementGroup, ...metrics(record4, "product", index) };
   }
   function keywordRow(record4, index, reportGroups) {
-    const advertisedVendorItemId = id(record4.advertised_vendor_item_id);
-    if (advertisedVendorItemId === null && blank(record4.advertised_vendor_item_id)) return null;
+    const advertisedVendorItemId = advertisedOf(record4);
     const date = reportDate(record4.dt);
     const campaignId = id(record4.campaign_id);
     const adGroupName = text(record4.ad_group_name);

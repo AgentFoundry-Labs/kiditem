@@ -279,6 +279,25 @@ describe('collectors/advertising.ad_report — 광고센터 보고서 2개 + 캠
     expect(payloadOf(chunks, 'ad_keyword_rows').find((row) => row.campaignId === '103')).toMatchObject({ adGroupId: null });
   });
 
+  it('광고 옵션이 비면 옛 코드처럼 판매 옵션으로 대신하고 그 수를 진행 보고에 싣는다, 둘 다 없으면 멈춘다', async () => {
+    const template = PRODUCT_REPORT_ROWS[0]!;
+    const fallback = { ...template, advertised_vendor_item_id: '', vendor_item_id: 9005 };
+    const keyword = { ...ndjson(KEYWORD_NDJSON)[0]!, advertised_vendor_item_id: null, vendor_item_id: 9006 };
+    const { site } = fakeAdCenter({ productRows: [template, fallback], keywordRows: [keyword] });
+    const { chunks } = await collectAll(PLAN, site);
+    expect(payloadOf(chunks, 'ad_product_rows').map((row) => [row.advertisedVendorItemId, row.vendorItemId])).toEqual([['9001', '9001'], ['9005', '9005']]);
+    expect(payloadOf(chunks, 'ad_keyword_rows').map((row) => [row.advertisedVendorItemId, row.vendorItemId])).toEqual([['9006', '9006']]);
+    expect(chunks.find((chunk) => chunk.chunkKind === 'ad_product_rows')?.progress).toMatchObject({ advertisedFallbackRows: 1 });
+    expect(chunks.find((chunk) => chunk.chunkKind === 'ad_keyword_rows')?.progress).toMatchObject({ advertisedFallbackRows: 1 });
+    // ad_period 스키마는 고정 — 대신한 행 수를 싣지 않는다.
+    expect(payloadOf(chunks, 'ad_period')[0]).not.toHaveProperty('advertisedFallbackRows');
+
+    const neither = fakeAdCenter({ productRows: [template, { ...template, advertised_vendor_item_id: '', vendor_item_id: '' }] });
+    await expect(collectAll(PLAN, neither.site)).rejects.toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'report_row_invalid', report: 'product', row: 2 } });
+    const keywordNeither = fakeAdCenter({ keywordRows: [{ ...keyword, vendor_item_id: null }] });
+    await expect(collectAll(PLAN, keywordNeither.site)).rejects.toMatchObject({ details: { reason: 'report_row_invalid', report: 'keyword', row: 1 } });
+  });
+
   it('보고서가 5분 안에 끝나지 않으면 SITE_REQUEST_FAILED(report_timeout)', async () => {
     const pending = [{ reportList: { reports: [{ id: '15116068', status: 'inprogress', isLargeReport: false }, { id: '15116069', status: 'inprogress', isLargeReport: false }] } }];
     const { site, calls } = fakeAdCenter({ reportList: pending });
