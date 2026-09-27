@@ -49,6 +49,6 @@ export class AdvertisingLedgerReadService implements AdvertisingLedgerReadPort {
 
   async readMonthlyAdAllocation(): Promise<MonthlyAdAllocation[]> {
     // KID-372 ①b(기여이익 트랙)가 원장 읽기 포트에 월 배분을 더해 채운다.
-    throw new Error('KID-372: readMonthlyAdAllocation is not implemented yet');
+    throw new Error('KID-372 ①b가 채우기 전에는 월 배분을 읽을 수 없습니다');
   }
 }
