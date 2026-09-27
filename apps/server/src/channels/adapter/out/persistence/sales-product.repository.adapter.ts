@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
@@ -1470,7 +1471,7 @@ async function materializeImportedTarget(
   channelAccountId: string,
   data: SalesProductChannelOverrideRecord,
 ): Promise<void> {
-  const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: 'active' } });
+  const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } } });
   if (account !== 1) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
   const options = await tx.salesProductOption.findMany({
     where: { organizationId, salesProductId, supplyStatus: { not: 'unused' } },
