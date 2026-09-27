@@ -144,7 +144,7 @@ const AD_ACTION_ROW_SELECT = {
   createdAt: true,
 } as const;
 
-type AdActionRow = Omit<AdAction, keyof AdActionExecution | 'listingOptionId' | 'adTargetDailyId'>;
+type AdActionRow = Omit<AdAction, keyof AdActionExecution>;
 
 interface AdActionReviewCounts {
   pendingReview: number;
