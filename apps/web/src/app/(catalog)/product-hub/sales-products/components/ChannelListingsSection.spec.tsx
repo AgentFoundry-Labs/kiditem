@@ -50,7 +50,7 @@ describe('ChannelListingsSection price execution', () => {
     // 상품 × 몰 계정당 등록 설정은 하나뿐이다(KID-310) — resolve 가 고를 것 없이 그 하나를 연다.
     expect(executeTargetMallPrice).toHaveBeenCalledWith(expect.objectContaining({
       salesProductId: 'product', channelAccountId: 'account',
-      expectedPrice: 3000, listingId: 'listing', mallKey: 'kakao', idempotencyKey: expect.any(String),
+      expectedPrice: 3000, listingId: 'listing', mallKey: 'kakao', idempotencyKey: expect.any(String), salesProductOptionId: 'option',
     }));
     expect(vi.mocked(executeTargetMallPrice).mock.calls[0]![0]).not.toHaveProperty('targetId');
   });

@@ -105,6 +105,11 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       toast.error('몰 계정을 확인할 수 없어 가격을 보내지 않았습니다.');
       return;
     }
+    const salesProductOptionId = listing.options.length === 1 ? listing.options[0]?.salesProductOptionId : null;
+    if (!salesProductOptionId) {
+      toast.error('몰 옵션이 판매 옵션에 이어지지 않아 가격을 보내지 않았습니다.');
+      return;
+    }
     inFlight.current.add(listing.id);
     const key = `${listing.id}:${target?.id ?? 'common'}:${target?.version ?? 0}`;
     const idempotencyKey = requestKeys.current.get(key) ?? crypto.randomUUID();
@@ -118,6 +123,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
         listingId: listing.id,
         mallKey: listing.mallKey,
         idempotencyKey,
+        salesProductOptionId,
       });
       // 끝난 실행(확인 · 실패)만 다음 보내기에 새 시작을 연다. 확인 필요 · 진행 중은 같은 키로 같은 실행을 돌려받는다.
       if (result.confirmed || result.failed) requestKeys.current.delete(key);

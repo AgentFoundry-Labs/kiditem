@@ -16,10 +16,14 @@ vi.mock('@/app/(channels)/_shared/registration-operation', async (importOriginal
 const { describeRegistrationOperation, RegistrationOperationInProgress } = await import('@/app/(channels)/_shared/registration-operation');
 const { executeTargetMallPrice } = await import('./mall-price-execution');
 
-const TARGET = { id: 'target', salesProductId: 'product', channelAccountId: 'account', version: 3 } as unknown as RegistrationTarget;
+const OPTION = '22222222-2222-4222-8222-222222222222';
+const TARGET = {
+  id: 'target', salesProductId: 'product', channelAccountId: 'account', version: 3,
+  resolved: { name: '카카오', options: [{ salesProductOptionId: OPTION, salePrice: 3000 }] },
+} as unknown as RegistrationTarget;
 const INPUT = {
   salesProductId: 'product', channelAccountId: 'account', expectedPrice: 3000, listingId: '11111111-1111-4111-8111-111111111111',
-  mallKey: 'kakao', idempotencyKey: 'price-1',
+  mallKey: 'kakao', idempotencyKey: 'price-1', salesProductOptionId: OPTION,
 };
 
 function operation(patch: Partial<OperationView>): OperationView {
@@ -93,6 +97,18 @@ describe('executeTargetMallPrice', () => {
     expect(read).toHaveBeenCalledWith('op-0');
     expect(wait).not.toHaveBeenCalled();
     expect(result).toMatchObject({ sent: false, confirmed: false, failed: false, message: '같은 대상의 다른 실행이 진행 중입니다.' });
+  });
+
+  it('⭐ 사람이 본 가격과 등록 설정의 확정 가격이 다르면 보내지 않는다(그사이 가격이 바뀌었다)', async () => {
+    resolveTarget.mockResolvedValue({ ...TARGET, resolved: { name: '카카오', options: [{ salesProductOptionId: OPTION, salePrice: 3500 }] } });
+    await expect(executeTargetMallPrice(INPUT, resolveTarget)).rejects.toThrow('가격이 바뀌었습니다. 몰에서 보일 가격을 다시 확인한 뒤 보내세요.');
+    expect(start).not.toHaveBeenCalled();
+  });
+
+  it('등록 설정이 그 옵션을 고르지 않았으면 보내지 않는다', async () => {
+    resolveTarget.mockResolvedValue({ ...TARGET, resolved: { name: '카카오', options: [] } });
+    await expect(executeTargetMallPrice(INPUT, resolveTarget)).rejects.toThrow('가격이 바뀌었습니다');
+    expect(start).not.toHaveBeenCalled();
   });
 
   it('등록 설정의 상품·계정이 다르면 시작하지 않는다', async () => {

@@ -79,6 +79,7 @@ export interface MallPriceRun {
 }
 
 const CONFIRMED = '몰 가격을 확인했습니다.';
+const PRICE_CHANGED = '가격이 바뀌었습니다. 몰에서 보일 가격을 다시 확인한 뒤 보내세요.';
 const UNCONFIRMED = '몰에 가격을 보냈지만 확인 결과가 없습니다. 다시 보내지 않고 몰에서 확인을 기다립니다.';
 const RUNNING = '가격 보내기가 아직 끝나지 않았습니다. 잠시 뒤 다시 확인하세요.';
 
@@ -108,6 +109,8 @@ export async function executeTargetMallPrice(
     listingId: string;
     mallKey: string;
     idempotencyKey: string;
+    /** 이 몰 상품(옵션 하나)에 이어진 판매 옵션. 사람이 본 가격을 등록 설정의 확정 가격과 대조한다. */
+    salesProductOptionId: string;
   },
   resolveTarget = registrationTargetApi.resolve,
 ): Promise<MallPriceRun> {
@@ -117,6 +120,11 @@ export async function executeTargetMallPrice(
   });
   if (target.channelAccountId !== input.channelAccountId || target.salesProductId !== input.salesProductId) {
     throw new Error('몰별 등록 설정의 상품과 계정을 확인할 수 없습니다.');
+  }
+  // 사람이 확인한 가격이 지금 등록 설정의 확정 가격과 같을 때만 보낸다 — 그사이 바뀐 가격을 모르고 보내지 않게.
+  const settled = target.resolved.options.find((option) => option.salesProductOptionId === input.salesProductOptionId);
+  if (!settled || settled.salePrice !== input.expectedPrice) {
+    throw new Error(PRICE_CHANGED);
   }
   let operationId: string;
   try {
