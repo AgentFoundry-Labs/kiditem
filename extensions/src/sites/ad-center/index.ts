@@ -254,11 +254,12 @@ function isLoginUrl(value: string): boolean {
   }
 }
 
-/** HTTP 4xx·5xx인데 본문이 GraphQL `errors`면 조회 거절이다(변수 형식 오류는 400으로 온다). */
+/** HTTP 4xx·5xx인데 본문에 GraphQL `errors` 배열이 있으면 조회 거절이다(변수 형식 오류는 400으로 온다). */
 function graphqlRejection(error: unknown): RuntimeError | null {
   if (!isRuntimeError(error) || error.code !== SITE_REQUEST_FAILED || error.details?.reason !== 'http') return null;
   const head = typeof error.details.bodyHead === 'string' ? error.details.bodyHead : '';
-  if (!/^\{\s*"errors"\s*:/.test(head)) return null;
+  // `{"errors":[…]}`이든 `{"data":null,"errors":[…]}`이든 본문 어딘가에 errors 배열이 있으면 GraphQL 오류다.
+  if (!/"errors"\s*:\s*\[/.test(head)) return null;
   const match = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head);
   let message = match?.[1] ?? '';
   try {

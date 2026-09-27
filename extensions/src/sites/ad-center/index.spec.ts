@@ -115,6 +115,11 @@ describe('sites/ad-center — 광고센터 읽기(서비스워커, 보고서 생
     expect(second).toMatchObject({ code: SITE_REQUEST_FAILED, details: { reason: 'graphql_error' } });
     // GraphQL 오류는 세션 워밍업 문제가 아니므로 탭을 다시 열지 않는다.
     expect(bad400.sent).toHaveLength(1);
+
+    // `data`가 앞에 와도 본문 어딘가의 `"errors": [`로 GraphQL 오류를 알아본다.
+    const dataFirst = adCenter({ respond: () => Response.json({ data: null, errors: [{ message: 'Int cannot represent non-integer value' }] }, { status: 400 }) });
+    const third = await rejection(dataFirst.site.readSettlement({ ...RANGE, domain: 'SELLER', campaignIds: [101] }));
+    expect(third).toMatchObject({ code: SITE_REQUEST_FAILED, details: { reason: 'graphql_error', graphqlMessage: 'Int cannot represent non-integer value', httpStatus: 400 } });
   });
 
   it('정산은 캠페인 ID(Int)로 getDailySettlementByCampaigns, null이면 계정 전체 getDailySettlement', async () => {

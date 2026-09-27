@@ -9971,7 +9971,7 @@ var KidItemRuntime = (() => {
   function graphqlRejection(error) {
     if (!isRuntimeError(error) || error.code !== SITE_REQUEST_FAILED || error.details?.reason !== "http") return null;
     const head = typeof error.details.bodyHead === "string" ? error.details.bodyHead : "";
-    if (!/^\{\s*"errors"\s*:/.test(head)) return null;
+    if (!/"errors"\s*:\s*\[/.test(head)) return null;
     const match = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head);
     let message = match?.[1] ?? "";
     try {
