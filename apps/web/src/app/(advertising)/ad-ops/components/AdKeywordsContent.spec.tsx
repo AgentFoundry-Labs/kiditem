@@ -296,8 +296,8 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
   it('approves or rejects every proposal of the expanded product awaiting review, and only those, counting them whatever the filter shows', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ updated: 2 });
     await renderExpandedProduct();
-    // The filter hides every chip; the product-wide buttons still count and send all of its proposals.
-    fireEvent.click(screen.getByRole('button', { name: '노출 0' }));
+    // The search hides every chip; the product-wide buttons still count and send all of its proposals.
+    fireEvent.change(screen.getByPlaceholderText('상품명·키워드 검색'), { target: { value: PRODUCT } });
     expect(screen.getByText('조건에 맞는 키워드가 없습니다.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 2개 모두 승인' }));
@@ -396,7 +396,7 @@ describe('AdKeywordsContent over the selected period (KID-372)', () => {
     expect(apiClient.get).toHaveBeenCalledWith('/api/ads/keywords?period=14d');
   });
 
-  it('shows no registered or smart targeting split and labels the spend as the executed ad spend', async () => {
+  it('shows no registered or smart targeting split, no zero-impression filter, and labels the spend column as the executed ad spend', async () => {
     vi.mocked(apiClient.get).mockResolvedValue(keywordsData());
     const view = renderFor('7d');
 
@@ -404,7 +404,12 @@ describe('AdKeywordsContent over the selected period (KID-372)', () => {
     expect(view.container).not.toHaveTextContent('스마트 타겟팅');
     expect(view.container).not.toHaveTextContent('등록');
     expect(screen.getByRole('columnheader', { name: '집행 광고비' })).toBeInTheDocument();
-    expect(screen.getByText('1,000원')).toBeInTheDocument();
+    // A keyword table sum is not the product ad spend, so no spend summary card.
+    expect(screen.getAllByText('집행 광고비')).toHaveLength(1);
+
+    fireEvent.click(screen.getByText(PRODUCT));
+    expect(await screen.findByRole('button', { name: '노출 중' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '노출 0' })).not.toBeInTheDocument();
   });
 
   it('describes each chip by its clicks and orders instead of how the keyword was attached', async () => {

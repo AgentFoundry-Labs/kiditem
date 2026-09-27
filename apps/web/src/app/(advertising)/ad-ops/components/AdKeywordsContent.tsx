@@ -17,7 +17,7 @@ import {
 import { useAdKeywords, useReviewKeywordProposals, useRunKeywordAgent } from '../hooks/useAdOpsData';
 import { operatorReason } from '@/lib/operator-error';
 
-type KeywordFilter = 'all' | 'serving' | 'idle' | 'irrelevant';
+type KeywordFilter = 'all' | 'serving' | 'irrelevant';
 
 interface Props {
   period: string;
@@ -33,7 +33,6 @@ function keywordLabel(keyword: AdKeywordSnapshot): string {
 const FILTERS: { key: KeywordFilter; label: string }[] = [
   { key: 'all', label: '전체' },
   { key: 'serving', label: '노출 중' },
-  { key: 'idle', label: '노출 0' },
   { key: 'irrelevant', label: '연관 없음' },
 ];
 
@@ -122,11 +121,10 @@ export default function AdKeywordsContent({ period }: Props) {
       products.reduce(
         (acc, product) => ({
           keywordCount: acc.keywordCount + product.keywordCount,
-          spend: acc.spend + product.metrics.spend,
           servingCount: acc.servingCount + product.servingCount,
           irrelevantCount: acc.irrelevantCount + product.irrelevantCount,
         }),
-        { keywordCount: 0, spend: 0, servingCount: 0, irrelevantCount: 0 },
+        { keywordCount: 0, servingCount: 0, irrelevantCount: 0 },
       ),
     [products],
   );
@@ -189,17 +187,12 @@ export default function AdKeywordsContent({ period }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
         <SummaryCard label="광고 상품" value={`${formatNumber(products.length)}개`} hint={`키워드 ${formatNumber(totals.keywordCount)}개`} />
-        <SummaryCard
-          label="집행 광고비"
-          value={`${formatKRW(totals.spend)}원`}
-          hint="키워드가 있는 광고 상품의 기간 합"
-        />
         <SummaryCard
           label="노출 중"
           value={`${formatNumber(totals.servingCount)}개`}
-          hint={`노출 0 ${formatNumber(Math.max(0, totals.keywordCount - totals.servingCount))}개`}
+          hint="기간에 노출된 검색 키워드"
         />
         <SummaryCard
           label="연관 없음"
@@ -389,7 +382,6 @@ function KeywordList({
   const visible = keywords
     .filter((keyword) => {
       if (filter === 'serving' && keyword.metrics.impressions === 0) return false;
-      if (filter === 'idle' && keyword.metrics.impressions > 0) return false;
       if (filter === 'irrelevant' && keyword.relevance !== 'irrelevant') return false;
       if (q && !keywordLabel(keyword).toLowerCase().includes(q)) return false;
       return true;
