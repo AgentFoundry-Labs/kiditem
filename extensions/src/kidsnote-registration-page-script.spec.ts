@@ -76,7 +76,7 @@ describe('키즈노트 쓰기 절차(sites/kidsnote/registration.ts)', () => {
   it('사진을 서비스워커가 읽어 채우기에 넘기고, 사람이 할 일을 그대로 돌려주며 누르지 않는다 — 탭은 운영자에게 남긴다', async () => {
     const { fake, asked, handle } = writer(() => ({ ok: true, value: { ok: true, steps: ['fields:3/3'], warnings: [] } }));
 
-    const session = await handle.fill({ form: baseForm(), submit: true, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await handle.fill!({ form: baseForm(), submit: true, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
     await session.done();
 
     expect(session.decision).toEqual({ press: false, skipped: 'no_verified_submit' });
@@ -90,14 +90,14 @@ describe('키즈노트 쓰기 절차(sites/kidsnote/registration.ts)', () => {
 
   it('사진을 못 받았으면 빼고 채우되 까닭을 경고로 남긴다 — 조용히 사진 없이 등록하지 않는다', async () => {
     const { asked, handle } = writer(() => ({ ok: true, value: { ok: true, steps: [], warnings: [] } }), false);
-    const session = await handle.fill({ form: baseForm(), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
+    const session = await handle.fill!({ form: baseForm(), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null });
     expect(session.fill.warnings.join(' ')).toMatch(/이미지 다운로드 실패/);
     expect((asked[0]!.args as Record<string, unknown>).images).toEqual([]);
   });
 
   it('남의 주소를 가리키는 폼 지시는 탭을 열지 않고 거절한다', async () => {
     const { fake, handle } = writer(() => ({ ok: true, value: { ok: true } }));
-    await expect(handle.fill({ form: baseForm({ url: 'https://evil.example/_manage/?body=product@product_register' }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null }))
+    await expect(handle.fill!({ form: baseForm({ url: 'https://evil.example/_manage/?body=product@product_register' }), submit: false, expectedProviderAccountId: null, executionKind: 'register', externalListingId: null }))
       .rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
     expect(fake.log.filter((line) => line.startsWith('open'))).toEqual([]);
   });

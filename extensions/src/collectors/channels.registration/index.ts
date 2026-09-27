@@ -12,7 +12,8 @@ import {
 import { RuntimeError } from '../../core/errors';
 import type { CollectedChunk, CollectFinish, Collector } from '../collector';
 import { registerCollector } from '../index';
-import { RegistrationDocumentPayloadSchema } from './payload';
+import { findChannel } from '@kiditem/shared/channel-registry';
+import { RegistrationAvailabilityPayloadSchema, RegistrationDocumentPayloadSchema } from './payload';
 
 /** 관문(`sites/mall-write/submit-gate.ts`)이 정한 것. 누르지 않으면 까닭(없으면 부탁받지 않았다). */
 export type RegistrationSubmitDecision = { press: true } | { press: false; skipped: string | null };
@@ -36,7 +37,23 @@ export interface RegistrationFillSession {
   done(): Promise<void>;
 }
 
+/** 품절·재개를 보낸 몰의 답과 보낸 뒤 다시 읽은 것(`sites/mall-write`). 몰이 하나도 받지 않은 거절·로그인은 사이트가 던진다. */
+export interface RegistrationAvailabilityRun {
+  answer: { sent?: number; failed?: number; confirmed?: number; warnings?: string[]; requestOnly?: boolean; stopped?: string };
+  /** 다시 읽은 리스팅. `status`는 몰의 말(리스팅 단위 몰), 옵션은 재고(모르면 null)와 몰의 말. */
+  observed: Array<{ externalListingId: string; status: string | null; options: Array<{ externalOptionId: string; stock: number | null; status: string | null }> }>;
+  providerAccountId: string | null;
+  observedUrl: string | null;
+}
+
 export interface RegistrationWriter {
+  availability(input: {
+    resume: boolean;
+    /** 옵션 단위로 바꾸는 몰(쿠팡 윙 — 채널 레지스트리 `soldOutScope`)인가. 아니면 리스팅 단위다. */
+    byOption: boolean;
+    listings: Array<{ externalListingId: string; externalOptionIds: string[] }>;
+    expectedProviderAccountId: string | null;
+  }): Promise<RegistrationAvailabilityRun>;
   fill(input: {
     executionKind: 'register' | 'update' | 'composition_change';
     externalListingId: string | null;
@@ -57,8 +74,31 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
  * 몰 증거 한 줄. `payloadHash`는 이 증거가 가리키는 얼린 문서(plan 값)다 — owner finalize가 대조한다(M1 `RegistrationEvidenceSchema`
  * 추가 칸, 합류 전 계약 타입에는 아직 없다).
  */
-export type RegistrationEvidenceRow = RegistrationEvidence & { payloadHash: string };
+export type RegistrationEvidenceRow = RegistrationEvidence & {
+  payloadHash: string;
+  /** 품절·재개(옵션 단위 몰): 보낸 뒤 다시 읽은 얼린 옵션의 재고·상태(M1 추가 칸). */
+  observedOptions?: Array<{ externalOptionId: string; stock: number | null; status: string | null }>;
+};
 export const REGISTRATION_ACCOUNT_MISMATCH = 'REGISTRATION_ACCOUNT_MISMATCH' as const;
+export const MALL_WRITE_FAILED = 'MALL_WRITE_FAILED' as const;
+
+/**
+ * 다시 읽은 한 줄이 지시를 확인하는가(M1 `observedOptionConfirms`와 같은 규칙을 재고 중심으로): 품절은 재고 0(판매를 멈춘 몰은
+ * 읽기가 0으로 접는다), 재개는 재고가 0이 아니면서 재고나 상태 둘 중 하나는 읽힌 것이다.
+ */
+function observedConfirms(resume: boolean, stock: number | null, status: string | null): boolean {
+  if (!resume) return stock === 0;
+  return stock !== 0 && (stock !== null || status !== null);
+}
+
+type AvailabilityObservation = RegistrationAvailabilityRun['observed'][number];
+
+/** 리스팅 하나가 확인됐는가: 옵션 단위 몰은 얼린 옵션마다, 리스팅 단위 몰은 읽힌 옵션 전부가 지시와 맞아야 한다. */
+function listingConfirms(resume: boolean, byOption: boolean, frozen: readonly string[], observed: AvailabilityObservation | undefined): boolean {
+  if (!observed || observed.options.length === 0) return false;
+  const lines = byOption ? frozen.map((id) => observed.options.find((option) => option.externalOptionId === id)) : observed.options;
+  return lines.every((line) => line !== undefined && observedConfirms(resume, line.stock, line.status ?? observed.status));
+}
 
 function invalid(message: string, details: Record<string, unknown>): RuntimeError {
   return new RuntimeError(RUNTIME_PLAN_INVALID, message, { kind: REGISTRATION_KIND, ...details });
@@ -153,6 +193,81 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
       } finally {
         await session.done();
       }
+    }
+    if (plan.executionKind === 'sold_out' || plan.executionKind === 'resume') {
+      const payload = RegistrationAvailabilityPayloadSchema.safeParse(plan.payload);
+      if (!payload.success || !writer.availability) {
+        throw invalid('품절·재개 계획에 리스팅 묶음이 없습니다.', { mallKey: plan.mallKey, executionKind: plan.executionKind });
+      }
+      const resume = plan.executionKind === 'resume';
+      const listings = payload.data.listings.map((listing) => ({
+        externalListingId: listing.externalListingId,
+        externalOptionIds: listing.options.map((option) => option.externalOptionId),
+      }));
+      // 품절·재개는 등록 관문을 쓰지 않는다 — 요청이 곧 동작이다. 부탁받지 않았으면 몰에 가지 않는다.
+      if (!plan.submit) {
+        return {
+          result: {
+            providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'not_requested',
+            externalListingId: null, mallMessage: null, fill: { steps: [], warnings: [], manualSteps: [], dialogs: [] }, evidence: null,
+          },
+        };
+      }
+      const byOption = findChannel(plan.mallKey)?.soldOutScope === 'option';
+      const run = await writer.availability({ resume, byOption, listings, expectedProviderAccountId: plan.expectedProviderAccountId });
+      if (plan.expectedProviderAccountId && run.providerAccountId && run.providerAccountId !== plan.expectedProviderAccountId) {
+        throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, '몰에 로그인된 판매자 계정이 실행할 계정과 다릅니다. 열린 탭의 계정을 확인해 주세요.', { mallKey: plan.mallKey });
+      }
+      const sent = run.answer.sent ?? 0;
+      const warnings = run.answer.warnings ?? [];
+      const byListing = new Map(run.observed.map((observed) => [observed.externalListingId, observed]));
+      const confirmed = listings.filter((listing) => listingConfirms(resume, byOption, listing.externalOptionIds, byListing.get(listing.externalListingId)));
+      if (sent === 0 && confirmed.length < listings.length && !run.answer.requestOnly) {
+        throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(' ') : '몰이 판매 상태 변경을 받지 않았습니다.', { mallKey: plan.mallKey });
+      }
+      const fill: RegistrationFill = {
+        steps: [
+          `몰에 ${sent}건을 보냈습니다.`,
+          ...(run.observed.length > 0 ? [`다시 읽어 ${confirmed.length}건이 바뀐 것을 확인했습니다.`] : []),
+        ],
+        warnings,
+        manualSteps: [],
+        dialogs: [],
+      };
+      yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [fill], progress: { ...progress, stage: 'sent' } };
+      const evidence = listings.flatMap((listing): RegistrationEvidenceRow[] => {
+        const observed = byListing.get(listing.externalListingId);
+        if (!observed) return [];
+        return [{
+          payloadHash: plan.payloadHash,
+          channelAccountId: plan.channelAccountId,
+          externalListingId: listing.externalListingId,
+          observedUrl: run.observedUrl,
+          providerAccountId: run.providerAccountId,
+          observedStatus: byOption ? observed.status : observed.status ?? (observed.options.every((option) => option.stock === 0) ? '품절' : '판매중'),
+          message: null,
+          options: [],
+          ...(byOption ? {
+            observedOptions: listing.externalOptionIds.flatMap((id) => observed.options.filter((option) => option.externalOptionId === id))
+              .map((option) => ({ externalOptionId: option.externalOptionId, stock: option.stock, status: option.status })),
+          } : {}),
+        }];
+      });
+      if (evidence.length > 0) yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: evidence, progress: { ...progress, stage: 'reread' } };
+      const outcome: RegistrationMallOutcome = confirmed.length === listings.length ? 'confirmed' : run.answer.requestOnly ? 'awaiting_approval' : 'uncertain';
+      return {
+        ...(outcome === 'confirmed' ? {} : { outcome: 'reconciling' as const }),
+        result: {
+          providerOutcome: providerOutcomeOf(outcome),
+          mallOutcome: outcome,
+          submitted: true,
+          submitSkipped: null,
+          externalListingId: null,
+          mallMessage: null,
+          fill,
+          evidence: null,
+        },
+      };
     }
     throw invalid(`이 확장이 아직 실행하지 못하는 등록 종류입니다: ${plan.executionKind}`, { mallKey: plan.mallKey, executionKind: plan.executionKind });
   },

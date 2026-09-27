@@ -57,7 +57,7 @@ describe('쿠팡 WING 등록 쓰기 모듈(sites/wing/registration.ts)', () => {
   it('formV2를 호환 스크립트와 함께 열고, 호환 확인 → 채우기(판매자 계정 대조) 순서로 부른다 — 우리 저장소 사진은 서비스워커가 읽어 넘긴다', async () => {
     const { fake, asked, fetched, handle } = wing(filled);
 
-    const session = await handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' });
+    const session = await handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' });
     await session.done();
 
     expect(fake.log.filter((line) => line.startsWith('navigate'))).toEqual([`navigate ${FORM_V2} (bootstrap content/page-call/wing-form-compat.js)`]);
@@ -75,7 +75,7 @@ describe('쿠팡 WING 등록 쓰기 모듈(sites/wing/registration.ts)', () => {
   it('실행이 부탁하고 채우기에 경고가 없으면 관문이 누르라고 하고, 누르기는 확인 모달까지 가 새 등록상품ID를 읽는다', async () => {
     const { asked, handle } = wing(filled);
 
-    const session = await handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' });
+    const session = await handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' });
     expect(session.decision).toEqual({ press: true });
     const submission = await session.submit();
     await session.done();
@@ -88,50 +88,50 @@ describe('쿠팡 WING 등록 쓰기 모듈(sites/wing/registration.ts)', () => {
     const unknown = wing((message) => (message.call === 'wing.submit'
       ? { ok: true, value: { attempted: true, clicked: true, ok: false, status: 'unknown', externalListingId: null, error: '완료 안내를 확인하지 못했습니다.' } }
       : filled(message)));
-    const session = await unknown.handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' });
+    const session = await unknown.handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' });
     await expect(session.submit()).resolves.toMatchObject({ pressed: true, accepted: null, mallMessage: '완료 안내를 확인하지 못했습니다.' });
 
     const missing = wing((message) => (message.call === 'wing.submit'
       ? { ok: true, value: { attempted: true, clicked: false, ok: false, status: 'no_button', error: '상품등록 버튼을 찾지 못했습니다.' } }
       : filled(message)));
-    const second = await missing.handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' });
+    const second = await missing.handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' });
     await expect(second.submit()).resolves.toMatchObject({ pressed: false });
   });
 
   it('구성 변경·수정은 새 등록 폼이 아니라 그 리스팅의 수정 화면을 연다 — 등록상품ID가 없으면 열지 않는다', async () => {
     const { fake, handle } = wing(filled);
-    const session = await handle.fill({ executionKind: 'composition_change', externalListingId: '16290876620', form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' });
+    const session = await handle.fill!({ executionKind: 'composition_change', externalListingId: '16290876620', form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' });
     await session.done();
     expect(fake.log.filter((line) => line.startsWith('navigate'))[0]).toBe(`navigate ${FORM_V2}?vendorInventoryId=16290876620 (bootstrap content/page-call/wing-form-compat.js)`);
 
     const none = wing(filled);
-    await expect(none.handle.fill({ executionKind: 'composition_change', externalListingId: null, form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' }))
+    await expect(none.handle.fill!({ executionKind: 'composition_change', externalListingId: null, form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' }))
       .rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
     expect(none.fake.log.filter((line) => line.startsWith('open'))).toEqual([]);
   });
 
   it('승인된 판매자 식별자가 없으면 채우지 않는다 · 화면의 계정이 다르면(영어 답) 운영자 말로 REGISTRATION_ACCOUNT_MISMATCH', async () => {
     const { handle } = wing(filled);
-    await expect(handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: null }))
+    await expect(handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: null }))
       .rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
 
     const other = wing((message) => (message.call === 'wing.fill'
       ? { ok: true, value: { ok: false, error: 'WING account identity does not match the approved account.', steps: [] } }
       : filled(message)));
-    await expect(other.handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' }))
+    await expect(other.handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: true, expectedProviderAccountId: 'A00012345' }))
       .rejects.toMatchObject({ code: 'REGISTRATION_ACCOUNT_MISMATCH', message: expect.not.stringMatching(/[A-Za-z]{4,}/) });
   });
 
   it('옛 웹의 `{ product }` 래퍼도 받는다 — 서버 plan은 평평한 WingProduct를 싣는다', async () => {
     const { asked, handle } = wing(filled);
-    const session = await handle.fill({ executionKind: 'register', externalListingId: null, form: { product: PRODUCT }, submit: false, expectedProviderAccountId: 'A00012345' });
+    const session = await handle.fill!({ executionKind: 'register', externalListingId: null, form: { product: PRODUCT }, submit: false, expectedProviderAccountId: 'A00012345' });
     await session.done();
     expect((asked[1]!.args as { product: Answer }).product).toEqual(PRODUCT);
   });
 
   it('윙 로그인 화면(xauth)으로 넘어가면 그 탭에서 실행 자격으로 한 번 로그인하고 formV2로 돌아가 다시 채운다', async () => {
     const { login, handle } = wing(filled, { loginAt: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth' });
-    const session = await handle.fill({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' });
+    const session = await handle.fill!({ executionKind: 'register', externalListingId: null, form: PRODUCT, submit: false, expectedProviderAccountId: 'A00012345' });
     await session.done();
     expect(login!.state.filled).toEqual([{ loginId: 'fake-wing-id', password: 'fake-wing-password' }]);
   });

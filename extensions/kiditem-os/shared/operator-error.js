@@ -281,6 +281,13 @@
       "text": "몰에 로그인된 판매자 계정이 등록할 계정과 다릅니다. 열린 탭의 계정을 확인해 주세요.",
       "retryable": false
     },
+    "MALL_WRITE_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "몰에 판매 상태를 보내지 못했습니다. 몰 화면에서 확인해 주세요.",
+      "retryable": false
+    },
     "EXTENSION_UNKNOWN_FAILURE": {
       "owner": "extension",
       "kind": "internal",

@@ -12,3 +12,12 @@ export function registrationGuard(site: PageGuard, displayName: string, isLogin?
     loginMessage: `${displayName} 로그인이 필요합니다. 열린 ${displayName} 화면에서 로그인한 뒤 다시 등록해 주세요.`,
   };
 }
+
+/** 몰 판매 상태 쓰기·읽기 탭의 주소 규칙(KID-256) — 등록과 같고 로그인 문장만 "다시 시도"다. */
+export function availabilityGuard(site: PageGuard, displayName: string, isLogin?: (url: URL) => boolean): PageGuard {
+  return {
+    allows: site.allows,
+    isLogin: isLogin ?? site.isLogin,
+    loginMessage: `${displayName} 로그인이 필요합니다. 열린 ${displayName} 화면에서 로그인한 뒤 다시 시도해 주세요.`,
+  };
+}

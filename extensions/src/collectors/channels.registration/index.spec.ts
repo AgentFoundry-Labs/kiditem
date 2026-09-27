@@ -169,3 +169,136 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
     expect(log).toEqual(['fill submit=true', 'done']);
   });
 });
+
+const LISTING_A = '33333333-3333-4333-8333-333333333333';
+const LISTING_B = '44444444-4444-4444-8444-444444444444';
+const OPTION_A = '55555555-5555-4555-8555-555555555555';
+const OPTION_B = '66666666-6666-4666-8666-666666666666';
+
+function availabilityPlan(overrides: Partial<RegistrationPlan> = {}, action: 'sold_out' | 'resume' = 'sold_out'): RegistrationPlan {
+  return plan({
+    executionKind: action,
+    registrationTargetId: null,
+    payload: {
+      action,
+      listings: [
+        { channelListingId: LISTING_A, externalListingId: '100', options: [{ salesProductOptionId: null, channelListingOptionId: OPTION_A, externalOptionId: '100-1', sellerSku: null }] },
+        { channelListingId: LISTING_B, externalListingId: '200', options: [{ salesProductOptionId: null, channelListingOptionId: OPTION_B, externalOptionId: '200-1', sellerSku: null }] },
+      ],
+    },
+    ...overrides,
+  });
+}
+
+type AvailabilityInput = Parameters<NonNullable<ReturnType<RegistrationSite['writer']> & { availability?: unknown }>['availability'] & ((...args: any[]) => any)>[0];
+
+function availabilitySite(run: Record<string, unknown>, log: Array<Record<string, unknown>> = []): RegistrationSite {
+  return {
+    writer: () => ({
+      async availability(input: AvailabilityInput) {
+        log.push(input as Record<string, unknown>);
+        return {
+          answer: { sent: 2, failed: 0, confirmed: 2, warnings: [], requestOnly: false },
+          observed: [],
+          providerAccountId: null,
+          observedUrl: null,
+          ...run,
+        };
+      },
+    }),
+  } as RegistrationSite;
+}
+
+const soldOut = (externalListingId: string, externalOptionId: string, status: string | null = '진열안함') => ({
+  externalListingId,
+  status,
+  options: [{ externalOptionId, stock: 0, status }],
+});
+
+describe('channels.registration — 품절·재개 묶음(KID-256)', () => {
+  it('리스팅 단위 몰: 보낸 뒤 다시 읽은 상태를 리스팅마다 증거로 싣고, 다 바뀌었으면 succeeded(confirmed)', async () => {
+    const log: Array<Record<string, unknown>> = [];
+    const { chunks, finish } = await run(availabilityPlan(), availabilitySite({
+      answer: { sent: 2, failed: 0, confirmed: 2, warnings: ['1건은 이미 진열안함이었습니다.'], requestOnly: false },
+      observed: [soldOut('100', '100'), soldOut('200', '200')],
+    }, log));
+
+    expect(log).toEqual([{ resume: false, byOption: false, expectedProviderAccountId: null, listings: [{ externalListingId: '100', externalOptionIds: ['100-1'] }, { externalListingId: '200', externalOptionIds: ['200-1'] }] }]);
+    expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['registration_fill', 'registration_evidence']);
+    expect(chunks[0]!.payload).toEqual([{ steps: ['몰에 2건을 보냈습니다.', '다시 읽어 2건이 바뀐 것을 확인했습니다.'], warnings: ['1건은 이미 진열안함이었습니다.'], manualSteps: [], dialogs: [] }]);
+    expect(chunks[1]!.payload).toEqual([
+      { payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '100', observedUrl: null, providerAccountId: null, observedStatus: '진열안함', message: null, options: [] },
+      { payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '200', observedUrl: null, providerAccountId: null, observedStatus: '진열안함', message: null, options: [] },
+    ]);
+    expect(finish).toMatchObject({ result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, submitSkipped: null } });
+    expect(finish).not.toHaveProperty('outcome');
+  });
+
+  it('옵션 단위 몰(쿠팡 윙): 얼린 옵션만 짚어 보내고, 다시 읽은 옵션 재고를 observedOptions로 싣는다', async () => {
+    const log: Array<Record<string, unknown>> = [];
+    const { chunks, finish } = await run(availabilityPlan({ mallKey: 'coupang', expectedProviderAccountId: 'A00012345' }), availabilitySite({
+      observed: [
+        { externalListingId: '100', status: null, options: [{ externalOptionId: '100-1', stock: 0, status: null }, { externalOptionId: '100-2', stock: 5, status: null }] },
+        { externalListingId: '200', status: null, options: [{ externalOptionId: '200-1', stock: 0, status: null }] },
+      ],
+      providerAccountId: 'A00012345',
+      observedUrl: 'https://wing.coupang.com/vendor-inventory/list',
+    }, log));
+
+    expect(log[0]).toMatchObject({ byOption: true, expectedProviderAccountId: 'A00012345' });
+    expect(chunks[1]!.payload).toEqual([
+      {
+        payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '100', observedUrl: 'https://wing.coupang.com/vendor-inventory/list',
+        providerAccountId: 'A00012345', observedStatus: null, message: null, options: [],
+        observedOptions: [{ externalOptionId: '100-1', stock: 0, status: null }],
+      },
+      {
+        payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '200', observedUrl: 'https://wing.coupang.com/vendor-inventory/list',
+        providerAccountId: 'A00012345', observedStatus: null, message: null, options: [],
+        observedOptions: [{ externalOptionId: '200-1', stock: 0, status: null }],
+      },
+    ]);
+    expect(finish).toMatchObject({ result: { mallOutcome: 'confirmed' } });
+  });
+
+  it('다시 읽어 아직 안 바뀐 리스팅이 있으면 reconciling(uncertain) — 증거는 읽은 그대로 싣는다', async () => {
+    const { chunks, finish } = await run(availabilityPlan(), availabilitySite({
+      answer: { sent: 2, failed: 0, confirmed: 1, warnings: [], requestOnly: false },
+      observed: [soldOut('100', '100'), { externalListingId: '200', status: '진열함', options: [{ externalOptionId: '200', stock: null, status: '진열함' }] }],
+    }));
+    expect(chunks[1]!.payload).toHaveLength(2);
+    expect(finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'uncertain', submitted: true } });
+  });
+
+  it('재개는 판매중으로 다시 읽혀야 확인이다', async () => {
+    const { finish } = await run(availabilityPlan({}, 'resume'), availabilitySite({
+      observed: [
+        { externalListingId: '100', status: '진열함', options: [{ externalOptionId: '100', stock: null, status: null }] },
+        { externalListingId: '200', status: '진열함', options: [{ externalOptionId: '200', stock: null, status: null }] },
+      ],
+    }));
+    expect(finish).toMatchObject({ result: { mallOutcome: 'confirmed' } });
+  });
+
+  it('승인 요청 몰(온채널)은 보낸 것이 곧 반영이 아니다 — reconciling(awaiting_approval)', async () => {
+    const { finish } = await run(availabilityPlan({ mallKey: 'onch' }), availabilitySite({
+      answer: { sent: 2, failed: 0, warnings: ['온채널은 관리자 승인을 거칩니다 — 보낸 것이 곧 반영은 아닙니다.'], requestOnly: true },
+    }));
+    expect(finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'awaiting_approval', submitted: true } });
+  });
+
+  it('몰이 하나도 받지 않았으면 실패로 끝난다(몰의 말을 싣는다)', async () => {
+    await expect(run(availabilityPlan(), availabilitySite({
+      answer: { sent: 0, failed: 2, confirmed: 0, warnings: ['도매꾹이 수정을 받지 않았습니다: 수정할 수 없는 상품입니다.'], requestOnly: false },
+      observed: [],
+    }))).rejects.toMatchObject({ code: 'MALL_WRITE_FAILED', message: expect.stringContaining('수정할 수 없는 상품입니다') });
+  });
+
+  it('보내기를 부탁받지 않았으면(submit false) 몰에 가지 않는다 — not_submitted', async () => {
+    const log: Array<Record<string, unknown>> = [];
+    const { chunks, finish } = await run(availabilityPlan({ submit: false }), availabilitySite({}, log));
+    expect(log).toEqual([]);
+    expect(chunks).toEqual([]);
+    expect(finish).toMatchObject({ result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: 'not_requested' } });
+  });
+});

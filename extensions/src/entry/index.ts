@@ -45,6 +45,7 @@ import '../sites/coupang-search';
 import '../sites/coupang-shop';
 import '../sites/coupang-supplier';
 import '../sites/domeggook';
+import '../sites/domeggook/availability';
 import '../sites/domeggook/registration';
 import '../sites/gmarket/listings';
 import '../sites/gmarket/registration';
