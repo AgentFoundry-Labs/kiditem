@@ -1,23 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OperationView } from '@kiditem/shared/operation';
 import type { MallPublishAdapter, MallPublishItem } from './mall-publish-adapter';
 
-// 등록 대상 실행 = `channels.registration` 실행 하나(KID-364). 시작·대기 경계(`registration-operation`)만 가짜이고,
-// 값 합치기·검증·폼 만들기·결과 풀이는 진짜다.
-const start = vi.hoisted(() => vi.fn());
-const wait = vi.hoisted(() => vi.fn());
-const read = vi.hoisted(() => vi.fn());
-vi.mock('./registration-operation', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('./registration-operation')>()),
-  startRegistrationOperation: start,
-  waitForRegistrationOperation: wait,
-  readRegistrationOperation: read,
-}));
+// 등록 대상 실행 = `channels.registration` 실행 하나(KID-364). 가짜는 확장 메시지 · 서버 HTTP · 저장 자격 경계뿐이다 —
+// 시작 · 대기는 진짜로 돌아 확장에 보낸 scope가 계약 스키마를 통과하는지 본다.
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn().mockResolvedValue({ loginId: null, password: null }) } }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/sales-product-api', () => ({ salesProductApi: { get: vi.fn() } }));
 
-const { RegistrationOperationInProgress, describeRegistrationOperation } = await import('./registration-operation');
+const { apiClient } = await import('@/lib/api-client');
 const { executeTargetRegistration, valuesForTarget } = await import('./target-registration-execution');
 const { salesProductApi } = await import('@/lib/sales-product-api');
+const {
+  REGISTRATION_OPERATION_ID,
+  fakeRegistrationExtension,
+  parsedRegistrationScope,
+  registrationOperationResponse,
+} = await import('@/test/fixtures/registration-operation');
 
 const TARGET = '11111111-1111-4111-8111-111111111111';
 const PRODUCT = '22222222-2222-4222-8222-222222222222';
@@ -52,15 +52,6 @@ function adapter(patch: Partial<MallPublishAdapter> = {}): MallPublishAdapter {
   };
 }
 
-function operation(patch: Partial<OperationView>): OperationView {
-  return {
-    id: OPERATION, kind: 'channels.registration', status: 'executing', lockKeys: [], plan: null, progress: null,
-    result: null, window: null, errorCode: null, errorMessage: null, startedAt: '2026-09-27T09:00:00.000Z',
-    finishedAt: null, expiresAt: '2026-09-27T09:30:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null,
-    ...patch,
-  };
-}
-
 const fill = { steps: ['상품명'], warnings: [], manualSteps: [], dialogs: [] };
 
 beforeEach(() => {
@@ -68,17 +59,22 @@ beforeEach(() => {
   vi.mocked(salesProductApi.get).mockResolvedValue({
     id: PRODUCT, channelOverrides: [{ mallKey: 'art09', adapterValues: { namePrefix: '[키드]' } }],
   } as never);
-  start.mockResolvedValue({ operationId: OPERATION, reused: false });
+  window.localStorage.clear();
 });
 
+function serveOperation(patch: Parameters<typeof registrationOperationResponse>[0]) {
+  vi.mocked(apiClient.get).mockResolvedValue(registrationOperationResponse(patch));
+}
+
 describe('executeTargetRegistration', () => {
-  it('⭐ 대상 값으로 폼을 만들고 register 실행 하나를 시작한다 — 제출 의도·버전·폼이 scope에 실린다', async () => {
+  it('⭐ 대상 값으로 폼을 만들고 register 실행 하나를 시작한다 — 제출 의도·버전·폼이 계약 scope로 실린다', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
     const mall = adapter();
-    wait.mockResolvedValue(describeRegistrationOperation(operation({
+    serveOperation({
       status: 'succeeded',
       result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, submitSkipped: null,
         externalListingId: '9001', mallMessage: null, fill, evidence: null },
-    })));
+    });
 
     const run = await executeTargetRegistration({
       target, mallKey: 'art09', adapter: mall, item, adapterValues: { quantity: '3' }, idempotencyKey: 'reg-1',
@@ -88,31 +84,32 @@ describe('executeTargetRegistration', () => {
       item: { ...item, registrationInput: target.registrationInput, detailPageRevisionId: target.selectedDetailPageRevisionId },
       values: expect.objectContaining({ quantity: '3', namePrefix: '[키드]', supplyPrice: '1200', mallCategoryKey: 'C-1' }),
     });
-    expect(start).toHaveBeenCalledWith({
-      mallKey: 'art09',
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ kind: 'channels.registration', idempotencyKey: 'reg-1' });
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'register',
+      registrationTargetId: TARGET,
+      expectedVersion: 4,
       idempotencyKey: 'reg-1',
-      scope: {
-        executionKind: 'register',
-        registrationTargetId: TARGET,
-        expectedVersion: 4,
-        submit: true,
-        applyCompositionTemplate: false,
-        adapterDefaults: { quantity: '1' },
-        adapterValues: { quantity: '3' },
-        form: { url: 'https://art09.example/new', manualSteps: [], quantity: '3' },
-      },
+      submit: true,
+      applyCompositionTemplate: false,
+      adapterDefaults: { quantity: '1' },
+      adapterValues: { quantity: '3' },
+      form: { url: 'https://art09.example/new', manualSteps: [], quantity: '3' },
     });
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${REGISTRATION_OPERATION_ID}`);
     expect(run.started).toBe(true);
     expect(run.outcome).toMatchObject({ ok: true, confirmed: true, submitted: true, productNo: '9001' });
     expect(run.operation?.state).toBe('confirmed');
   });
 
   it('⭐ 몰에 제출했지만 결과를 못 읽었으면(reconciling) "확인 필요" — 성공으로 적지 않는다', async () => {
-    wait.mockResolvedValue(describeRegistrationOperation(operation({
+    fakeRegistrationExtension(['art09']);
+    serveOperation({
       status: 'reconciling',
       result: { providerOutcome: 'uncertain', mallOutcome: 'submitted', submitted: true, submitSkipped: null,
         externalListingId: null, mallMessage: null, fill, evidence: null },
-    })));
+    });
     const run = await executeTargetRegistration({ target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'reg-2' });
     expect(run.operation?.state).toBe('needs_confirmation');
     expect(run.outcome).toMatchObject({ ok: false, confirmed: false, submitted: true });
@@ -120,56 +117,63 @@ describe('executeTargetRegistration', () => {
   });
 
   it('관문이 [등록]을 거르면 폼만 채운 것 — 사람이 누를 일을 적는다', async () => {
-    wait.mockResolvedValue(describeRegistrationOperation(operation({
+    fakeRegistrationExtension(['art09']);
+    serveOperation({
       status: 'succeeded',
       result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false,
         submitSkipped: '이 몰은 [등록]을 사람이 누릅니다.', externalListingId: null, mallMessage: null,
         fill: { ...fill, manualSteps: ['배송비 확인'] }, evidence: null },
-    })));
+    });
     const run = await executeTargetRegistration({ target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'reg-3' });
     expect(run.outcome).toMatchObject({ ok: true, confirmed: false, submitted: false });
     expect(run.outcome.manualSteps).toEqual(['이 몰은 [등록]을 사람이 누릅니다.', '배송비 확인']);
   });
 
   it('어댑터가 막으면 실행을 시작하지 않는다', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
     const run = await executeTargetRegistration({
       target, mallKey: 'art09', adapter: adapter({ validate: () => ['수량은 1 이상이어야 합니다.'] }), item, idempotencyKey: 'reg-4',
     });
-    expect(start).not.toHaveBeenCalled();
+    expect(starts).toEqual([]);
     expect(run).toMatchObject({ started: false, operation: null, outcome: { ok: false, submitted: false, error: '수량은 1 이상이어야 합니다.' } });
   });
 
   it('폼을 만들지 못하면 실행을 시작하지 않는다(반쯤 빈 폼 금지)', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
     const run = await executeTargetRegistration({
       target, mallKey: 'art09', idempotencyKey: 'reg-5', item,
       adapter: adapter({ buildForm: vi.fn().mockRejectedValue(new Error('상세 이미지가 없습니다.')) }),
     });
-    expect(start).not.toHaveBeenCalled();
+    expect(starts).toEqual([]);
     expect(run.outcome).toMatchObject({ ok: false, submitted: false, error: '상세 이미지가 없습니다.' });
   });
 
   it('⭐ 같은 대상의 실행이 이미 있으면 다시 보내지 않고 그 실행을 보여 준다', async () => {
-    start.mockRejectedValue(new RegistrationOperationInProgress('같은 대상의 다른 실행이 진행 중입니다.', OPERATION));
-    read.mockResolvedValue(describeRegistrationOperation(operation({ status: 'reconciling' })));
+    const starts = fakeRegistrationExtension(['art09'], [{
+      success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 대상의 다른 실행이 진행 중입니다.',
+      details: { existing: { operationId: OPERATION } },
+    }]);
+    serveOperation({ id: OPERATION, status: 'reconciling' });
     const run = await executeTargetRegistration({ target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'reg-6' });
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(wait).not.toHaveBeenCalled();
-    expect(read).toHaveBeenCalledWith(OPERATION);
+    expect(starts).toHaveLength(1);
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${OPERATION}`);
     expect(run.started).toBe(false);
     expect(run.operation?.state).toBe('needs_confirmation');
     expect(run.outcome.warnings).toContain('같은 대상의 다른 실행이 진행 중입니다.');
   });
 
-  it('수정(update)·구성 변경은 그 kind와 몰 상품·전이를 싣는다', async () => {
-    wait.mockResolvedValue(describeRegistrationOperation(operation({ status: 'executing' })));
+  it('구성 변경은 그 kind와 몰 상품·전이, 그리고 폼을 싣는다(제출 의도 없음)', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
+    serveOperation({ status: 'reconciling' });
     await executeTargetRegistration({
-      target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'comp-1',
+      target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'comp-1', submit: false,
       executionKind: 'composition_change', applyCompositionTemplate: true, channelListingId: TARGET,
       optionTransitions: [{ channelListingOptionId: TARGET, salesProductOptionId: PRODUCT }],
     });
-    expect(start.mock.calls[0]?.[0].scope).toMatchObject({
-      executionKind: 'composition_change', applyCompositionTemplate: true, channelListingId: TARGET,
+    expect(parsedRegistrationScope(starts[0])).toMatchObject({
+      executionKind: 'composition_change', submit: false, applyCompositionTemplate: true, channelListingId: TARGET,
       optionTransitions: [{ channelListingOptionId: TARGET, salesProductOptionId: PRODUCT }],
+      form: { url: 'https://art09.example/new' },
     });
   });
 });

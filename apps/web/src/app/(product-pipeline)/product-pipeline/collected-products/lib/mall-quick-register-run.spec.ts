@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 
-// 빠른 등록 = 등록 대상 없이 폼만 채우는 등록 실행(KID-364). 시작·대기 경계만 가짜이고 어댑터 검증·값 합치기는 진짜다.
-const start = vi.hoisted(() => vi.fn());
-const wait = vi.hoisted(() => vi.fn());
-vi.mock('@/app/(channels)/_shared/registration-operation', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/app/(channels)/_shared/registration-operation')>()),
-  startRegistrationOperation: start,
-  waitForRegistrationOperation: wait,
-}));
+// 빠른 등록 = 등록 대상 없이 폼만 채우는 등록 실행(KID-364). 가짜는 확장 메시지 · 서버 HTTP · 저장 자격 경계뿐이고,
+// 시작 · 대기 · 어댑터 검증 · 값 합치기는 진짜다 — 확장에 보낸 scope가 계약 스키마를 통과하는지 본다.
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn().mockResolvedValue({ loginId: null, password: null }) } }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 
+const { apiClient } = await import('@/lib/api-client');
+const { fakeRegistrationExtension, parsedRegistrationScope, registrationOperationResponse } = await import('@/test/fixtures/registration-operation');
 const {
   coupangWingAdapter,
   domeggookAdapter,
@@ -17,7 +17,6 @@ const {
   kidsnoteAdapter,
 } = await import('@/app/(channels)/_shared/adapters');
 const { EMPTY_MALL_REGISTER_VALUES, mallRegisterValuesWithDefaults } = await import('@/app/(channels)/_shared/mall-register-values');
-const { describeRegistrationOperation, RegistrationOperationInProgress } = await import('@/app/(channels)/_shared/registration-operation');
 const { runMallRegistrations, runOneMallRegistration, summarizeMallRun } = await import('./mall-quick-register-run');
 
 /**
@@ -29,7 +28,9 @@ const { runMallRegistrations, runOneMallRegistration, summarizeMallRun } = await
  *  4. **제출하지 않는다.** 폼만 채운 실행이다(`submit: false`).
  */
 
-const item = { candidateId: 'c1', name: '할로윈 LED 거미줄', salePrice: 3500, thumbnailUrl: null, source: 'candidate' as const, salesProductId: 'sp-1' };
+const RECORD = '11111111-1111-4111-8111-111111111111';
+const DRAFT = '22222222-2222-4222-8222-222222222222';
+const item = { candidateId: RECORD, name: '할로윈 LED 거미줄', salePrice: 3500, thumbnailUrl: null, source: 'candidate' as const, salesProductId: DRAFT };
 const ACCOUNT = '77777777-7777-4777-8777-777777777777';
 const FORM = { url: 'https://mall.example/new', manualSteps: [] };
 
@@ -39,27 +40,23 @@ const filled = (categoryPath = '문구/사무용품>디자인/팬시용품>기�
   return values;
 };
 
-function operation(patch: Partial<OperationView>): OperationView {
-  return {
-    id: '33333333-3333-4333-8333-333333333333', kind: 'channels.registration', status: 'succeeded', lockKeys: [],
-    plan: null, progress: null, result: null, window: null, errorCode: null, errorMessage: null,
-    startedAt: '2026-09-27T09:00:00.000Z', finishedAt: '2026-09-27T09:01:00.000Z', expiresAt: '2026-09-27T09:30:00.000Z',
-    attempts: 1, maxAttempts: 1, scheduledFor: null, ...patch,
-  };
-}
-
-const filledOnly = () => describeRegistrationOperation(operation({
+const FILLED_ONLY: Partial<OperationView> = {
+  status: 'succeeded',
+  finishedAt: '2026-09-27T09:01:00.000Z',
   result: {
     providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: null,
     externalListingId: null, mallMessage: null,
     fill: { steps: [], warnings: [], manualSteps: ['열린 탭에서 확인하세요.'], dialogs: [] }, evidence: null,
   },
-}));
+};
+
+let starts: ReturnType<typeof fakeRegistrationExtension>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  start.mockResolvedValue({ operationId: 'op-1', reused: false });
-  wait.mockImplementation(async () => filledOnly());
+  window.localStorage.clear();
+  starts = fakeRegistrationExtension(['kidsnote', 'domeggook', '11st', 'coupang']);
+  vi.mocked(apiClient.get).mockResolvedValue(registrationOperationResponse(FILLED_ONLY));
 });
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -71,10 +68,10 @@ describe('몰 하나 실행', () => {
     expect(outcome.message).toBe('폼을 채웠습니다. [등록]은 누르지 않았습니다 — 열린 탭에서 값을 확인하세요.');
     expect(outcome.manualSteps).toContain('열린 탭에서 확인하세요.');
     expect(build).toHaveBeenCalledOnce();
-    expect(start).toHaveBeenCalledWith({
-      mallKey: 'kidsnote',
+    expect(starts).toHaveLength(1);
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'register', submit: false, channelAccountId: ACCOUNT, sourceProductId: RECORD, salesProductId: DRAFT, form: FORM,
       idempotencyKey: expect.any(String),
-      scope: { executionKind: 'register', submit: false, channelAccountId: ACCOUNT, sourceProductId: 'c1', salesProductId: 'sp-1', form: FORM },
     });
   });
 
@@ -93,18 +90,18 @@ describe('몰 하나 실행', () => {
     expect(outcome.status).toBe('blocked');
     expect(outcome.message).toContain('분류');
     expect(build).not.toHaveBeenCalled();
-    expect(start).not.toHaveBeenCalled();
+    expect(starts).toEqual([]);
   });
 
   it('계정 행이 없는 몰은 막는다', async () => {
     const outcome = await runOneMallRegistration('kidsnote', item, filled(), null);
     expect(outcome).toMatchObject({ status: 'blocked', message: expect.stringContaining('계정 정보') });
-    expect(start).not.toHaveBeenCalled();
+    expect(starts).toEqual([]);
   });
 
   it('실행이 실패로 끝나면 왜 못 했는지 운영자 문장으로 남긴다', async () => {
     vi.spyOn(kidsnoteAdapter, 'buildForm').mockResolvedValue(FORM);
-    wait.mockResolvedValue(describeRegistrationOperation(operation({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED' })));
+    vi.mocked(apiClient.get).mockResolvedValue(registrationOperationResponse({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', finishedAt: '2026-09-27T09:01:00.000Z' }));
     const outcome = await runOneMallRegistration('kidsnote', item, filled(), ACCOUNT);
     expect(outcome.status).toBe('failed');
     expect(outcome.message).not.toContain('SITE_LOGIN_REQUIRED');
@@ -118,7 +115,7 @@ describe('몰 하나 실행', () => {
 
   it('같은 몰 계정에서 도는 실행이 있으면 그 말을 남긴다', async () => {
     vi.spyOn(kidsnoteAdapter, 'buildForm').mockResolvedValue(FORM);
-    start.mockRejectedValue(new RegistrationOperationInProgress('같은 대상의 다른 실행이 진행 중입니다.', null));
+    starts = fakeRegistrationExtension(['kidsnote'], [{ success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 대상의 다른 실행이 진행 중입니다.' }]);
     const outcome = await runOneMallRegistration('kidsnote', item, filled(), ACCOUNT);
     expect(outcome).toMatchObject({ status: 'failed', message: '같은 대상의 다른 실행이 진행 중입니다.' });
   });
@@ -157,8 +154,9 @@ describe('확인 창을 거친 몰 하나 실행', () => {
       values: expect.objectContaining({ wingCategoryKey: '64687', productName: '고친 이름' }),
       channelAccount: account,
     });
-    expect(start.mock.calls[0]![0].scope).toMatchObject({ submit: false, channelAccountId: account.id });
-    expect(start.mock.calls[0]![0].scope).not.toHaveProperty('registrationTargetId');
+    const scope = parsedRegistrationScope(starts[0]);
+    expect(scope).toMatchObject({ submit: false, channelAccountId: account.id });
+    expect(scope).not.toHaveProperty('registrationTargetId');
   });
 });
 
@@ -168,11 +166,11 @@ describe('여러 몰 실행', () => {
   it('묶음으로 동시에 열되 한꺼번에 다 열지는 않는다 — 탭을 빨리 많이 만들면 주입이 깨진다', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
-    wait.mockImplementation(() => {
+    vi.mocked(apiClient.get).mockImplementation(() => {
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       return new Promise((resolve) => {
-        setTimeout(() => { inFlight -= 1; resolve(filledOnly()); }, 5);
+        setTimeout(() => { inFlight -= 1; resolve(registrationOperationResponse(FILLED_ONLY)); }, 5);
       });
     });
     vi.spyOn(kidsnoteAdapter, 'buildForm').mockResolvedValue(FORM);
@@ -215,7 +213,7 @@ describe('여러 몰 실행', () => {
 
   it('보낼 몰이 없으면 아무것도 하지 않는다', async () => {
     expect(await runMallRegistrations({ mallKeys: [], item, values: filled(), channelAccountIds: accounts })).toEqual([]);
-    expect(start).not.toHaveBeenCalled();
+    expect(starts).toEqual([]);
   });
 });
 

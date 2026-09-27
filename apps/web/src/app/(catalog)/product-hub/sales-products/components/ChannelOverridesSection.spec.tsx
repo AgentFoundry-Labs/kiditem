@@ -2,11 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { executeTargetRegistration } from '@/app/(channels)/_shared/target-registration-execution';
-import {
-  describeRegistrationOperation,
-  readRegistrationOperation,
-  startRegistrationOperation,
-} from '@/app/(channels)/_shared/registration-operation';
+import { describeRegistrationOperation } from '@/app/(channels)/_shared/registration-operation';
+import { apiClient } from '@/lib/api-client';
+import { sendToExtension } from '@/lib/extension-bridge';
 import type { OperationView } from '@kiditem/shared/operation';
 import { salesProductApi } from '@/lib/sales-product-api';
 import { registrationTargetApi } from '@/lib/registration-target-api';
@@ -37,12 +35,11 @@ vi.mock('@/app/(channels)/_shared/target-registration-execution', () => ({
   executeTargetRegistration: vi.fn(),
 }));
 
-// 등록 실행 시작·읽기(확장·서버 경계)만 가짜다. 상태 풀이·키는 진짜.
-vi.mock('@/app/(channels)/_shared/registration-operation', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/app/(channels)/_shared/registration-operation')>()),
-  readRegistrationOperation: vi.fn(),
-  startRegistrationOperation: vi.fn(),
-}));
+// 등록 실행 읽기는 진짜(`registration-operation`) — 가짜는 서버 HTTP와 확장 메시지 경계뿐이다. 실행 시작 · scope 계약은
+// `target-registration-execution` 스펙이 확장 경계에서 본다.
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+const operationGets = () => vi.mocked(apiClient.get).mock.calls.filter(([href]) => String(href).startsWith('/api/operations/'));
 
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -180,7 +177,7 @@ describe('<ChannelOverridesSection />', () => {
     expect(screen.queryByText(/등록 결과 확인됨/)).not.toBeInTheDocument();
     // 재전송이 아직 없으니(KID-323) 몰에 올라간 상품으로 보내는 고리도 없다.
     expect(screen.queryByRole('link', { name: /다시 보내기|몰에 올라간 상품/ })).not.toBeInTheDocument();
-    expect(readRegistrationOperation).not.toHaveBeenCalled();
+    expect(operationGets()).toEqual([]);
   });
 
   it('does not offer a second register send for an account the reader says is registered', async () => {
@@ -378,10 +375,10 @@ describe('<ChannelOverridesSection />', () => {
         createdAt: '2026-09-22T01:02:03.000Z', completedAt: null,
       },
     }));
-    vi.mocked(readRegistrationOperation).mockResolvedValue(liveOperation());
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: liveOperation().operation });
 
     renderSection(product, true);
-    await waitFor(() => expect(readRegistrationOperation).toHaveBeenCalledWith(EXECUTION_ID));
+    await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${EXECUTION_ID}`));
     expect(await screen.findByLabelText('등록상품ID')).toBeInTheDocument();
     expect(screen.getAllByText(/^마지막 실행 /).length).toBeGreaterThan(0);
     const button = screen.getByRole('button', { name: '확인 필요' });
@@ -402,15 +399,15 @@ describe('<ChannelOverridesSection />', () => {
       },
     });
     serveRegistrationState(live('executing'));
-    vi.mocked(readRegistrationOperation).mockResolvedValue(liveOperation({ status: 'executing' }));
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: liveOperation({ status: 'executing' }).operation });
 
     renderSection(product, true);
-    await waitFor(() => expect(readRegistrationOperation).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(operationGets()).toHaveLength(1));
 
     serveRegistrationState(live('reconciling'));
     await lastQueryClient.invalidateQueries({ queryKey: ['sales-products', 'registration-state', PRODUCT_ID] });
 
-    await waitFor(() => expect(readRegistrationOperation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(operationGets()).toHaveLength(2));
   });
 
   it('re-reads the registration state after the simple and the advanced saves — both can flip 변경됨', async () => {
@@ -465,7 +462,8 @@ describe('<ChannelOverridesSection />', () => {
       idempotencyKey: expect.any(String),
       item: expect.objectContaining({ candidateId: PRODUCT_ID, source: 'sales_product' }),
     }));
-    expect(startRegistrationOperation).not.toHaveBeenCalled();
+    // 구성 변경도 등록 대상 실행 한 길로만 시작한다 — 화면이 확장을 따로 부르지 않는다.
+    expect(sendToExtension).not.toHaveBeenCalled();
     expect(await screen.findByText(/자동 재고 처리를 보류합니다/)).toBeInTheDocument();
   });
 

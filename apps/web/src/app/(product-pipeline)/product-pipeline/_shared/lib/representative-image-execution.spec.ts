@@ -1,21 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
-import { apiClient } from '@/lib/api-client';
-import { OperationStartFailure } from '@/lib/operation-start';
 
-// 대표이미지 몰 반영 = 등록 실행 `thumbnail_update` 하나(KID-364). 시작·대기·읽기·확인·닫기 경계만 가짜다.
-const op = vi.hoisted(() => ({ start: vi.fn(), wait: vi.fn(), read: vi.fn(), confirm: vi.fn(), close: vi.fn() }));
-vi.mock('@/app/(channels)/_shared/registration-operation', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@/app/(channels)/_shared/registration-operation')>()),
-  startRegistrationOperation: op.start,
-  waitForRegistrationOperation: op.wait,
-  readRegistrationOperation: op.read,
-  confirmRegistrationOperation: op.confirm,
-  closeRegistrationOperation: op.close,
-}));
+// 대표이미지 몰 반영 = 등록 실행 `thumbnail_update` 하나(KID-364). 가짜는 확장 메시지 · 서버 HTTP · 저장 자격 경계뿐이고,
+// 시작 · 대기 · 확인 · 닫기는 진짜로 돌아 확장에 보낸 scope가 계약 스키마를 통과하는지 본다.
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn().mockResolvedValue({ loginId: null, password: null }) } }));
 vi.mock('@/lib/api-client', () => ({ apiClient: { post: vi.fn(), get: vi.fn() } }));
 
-const { describeRegistrationOperation } = await import('@/app/(channels)/_shared/registration-operation');
+const { apiClient } = await import('@/lib/api-client');
+const { fakeRegistrationExtension, parsedRegistrationScope, registrationOperationResponse } = await import('@/test/fixtures/registration-operation');
 const {
   ListingChoiceRequiredError,
   confirmRepresentativeImageApplied,
@@ -33,68 +27,75 @@ const LISTING = '33333333-3333-4333-8333-333333333333';
 const OPERATION_ID = '00000000-0000-4000-8000-0000000000e1';
 const SUBJECT = { salesProductId: PRODUCT, assetId: ASSET };
 
-function operation(patch: Partial<OperationView>): OperationView {
-  return {
-    id: OPERATION_ID, kind: 'channels.registration', status: 'reconciling', lockKeys: [],
-    plan: { executionKind: 'thumbnail_update', salesProductId: PRODUCT, channelListingId: LISTING, externalListingId: 'MALL-7' },
-    progress: null, result: null, window: null, errorCode: null, errorMessage: null, startedAt: '2026-09-27T09:00:00.000Z',
-    finishedAt: null, expiresAt: '2026-09-27T09:30:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null, ...patch,
-  };
-}
+const checking = (patch: Partial<OperationView> = {}) => registrationOperationResponse({
+  id: OPERATION_ID,
+  plan: { executionKind: 'thumbnail_update', salesProductId: PRODUCT, channelListingId: LISTING, externalListingId: 'MALL-7' },
+  ...patch,
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
-  op.start.mockResolvedValue({ operationId: OPERATION_ID, reused: false });
+  window.localStorage.clear();
 });
 
 describe('submitRepresentativeImageViaExtension', () => {
   it('⭐ 판매 상품·자산(·고른 리스팅)으로 thumbnail_update 실행 하나를 시작하고, 몰 화면에 올린 것은 저장 대기(reconciling)다', async () => {
-    op.wait.mockResolvedValue(describeRegistrationOperation(operation({})));
+    const starts = fakeRegistrationExtension(['coupang'], [{ success: true, operationId: OPERATION_ID, reused: false }]);
+    vi.mocked(apiClient.get).mockResolvedValue(checking());
 
     const result = await submitRepresentativeImageViaExtension(SUBJECT, { channelListingId: LISTING });
 
-    expect(op.start).toHaveBeenCalledWith({
-      mallKey: 'coupang',
-      idempotencyKey: expect.any(String),
-      scope: { executionKind: 'thumbnail_update', salesProductId: PRODUCT, assetId: ASSET, channelListingId: LISTING },
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'thumbnail_update', salesProductId: PRODUCT, assetId: ASSET, channelListingId: LISTING,
+      idempotencyKey: expect.any(String), submit: false,
     });
     expect(result).toMatchObject({ executionId: OPERATION_ID, salesProductId: PRODUCT, status: 'reconciling', success: false });
     expect(representativeImageUploadReached(result)).toBe(true);
   });
 
   it('실패로 끝나면 운영자 문장을 실어 던진다', async () => {
-    op.wait.mockResolvedValue(describeRegistrationOperation(operation({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: 'login' })));
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow();
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.not.toThrow(/SITE_LOGIN_REQUIRED/);
+    fakeRegistrationExtension(['coupang']);
+    vi.mocked(apiClient.get).mockResolvedValue(checking({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: 'login' }));
+    const submitted = submitRepresentativeImageViaExtension(SUBJECT);
+    await expect(submitted).rejects.toThrow();
+    await expect(submitted).rejects.not.toThrow(/SITE_LOGIN_REQUIRED/);
   });
 
-  it('리스팅이 여럿이라 서버가 거절하면 운영자에게 고르게 한다', async () => {
-    // 실제 서버 봉투: 등록 코드 VALIDATION_FAILED + details.reason ambiguous_listing.
-    op.start.mockRejectedValue(new OperationStartFailure('어느 리스팅에 올릴지 골라 주세요.', 'VALIDATION_FAILED', { reason: 'ambiguous_listing' }));
+  it('리스팅이 여럿이라 서버가 거절하면(VALIDATION_FAILED + ambiguous_listing) 운영자에게 고르게 한다', async () => {
+    fakeRegistrationExtension(['coupang'], [{
+      success: false, errorCode: 'VALIDATION_FAILED', error: '어느 리스팅에 올릴지 골라 주세요.', details: { reason: 'ambiguous_listing' },
+    }]);
     await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toBeInstanceOf(ListingChoiceRequiredError);
   });
 });
 
 describe('확인 중 실행의 출구', () => {
   it('"반영됨으로 표시"는 그 몰 상품번호로 실행을 확인한다', async () => {
-    op.read.mockResolvedValue(describeRegistrationOperation(operation({})));
-    op.confirm.mockResolvedValue(describeRegistrationOperation(operation({ status: 'succeeded' })));
+    vi.mocked(apiClient.get).mockResolvedValue(checking());
+    vi.mocked(apiClient.post).mockResolvedValue(checking({ status: 'succeeded' }));
     await expect(confirmRepresentativeImageApplied(OPERATION_ID)).resolves.toMatchObject({ success: true, status: 'succeeded' });
-    expect(op.confirm).toHaveBeenCalledWith(OPERATION_ID, { externalListingId: 'MALL-7' });
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/registration-operations/${OPERATION_ID}/confirm`, { externalListingId: 'MALL-7' });
   });
 
   it('"반영 안 됨으로 표시"는 실행을 닫는다', async () => {
-    op.close.mockResolvedValue(describeRegistrationOperation(operation({ status: 'failed' })));
+    vi.mocked(apiClient.post).mockResolvedValue(checking({ status: 'failed' }));
     await markRepresentativeImageNotApplied(OPERATION_ID);
-    expect(op.close).toHaveBeenCalledWith(OPERATION_ID, '운영자가 몰에서 확인: 반영되지 않음');
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `/api/channels/registration-operations/${OPERATION_ID}/close`,
+      { reason: '운영자가 몰에서 확인: 반영되지 않음' },
+    );
   });
 
   it('"다시 보내기"는 확인 중 실행을 닫고 같은 판매 상품·리스팅으로 새 실행을 연다(같은 실행을 두 번 보내지 않는다)', async () => {
-    op.read.mockResolvedValue(describeRegistrationOperation(operation({})));
-    op.wait.mockResolvedValue(describeRegistrationOperation(operation({ id: '00000000-0000-4000-8000-0000000000e2' })));
+    const NEXT = '00000000-0000-4000-8000-0000000000e2';
+    const starts = fakeRegistrationExtension(['coupang'], [{ success: true, operationId: NEXT, reused: false }]);
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => (href.endsWith(NEXT) ? checking({ id: NEXT }) : checking()));
+    vi.mocked(apiClient.post).mockResolvedValue(checking({ status: 'failed' }));
     await resendRepresentativeImageViaExtension(OPERATION_ID);
-    expect(op.close).toHaveBeenCalledWith(OPERATION_ID, '운영자가 다시 보내기로 닫음');
-    expect(op.start.mock.calls[0]![0].scope).toEqual({ executionKind: 'thumbnail_update', salesProductId: PRODUCT, channelListingId: LISTING });
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/registration-operations/${OPERATION_ID}/close`, { reason: '운영자가 다시 보내기로 닫음' });
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'thumbnail_update', salesProductId: PRODUCT, channelListingId: LISTING, idempotencyKey: expect.any(String), submit: false,
+    });
   });
 });
 
