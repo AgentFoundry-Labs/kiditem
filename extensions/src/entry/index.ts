@@ -47,6 +47,7 @@ import '../sites/domeggook/registration';
 import '../sites/gmarket/listings';
 import '../sites/gmarket/registration';
 import '../sites/gs-shop';
+import '../sites/gs-shop/registration';
 import '../sites/haebub-mall';
 import '../sites/icecream-mall';
 import '../sites/icecream-mall/registration';

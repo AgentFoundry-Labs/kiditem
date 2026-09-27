@@ -4928,9 +4928,9 @@ var KidItemRuntime = (() => {
     details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
   }).passthrough();
   var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
+    constructor(code2, message, details = null, cause) {
       super(message);
-      this.code = code;
+      this.code = code2;
       this.details = details;
       this.cause = cause;
       this.name = "RuntimeError";
@@ -6437,13 +6437,13 @@ var KidItemRuntime = (() => {
         message: "targetCount must equal targetCodes length"
       });
     }
-    plan.targetCodes.forEach((code, index) => {
+    plan.targetCodes.forEach((code2, index) => {
       const previous = plan.targetCodes[index - 1];
-      if (previous !== void 0 && code <= previous) {
+      if (previous !== void 0 && code2 <= previous) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["targetCodes", index],
-          message: code === previous ? "targetCodes must be unique" : "targetCodes must be sorted"
+          message: code2 === previous ? "targetCodes must be unique" : "targetCodes must be sorted"
         });
       }
     });
@@ -7729,8 +7729,8 @@ var KidItemRuntime = (() => {
     return new Date(parsed2 + KST_OFFSET_MS).toISOString().slice(0, 10);
   }
   function isUrgent(row) {
-    const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
-    if (code) return code === "URGENT";
+    const code2 = String(row.purchaseOrderType ?? "").trim().toUpperCase();
+    if (code2) return code2 === "URGENT";
     return /긴급/.test(String(row.purchaseOrderTypeDescription ?? ""));
   }
   function listedPurchaseOrder(raw) {
@@ -11959,6 +11959,134 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "gs-shop", create: (deps, lease) => createGsShopSite(deps.tabs, createSiteSignIn(GS_SHOP_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/mall-write/raw.ts
+  var asRaw = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+  function requireRaw(value, message) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) throw planInvalid(message);
+    return value;
+  }
+  function planInvalid(message) {
+    return new RuntimeError(RUNTIME_PLAN_INVALID16, message, { reason: "form_values" });
+  }
+  var text4 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
+  var digits2 = (entry) => /^\d+$/.test(String(entry ?? "")) ? String(entry) : "";
+  var code = (entry, pattern) => pattern.test(String(entry ?? "")) ? String(entry) : "";
+  var amount = (entry) => {
+    const parsed2 = Number(entry);
+    return Number.isFinite(parsed2) && parsed2 >= 0 ? Math.round(parsed2) : 0;
+  };
+  var entriesOf = (value) => Object.entries(asRaw(value));
+  function cutBytes(entry, maxBytes, measure) {
+    let out = "";
+    for (const char of entry) {
+      if (measure(out + char) > maxBytes) break;
+      out += char;
+    }
+    return out.trim();
+  }
+
+  // extensions/src/sites/gs-shop/registration.ts
+  var GS_SHOP_REGISTER_FILE = "content/page-call/gs-shop-register.js";
+  var gsBytes = (entry) => [...entry].reduce((sum, char) => sum + (/^[\x00-\x7f]$/.test(char) ? 1 : 2), 0);
+  function normalizeGsshopForm(value) {
+    const raw = requireRaw(value, "GS\uC0F5 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const trimmed = (entry, max = 1e3) => text4(entry).trim().slice(0, max);
+    const category = code(raw.category, /^[A-Z]\d{8}$/);
+    if (!category) throw planInvalid("GS\uC0F5 \uC0C1\uD488\uBD84\uB958 \uCF54\uB4DC(\uC608: B35012701)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const sectionId = digits2(raw.sectionId);
+    if (!sectionId) throw planInvalid("GS\uC0F5 \uC804\uC2DC \uCE74\uD14C\uACE0\uB9AC \uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const supplierProductCode = code(raw.supplierProductCode, /^[A-Za-z0-9\-_()]{1,20}$/);
+    if (!supplierProductCode) throw planInvalid("GS\uC0F5 \uD611\uB825\uC0AC \uC0C1\uD488\uCF54\uB4DC\uB294 \uC601\uBB38\xB7\uC22B\uC790\xB7-_() 20\uC790 \uC774\uB0B4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    const exposureName = cutBytes(trimmed(raw.exposureName, 400).replace(/["<>|\\?*]/g, "").replace(/\s+/g, " "), 160, gsBytes);
+    const invoiceName = cutBytes(trimmed(raw.invoiceName, 200).replace(/[:"<>|\\']/g, "").replace(/[?*]/g, " ").replace(/\s+/g, " "), 30, gsBytes);
+    if (!exposureName || !invoiceName) throw planInvalid("GS\uC0F5 \uB178\uCD9C\uC0C1\uD488\uBA85\xB7\uC1A1\uC7A5\uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("GS\uC0F5 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const marginRate = amount(raw.marginRate);
+    const brand = asRaw(raw.brand);
+    const brandCode = digits2(brand.code);
+    if (!brandCode) throw planInvalid("GS\uC0F5 \uBE0C\uB79C\uB4DC \uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const delivery = asRaw(raw.delivery);
+    const remote = asRaw(delivery.remote);
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [itemCode, entry] of entriesOf(notice.values)) {
+      if (digits2(itemCode) && entry !== null && entry !== void 0) noticeValues[itemCode] = trimmed(entry, 1e3);
+    }
+    const composition = asRaw(raw.composition);
+    return {
+      category,
+      sectionId,
+      supplierProductCode,
+      mdId: digits2(raw.mdId),
+      employeeNo: digits2(raw.employeeNo),
+      exposureName,
+      invoiceName,
+      brand: { code: brandCode, name: trimmed(brand.name, 60) },
+      modelName: cutBytes(trimmed(raw.modelName, 200), 60, gsBytes),
+      composition: {
+        content: trimmed(composition.content, 200),
+        packageCount: Math.max(1, amount(composition.packageCount)),
+        maker: trimmed(composition.maker, 60),
+        origin: trimmed(composition.origin, 40)
+      },
+      salePrice,
+      marginRate: marginRate > 0 && marginRate < 100 ? marginRate : 0,
+      delivery: {
+        courier: code(delivery.courier, /^[A-Z0-9]{2,4}$/),
+        convenienceReturn: delivery.convenienceReturn === "Y" ? "Y" : "N",
+        fee: amount(delivery.fee),
+        freeOver: amount(delivery.freeOver),
+        returnFee: amount(delivery.returnFee),
+        exchangeFee: amount(delivery.exchangeFee),
+        remote: { fee: amount(remote.fee), returnFee: amount(remote.returnFee), exchangeFee: amount(remote.exchangeFee) },
+        refundType: delivery.refundType === "20" ? "20" : "10",
+        shipAddress: code(delivery.shipAddress, /^\d{4}$/),
+        returnAddress: code(delivery.returnAddress, /^\d{4}$/),
+        bundle: code(delivery.bundle, /^[A-Z]\d{2}$/),
+        weight: code(delivery.weight, /^A\d{2}$/),
+        length: code(delivery.length, /^B\d{2}$/)
+      },
+      stock: amount(raw.stock),
+      safeStock: amount(raw.safeStock),
+      notice: { groupCode: digits2(notice.groupCode), values: noticeValues }
+    };
+  }
+  var GS_SHOP_REGISTRATION_FORM = {
+    label: "GS\uC0F5",
+    origin: "https://partners.gsshop.com",
+    pathPrefix: "/product/products/create",
+    // 같은 화면이 `/update/<번호>`·`/copy/<번호>`로도 열린다. 등록 주소와 정확히 같아야 받는다.
+    exactPath: true,
+    noQuery: true,
+    formSelector: "body",
+    imageSlots: [],
+    dedicated: {
+      file: GS_SHOP_REGISTER_FILE,
+      call: "gsshop.fill",
+      // 대표 1 + 추가 7.
+      imageGroupKey: "gsshop",
+      formKey: "gsshop",
+      normalize: normalizeGsshopForm,
+      options: {
+        maxImages: 8,
+        formWaitMs: 4e4,
+        // 처리 함수 하나(분류 연쇄·담당MD 수수료 조회 등)가 끝날 때까지 기다리는 시간.
+        stepWaitMs: 15e3
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 GS 편집기 업로드에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "gs-shop",
+    displayName: "GS\uC0F5",
+    guard: registrationGuard(GS_SHOP_PAGE_GUARD, "GS\uC0F5"),
+    dialogHosts: ["partners.gsshop.com"],
+    login: GS_SHOP_LOGIN,
+    form: GS_SHOP_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/haebub-mall/index.ts
   var HAEBUB_MALL_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
   var HAEBUB_MALL_ORDERS_FILE = "content/page-call/haebub-mall-orders.js";
@@ -13464,28 +13592,11 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
 
-  // extensions/src/sites/mall-write/raw.ts
-  var asRaw = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
-  function requireRaw(value, message) {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) throw planInvalid(message);
-    return value;
-  }
-  function planInvalid(message) {
-    return new RuntimeError(RUNTIME_PLAN_INVALID16, message, { reason: "form_values" });
-  }
-  var text4 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
-  var digits2 = (entry) => /^\d+$/.test(String(entry ?? "")) ? String(entry) : "";
-  var amount = (entry) => {
-    const parsed2 = Number(entry);
-    return Number.isFinite(parsed2) && parsed2 >= 0 ? Math.round(parsed2) : 0;
-  };
-  var entriesOf = (value) => Object.entries(asRaw(value));
-
   // extensions/src/sites/smartstore/registration.ts
   var SMARTSTORE_REGISTER_FILE = "content/page-call/smartstore-register.js";
   function normalizeSmartstoreForm(value) {
     const raw = requireRaw(value, "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
-    const code = (entry) => /^[A-Z_]+$/.test(String(entry ?? "")) ? String(entry) : "";
+    const code2 = (entry) => /^[A-Z_]+$/.test(String(entry ?? "")) ? String(entry) : "";
     const clean2 = (entry, max) => text4(entry, 1e3).trim().replace(/[\\*?"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
     const utf8Length = (entry) => new TextEncoder().encode(entry).length;
     const category = asRaw(raw.category);
@@ -13500,7 +13611,7 @@ var KidItemRuntime = (() => {
     const cert = asRaw(raw.childCert);
     const childCert = digits2(cert.certId) && clean2(cert.number, 60) ? { certId: digits2(cert.certId), number: clean2(cert.number, 60), companyName: text4(cert.companyName, 60).trim() } : null;
     const rawOrigin = asRaw(raw.origin);
-    const origin = code(rawOrigin.exposureType) ? { exposureType: code(rawOrigin.exposureType), firstSub: digits2(rawOrigin.firstSub), secondSub: digits2(rawOrigin.secondSub), importer: text4(rawOrigin.importer, 60).trim() } : null;
+    const origin = code2(rawOrigin.exposureType) ? { exposureType: code2(rawOrigin.exposureType), firstSub: digits2(rawOrigin.firstSub), secondSub: digits2(rawOrigin.secondSub), importer: text4(rawOrigin.importer, 60).trim() } : null;
     const tags = [];
     for (const entry of Array.isArray(raw.tags) ? raw.tags : []) {
       const tag = clean2(entry, 30).replace(/\s+/g, "");
@@ -13522,7 +13633,7 @@ var KidItemRuntime = (() => {
       origin,
       childCert,
       notice: {
-        type: code(notice.type) || "ETC",
+        type: code2(notice.type) || "ETC",
         itemName: text4(notice.itemName, 200).trim(),
         modelName: text4(notice.modelName, 200).trim(),
         certificateDetails: text4(notice.certificateDetails, 500).trim(),
@@ -13997,9 +14108,9 @@ var KidItemRuntime = (() => {
   var MAX_PRODUCT_BYTES = 512 * 1024;
   var WING_CATALOG_PAGE_SIZE = 500;
   var WingPayloadError = class extends Error {
-    constructor(message, code = "WING_CATALOG_PAYLOAD_INVALID") {
+    constructor(message, code2 = "WING_CATALOG_PAYLOAD_INVALID") {
       super(message);
-      this.code = code;
+      this.code = code2;
       this.name = "WingPayloadError";
     }
     code;
@@ -15252,12 +15363,12 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/core/operation-client.ts
-  function stopFor(code, details) {
-    if (code === "OPERATION_IN_PROGRESS") {
+  function stopFor(code2, details) {
+    if (code2 === "OPERATION_IN_PROGRESS") {
       const existing = OperationInProgressDetailsSchema.safeParse(details);
       return { kind: "already_running", existing: existing.success ? existing.data : null };
     }
-    if (code === "OPERATION_FENCE_LOST" || code === "OPERATION_NOT_FOUND") {
+    if (code2 === "OPERATION_FENCE_LOST" || code2 === "OPERATION_NOT_FOUND") {
       const reason = details?.reason;
       return { kind: "fence_lost", reason: typeof reason === "string" ? reason : null };
     }
@@ -15295,10 +15406,10 @@ var KidItemRuntime = (() => {
         ...request.body !== void 0 ? { body: JSON.stringify(request.body) } : {}
       });
     } catch (error) {
-      const code = error?.code;
-      if (typeof code === "string" && code.trim()) {
+      const code2 = error?.code;
+      if (typeof code2 === "string" && code2.trim()) {
         const message = error instanceof Error && error.message ? error.message : "KidItem \uC11C\uBC84 \uC694\uCCAD\uC774 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4.";
-        throw new RuntimeError(code.trim().slice(0, 100), message, { path }, error);
+        throw new RuntimeError(code2.trim().slice(0, 100), message, { path }, error);
       }
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path }, error);
     }
