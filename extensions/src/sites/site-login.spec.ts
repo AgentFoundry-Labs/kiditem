@@ -154,8 +154,8 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     const frames = stalled.page.frames.bind(stalled.page);
     stalled.page.frames = async <T,>(files: readonly string[]) => (submitted ? new Promise<never>(() => undefined) : frames<T>(files));
     const ask = stalled.page.ask.bind(stalled.page);
-    stalled.page.ask = async (message, options) => {
-      const answer = await ask(message, options);
+    stalled.page.ask = async <T extends PageAnswer>(message: Record<string, unknown>, options: Parameters<TabPage['ask']>[1]) => {
+      const answer = await ask<T>(message, options);
       if (message.call === 'login.fill') submitted = true;
       return answer;
     };
