@@ -15,14 +15,11 @@ workflow.
   starts the inventory source and the 401-inclusive-day Sellpia product-profit
   source independently. That 401-day source ends yesterday and preserves exact
   source period totals; it does not create an ABC result.
-- Advertising profitability is a separate organization-level source-owner
-  attempt. Its server plan freezes the applicable accounts, advertiser
-  identities, and exact date slices. It must prove the complete plan before the
-  Advertising snapshot becomes `COMPLETE`; an account or slice failure does not
-  compose a partial organization snapshot.
-- Finance's `ProfitabilityEvidence` read seam selects compatible owner-published
-  `COMPLETE` Sellpia and Advertising generations for one exact common cutoff.
-  It does not calculate a grade.
+- ABC does not read advertising (KID-373): the advertising-free formula
+  (version 3) grades on Sellpia revenue and order-time supply cost alone.
+- Finance's `ProfitabilityEvidence` read seam selects the newest
+  owner-published `COMPLETE` Sellpia generation on the current mapping that
+  ends on the cutoff or closes its month. It does not calculate a grade.
 - Products owns the immutable absolute ABC formula, eligibility, evaluation,
   publication, current grade, and grade history. Source completion never calls
   ABC. Only the authenticated Product Hub **등급 새로고침** and Dashboard
@@ -38,22 +35,11 @@ workflow.
 | --- | --- | --- |
 | Sellpia product-profit source | Analytics operation kind `analytics.sellpia_product_profitability` (KID-361; lock `resource:sellpia:login`) and `SELLPIA_PROFITABILITY_SOURCE_READ_PORT` (a generation is one succeeded operation) | Started through the extension's `operation.start`; state from `GET /api/operations?kinds=analytics.sellpia_product_profitability` |
 | Sellpia inventory source | Products operation kind `products.sellpia_inventory` | Product Hub starts inventory collection independently from product-profit collection |
-| Advertising profitability source | Advertising `PROFITABILITY_AD_IMPORT_PORT` and `ADVERTISING_PROFITABILITY_READ_PORT` | `/api/ads/profitability-imports`; the installed extension owner action is `collectAdvertisingProfitability` with capability `profitabilityAdvertisingSourceOwnerV1` |
 | Combined evidence | Finance `ProfitabilityEvidence.load({ organizationId, targetCutoff })` | Reads owner-published facts; it does not write source or ABC state |
 | ABC calculation/publication | Products `MasterProductAbcService` through `MASTER_PRODUCT_ABC_RECALCULATION_PORT` | Product Hub **ABC 등급 현황 → 등급 새로고침** and Dashboard 수익성 ABC **재계산**; response is `PUBLISHED` or `SOURCE_NOT_READY` |
 
 The Product Hub **상품 전체 데이터 갱신** button is a convenience action for
-the inventory and Sellpia profitability source owners. It does not collect
-Advertising profitability and does not publish ABC. Use the named Advertising
-profitability owner entrypoint when that source needs a refresh; the campaign,
-keyword, traffic, or dashboard ad sync is not a substitute for the
-`coupang_ad_profitability` source.
-
-광고 전략 → **분석** now exposes **상품별 광고비 보고서 수집**. That explicit
-button sends `collectAdvertisingProfitability` through the installed extension
-owner and reads `/api/ads/profitability-imports/current` for `RUNNING`,
-`FAILED`, or `COMPLETE` plus the previous complete cutoff. It never starts ABC;
-ABC remains the separate Product Hub or Dashboard action.
+the inventory and Sellpia profitability source owners. It does not publish ABC.
 
 The **ABC 등급 현황** dialog reads source status, latest capture time, actual
 cutoff, official cutoff, formula revision, publication revision, and summary
@@ -92,28 +78,6 @@ An inventory failure must not suppress a profitability operation, and a
 profitability failure must not blank the last complete inventory or profit
 read.
 
-### Advertising profitability source
-
-1. The authenticated extension starts `collectAdvertisingProfitability`; the
-   server admits one organization-level attempt with an idempotency key and
-   freezes its account, advertiser, mapping-generation, and date-slice plan.
-2. The plan is derived through KST yesterday and uses the latest at most 12
-   calendar-month buckets, including the exact partial cutoff month. Each
-   slice carries its exact inclusive business dates. It is not a completed-
-   month-only, rolling-365-day, or daily-prorated plan.
-3. The extension visits planned accounts in sequence, verifies the visible
-   advertiser identity, and uploads receipt-backed report rows through
-   `/api/ads/profitability-imports/:attemptId/slices/:sliceId`. Every account
-   and slice must be proven before `/complete` can publish the generation.
-4. A failed or cancelled attempt posts a bounded failure to the same owner.
-   It never moves the current complete pointer. Retry after a terminal result
-   creates a new attempt; it does not reuse a failed generation or create an
-   account-level snapshot that ABC could combine with another account.
-5. Advertising evidence preserves `OBSERVED`, `CONFIRMED_ZERO`, and
-   `NOT_APPLIED`. Missing pagination, an advertiser mismatch, a truncated
-   report, or an unproven empty result is failure or stale evidence, never an
-   inferred zero.
-
 ## ABC eligibility and evaluation
 
 Products may publish an official grade only when all of the following are
@@ -123,7 +87,6 @@ true:
 - the channel mapping is valid and bound to the captured mapping generation;
 - Sellpia evidence covers the selected interval completely;
 - cost provenance is `ORDER_TIME_SUPPLY_COST` and VAT provenance is known;
-- Advertising evidence is `OBSERVED`, `CONFIRMED_ZERO`, or `NOT_APPLIED`;
 - the earliest valid mapped channel `saleStartedAt`, normalized to a KST
   calendar day, is at least 30 elapsed calendar days before the evaluation
   cutoff; and
@@ -136,13 +99,14 @@ make a missing or stale period complete. Invalid, future, foreign, ambiguous,
 or unconfirmed mappings do not contribute a sale start, and a missing sale
 date is insufficient evidence rather than an inferred date.
 
-The current formula payload is `PRODUCT_ABC_ABSOLUTE` version 2. It uses
+The current formula payload is `PRODUCT_ABC_ABSOLUTE` version 3
+(`historicalAdvertisingPolicy: EXCLUDED_V1`). It uses
 binary64 arithmetic, six-decimal half-up persistence rounding, fixed anchors,
 weights of 0.50 profit / 0.30 margin / 0.20 consistency, a 90-day half-life,
 and a 30-day profit-velocity normalization. The operating-profit input is:
 
 ```text
-operatingProfit = revenue - orderTimeSupplyCost - advertisingSpend
+operatingProfit = revenue - orderTimeSupplyCost
 ```
 
 Commission, fulfilment, return, and other costs are not fabricated as zero;
@@ -165,10 +129,8 @@ profit, non-positive operating margin, or loss persistence of at least 50%.
   weighted operating profit to the 30-day velocity. Covered days are a
   weighting/normalization denominator, not an eligibility threshold.
 
-The selected source vector records the Sellpia attempt/generation/cutoff,
-Advertising attempt/generation/cutoff, mapping generation, formula revision,
-and common evaluation cutoff. Finance uses one coherent vector; it never
-mixes newer revenue with older advertising spend.
+The selected source vector records the Sellpia operation/generation/cutoff,
+mapping generation, formula revision, and evaluation cutoff.
 
 ## Publication, last-good, and CAS behavior
 
@@ -177,23 +139,22 @@ calculation, and one publication CAS attempt:
 
 1. `ProfitabilityEvidence.load` reads the target KST cutoff and compatible
    complete owner snapshots.
-2. If no complete Sellpia and Advertising pair on the current mapping
-   generation ends on the same day (or the earlier one on a month's last day),
-   the command returns `SOURCE_NOT_READY` with each source's readiness and
-   `actualCutoff: null`, and writes nothing. It adds `pairing` when a source
-   reads ready and both sources' newest generations on that mapping end on
-   different days. A stale source that still pairs publishes at the pair's
-   cutoff. If the mapping moved after the formula-state read and the sources
-   already pair on the new generation, the command returns
-   `409 INPUT_CHANGED`; without that pair it is `SOURCE_NOT_READY` as above.
+2. If no complete Sellpia generation on the current mapping generation ends
+   on the cutoff (or the cutoff closes its month), the command returns
+   `SOURCE_NOT_READY` with the Sellpia readiness and `actualCutoff: null`, and
+   writes nothing. A stale source that still has such a generation publishes
+   at its cutoff. If the mapping moved after the formula-state read and a
+   generation already exists on the new mapping, the command returns
+   `409 INPUT_CHANGED`; without one it is `SOURCE_NOT_READY` as above.
    A move after the evidence load is refused by the publication fence in step 4.
 3. Otherwise Products captures the formula/publication revisions, source
    vector, complete target set, selling predicates, and mapping evidence.
-4. The publication transaction verifies the evaluated source pair against its
+4. The publication transaction verifies the evaluated generation against its
    own identities and provenance, and rechecks the mutable formula/publication
    revisions, target set, sale-age inputs, and mapping generation. A newer
-   `COMPLETE` source is freshness and does not invalidate that evaluated pair;
-   an inconsistent pair or changed mutable input returns `409 INPUT_CHANGED`.
+   `COMPLETE` source is freshness and does not invalidate that evaluated
+   generation; an inconsistent one or changed mutable input returns
+   `409 INPUT_CHANGED`.
    The command does not retry internally or partially publish.
 5. A successful publication atomically advances FormulaState provenance and
    evaluations/cache, and writes history only for actual grade transitions.
@@ -206,23 +167,20 @@ and previous cutoff while retaining the last normal official grade.
 ## Operator flow
 
 1. In an isolated QA environment, sign in to the intended organization and
-   open the supported Sellpia and Coupang browser sessions. Do not copy session
+   open the supported Sellpia browser session. Do not copy session
    credentials to the server.
 2. Start **상품 전체 데이터 갱신** when both inventory and Sellpia
    profitability need collection. Verify each owner result independently.
-3. In 광고 전략 → **분석**, click **상품별 광고비 보고서 수집** when its source
-   status is stale or missing. Keep its planned provider tabs available until
-   the owner reports terminal `COMPLETE` or `FAILED`.
-4. Open **ABC 등급 현황** in Product Hub. Record the Sellpia and Advertising
-   statuses, actual cutoffs, mapping generation, official cutoff, formula
-   revision, and publication revision.
-5. Click **등급 새로고침** once the dialog has finished reading the latest
+3. Open **ABC 등급 현황** in Product Hub. Record the Sellpia status, actual
+   cutoff, mapping generation, official cutoff, formula revision, and
+   publication revision.
+4. Click **등급 새로고침** once the dialog has finished reading the latest
    status; source readiness does not gate it. A publication uses the newest
-   Sellpia and Advertising pair that ends together and names any source that
-   collected past the publication's official cutoff. On `SOURCE_NOT_READY`,
+   usable Sellpia generation and names a collection that reached past the
+   publication's official cutoff. On `SOURCE_NOT_READY`,
    fix the named owner source and retry explicitly; do not publish a manual
    zero or downgrade a retained grade.
-6. Confirm Dashboard, Product Management, and Product Outflow read the same
+5. Confirm Dashboard, Product Management, and Product Outflow read the same
    stored grade/status and source cutoff. These screens are readers, not
    independent ABC calculators.
 
@@ -232,7 +190,6 @@ and previous cutoff while retaining the last normal official grade.
 | --- | --- |
 | Owner attempt is `RUNNING` after the page closed | Read the server attempt/status; allow the owner extension session to resume or report its terminal result. Do not create a duplicate attempt. |
 | Sellpia totals, period dates, or parser provenance mismatch | Fail the Sellpia attempt, preserve the previous complete generation, and correct the provider capture before a new attempt. |
-| Advertising pagination, account identity, or slice receipt is incomplete | Fail or leave the owner source stale; never certify a partial account set or inferred zero. |
 | Latest source attempt failed | Display the bounded error and previous complete cutoff; retry with a new explicit owner attempt after correcting the cause. |
 | Product Hub reports `SOURCE_NOT_READY` | Inspect the source rows and actual cutoffs, then collect the missing/stale owner source. No ABC state is written. |
 | ABC returns `409 INPUT_CHANGED` | Refetch Product Hub data and make one new explicit refresh attempt. Do not add a worker, retry loop, or Operation wrapper. |
@@ -270,10 +227,6 @@ browser pass from unit/integration output.
 Focused commands that exist in the repository:
 
 ```bash
-# Ad Ops advertising profitability owner entrypoint
-rtk npm run test --workspace=apps/web -- \
-  'src/app/(advertising)/ad-ops/components/AdvertisingProfitabilityRefresh.spec.tsx'
-
 # Product Hub source-owner and explicit ABC UI contracts
 rtk npm run test --workspace=apps/web -- \
   'src/app/(catalog)/product-hub/components/ProductOperationsFullRefreshAction.spec.tsx' \
@@ -285,22 +238,13 @@ rtk npm exec --workspace=apps/server -- vitest run \
   src/products/domain/master-product-abc.qa-regression.spec.ts \
   src/products/application/service/master-product-abc.service.spec.ts \
   src/products/application/service/product-operations-data-status.service.spec.ts \
-  src/finance/application/service/master-product-profitability-read.service.spec.ts \
-  src/advertising/application/service/__tests__/profitability-ad-import.service.spec.ts \
-  src/advertising/adapter/out/repository/__tests__/profitability-ad-import.repository.adapter.spec.ts
+  src/finance/application/service/master-product-profitability-read.service.spec.ts
 
 # Disposable PostgreSQL owner/evidence/publication contracts
 rtk npm run test:integration --workspace=apps/server -- \
   src/analytics/sellpia-product-sales/__tests__/sellpia-profitability-source.pg.integration.spec.ts \
-  src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts \
   src/finance/__tests__/profitability-evidence.pg.integration.spec.ts \
   src/products/__tests__/master-product-abc.repository.pg.integration.spec.ts
-
-# Extension owner transport and collection-window contracts
-rtk node --test \
-  extensions/tests/coupang-ads-scraper/profitability-source-owner.test.mjs \
-  extensions/tests/coupang-ads-scraper/collection-window.test.mjs \
-  extensions/tests/kiditem-os-service-worker-boot.test.mjs
 
 # Repository script contracts
 rtk npm run test:scripts

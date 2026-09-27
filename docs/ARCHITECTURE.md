@@ -129,14 +129,14 @@ Browser collection starts share one web control: a per-source adapter for
 `src/hooks/use-collection-source-control.ts`, rendered by
 `src/components/collection/CollectionStartControl.tsx`, with starts in
 `src/lib/collection-start.ts`. Running state comes from the owner status read,
-and every mounted copy shares start, stop and notices. Collections that hold a
-browser resource (the five Coupang collection-window producers) start through
-the extension's `startCollection` contract: the
-extension takes the resource's turn and opens the owner attempt, or refuses
-with the holder's name, and nothing is queued
-([ADR-0011](adr/0011-window-sharing-collections-start-through-the-extension.md)).
-Other browser sources open their attempt from the page through
+and every mounted copy shares start, stop and notices. Browser sources that
+still use owner attempts open their attempt from the page through
 `startWebOpenedCollection`, which stops an attempt the extension does not take.
+The Coupang ad-center collections that took turns in one collection window
+through the extension's `startCollection` contract
+([ADR-0011](adr/0011-window-sharing-collections-start-through-the-extension.md))
+are gone: advertising collects as the operation kind `advertising.ad_report`
+(KID-371, KID-373).
 The Wing catalog is Channels-owned operation kinds (list → details chained by
 `result.next`, workbook) started through the extension's `operation.start` and
 read through `GET /api/operations` (KID-354). The Wing daily facts are
@@ -342,7 +342,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/agent-gateway/src/provider/claude` | Platform | Claude CLI Implementation and adjacent specs. |
 | `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
-| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. Keyword and competitor collection are operation kinds (`advertising.wing_tracked_products`, `advertising.wing_rank`, `advertising.keyword_serp` → `advertising.competitor_seller_identity` → `advertising.competitor_catalog` chained by `result.next`; the last two share the lock `resource:competitor:serp-enrichment`, KID-362); readiness reads Wing rank coverage through `ADVERTISING_KEYWORD_RANK_READ_PORT`. |
+| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, the `advertising.ad_report` ledgers (product-day, keyword-day, campaign, campaign-ad, daily billing) published to other owners through `ADVERTISING_LEDGER_READ_PORT`, scrape ingest, daily facts, and strategy/action generation. Keyword and competitor collection are operation kinds (`advertising.wing_tracked_products`, `advertising.wing_rank`, `advertising.keyword_serp` → `advertising.competitor_seller_identity` → `advertising.competitor_catalog` chained by `result.next`; the last two share the lock `resource:competitor:serp-enrichment`, KID-362); readiness reads Wing rank coverage through `ADVERTISING_KEYWORD_RANK_READ_PORT`. |
 | `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, durable capability admission, and completed-event history composition. |
 | `apps/server/src/agent-os/application/port/out/history` | Platform | Completed-event history Interface at the outgoing history seam. |
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
@@ -1127,9 +1127,10 @@ are versioned; other products' performance never affects a grade. Collection
 and evaluation are independent: the ABC screen explicitly reads coherent
 COMPLETE source evidence and publishes grade/evaluation/history atomically with
 source, formula and publication fencing. Orders is not an ABC dependency.
-Monthly evaluation remains in use until aligned product-level daily revenue,
-order-time cost and advertising evidence can support a separately versioned
-daily formula. No missing data is allocated or treated as zero. Product Hub,
+ABC grades on Sellpia revenue and order-time cost alone (formula version 3,
+KID-373); advertising is not an ABC input. Monthly evaluation remains in use
+until aligned product-level daily revenue and order-time cost can support a
+separately versioned daily formula. No missing data is allocated or treated as zero. Product Hub,
 product-outflow,
 Dashboard, and Advertising consume the stored grade/evaluation snapshot;
 missing evidence remains unclassified instead of C and stale source states

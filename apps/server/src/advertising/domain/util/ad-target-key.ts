@@ -1,11 +1,8 @@
 // apps/server/src/advertising/util/ad-target-key.ts
 //
-// Deterministic canonical key builder for
-// `ChannelAdTargetDailySnapshot.targetKey`.
-//
-// The daily-fact table is uniquely keyed by
-//   (organizationId, channelAccountId, channel, businessDate, targetType, targetKey)
-// so `targetKey` MUST be non-null and stable across replays.
+// Deterministic canonical ad target keys (campaign/keyword/product grain).
+// The old target-day ledger these keyed was dropped in KID-373; the target
+// type and key shape remain for scrape-row normalization and ad actions.
 //
 // Patterns (single source of truth):
 //   account:<channelAccountId>:campaign:<canonical-provider-id>
@@ -142,8 +139,7 @@ export function campaignIdFromCanonicalIdentity(
 }
 
 /**
- * Build a deterministic non-null canonical key for
- * `ChannelAdTargetDailySnapshot.targetKey`.
+ * Build a deterministic non-null canonical ad target key.
  *
  * Throws if no usable identifier is present (no "unknown:unknown" rows).
  *

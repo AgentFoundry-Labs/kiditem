@@ -3,7 +3,7 @@
 // Recompute ROAS/CTR/CVR from additive numerator and denominator sums.
 // Reads MUST NOT trust per-row provider ratios — those are captured (in
 // `metaJson`) for audit only. The source-of-truth is the additive columns
-// on `ChannelListingDailySnapshot` / `ChannelAdTargetDailySnapshot`, and
+// on the listing-day and ad report ledgers, and
 // ratios over a period are recomputed as `SUM(numerator) / SUM(denominator)`.
 //
 // Returns `null` when the denominator is 0 / NaN / non-finite — callers MUST

@@ -93,8 +93,9 @@ option and day, only for keywords that drew a click.
   `ChannelAdKeywordDailySnapshot`, `ChannelAdCampaign`, `ChannelAdCampaignAd`,
   `ChannelAdDailyBilling` — in its finish transaction. Campaign totals are
   sums of product rows (there is no campaign-grain row); budget, status and
-  ROAS target come from `ChannelAdCampaign`. `ChannelAdTargetDailySnapshot`
-  and the monthly facts take no new writer; the tables go in KID-373.
+  ROAS target come from `ChannelAdCampaign`. They are the only advertising
+  facts; the old campaign-sweep, keyword and profitability collections and
+  their ledgers are gone (KID-373).
 - It holds `resource:ad-center:<id>`, never `account:<id>`. The closed-day hold
   (`domain/ad-report-confirmation`) narrows the run window, and product
   `billedSpend` sums to the settlement bill per campaign-day to the won
@@ -124,19 +125,10 @@ option and day, only for keywords that drew a click.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.
-- `ChannelAdTargetDailySnapshot`, what the old campaign sweep publishes, is
-  the legacy ledger KID-373 removes; no new reader may use it. Outside its
-  owner publication it is read only through
-  `adapter/out/persistence/read/ad-target-facts`, whose gate is the current completed sweep, product
-  grain, no keyword rows; `npm run check:ledger-readers` fails any undeclared
-  production read and inventories the remaining exact owner and legacy paths.
-  A day the sweep never reported is absent, never a
-  cost of zero. `ChannelListingDailySnapshot` has no advertising columns;
-  listing-day advertising comes only from this ledger.
-- Account totals are sums of the campaign sweep's target rows; there is no
-  separate account-day KPI collection. A provider grid without conversion
-  columns stores 0 with an unobserved stamp, and readers publish that count as
-  `null`, so no conversion rule fires on it.
+- Listing-day advertising comes only from the ad report ledgers through
+  `ADVERTISING_LEDGER_READ_PORT`; `ChannelListingDailySnapshot` has no
+  advertising columns. `npm run check:ledger-readers` fails any undeclared
+  production read. Account totals are sums of product rows.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
 - Reach Channels through its exported port rather than concrete services.
@@ -144,22 +136,17 @@ option and day, only for keywords that drew a click.
 ## Boundary Rules
 
 - KST business date conversion goes through `toBusinessDate()`.
-- Campaign sweeps and the profitability import request through the closed day
-  but confirm it only once they saw spend that day or no spend the day before
+- The ad report requests through the closed day but confirms it only once it
+  saw spend that day or no spend the day before
   (`domain/ad-report-confirmation`); a held day stays out of the confirmed
   window until a same-day re-collection sees its spend or a collection on a
-  later day confirms it. Each account confirms on its own spend: the
-  profitability import publishes through the earliest account end and
-  re-allocates every month that loses the held day, so no account's
-  spend on it is published. Readers that require the latest ads day use
-  `readAdEvidenceCutoff`, or `adReportEvidenceCutoff` over a profitability
-  generation's `requestedThrough` and `coveredThrough`, never the closed day.
+  later day confirms it. Readers that require the latest ads day use
+  `readAdEvidenceCutoff` (`adReportEvidenceCutoff` over the runs' requested and
+  confirmed ends), never the closed day.
 - Period views derive from daily facts; ratios recompute from summed raw
   values instead of provider ratios.
 - Listing facts match `vendorItemId` to `ChannelListingOption`, then
   `externalId` to a Coupang `ChannelListing`; preserve unmatched raw evidence.
-- Build target keys only with `buildAdTargetKey()` and return an error when no
-  stable identifier exists.
 - A margin is measurable only from recipe × Sellpia purchase price and the
   Channels `channelAccountSalesCosts` rule; option cost columns are not inputs,
   and an unknown cost leaves the margin `null`.
