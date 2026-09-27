@@ -45,7 +45,7 @@ function toMessage(error: unknown): string {
 
 function taskStatusForOperation(operation: RegistrationOperationRead | null, outcome: MallSendOutcome): PublishTaskStatus {
   if (!operation) return outcome.ok ? 'succeeded' : 'failed';
-  if (operation.state === 'confirmed') return 'succeeded';
+  if (operation.state === 'confirmed' || operation.state === 'filled') return 'succeeded';
   if (operation.state === 'needs_confirmation' || operation.state === 'running') return 'reconciling';
   if (operation.state === 'cancelled') return 'cancelled';
   return 'failed';

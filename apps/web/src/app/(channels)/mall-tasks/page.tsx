@@ -20,6 +20,7 @@ const LIST_LIMIT = 100;
 const STATE_TONE: Record<RegistrationOperationState, string> = {
   running: 'bg-blue-50 text-blue-700',
   needs_confirmation: 'bg-amber-50 text-amber-800',
+  filled: 'bg-slate-100 text-slate-700',
   confirmed: 'bg-emerald-50 text-emerald-700',
   failed: 'bg-red-50 text-red-700',
   cancelled: 'bg-slate-100 text-slate-600',

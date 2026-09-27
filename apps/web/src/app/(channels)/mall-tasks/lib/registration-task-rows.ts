@@ -28,10 +28,15 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+/** 대상 열: 판매상품 이름, 없으면 몰 상품번호, 그것도 없으면 id 앞자리(QA D4). */
 function targetOf(plan: Record<string, unknown> | null): string {
   if (!plan) return '—';
-  // 묶음 품절·재개: 서버 plan이 풀어 얼린 리스팅 목록(`payload.listings`).
   const payload = plan.payload && typeof plan.payload === 'object' ? plan.payload as Record<string, unknown> : null;
+  const snapshot = payload?.snapshot && typeof payload.snapshot === 'object' ? payload.snapshot as Record<string, unknown> : null;
+  const product = snapshot?.product && typeof snapshot.product === 'object' ? snapshot.product as Record<string, unknown> : null;
+  const name = text(product?.name);
+  if (name) return name;
+  // 묶음 품절·재개: 서버 plan이 풀어 얼린 리스팅 목록(`payload.listings`).
   if (Array.isArray(payload?.listings)) return `리스팅 ${payload.listings.length}개`;
   const listing = text(plan.externalListingId);
   if (listing) return `몰 상품 ${listing}`;
@@ -46,8 +51,8 @@ export function registrationTaskRow(operation: OperationView): RegistrationTaskR
   const kind = text(plan?.executionKind) as RegistrationExecutionKind | null;
   const result = read.result;
   const summary = read.message
-    ?? (result && !result.submitted && read.state === 'confirmed'
-      ? `폼만 채움${result.submitSkipped ? ` — ${result.submitSkipped}` : ''}`
+    ?? (read.state === 'filled'
+      ? `폼만 채움${result?.submitSkipped ? ` — ${result.submitSkipped}` : ''}`
       : result?.externalListingId
         ? `등록상품ID ${result.externalListingId}`
         : read.state === 'needs_confirmation'

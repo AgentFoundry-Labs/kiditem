@@ -24,6 +24,7 @@ import {
 const TONE: Record<RegistrationOperationState, string> = {
   running: 'border-slate-200 bg-slate-50 text-slate-700',
   needs_confirmation: 'border-amber-200 bg-amber-50 text-amber-900',
+  filled: 'border-slate-200 bg-slate-50 text-slate-700',
   confirmed: 'border-emerald-200 bg-emerald-50 text-emerald-800',
   failed: 'border-red-200 bg-red-50 text-red-800',
   cancelled: 'border-slate-200 bg-slate-50 text-slate-600',

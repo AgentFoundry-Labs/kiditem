@@ -731,7 +731,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
         toast.error(outcome.error);
         return;
       }
-      if (operation?.state === 'confirmed' && outcome.confirmed) {
+      if (operation?.state === 'confirmed') {
         toast.success('등록 실행 결과를 확인했습니다.');
         return;
       }

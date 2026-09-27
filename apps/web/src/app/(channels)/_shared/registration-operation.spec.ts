@@ -225,6 +225,15 @@ describe('waitForRegistrationOperation', () => {
     expect(read.result?.externalListingId).toBe('9001');
   });
 
+  it('⭐ 제출하지 않고 끝난 성공(submitted false)은 "폼만 채움" — 확인 완료가 아니다(QA D4)', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation({
+      status: 'succeeded', finishedAt: '2026-09-27T09:01:00.000Z',
+      result: { ...RESULT, providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false, submitSkipped: null },
+    }) });
+    const read = await waitForRegistrationOperation(OPERATION_ID, { sleep: noSleep });
+    expect(read).toMatchObject({ state: 'filled', label: '폼만 채움' });
+  });
+
   it('failed는 운영자 문장으로(원문 코드 대신)', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation({
       status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: 'login required', finishedAt: '2026-09-27T09:01:00.000Z',
