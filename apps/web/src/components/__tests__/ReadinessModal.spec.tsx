@@ -1,8 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { queryKeys } from '@/lib/query-keys';
 import ReadinessModal from '../ReadinessModal';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
 
@@ -55,58 +54,9 @@ vi.mock('sonner', () => ({
 
 const TODAY_DISMISSED_KEY = 'kiditem.readiness.dismissedDate';
 const SESSION_DISMISSED_KEY = 'kiditem.readiness.dismissed';
-const CAMPAIGN_SOURCE_PATH = '/api/ads/ad-campaigns/source';
-const KEYWORD_SOURCE_PATH = '/api/ads/ad-keywords/source';
-const AD_ACCOUNT_ID = '00000000-0000-4000-8000-000000000011';
-const EMPTY_OWNER_SOURCE = {
-  channelAccountId: null,
-  ready: false,
-  latestAttempt: null,
-  latestComplete: null,
-  actualCutoffAt: null,
-};
-
-function completeCampaignSweep() {
-  return {
-    attemptId: '00000000-0000-4000-8000-000000000012',
-    channelAccountId: AD_ACCOUNT_ID,
-    state: 'COMPLETE',
-    plan: {
-      sourceType: 'coupang_ad_campaign',
-      parserVersion: 'ad-campaign-v1',
-      channelAccountId: AD_ACCOUNT_ID,
-      expectedAdvertiserId: 'advertiser-1',
-      startDate: '2026-08-06',
-      endDate: '2026-09-05',
-      businessDates: Array.from({ length: 31 }, (_, index) =>
-        new Date(Date.UTC(2026, 8, 5 - index)).toISOString().slice(0, 10),
-      ),
-    },
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    actualCutoffAt: '2026-09-06T00:00:00.000Z',
-    manifestChecksum: 'a'.repeat(64),
-    rowCount: 31,
-    campaignCount: 1,
-    rawOnlyCampaignCount: 0,
-    warningCount: 0,
-    errorCode: null,
-    errorMessage: null,
-  };
-}
-
-function campaignSweepSource(ready: boolean) {
-  const complete = completeCampaignSweep();
-  return {
-    channelAccountId: AD_ACCOUNT_ID,
-    ready,
-    latestAttempt: complete,
-    latestComplete: complete,
-    actualCutoffAt: complete.actualCutoffAt,
-  };
-}
+const AD_REPORT_OPERATIONS_PATH = '/api/operations?kinds=advertising.ad_report&limit=5';
 
 let readiness: unknown;
-let campaignSource: unknown;
 
 function setReadiness(response: unknown) {
   readiness = response;
@@ -281,15 +231,13 @@ describe('ReadinessModal', () => {
   beforeEach(() => {
     mockApiGet.mockReset();
     mockApiGet.mockImplementation(async (path: string) => {
-      if (path === CAMPAIGN_SOURCE_PATH) return campaignSource;
-      if (path === KEYWORD_SOURCE_PATH) return EMPTY_OWNER_SOURCE;
+      if (path === AD_REPORT_OPERATIONS_PATH) return { operations: [] };
       if (path === CATALOG_OPERATIONS_PATH) return { operations: catalogOperations };
       // The Wing rank card reads its operations; none is running.
       if (path === '/api/operations?kinds=advertising.wing_rank&limit=20') return { operations: [] };
       return readiness;
     });
     setReadiness(makeReadinessResponse());
-    campaignSource = EMPTY_OWNER_SOURCE;
     mockHandleCollect.mockReset();
     mockCatalog.value = null;
     catalogOperations = [];
@@ -563,12 +511,12 @@ describe('ReadinessModal', () => {
     window.history.replaceState({}, '', '?collectionRun=11111111-1111-4111-8111-111111111111');
     try {
       render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
-      expect(await screen.findByRole('button', { name: '광고 동기화' })).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: '광고 보고서 수집' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '처음부터 재실행' })).not.toBeInTheDocument();
     } finally { window.history.replaceState({}, '', '/'); }
   });
 
-  it('keeps one campaign sweep control: the missing ad card points to 광고 동기화', async () => {
+  it('keeps one ad collection control: the missing ad card points to 광고 보고서 수집', async () => {
     const response = makeReadinessResponse();
     setReadiness({
       ...response,
@@ -586,25 +534,11 @@ describe('ReadinessModal', () => {
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    expect(await screen.findByText('아래 ‘광고 동기화’에서 받아요')).toBeInTheDocument();
+    expect(await screen.findByText('아래 ‘광고 보고서 수집’에서 받아요')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '광고 받기' })).not.toBeInTheDocument();
-    expect(await screen.findAllByRole('button', { name: '광고 동기화' })).toHaveLength(1);
-  });
-
-  it('shows 최신 only for a server-confirmed complete daily ad sweep', async () => {
-    campaignSource = campaignSweepSource(true);
-    const queryClient = makeQueryClient();
-    const view = render(<ReadinessModal open onClose={vi.fn()} />, {
-      wrapper: wrapper(queryClient),
-    });
-
-    expect(await screen.findByText('최신')).toBeInTheDocument();
-    expect(view.container).toHaveTextContent('사용 중인 데이터: 2026-08-06 ~ 2026-09-05');
-
-    campaignSource = campaignSweepSource(false);
-    await act(() => queryClient.refetchQueries({ queryKey: queryKeys.ads.campaignSource() }));
-
-    await waitFor(() => expect(screen.queryByText('최신')).not.toBeInTheDocument());
+    expect(await screen.findAllByRole('button', { name: '광고 보고서 수집' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '광고 동기화' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '키워드 수집' })).not.toBeInTheDocument();
   });
 
   it('labels the Wing rank action as Wing sales ranking and starts it from the shared control', async () => {

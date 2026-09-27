@@ -136,17 +136,11 @@ export const queryKeys = {
   },
   ads: {
     all: ['ads'] as const,
-    keywordSource: () => [...queryKeys.ads.all, 'keyword-source'] as const,
-    campaignSource: () => [...queryKeys.ads.all, 'campaign-source'] as const,
-    profitabilitySource: () => [...queryKeys.ads.all, 'profitability-source'] as const,
     itemwinnerOperations: () => [...queryKeys.ads.all, 'wing-itemwinner-operations'] as const,
     adReportOperations: () => [...queryKeys.ads.all, 'ad-report-operations'] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
-    manualReportsAll: () => [...queryKeys.ads.all, 'manual-reports'] as const,
-    manualReports: (from: string, to: string) =>
-      [...queryKeys.ads.manualReportsAll(), from, to] as const,
     // Every period's keyword list; a keyword's pause proposal is the same in each.
     keywordsAll: () => [...queryKeys.ads.all, 'keywords'] as const,
     keywords: (period?: string) => [...queryKeys.ads.keywordsAll(), period] as const,

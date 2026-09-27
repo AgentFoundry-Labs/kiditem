@@ -8,7 +8,6 @@ import { queryKeys } from "@/lib/query-keys";
 import { roasColor } from "../lib/status-colors";
 import AdSidePanel from "./AdSidePanel";
 import AdCollectionDailyChart from "./AdCollectionDailyChart";
-import AdvertisingProfitabilityRefresh from "./AdvertisingProfitabilityRefresh";
 import { WingItemwinnerCollection } from "./WingItemwinnerCollection";
 import { AdReportCollection } from "./AdReportCollection";
 import type { AdCollectionPeriod } from "./AdCollectionDailyChart";
@@ -155,9 +154,7 @@ export default function StatusContent({
         <AdSidePanel rules={rules} strategy={strategy} />
       </div>
 
-      <AdvertisingProfitabilityRefresh />
-
-      {/* 광고 보고서(advertising.ad_report, KID-371): 광고 원장 5표를 채우는 수집. 화면 숫자는 KID-372까지 옛 경로. */}
+      {/* 광고 보고서(advertising.ad_report, KID-371): 광고 원장 5표를 채우는 유일한 광고 수집(KID-372). */}
       <div className="rounded-2xl p-5" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex items-center gap-2 flex-wrap">

@@ -9,11 +9,10 @@ const mockApiGet = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api-client", () => ({
   apiClient: { get: mockApiGet },
 }));
-// The status tab's chart, side panel and profitability card read their own
-// sources; the itemwinner card is the surface under test.
+// The status tab's chart and side panel read their own sources; the
+// collection cards are the surface under test.
 vi.mock("./AdCollectionDailyChart", () => ({ default: () => null }));
 vi.mock("./AdSidePanel", () => ({ default: () => null }));
-vi.mock("./AdvertisingProfitabilityRefresh", () => ({ default: () => null }));
 
 function wrapper(children: React.ReactNode) {
   return (
@@ -120,6 +119,9 @@ describe("StatusContent", () => {
 
     expect(screen.getByRole("heading", { name: "광고 보고서" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "광고 보고서 수집" })).toBeEnabled();
+    // The ad report is the one ad collector: no separate product ad spend report.
+    expect(screen.queryByText("상품별 광고비 보고서")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "상품별 광고비 보고서 수집" })).not.toBeInTheDocument();
   });
 });
 

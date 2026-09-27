@@ -21,7 +21,7 @@ function session(
 ): BrowserCollectionSessionView {
   return {
     attemptId: ATTEMPT_ID,
-    producer: 'advertising.ad_keyword',
+    producer: 'orders.mall',
     progress: {
       current: 1,
       total: 3,
