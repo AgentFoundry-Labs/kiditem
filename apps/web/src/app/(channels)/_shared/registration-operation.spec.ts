@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
@@ -288,13 +288,17 @@ describe('확인·닫기(KID-218) · 목록', () => {
  */
 describe('몰 쓰기 경로 잠금', () => {
   const webSrc = path.resolve(__dirname, '../../..');
+  // 검증 잡에 rg가 없다 — Node로 소스를 돈다(스펙·테스트 파일은 뺀다).
+  const sources = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return entry.name === 'node_modules' ? [] : sources(full);
+    return /\.(ts|tsx)$/.test(entry.name) && !/\.(spec|test)\.tsx?$/.test(entry.name) ? [full] : [];
+  });
   const filesMatching = (pattern: string) => {
-    try {
-      return execFileSync('rg', ['--files-with-matches', '--glob', '*.{ts,tsx}', '--glob', '!**/*.spec.*', '--glob', '!**/*.test.*', '-e', pattern, webSrc], { encoding: 'utf8' })
-        .split('\n').filter(Boolean).map((file) => path.relative(webSrc, file));
-    } catch {
-      return [];
-    }
+    const regex = new RegExp(pattern);
+    return sources(webSrc)
+      .filter((file) => regex.test(readFileSync(file, 'utf8')))
+      .map((file) => path.relative(webSrc, file));
   };
 
   it('옛 실행 경로와 확장 쓰기 액션이 웹에 없다', () => {
