@@ -8391,6 +8391,12 @@ var KidItemRuntime = (() => {
   var dialogGuardSerial = 0;
   function createTabPages(deps) {
     const kept = /* @__PURE__ */ new Map();
+    async function stillOurs(entry) {
+      const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
+      if (!tab || tab.active === true) return false;
+      const url = tab.url ?? "";
+      return url === entry.url || url === "" || url.startsWith("about:") || LOGIN_LIKE_URL.test(url);
+    }
     function page(tabId, owned) {
       let closed = false;
       async function send(message, timeoutMs, frameId) {
@@ -8504,15 +8510,21 @@ var KidItemRuntime = (() => {
       },
       async keep(key, keptPage) {
         const prior = kept.get(key);
-        kept.set(key, keptPage.tabId);
-        if (prior !== void 0 && prior !== keptPage.tabId) await deps.chrome.tabs.remove(prior).catch(() => void 0);
+        const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
+        if (!tab) {
+          kept.delete(key);
+        } else {
+          kept.set(key, { tabId: keptPage.tabId, url: tab.url ?? "" });
+        }
+        if (prior && prior.tabId !== keptPage.tabId && await stillOurs(prior)) {
+          await deps.chrome.tabs.remove(prior.tabId).catch(() => void 0);
+        }
       },
       async reclaimKept(key) {
-        const tabId = kept.get(key);
-        if (tabId === void 0) return null;
+        const entry = kept.get(key);
+        if (!entry) return null;
         kept.delete(key);
-        const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
-        return tab ? page(tabId, true) : null;
+        return await stillOurs(entry) ? page(entry.tabId, true) : null;
       },
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
@@ -9043,17 +9055,18 @@ var KidItemRuntime = (() => {
       beforeTab: async (tabs, call2) => {
         let releaseGuard = null;
         try {
+          const site = new URL(spec.loginUrl).origin;
           return await withLoginTab(withLogin, call2, async () => {
             releaseGuard = await tabs.guardDialogs(spec.hosts);
-            return tabs.open("about:blank");
-          }, login);
+            return await tabs.reclaimKept(site) ?? tabs.open("about:blank");
+          }, login, (kept) => tabs.keep(site, kept));
         } finally {
           await releaseGuard?.();
         }
       }
     };
   }
-  async function withLoginTab(withLogin, call2, open, login) {
+  async function withLoginTab(withLogin, call2, open, login, onKept) {
     let opened = null;
     try {
       const result = await withLogin(call2, async () => {
@@ -9062,7 +9075,10 @@ var KidItemRuntime = (() => {
       });
       return result;
     } catch (error) {
-      if (leftForOperator(error) && opened && !await isBlank(opened)) opened = null;
+      if (leftForOperator(error) && opened && !await isBlank(opened)) {
+        await onKept?.(opened);
+        opened = null;
+      }
       throw error;
     } finally {
       await opened?.close();

@@ -261,6 +261,29 @@ describe('TabPages.keep·reclaimKept — 사이트마다 남긴 탭 하나(KID-3
     expect(log).toContain('remove 9');
   });
 
+  it('운영자가 그 탭을 보고 있거나(active) 로그인·빈 화면을 벗어났으면 가져오지 않고 잊는다(리뷰 SHOULD 3)', async () => {
+    const { chromeApi, log } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    let tab = { status: 'complete', url: 'https://store.lotteon.com/cm/main/login_SO.wsp', active: true };
+    chromeApi.tabs.get = async () => tab;
+    const tabs = createTabPages(deps(chromeApi));
+    await tabs.keep('https://store.lotteon.com', tabs.attach(5));
+    expect(await tabs.reclaimKept('https://store.lotteon.com')).toBeNull();
+    expect(await tabs.reclaimKept('https://store.lotteon.com')).toBeNull();
+
+    await tabs.keep('https://store.lotteon.com', tabs.attach(5));
+    tab = { status: 'complete', url: 'https://store.lotteon.com/cm/main/index_SO.wsp', active: false };
+    expect(await tabs.reclaimKept('https://store.lotteon.com')).toBeNull();
+
+    // 운영자가 로그인해 다른 화면으로 옮긴 탭은 새로 남길 때도 닫지 않는다.
+    tab = { status: 'complete', url: 'https://store.lotteon.com/cm/main/login_SO.wsp', active: false };
+    await tabs.keep('https://store.lotteon.com', tabs.attach(5));
+    const urls: Record<number, string> = { 5: 'https://store.lotteon.com/cm/main/index_SO.wsp', 6: 'https://store.lotteon.com/cm/main/login_SO.wsp' };
+    chromeApi.tabs.get = async (tabId) => ({ status: 'complete', url: urls[tabId], active: false });
+    await tabs.keep('https://store.lotteon.com', tabs.attach(6));
+    expect(log).not.toContain('remove 5');
+    expect((await tabs.reclaimKept('https://store.lotteon.com'))?.tabId).toBe(6);
+  });
+
   it('닫힌 탭은 가져오지 않고, 같은 사이트에 새로 남기면 먼저 남긴 탭은 닫는다', async () => {
     const { chromeApi, log } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
     chromeApi.tabs.get = async (tabId) => {

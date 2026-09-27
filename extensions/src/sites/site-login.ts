@@ -288,10 +288,12 @@ export function createSiteSignIn(spec: LoginSpec, credentials: SiteCredentials |
       // 로그인하러 여는 탭도 불러오는 중 알림 창 가드를 건다(KID-380 D4) — 로그인을 부를 때만.
       let releaseGuard: (() => Promise<void>) | null = null;
       try {
+        // 지난 실행이 운영자에게 남긴 로그인 탭이 있으면 그 탭을 다시 쓰고, 이번에도 남기면 적어 둔다(리뷰 SHOULD 3).
+        const site = new URL(spec.loginUrl).origin;
         return await withLoginTab(withLogin, call, async () => {
           releaseGuard = await tabs.guardDialogs(spec.hosts);
-          return tabs.open('about:blank');
-        }, login);
+          return (await tabs.reclaimKept(site)) ?? tabs.open('about:blank');
+        }, login, (kept) => tabs.keep(site, kept));
       } finally {
         await (releaseGuard as (() => Promise<void>) | null)?.();
       }
@@ -308,6 +310,8 @@ export async function withLoginTab<T>(
   call: () => Promise<T>,
   open: () => Promise<TabPage>,
   login: (page: TabPage) => Promise<LoginOutcome>,
+  /** 운영자에게 남긴 탭을 적는 곳(다음 실행이 다시 쓴다). */
+  onKept?: (page: TabPage) => Promise<void>,
 ): Promise<T> {
   let opened: TabPage | null = null;
   try {
@@ -318,7 +322,10 @@ export async function withLoginTab<T>(
     return result;
   } catch (error) {
     // 로그인 화면에 닿지 못한 빈 탭은 운영자가 할 일이 없다 — 남기지 않는다(KID-380 D1).
-    if (leftForOperator(error) && opened && !(await isBlank(opened))) opened = null;
+    if (leftForOperator(error) && opened && !(await isBlank(opened))) {
+      await onKept?.(opened);
+      opened = null;
+    }
     throw error;
   } finally {
     await (opened as TabPage | null)?.close();

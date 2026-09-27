@@ -46,8 +46,9 @@ function mall(mallKey: string, options: {
     },
   };
   const lease: SiteLease = { tabId: null, credentials: options.credentials === undefined ? CREDENTIALS : options.credentials };
-  const router = siteFactoryFor('mall-orders')!.create(deps, lease) as { reader(mallKey: string): Reader | null };
-  return { login, fake, reader: router.reader(mallKey)! };
+  const readerFor = () => (siteFactoryFor('mall-orders')!.create(deps, lease) as { reader(mallKey: string): Reader | null }).reader(mallKey)!;
+  // `nextRun`: 같은 브라우저(탭 묶음)에서 새 실행 하나의 읽기(실행마다 사이트 핸들이 새로 만들어진다).
+  return { login, fake, reader: readerFor(), nextRun: readerFor };
 }
 
 describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () => {
@@ -145,6 +146,24 @@ describe('몰 주문 읽기의 자동 로그인(KID-377)', () => {
     });
     await expect(reader.readOrders(INPUT)).resolves.toEqual({ rows: [] });
     expect(fake.log.filter((line) => /^(open|close)/.test(line))).toEqual(['open about:blank', 'close 7', 'open about:blank', 'close 7']);
+  });
+
+  it('도매꾹: 로그인하러 연 탭이 운영자에게 남으면 다음 실행은 새 탭 대신 그 탭을 다시 쓴다(리뷰 SHOULD 3)', async () => {
+    const { fake, reader, nextRun } = mall('domeggook', {
+      loginAt: 'https://domeggook.com/ssl/member/mem_loginForm.php',
+      accept: false,
+      dialog: '아이디 또는 비밀번호가 일치하지 않습니다.',
+      fetch: (url) => (url === DOMEGGOOK_ORDER_LIST_API ? Response.json({ res: false }) : new Response('', { status: 404 })),
+      answer: () => ({ ok: false, error: 'unexpected' }),
+    });
+    await expect(reader.readOrders(INPUT)).rejects.toMatchObject({ details: { reason: 'credentials_rejected' } });
+    await expect(nextRun().readOrders(INPUT)).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    expect(fake.log.filter((line) => line.startsWith('open'))).toEqual(['open about:blank']);
+    expect(fake.guards.filter((line) => /^(keep|reclaim)/.test(line))).toEqual([
+      'keep for https://www.domeggook.com 7',
+      'reclaim https://www.domeggook.com 7',
+      'keep for https://www.domeggook.com 7',
+    ]);
   });
 
   it('아이스크림몰: 프레임에 로그인 폼이 보이면 그 화면에서 로그인하고 main.do로 돌아가 배송목록을 읽는다', async () => {

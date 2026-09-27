@@ -35,7 +35,8 @@ async function readInTab<T>(
   options: { navigationTimeoutMs?: number; signIn?: SiteSignIn; reuseTabMatching?: string },
 ): Promise<T> {
   const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
-  // 지난 실행이 운영자에게 남긴 이 사이트 탭(로그인 화면)이 있으면 새 탭 대신 옮겨 쓴다 — 실패마다 탭이 쌓이지 않게(KID-380 D8).
+  // 지난 실행이 운영자에게 남긴 이 사이트 탭(로그인·빈 화면에 머물고 운영자가 보고 있지 않은 탭)이 있으면 새 탭 대신 옮겨
+  // 쓴다 — 실패마다 탭이 쌓이지 않게(KID-380 D8).
   const site = siteKey(url);
   const page = reused ?? (await tabs.reclaimKept(site)) ?? (await tabs.open('about:blank'));
   let keepOpen = false;
