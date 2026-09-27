@@ -5,6 +5,7 @@ import fillSource from '../kiditem-os/content/page-call/form-fill.js?raw';
 import lotteonSource from '../kiditem-os/content/page-call/lotte-on-register.js?raw';
 import { LOTTE_ON_REGISTRATION_FORM } from './sites/lotte-on/registration';
 import { normalizeForm } from './sites/mall-write/form';
+import { withFakeClock } from './sites/mall-write/write-page.fake';
 
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 
@@ -96,7 +97,7 @@ describe('롯데ON 폼 지시 검사(탭을 열기 전)', () => {
   });
 });
 
-describe('롯데ON 페이지 처리기(content/page-call/lotte-on-register.js)', { timeout: 60_000 }, () => {
+describe('롯데ON 페이지 처리기(content/page-call/lotte-on-register.js)', () => {
 
 function valueComponent(initial: any = '', { options = null, onSet = null }: any = {}) {
   let current = initial;
@@ -580,7 +581,8 @@ function makeLotteonPage({
 async function runLotteonFill(page: any, payloadOverrides: Record<string, unknown> = {}): Promise<any> {
   for (const source of [guardSource, fillSource, lotteonSource]) page.window.eval(source);
   const fill = page.window.__kiditemPageCalls['lotteon.fill'];
-  return fill({
+  // 몰 화면의 기다림을 가짜 시계로 바로 지나가게 한다 — 창의 Date도 가짜 시계를 쓴다.
+  return withFakeClock(() => fill({
     form: lotteonForm(),
     images: [
       { name: 'lotteon0', dataUrl: 'data:image/jpeg;base64,AAEC', fileName: 'rep.jpg' },
@@ -592,6 +594,8 @@ async function runLotteonFill(page: any, payloadOverrides: Record<string, unknow
     detailImage: { name: 'detail', dataUrl: 'data:image/jpeg;base64,DETAIL', fileName: 'wing-server-jpeg-v1-780.jpg' },
     detailHtml: '',
     ...payloadOverrides,
+  }), () => {
+    page.window.Date = Date;
   });
 }
 

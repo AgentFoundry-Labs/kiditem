@@ -5,6 +5,7 @@ import fillSource from '../kiditem-os/content/page-call/form-fill.js?raw';
 import kakaoSource from '../kiditem-os/content/page-call/kakao-register.js?raw';
 import { KAKAO_REGISTRATION_FORM } from './sites/kakao/registration';
 import { normalizeForm } from './sites/mall-write/form';
+import { withFakeClock } from './sites/mall-write/write-page.fake';
 
 const plain = (value: unknown) => JSON.parse(JSON.stringify(value));
 
@@ -92,7 +93,7 @@ describe('카카오 톡스토어 폼 지시 검사(탭을 열기 전)', () => {
   });
 });
 
-describe('카카오 톡스토어 페이지 처리기(content/page-call/kakao-register.js)', { timeout: 60_000 }, () => {
+describe('카카오 톡스토어 페이지 처리기(content/page-call/kakao-register.js)', () => {
 
 const CATEGORY_NAMES: any = {
   102106: '완구/장난감/교구',
@@ -417,7 +418,8 @@ function makeKakaoPage({ loginPage = false, originResetsOnce = false }: any = {}
 async function runKakaoFill(page: any, payloadOverrides: Record<string, unknown> = {}): Promise<any> {
   for (const source of [guardSource, fillSource, kakaoSource]) page.window.eval(source);
   const fill = page.window.__kiditemPageCalls['kakao.fill'];
-  return fill({
+  // 몰 화면의 기다림을 가짜 시계로 바로 지나가게 한다 — 창의 Date도 가짜 시계를 쓴다.
+  return withFakeClock(() => fill({
     form: kakaoForm(),
     images: [
       { name: 'kakao0', dataUrl: 'data:image/jpeg;base64,AAEC', fileName: 'rep.jpg' },
@@ -429,6 +431,8 @@ async function runKakaoFill(page: any, payloadOverrides: Record<string, unknown>
     detailImage: { name: 'detail', dataUrl: 'data:image/jpeg;base64,DETAIL', fileName: 'wing-server-jpeg-v1-780.jpg' },
     detailHtml: '',
     ...payloadOverrides,
+  }), () => {
+    page.window.Date = Date;
   });
 }
 

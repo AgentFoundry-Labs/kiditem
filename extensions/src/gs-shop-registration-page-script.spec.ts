@@ -5,6 +5,7 @@ import fillSource from '../kiditem-os/content/page-call/form-fill.js?raw';
 import gsshopSource from '../kiditem-os/content/page-call/gs-shop-register.js?raw';
 import { GS_SHOP_REGISTRATION_FORM } from './sites/gs-shop/registration';
 import { normalizeForm } from './sites/mall-write/form';
+import { withFakeClock } from './sites/mall-write/write-page.fake';
 
 /**
  * GS SHOP 파트너스 상품등록(`partners.gsshop.com/product/products/create`, KID-256 — 옛 node 스펙 `mall-form-gsshop` 이식).
@@ -82,7 +83,7 @@ describe('GS샵 폼 지시 검사(탭을 열기 전)', () => {
   });
 });
 
-describe('GS샵 페이지 처리기(content/page-call/gs-shop-register.js)', { timeout: 60_000 }, () => {
+describe('GS샵 페이지 처리기(content/page-call/gs-shop-register.js)', () => {
 
 /**
  * 폼 저장소와 화면이 부르는 BFF 조회를 흉내 낸다. 처리 함수 이름과 저장소 칸 이름은 실제 화면 것 그대로다.
@@ -275,7 +276,8 @@ function makeGsshopPage({
 async function runGsshopFill(page: any, payloadOverrides = {}) {
   for (const source of [guardSource, fillSource, gsshopSource.replace(/\bimport\(/g, '__importModule(')]) page.window.eval(source);
   const fill = page.window.__kiditemPageCalls['gsshop.fill'];
-  return fill({
+  // 몰 화면의 기다림을 가짜 시계로 바로 지나가게 한다 — 창의 Date도 가짜 시계를 쓴다.
+  return withFakeClock(() => fill({
     form: gsshopForm(),
     images: [
       { name: 'gsshop0', dataUrl: 'data:image/jpeg;base64,AAEC', fileName: 'rep.jpg' },
@@ -287,6 +289,8 @@ async function runGsshopFill(page: any, payloadOverrides = {}) {
     detailImage: { name: 'detail', dataUrl: 'data:image/jpeg;base64,AAEC', fileName: 'wing-server-jpeg-v1-780.jpg' },
     detailHtml: '',
     ...payloadOverrides,
+  }), () => {
+    page.window.Date = Date;
   });
 }
 

@@ -4,6 +4,7 @@ import guardSource from '../kiditem-os/content/page-call/dialog-guard.js?raw';
 import fillSource from '../kiditem-os/content/page-call/form-fill.js?raw';
 import smartstoreSource from '../kiditem-os/content/page-call/smartstore-register.js?raw';
 import { normalizeForm } from './sites/mall-write/form';
+import { withFakeClock } from './sites/mall-write/write-page.fake';
 import { SMARTSTORE_REGISTRATION_FORM } from './sites/smartstore/registration';
 
 /**
@@ -96,7 +97,7 @@ describe('스마트스토어 폼 지시 검사(탭을 열기 전)', () => {
   });
 });
 
-describe('스마트스토어 페이지 처리기(content/page-call/smartstore-register.js)', { timeout: 60_000 }, () => {
+describe('스마트스토어 페이지 처리기(content/page-call/smartstore-register.js)', () => {
 
 const PAGE_HTML = `
 <form name="vm.productForm">
@@ -214,6 +215,7 @@ function makeSmartstorePage({
   window.alert = nativeAlert;
   window.confirm = nativeConfirm;
 
+  const onStart: Array<() => void> = [];
   const log: any = {
     resumeCancelled: false, resumeLoaded: false, saved: false, uploads: [], detailUploads: [], abortedUploads: 0,
   };
@@ -312,12 +314,13 @@ function makeSmartstorePage({
     q('#save').addEventListener('click', () => { log.saved = true; });
     q('#temp-save').addEventListener('click', () => { log.saved = true; });
 
+    // 화면이 뜬 뒤 늦게 뜨는 창 — 채우기가 시작될 때(가짜 시계 위에서) 건다.
     if (resumePrompt) {
-      setTimeout(() => showModal('이전에 작성하던 내용이 존재합니다. 이전내용을 불러오시겠습니까?', [
+      onStart.push(() => setTimeout(() => showModal('이전에 작성하던 내용이 존재합니다. 이전내용을 불러오시겠습니까?', [
         { text: '×', className: 'close', onClick: () => { log.resumeCancelled = true; } },
         { text: '취소', onClick: () => { log.resumeCancelled = true; } },
         { text: '확인', onClick: () => { log.resumeLoaded = true; product.name = '옛 내용'; } },
-      ]), 30);
+      ]), 30));
     }
 
     attachSelectize(q('input[ng-model="vm.category"]'), {
@@ -508,13 +511,14 @@ function makeSmartstorePage({
       }),
     };
   }
-  return { window, document, product, log, nativeAlert, nativeConfirm };
+  return { window, document, product, log, nativeAlert, nativeConfirm, start: () => onStart.forEach((run) => run()) };
 }
 
 async function runSmartstoreFill(page: any, payloadOverrides: Record<string, unknown> = {}): Promise<any> {
   for (const source of [guardSource, fillSource, smartstoreSource]) page.window.eval(source);
   const fill = page.window.__kiditemPageCalls['smartstore.fill'];
-  return fill({
+  // 몰 화면의 기다림(창 여닫기·업로드)을 가짜 시계로 바로 지나가게 한다 — 창의 Date도 가짜 시계를 쓴다.
+  return withFakeClock(() => fill({
     form: smartstoreForm(),
     images: [
       { name: 'smartstore0', dataUrl: 'data:image/jpeg;base64,AAEC', fileName: 'rep.jpg' },
@@ -528,6 +532,9 @@ async function runSmartstoreFill(page: any, payloadOverrides: Record<string, unk
     detailImage: { name: 'detail', dataUrl: 'data:image/jpeg;base64,AAEC', fileName: 'wing-server-jpeg-v1-780.jpg' },
     detailHtml: '',
     ...payloadOverrides,
+  }), () => {
+    page.window.Date = Date;
+    page.start?.();
   });
 }
 
