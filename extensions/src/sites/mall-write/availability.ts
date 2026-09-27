@@ -151,21 +151,22 @@ export async function withSellerPage<T>(
   origin: string,
   pageUrl: string,
   work: (run: PageRun, page: TabPage) => Promise<T>,
+  options: { isolated?: readonly string[] } = {},
 ): Promise<T> {
-  return withFreshTab(context.tabs, pageUrl, async (page) => work(pageRun(context, page), page), {
+  return withFreshTab(context.tabs, pageUrl, async (page) => work(pageRun(context, page, options.isolated ?? []), page), {
     reuseTabMatching: `${origin}/*`,
     ...(context.signIn ? { signIn: context.signIn } : { dialogGuardHosts: context.dialogHosts }),
   });
 }
 
-function pageRun(context: AvailabilityContext, page: TabPage): PageRun {
+function pageRun(context: AvailabilityContext, page: TabPage, isolated: readonly string[]): PageRun {
   return async (name, args, world) => {
     try {
       const answer = await callPage<PageReply | null>(page, `availability.${name}`, args, {
         timeoutMs: CALL_TIMEOUT_MS,
         guard: context.guard,
         displayName: context.displayName,
-        ...(world === 'main' ? { main: [AVAILABILITY_MAIN_FILE] } : { isolated: [AVAILABILITY_FILE] }),
+        ...(world === 'main' ? { main: [AVAILABILITY_MAIN_FILE] } : { isolated: [...isolated, AVAILABILITY_FILE] }),
       });
       return answer ?? { status: 0, json: null };
     } catch (error) {

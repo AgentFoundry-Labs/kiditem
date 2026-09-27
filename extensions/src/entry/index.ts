@@ -83,6 +83,7 @@ import '../sites/thirtymall/listings';
 import '../sites/thirtymall/registration';
 import '../sites/tiktok-cc';
 import '../sites/wing';
+import '../sites/wing/availability';
 import '../sites/wing/registration';
 import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
