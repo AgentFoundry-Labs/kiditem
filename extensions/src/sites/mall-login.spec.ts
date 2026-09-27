@@ -132,6 +132,8 @@ describe('몰 주문 읽기의 자동 로그인(KID-377)', () => {
       'navigate https://www.domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
       'close 7',
     ]);
+    // 로그인하러 연 탭도, 주문목록 탭도 불러오는 중 알림 창 가드를 건다(KID-380 D4).
+    expect(fake.guards).toEqual(['guard dialogs domeggook.com', 'unguard dialogs domeggook.com', 'guard dialogs domeggook.com', 'unguard dialogs domeggook.com']);
   });
 
   it('도매꾹: 로그인 결과가 form_remains여도 다시 읽기가 되면 로그인하러 연 탭을 닫는다 — 남기는 것은 문턱이 멈출 때뿐(리뷰 S4)', async () => {

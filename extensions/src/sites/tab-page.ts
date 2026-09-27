@@ -104,7 +104,17 @@ export interface TabPages {
   find(urlPattern: string): Promise<TabPage | null>;
   /** 브라우저 밖 fetch(서비스워커). 설명 본문처럼 탭 없이 읽을 때만 쓴다. */
   fetchText(url: string, init?: RequestInit): Promise<string | null>;
+  /**
+   * 그 호스트(하위 도메인 포함)의 문서가 불러오기를 시작할 때(document_start) MAIN world에 알림 창 가드
+   * (`DIALOG_GUARD_FILE`)를 거는 등록 content script를 이 실행 몫으로 등록한다(KID-380 D4). 로드 중 `alert`이 백그라운드
+   * 탭을 멈추지 않게 주소를 옮기기 전에 건다. 돌려준 함수가 등록을 지운다(두 번 불러도 한 번). 등록이 안 되는 환경이면
+   * 가드 없이 이어 간다.
+   */
+  guardDialogs(hosts: readonly string[]): Promise<() => Promise<void>>;
 }
+
+/** 불러오는 중 알림 창 가드 파일(MAIN world, document_start). */
+export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
 
 export const SITE_TAB_UNAVAILABLE = 'SITE_TAB_UNAVAILABLE' as const;
 
@@ -153,6 +163,17 @@ export interface TabPageChrome {
       files: string[];
       world?: 'ISOLATED' | 'MAIN';
     }): Promise<unknown>;
+    /** 알림 창 가드 등록(KID-380 D4). 없는 환경(옛 스펙 가짜)이면 가드 없이 이어 간다. */
+    registerContentScripts?(scripts: Array<{
+      id: string;
+      matches: string[];
+      js: string[];
+      world: 'MAIN';
+      runAt: 'document_start';
+      allFrames: boolean;
+      persistAcrossSessions: boolean;
+    }>): Promise<unknown>;
+    unregisterContentScripts?(filter?: { ids?: string[] }): Promise<unknown>;
   };
   runtime: {
     onMessage: {
@@ -173,6 +194,8 @@ const POLL_MS = 250;
 /** 재사용 후보에서 빼는 주소(로그인·가입·인증 화면). */
 const LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
 const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
+
+let dialogGuardSerial = 0;
 
 export function createTabPages(deps: TabPageDeps): TabPages {
   function page(tabId: number, owned: boolean): TabPage {
@@ -292,6 +315,23 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ''));
       const picked = usable.find((tab) => tab.status === 'complete') ?? usable[0] ?? null;
       return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
+    },
+    async guardDialogs(hosts) {
+      const scripting = deps.chrome.scripting;
+      dialogGuardSerial += 1;
+      const id = `kiditem-dialog-guard-${deps.now()}-${dialogGuardSerial}`;
+      const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
+      let registered = false;
+      if (matches.length > 0 && scripting.registerContentScripts) {
+        registered = await scripting.registerContentScripts([
+          { id, matches, js: [DIALOG_GUARD_FILE], world: 'MAIN', runAt: 'document_start', allFrames: true, persistAcrossSessions: false },
+        ]).then(() => true, () => false);
+      }
+      return async () => {
+        if (!registered) return;
+        registered = false;
+        await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => undefined);
+      };
     },
     async fetchText(url, init) {
       try {

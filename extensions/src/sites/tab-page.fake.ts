@@ -19,8 +19,15 @@ export function fakeTabPages(options: {
   waitUrls?: readonly string[];
   /** 모든 프레임에 넣은 파일의 프레임별 값(`frames`). */
   frames?: (files: readonly string[], call: number, url: string) => Array<{ frameId: number; result: unknown }>;
+  /** 알림 창 가드 걸기·풀기(KID-380 D4)도 `log`에 적는다. 없으면 `guards`에만 적는다(탭 순서만 보는 스펙). */
+  logGuards?: boolean;
 }) {
   const log: string[] = [];
+  const guards: string[] = [];
+  const guardLog = (line: string) => {
+    guards.push(line);
+    if (options.logGuards) log.push(line);
+  };
   let injected = false;
   const listeners: Array<(message: Record<string, unknown>) => void> = [];
   let current: string | null = null;
@@ -89,10 +96,16 @@ export function fakeTabPages(options: {
       const tabId = options.existingTab?.(urlPattern) ?? null;
       return tabId === null ? null : page(tabId, false);
     },
+    async guardDialogs(hosts) {
+      guardLog(`guard dialogs ${hosts.join(',')}`);
+      return async () => {
+        guardLog(`unguard dialogs ${hosts.join(',')}`);
+      };
+    },
     async fetchText(url) {
       log.push(`fetch ${url}`);
       return options.fetchText?.(url) ?? null;
     },
   };
-  return { tabs, log, emit: (message: Record<string, unknown>) => listeners.slice().forEach((listener) => listener(message)) };
+  return { tabs, log, guards, emit: (message: Record<string, unknown>) => listeners.slice().forEach((listener) => listener(message)) };
 }

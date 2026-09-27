@@ -8364,6 +8364,7 @@ var KidItemRuntime = (() => {
     const host = url.hostname.toLowerCase();
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   }
+  var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
   var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
   var OPERATOR_POLL_MS = 2e3;
   var OPERATOR_WAIT_MAX_MS = 10 * 6e4;
@@ -8377,6 +8378,7 @@ var KidItemRuntime = (() => {
   var POLL_MS = 250;
   var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
+  var dialogGuardSerial = 0;
   function createTabPages(deps) {
     function page(tabId, owned) {
       let closed = false;
@@ -8489,6 +8491,23 @@ var KidItemRuntime = (() => {
         const picked = usable.find((tab) => tab.status === "complete") ?? usable[0] ?? null;
         return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
+      async guardDialogs(hosts) {
+        const scripting = deps.chrome.scripting;
+        dialogGuardSerial += 1;
+        const id = `kiditem-dialog-guard-${deps.now()}-${dialogGuardSerial}`;
+        const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
+        let registered = false;
+        if (matches.length > 0 && scripting.registerContentScripts) {
+          registered = await scripting.registerContentScripts([
+            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+          ]).then(() => true, () => false);
+        }
+        return async () => {
+          if (!registered) return;
+          registered = false;
+          await scripting.unregisterContentScripts?.({ ids: [id] }).catch(() => void 0);
+        };
+      },
       async fetchText(url, init) {
         try {
           const response = await deps.fetch(url, { credentials: "include", redirect: "error", ...init });
@@ -8506,6 +8525,15 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS = 3e4;
   async function withFreshTab(tabs, url, read, options = {}) {
+    const guardHosts = options.dialogGuardHosts ?? options.signIn?.hosts ?? [];
+    const releaseGuard = guardHosts.length > 0 ? await tabs.guardDialogs(guardHosts) : null;
+    try {
+      return await readInTab(tabs, url, read, options);
+    } finally {
+      await releaseGuard?.();
+    }
+  }
+  async function readInTab(tabs, url, read, options) {
     const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
     const page = reused ?? await tabs.open("about:blank");
     let keepOpen = false;
@@ -8960,12 +8988,23 @@ var KidItemRuntime = (() => {
     const withLogin = createSiteLoginGate(credentials);
     const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
     return {
+      hosts: spec.hosts,
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
         if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
         return outcome;
       }),
-      beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
+      beforeTab: async (tabs, call2) => {
+        let releaseGuard = null;
+        try {
+          return await withLoginTab(withLogin, call2, async () => {
+            releaseGuard = await tabs.guardDialogs(spec.hosts);
+            return tabs.open("about:blank");
+          }, login);
+        } finally {
+          await releaseGuard?.();
+        }
+      }
     };
   }
   async function withLoginTab(withLogin, call2, open, login) {

@@ -209,3 +209,41 @@ describe('TabPages.find — 열린 탭 재사용 고르기(옛 borrowOpenTab과 
     expect(await tabs.find('https://store.lotteon.com/*')).toBeNull();
   });
 });
+
+describe('TabPages.guardDialogs — 불러오는 중 알림 창 가드(KID-380 D4)', () => {
+  it('주소를 옮기기 전에 그 호스트의 MAIN·document_start 가드를 등록하고, 해제하면 지운다 — 알림 창을 띄우는 화면도 다 그려진다', async () => {
+    const registered: Array<Record<string, unknown>> = [];
+    const removed: string[][] = [];
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    // 가드가 없으면 알림 창이 탭을 멈춰 'complete'에 닿지 못한다(아이스크림몰 "로그인이 만료되었습니다.").
+    chromeApi.tabs.get = async () => ({ status: registered.length > 0 ? 'complete' : 'loading', url: 'https://po.i-screammall.co.kr/main.do' });
+    chromeApi.scripting.registerContentScripts = async (scripts) => { registered.push(...(scripts as Array<Record<string, unknown>>)); };
+    chromeApi.scripting.unregisterContentScripts = async (filter) => { removed.push([...(filter?.ids ?? [])]); };
+    let now = 0;
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async (ms: number) => { now += ms; }, now: () => now });
+    const page = await tabs.open('about:blank');
+    await expect(page.navigate('https://po.i-screammall.co.kr/main.do', { timeoutMs: 1 })).rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE' });
+
+    const release = await tabs.guardDialogs(['i-screammall.co.kr']);
+    await expect(page.navigate('https://po.i-screammall.co.kr/main.do', { timeoutMs: 1 })).resolves.toBe('https://po.i-screammall.co.kr/main.do');
+    expect(registered).toHaveLength(1);
+    expect(registered[0]).toMatchObject({
+      matches: ['https://i-screammall.co.kr/*', 'https://*.i-screammall.co.kr/*'],
+      js: ['content/page-call/dialog-guard.js'],
+      world: 'MAIN',
+      runAt: 'document_start',
+      allFrames: true,
+      persistAcrossSessions: false,
+    });
+    await release();
+    await release();
+    expect(removed).toEqual([[registered[0]!.id]]);
+  });
+
+  it('등록이 안 되는 환경이면 가드 없이 이어 간다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    chromeApi.scripting.registerContentScripts = async () => { throw new Error('Duplicate script ID'); };
+    const release = await createTabPages(deps(chromeApi)).guardDialogs(['mall.test']);
+    await expect(release()).resolves.toBeUndefined();
+  });
+});

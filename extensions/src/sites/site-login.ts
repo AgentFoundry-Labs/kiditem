@@ -264,6 +264,8 @@ export type SiteLoginGate = ReturnType<typeof createSiteLoginGate>;
  *   같은 호출을 다시 한다.
  */
 export interface SiteSignIn {
+  /** 로그인 화면과 로그인 뒤 화면의 호스트(`LoginSpec.hosts`) — 수집 탭이 불러오는 중 알림 창 가드를 거는 곳(KID-380 D4). */
+  readonly hosts: readonly string[];
   onPage<T>(page: TabPage, returnTo: string, read: () => Promise<T>): Promise<T>;
   beforeTab<T>(tabs: TabPages, call: () => Promise<T>): Promise<T>;
 }
@@ -273,12 +275,24 @@ export function createSiteSignIn(spec: LoginSpec, credentials: SiteCredentials |
   // 자격이 없으면 문턱이 로그인을 부르지 않는다(`no_credentials`).
   const login = (page: TabPage) => ensureLoggedIn(page, spec, credentials as SiteCredentials, deps);
   return {
+    hosts: spec.hosts,
     onPage: (page, returnTo, read) => withLogin(read, async () => {
       const outcome = await login(page);
       if (outcome.status !== 'verification_required') await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS });
       return outcome;
     }),
-    beforeTab: (tabs, call) => withLoginTab(withLogin, call, () => tabs.open('about:blank'), login),
+    beforeTab: async (tabs, call) => {
+      // 로그인하러 여는 탭도 불러오는 중 알림 창 가드를 건다(KID-380 D4) — 로그인을 부를 때만.
+      let releaseGuard: (() => Promise<void>) | null = null;
+      try {
+        return await withLoginTab(withLogin, call, async () => {
+          releaseGuard = await tabs.guardDialogs(spec.hosts);
+          return tabs.open('about:blank');
+        }, login);
+      } finally {
+        await (releaseGuard as (() => Promise<void>) | null)?.();
+      }
+    },
   };
 }
 

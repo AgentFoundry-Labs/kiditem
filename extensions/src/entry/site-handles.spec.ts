@@ -59,6 +59,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     attach: () => { throw new Error('no tabs'); },
     find: async () => null,
     fetchText: async () => null,
+    guardDialogs: async () => async () => undefined,
   };
   const deps = {
     fetch: async () => Response.json({}),
