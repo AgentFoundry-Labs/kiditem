@@ -4,6 +4,8 @@ import type { z } from 'zod';
 import {
   CHANNELS_REGISTRATION_OPERATION_CAPABILITY,
   REGISTRATION_KIND,
+  RegistrationCloseRequestSchema,
+  RegistrationConfirmRequestSchema,
   RegistrationResultSchema,
   RegistrationScopeSchema,
   type RegistrationConfirmRequest,
@@ -324,22 +326,27 @@ export async function confirmRegistrationOperation(
 ): Promise<RegistrationOperationRead | null> {
   const externalListingId = input.externalListingId.trim();
   if (!externalListingId) throw new Error('등록상품ID를 입력해 주세요.');
-  const body: RegistrationConfirmRequest = {
+  const body = RegistrationConfirmRequestSchema.safeParse({
     externalListingId,
     ...(input.observedUrl?.trim() ? { observedUrl: input.observedUrl.trim() } : {}),
     ...(input.options && input.options.length > 0 ? { options: input.options } : {}),
-  };
-  return readResolved(await apiClient.post<unknown>(operationPath(operationId, 'confirm'), body));
+  } satisfies RegistrationConfirmRequest);
+  if (!body.success) throw new Error(CONFIRM_INVALID);
+  return readResolved(await apiClient.post<unknown>(operationPath(operationId, 'confirm'), body.data));
 }
 
 const NOT_REGISTERED_REASON = '운영자가 몰에서 확인: 등록되지 않음';
+const CONFIRM_INVALID = '확인 값이 올바르지 않습니다. 등록상품ID(64자 이하)와 상품 주소(https://…)를 확인해 주세요.';
+const CLOSE_REASON_REQUIRED = '닫는 까닭을 적어 주세요.';
 
 /** 몰에서 확인해 보니 등록되지 않았다 — `reconciling` 실행을 실패로 닫는다. */
 export async function closeRegistrationOperation(
   operationId: string,
   reason: string = NOT_REGISTERED_REASON,
 ): Promise<RegistrationOperationRead | null> {
-  return readResolved(await apiClient.post<unknown>(operationPath(operationId, 'close'), { reason }));
+  const body = RegistrationCloseRequestSchema.safeParse({ reason });
+  if (!body.success) throw new Error(CLOSE_REASON_REQUIRED);
+  return readResolved(await apiClient.post<unknown>(operationPath(operationId, 'close'), body.data));
 }
 
 function readResolved(response: unknown): RegistrationOperationRead | null {

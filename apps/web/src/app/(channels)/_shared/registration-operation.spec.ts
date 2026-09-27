@@ -277,6 +277,15 @@ describe('확인·닫기(KID-218) · 목록', () => {
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 
+  it('계약 모양이 아닌 본문(주소 아님 · 64자 넘는 ID · 빈 까닭)은 보내지 않는다', async () => {
+    await expect(confirmRegistrationOperation(OPERATION_ID, { externalListingId: '9001', observedUrl: '몰 화면' }))
+      .rejects.toThrow('확인 값이 올바르지 않습니다.');
+    await expect(confirmRegistrationOperation(OPERATION_ID, { externalListingId: 'x'.repeat(65) }))
+      .rejects.toThrow('확인 값이 올바르지 않습니다.');
+    await expect(closeRegistrationOperation(OPERATION_ID, '  ')).rejects.toThrow('닫는 까닭을 적어 주세요.');
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
   it('close는 "등록되지 않음"을 까닭과 함께 보낸다', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce({ operation: operation({ status: 'failed' }) });
     await closeRegistrationOperation(OPERATION_ID);
