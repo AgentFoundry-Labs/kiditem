@@ -67,6 +67,7 @@ import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
 import '../sites/smartstore/listings';
+import '../sites/smartstore/registration';
 import '../sites/ssg/registration';
 import '../sites/teacher-mall';
 import '../sites/teacher-mall/registration';

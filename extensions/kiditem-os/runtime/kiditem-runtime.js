@@ -13481,6 +13481,93 @@ var KidItemRuntime = (() => {
   };
   var entriesOf = (value) => Object.entries(asRaw(value));
 
+  // extensions/src/sites/smartstore/registration.ts
+  var SMARTSTORE_REGISTER_FILE = "content/page-call/smartstore-register.js";
+  function normalizeSmartstoreForm(value) {
+    const raw = requireRaw(value, "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const code = (entry) => /^[A-Z_]+$/.test(String(entry ?? "")) ? String(entry) : "";
+    const clean2 = (entry, max) => text4(entry, 1e3).trim().replace(/[\\*?"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+    const utf8Length = (entry) => new TextEncoder().encode(entry).length;
+    const category = asRaw(raw.category);
+    const categoryId = digits2(category.id);
+    const categoryKeyword = text4(category.keyword, 60).trim();
+    if (!categoryId || !categoryKeyword) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uCE74\uD14C\uACE0\uB9AC(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const productName = clean2(raw.productName, 100);
+    if (!productName) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const discountWon = amount(raw.discountWon);
+    const cert = asRaw(raw.childCert);
+    const childCert = digits2(cert.certId) && clean2(cert.number, 60) ? { certId: digits2(cert.certId), number: clean2(cert.number, 60), companyName: text4(cert.companyName, 60).trim() } : null;
+    const rawOrigin = asRaw(raw.origin);
+    const origin = code(rawOrigin.exposureType) ? { exposureType: code(rawOrigin.exposureType), firstSub: digits2(rawOrigin.firstSub), secondSub: digits2(rawOrigin.secondSub), importer: text4(rawOrigin.importer, 60).trim() } : null;
+    const tags = [];
+    for (const entry of Array.isArray(raw.tags) ? raw.tags : []) {
+      const tag = clean2(entry, 30).replace(/\s+/g, "");
+      if (!tag || tags.includes(tag) || utf8Length(tag) > 30) continue;
+      tags.push(tag);
+      if (tags.length >= 10) break;
+    }
+    const notice = asRaw(raw.notice);
+    return {
+      category: { id: categoryId, keyword: categoryKeyword },
+      productName,
+      salePrice,
+      // 즉시할인은 판매가보다 작아야 한다. 아니면 할인 없이 넣는다.
+      discountWon: discountWon > 0 && discountWon < salePrice ? discountWon : 0,
+      stock: amount(raw.stock),
+      modelName: clean2(raw.modelName, 100),
+      brandName: clean2(raw.brandName, 50),
+      manufacturerName: clean2(raw.manufacturerName, 50),
+      origin,
+      childCert,
+      notice: {
+        type: code(notice.type) || "ETC",
+        itemName: text4(notice.itemName, 200).trim(),
+        modelName: text4(notice.modelName, 200).trim(),
+        certificateDetails: text4(notice.certificateDetails, 500).trim(),
+        manufacturer: text4(notice.manufacturer, 100).trim(),
+        afterServiceDirector: text4(notice.afterServiceDirector, 100).trim()
+      },
+      tags
+    };
+  }
+  var SMARTSTORE_REGISTRATION_FORM = {
+    label: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+    origin: "https://sell.smartstore.naver.com",
+    pathPrefix: "/",
+    // 등록과 수정이 같은 문서의 해시만 다르다. 해시까지 똑같아야 받는다.
+    hash: "#/products/create",
+    noQuery: true,
+    formSelector: 'form[name="vm.productForm"]',
+    imageSlots: [],
+    dedicated: {
+      file: SMARTSTORE_REGISTER_FILE,
+      call: "smartstore.fill",
+      // 첫 장이 대표이미지, 나머지가 추가이미지(최대 9장)다.
+      imageGroupKey: "smartstore",
+      formKey: "smartstore",
+      normalize: normalizeSmartstoreForm,
+      options: {
+        maxExtraImages: 9,
+        formWaitMs: 4e4,
+        // 칸 하나가 반응(검색 목록·다음 selectize·창 열림)할 때까지 기다리는 시간.
+        stepWaitMs: 1e4,
+        // 사진을 넣은 뒤 화면이 네이버 사진 서버에 다 올리고 창을 닫을 때까지.
+        imageWaitMs: 6e4
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 네이버 사진 서버에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "smartstore",
+    displayName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+    guard: registrationGuard(SMARTSTORE_LISTINGS_GUARD, "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4"),
+    dialogHosts: ["sell.smartstore.naver.com"],
+    form: SMARTSTORE_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/ssg/index.ts
   var SSG_ENTRY_URL = "https://po.ssgadm.com/";
   var HOSTS4 = ["po.ssgadm.com"];
