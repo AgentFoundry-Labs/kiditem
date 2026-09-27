@@ -27,6 +27,10 @@ interface StepValuesProps {
   items: MallPublishItem[];
   activeMallKey: string;
   valuesByMall: Record<string, Record<string, string>>;
+  /** 이번에 사람이 고친 값만. 저장된 몰별 값보다 이긴다(실행이 얼리는 순서와 같다). */
+  editedValuesByMall: Record<string, Record<string, string>>;
+  /** `${상품 id}:${몰 키}` → 등록 설정 · 판매상품에 저장된 이 몰 값(`use-saved-mall-values`). */
+  savedValues: ReadonlyMap<string, Record<string, string>>;
   blocks: PublishBlock[];
   onSelectMall: (mallKey: string) => void;
   onChangeValue: (mallKey: string, fieldKey: string, value: string) => void;
@@ -47,6 +51,8 @@ export function StepValues({
   items,
   activeMallKey,
   valuesByMall,
+  editedValuesByMall,
+  savedValues,
   blocks,
   onSelectMall,
   onChangeValue,
@@ -58,7 +64,14 @@ export function StepValues({
   const missing = missingRequiredFields(active, values);
   const mallBlocks = blocks.filter((block) => block.mallKey === active.mallKey);
   const previewItems = items.slice(0, PREVIEW_ROWS);
-  const headers = previewItems[0] ? active.preview(previewItems[0], values) : [];
+  // 상품마다 실제로 나갈 값: 어댑터 기본값 < 저장된 몰별 값(등록 설정 · 판매상품) < 이번 편집(QA D5).
+  const itemValues = (item: MallPublishItem) => ({
+    ...values,
+    ...(savedValues.get(`${item.candidateId}:${active.mallKey}`) ?? {}),
+    ...(editedValuesByMall[active.mallKey] ?? {}),
+  });
+  const savedFirst = previewItems[0] ? savedValues.get(`${previewItems[0].candidateId}:${active.mallKey}`) ?? {} : {};
+  const headers = previewItems[0] ? active.preview(previewItems[0], itemValues(previewItems[0])) : [];
 
   return (
     <section className="grid grid-cols-1 gap-4 lg:grid-cols-[200px_1fr]">
@@ -129,6 +142,7 @@ export function StepValues({
                 ) : (
                   <input
                     value={values[field.key] ?? ''}
+                    placeholder={savedFirst[field.key] ? `저장된 값 ${savedFirst[field.key]}` : undefined}
                     onChange={(event) => onChangeValue(active.mallKey, field.key, event.target.value)}
                     className={cn(
                       'mt-1 w-full rounded-md border px-2 py-2 text-sm outline-none focus:border-purple-400',
@@ -184,7 +198,7 @@ export function StepValues({
                 <tbody className="divide-y divide-slate-50">
                   {previewItems.map((item) => (
                     <tr key={item.candidateId}>
-                      {active.preview(item, values).map((row) => (
+                      {active.preview(item, itemValues(item)).map((row) => (
                         <td key={row.label} className="px-3 py-2 align-top text-slate-700">
                           <span className="line-clamp-2">{row.value}</span>
                         </td>

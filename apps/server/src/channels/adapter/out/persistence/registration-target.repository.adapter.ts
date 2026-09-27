@@ -1,3 +1,5 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
+import { LIVE_OPERATION_STATUSES, readRegistrationOperations } from '../repository/registration-operation-facts';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -219,14 +221,13 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         select: { id: true },
       });
       if (!current) throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
-      const live = await tx.productRegistrationExecution.count({
-        where: {
-          organizationId,
-          registrationTargetId: targetId,
-          status: { in: ['prepared', 'executing', 'reconciling'] },
-        },
+      const live = await readRegistrationOperations(tx, {
+        organizationId,
+        planContainsAny: [{ registrationTargetId: targetId }],
+        statuses: LIVE_OPERATION_STATUSES,
+        plan: { payloadKeys: [] },
       });
-      if (live > 0) {
+      if (live.length > 0) {
         throw new KiditemConflictError('CHANNELS_LISTING_EXECUTION_ACTIVE', { details: { reason: 'TARGET_HAS_LIVE_EXECUTION' } });
       }
       await tx.registrationTarget.updateMany({
@@ -369,11 +370,11 @@ async function validateReferences(
   }
 
   const account = await tx.channelAccount.findFirst({
-    where: { id: channelAccountId, organizationId, status: 'active' },
+    where: { id: channelAccountId, organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
     select: { id: true },
   });
   if (!account) {
-    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '활성 채널 계정이 이 조직에 속하지 않습니다.' });
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '사용할 수 있는 채널 계정이 이 조직에 없습니다.' });
   }
   return { name: product.name, status: product.status, sourceRecordId: product.sourceRecordId };
 }

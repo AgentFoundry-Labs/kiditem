@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import {
   BadRequestException,
   ConflictException,
@@ -373,7 +374,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
    */
   listActive(organizationId: string): Promise<ChannelAccountListRow[]> {
     return this.prisma.channelAccount.findMany({
-      where: { organizationId, status: { in: ['active', 'configured'] } },
+      where: { organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
       orderBy: [{ channel: 'asc' }, { isPrimary: 'desc' }, { name: 'asc' }],
       select: CHANNEL_ACCOUNT_LIST_SELECT,
     });

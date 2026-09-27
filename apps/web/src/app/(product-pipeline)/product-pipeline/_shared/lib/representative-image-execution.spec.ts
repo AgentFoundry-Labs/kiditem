@@ -1,180 +1,105 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { apiClient } from '@/lib/api-client';
-import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { ApiError } from '@/lib/api-error';
-import {
-  EXTENSION_REQUIRED_MESSAGE,
+import type { OperationView } from '@kiditem/shared/operation';
+
+// 대표이미지 몰 반영 = 등록 실행 `thumbnail_update` 하나(KID-364). 가짜는 확장 메시지 · 서버 HTTP · 저장 자격 경계뿐이고,
+// 시작 · 대기 · 확인 · 닫기는 진짜로 돌아 확장에 보낸 scope가 계약 스키마를 통과하는지 본다.
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn().mockResolvedValue({ loginId: null, password: null }) } }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { post: vi.fn(), get: vi.fn() } }));
+
+const { apiClient } = await import('@/lib/api-client');
+const { fakeRegistrationExtension, parsedRegistrationScope, registrationOperationResponse } = await import('@/test/fixtures/registration-operation');
+const {
   ListingChoiceRequiredError,
-  fetchRepresentativeImageListingChoices,
   confirmRepresentativeImageApplied,
+  fetchRepresentativeImageListingChoices,
   markRepresentativeImageNotApplied,
-  submitRepresentativeImageViaExtension,
+  representativeImageUploadReached,
   representativeImageUploadedMessage,
   resendRepresentativeImageViaExtension,
-} from './representative-image-execution';
+  submitRepresentativeImageViaExtension,
+} = await import('./representative-image-execution');
 
-vi.mock('@/lib/api-client', () => ({
-  apiClient: {
-    post: vi.fn(),
-    get: vi.fn(),
-  },
-}));
+const PRODUCT = '11111111-1111-4111-8111-111111111111';
+const ASSET = '22222222-2222-4222-8222-222222222222';
+const LISTING = '33333333-3333-4333-8333-333333333333';
+const OPERATION_ID = '00000000-0000-4000-8000-0000000000e1';
+const SUBJECT = { salesProductId: PRODUCT, assetId: ASSET };
 
-vi.mock('@/lib/extension-bridge', () => ({
-  detectExtensionId: vi.fn(),
-  sendToExtension: vi.fn(),
-}));
+const checking = (patch: Partial<OperationView> = {}) => registrationOperationResponse({
+  id: OPERATION_ID,
+  plan: { executionKind: 'thumbnail_update', salesProductId: PRODUCT, channelListingId: LISTING, externalListingId: 'MALL-7' },
+  ...patch,
+});
 
-const mockedApiPost = vi.mocked(apiClient.post);
-const mockedDetectExtensionId = vi.mocked(detectExtensionId);
-const mockedSendToExtension = vi.mocked(sendToExtension);
-
-const EXECUTION_ID = '00000000-0000-4000-8000-0000000000e1';
-const SUBJECT = { salesProductId: 'product-1', assetId: 'asset-1' };
-const prepared = {
-  executionId: EXECUTION_ID,
-  salesProductId: 'product-1',
-  assetId: 'asset-1',
-  productName: '쿠팡 상품명',
-  image: {
-    dataUrl: 'data:image/png;base64,aW1hZ2U=',
-    filename: 'asset-1.png',
-    mimeType: 'image/png',
-  },
-};
+beforeEach(() => {
+  vi.clearAllMocks();
+  window.localStorage.clear();
+});
 
 describe('submitRepresentativeImageViaExtension', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  it('⭐ 판매 상품·자산(·고른 리스팅)으로 thumbnail_update 실행 하나를 시작하고, 몰 화면에 올린 것은 저장 대기(reconciling)다', async () => {
+    const starts = fakeRegistrationExtension(['coupang'], [{ success: true, operationId: OPERATION_ID, reused: false }]);
+    vi.mocked(apiClient.get).mockResolvedValue(checking());
+
+    const result = await submitRepresentativeImageViaExtension(SUBJECT, { channelListingId: LISTING });
+
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'thumbnail_update', salesProductId: PRODUCT, assetId: ASSET, channelListingId: LISTING,
+      idempotencyKey: expect.any(String), submit: false,
+    });
+    expect(result).toMatchObject({ executionId: OPERATION_ID, salesProductId: PRODUCT, status: 'reconciling', success: false });
+    expect(representativeImageUploadReached(result)).toBe(true);
   });
 
-  it('requires the local Chrome extension and does not prepare an execution without it', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce(null);
-
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow(EXTENSION_REQUIRED_MESSAGE);
-
-    expect(mockedApiPost).not.toHaveBeenCalled();
+  it('실패로 끝나면 운영자 문장을 실어 던진다', async () => {
+    fakeRegistrationExtension(['coupang']);
+    vi.mocked(apiClient.get).mockResolvedValue(checking({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: 'login' }));
+    const submitted = submitRepresentativeImageViaExtension(SUBJECT);
+    await expect(submitted).rejects.toThrow();
+    await expect(submitted).rejects.not.toThrow(/SITE_LOGIN_REQUIRED/);
   });
 
-  it('prepares a Channels execution, sends the unchanged message to the extension and reports the upload as waiting for the mall save', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost
-      .mockResolvedValueOnce(prepared)
-      .mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot' });
-    mockedSendToExtension.mockResolvedValueOnce({ success: true, screenshotUrl: 'shot' });
+  it('리스팅이 여럿이라 서버가 거절하면(VALIDATION_FAILED + ambiguous_listing) 운영자에게 고르게 한다', async () => {
+    fakeRegistrationExtension(['coupang'], [{
+      success: false, errorCode: 'VALIDATION_FAILED', error: '어느 리스팅에 올릴지 골라 주세요.', details: { reason: 'ambiguous_listing' },
+    }]);
+    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toBeInstanceOf(ListingChoiceRequiredError);
+  });
+});
 
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).resolves.toEqual({
-      salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, screenshotPath: 'shot',
-    });
-
-    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { salesProductId: 'product-1', assetId: 'asset-1' });
-    expect(mockedSendToExtension).toHaveBeenCalledWith('extension-1', {
-      action: 'registerRepresentativeImage',
-      attemptId: EXECUTION_ID,
-      salesProductId: 'product-1',
-      assetId: 'asset-1',
-      productName: '쿠팡 상품명',
-      image: prepared.image,
-    });
-    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
-      outcome: 'uploaded_pending_save',
-      screenshotUrl: 'shot',
-    });
+describe('확인 중 실행의 출구', () => {
+  it('"반영됨으로 표시"는 그 몰 상품번호로 실행을 확인한다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(checking());
+    vi.mocked(apiClient.post).mockResolvedValue(checking({ status: 'succeeded' }));
+    await expect(confirmRepresentativeImageApplied(OPERATION_ID)).resolves.toMatchObject({ success: true, status: 'succeeded' });
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/registration-operations/${OPERATION_ID}/confirm`, { externalListingId: 'MALL-7' });
   });
 
-  it('reports a definitive failure when the extension answers that the upload failed', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost
-      .mockResolvedValueOnce(prepared)
-      .mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: false, screenshotPath: null, error: 'dropzone missing' });
-    mockedSendToExtension.mockResolvedValueOnce({ success: false, error: 'dropzone missing' });
-
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow('dropzone missing');
-
-    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
-      outcome: 'definitive_failure',
-      error: 'dropzone missing',
-    });
+  it('"반영 안 됨으로 표시"는 실행을 닫는다', async () => {
+    vi.mocked(apiClient.post).mockResolvedValue(checking({ status: 'failed' }));
+    await markRepresentativeImageNotApplied(OPERATION_ID);
+    expect(apiClient.post).toHaveBeenCalledWith(
+      `/api/channels/registration-operations/${OPERATION_ID}/close`,
+      { reason: '운영자가 몰에서 확인: 반영되지 않음' },
+    );
   });
 
-  it('reports a pending mall login as a definitive failure', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, screenshotPath: null });
-    mockedSendToExtension.mockResolvedValueOnce({ success: false, pendingLogin: true });
-
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow('쿠팡 WING 로그인 필요');
-
-    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
-      outcome: 'definitive_failure',
-      error: '쿠팡 WING 로그인 필요 — 열린 탭에서 로그인한 뒤 다시 시도하세요.',
+  it('"다시 보내기"는 확인 중 실행을 닫고 같은 판매 상품·리스팅으로 새 실행을 연다(같은 실행을 두 번 보내지 않는다)', async () => {
+    const NEXT = '00000000-0000-4000-8000-0000000000e2';
+    const starts = fakeRegistrationExtension(['coupang'], [{ success: true, operationId: NEXT, reused: false }]);
+    vi.mocked(apiClient.get).mockImplementation(async (href: string) => (href.endsWith(NEXT) ? checking({ id: NEXT }) : checking()));
+    vi.mocked(apiClient.post).mockResolvedValue(checking({ status: 'failed' }));
+    await resendRepresentativeImageViaExtension(OPERATION_ID);
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/channels/registration-operations/${OPERATION_ID}/close`, { reason: '운영자가 다시 보내기로 닫음' });
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'thumbnail_update', salesProductId: PRODUCT, channelListingId: LISTING, idempotencyKey: expect.any(String), submit: false,
     });
   });
+});
 
-  it('reports an unknown outcome when talking to the extension breaks, because the image may have been uploaded', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, screenshotPath: null });
-    mockedSendToExtension.mockRejectedValueOnce(new Error('The message port closed before a response was received.'));
-
-    await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toThrow('The message port closed');
-
-    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, {
-      outcome: 'uncertain',
-      error: 'The message port closed before a response was received.',
-    });
-  });
-
-  it('resends the same execution to the extension and reports on it, without preparing a new one', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost
-      .mockResolvedValueOnce(prepared)
-      .mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, screenshotPath: null });
-    mockedSendToExtension.mockResolvedValueOnce({ success: true });
-
-    await expect(resendRepresentativeImageViaExtension(EXECUTION_ID)).resolves.toMatchObject({ success: true });
-
-    expect(mockedApiPost).toHaveBeenNthCalledWith(1, `/api/channels/thumbnail-executions/${EXECUTION_ID}/resend`, {});
-    expect(mockedSendToExtension).toHaveBeenCalledWith('extension-1', expect.objectContaining({ attemptId: EXECUTION_ID, action: 'registerRepresentativeImage' }));
-    expect(mockedApiPost).toHaveBeenNthCalledWith(2, `/api/channels/thumbnail-executions/${EXECUTION_ID}/report`, { outcome: 'uploaded_pending_save' });
-    expect(mockedApiPost).not.toHaveBeenCalledWith('/api/channels/thumbnail-executions', expect.anything());
-  });
-
-  it('marks an unknown outcome as not applied through the Channels route', async () => {
-    mockedApiPost.mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: false, screenshotPath: null });
-
-    await markRepresentativeImageNotApplied(EXECUTION_ID);
-
-    expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/not-applied`, {});
-  });
-
-  it('confirms the mall save through the Channels applied route', async () => {
-    mockedApiPost.mockResolvedValueOnce({ salesProductId: 'product-1', assetId: 'asset-1', executionId: EXECUTION_ID, success: true, status: 'succeeded', screenshotPath: null });
-
-    await expect(confirmRepresentativeImageApplied(EXECUTION_ID)).resolves.toMatchObject({ success: true });
-
-    expect(mockedApiPost).toHaveBeenCalledWith(`/api/channels/thumbnail-executions/${EXECUTION_ID}/applied`, {});
-  });
-
-  it('asks the operator to pick a listing when the product has several, without touching the extension', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost.mockRejectedValueOnce(new ApiError(400, 'Bad Request', '리스팅이 여럿입니다 — 하나를 고르세요', { reason: 'ambiguous_listing', }));
-
-    const error = await submitRepresentativeImageViaExtension(SUBJECT).catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(ListingChoiceRequiredError);
-    expect(error).toMatchObject({ salesProductId: 'product-1', message: '리스팅이 여럿입니다 — 하나를 고르세요' });
-    expect(mockedSendToExtension).not.toHaveBeenCalled();
-  });
-
-  it('prepares with the listing the operator picked', async () => {
-    mockedDetectExtensionId.mockResolvedValueOnce('extension-1');
-    mockedApiPost.mockResolvedValueOnce(prepared).mockResolvedValueOnce({ success: false, status: 'reconciling', screenshotPath: null });
-    mockedSendToExtension.mockResolvedValueOnce({ success: true });
-
-    await submitRepresentativeImageViaExtension(SUBJECT, { channelListingId: 'listing-2' });
-
-    expect(mockedApiPost).toHaveBeenNthCalledWith(1, '/api/channels/thumbnail-executions', { salesProductId: 'product-1', assetId: 'asset-1', channelListingId: 'listing-2' });
-  });
-
+describe('fetchRepresentativeImageListingChoices', () => {
   it('reads the listings the operator can pick from Channels', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ items: [{ channelListingId: 'listing-2', channelName: '두번째', channelAccountName: 'Wing', externalId: '99' }] });
 

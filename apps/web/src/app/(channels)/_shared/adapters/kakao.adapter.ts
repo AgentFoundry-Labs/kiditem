@@ -1,6 +1,6 @@
 import { mallDisplayName } from '@kiditem/shared/sales-product';
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   KAKAO_DELIVERY_TEMPLATE,
   KAKAO_MAX_IMAGES,
@@ -8,13 +8,13 @@ import {
   parseKakaoCategory,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/kakao-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -135,20 +135,10 @@ export const kakaoAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const categoryId = categoryFrom(values.kakaoCategory);
     if (categoryId === null) {
-      return {
-        ok: false,
-        confirmed: false,
-        manualSteps: [],
-        warnings: [],
-        error: '톡스토어 카테고리 코드 형식이 틀렸습니다.',
-      };
+      throw new Error('톡스토어 카테고리 코드 형식이 틀렸습니다.');
     }
     const { draft } = await prepareRegistration(item, 'kakao');
     const certNumber = values.certNumber?.trim();
@@ -157,9 +147,6 @@ export const kakaoAdapter: MallPublishAdapter = {
       ...(categoryId ? { categoryId } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    // [등록]까지 부탁하되 #554 의 실행 리스를 함께 실어 보낸다 — 서버가 얼린 payload 와
-    // 짝이 맞지 않는 송신은 여기서 걸러진다.
-    const result = await fillMallRegistrationForm('kakao', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

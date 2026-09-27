@@ -124,6 +124,10 @@ export const ERROR_DEFINITIONS = {
   SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED: def('extension', 'precondition', '셀피아 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.'),
   SELLPIA_MANUAL_MATCH_TIMEOUT: def('extension', 'external', '셀피아 수동상품매칭 근거 수집 시간이 초과되었습니다.', { retryable: true }),
   SOURCE_SNAPSHOT_INVALID: def('extension', 'validation', '수집 결과가 올바르지 않아 저장하지 않았습니다. 다시 수집해 주세요.'),
+  // 몰 쓰기 모듈(KID-256, `channels.registration`): 폼을 찾았는데 채우지 못했다 · 몰에 로그인된 판매자 계정이 등록할 계정과 다르다.
+  REGISTRATION_FILL_FAILED: def('extension', 'external', '몰 상품등록 폼을 채우지 못했습니다. 열린 탭에서 확인해 주세요.'),
+  REGISTRATION_ACCOUNT_MISMATCH: def('extension', 'precondition', '몰에 로그인된 판매자 계정이 등록할 계정과 다릅니다. 열린 탭의 계정을 확인해 주세요.'),
+  MALL_WRITE_FAILED: def('extension', 'external', '몰에 판매 상태를 보내지 못했습니다. 몰 화면에서 확인해 주세요.'),
   EXTENSION_UNKNOWN_FAILURE: def('extension', 'internal', '확장 프로그램 작업이 실패했습니다. 다시 시도해 주세요.', { retryable: true }),
 
   // Agent OS · Gateway
@@ -151,6 +155,8 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_SALES_PRODUCT_NOT_SELLING: def('channels', 'precondition', '판매 중인 판매상품이 아닙니다. 판매상품 상태를 확인한 뒤 다시 시도해 주세요.'),
   CHANNELS_REGISTRATION_TARGET_NOT_FOUND: def('channels', 'not_found', '등록 설정을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   CHANNELS_REGISTRATION_TARGET_STALE: def('channels', 'conflict', '등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  // KID-364: 운영자가 reconciling 등록 실행을 몰에 없다고 닫은 실행의 errorCode. 던지지 않고 알림 · 화면 라벨로 쓴다.
+  CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL: def('channels', 'not_found', '운영자가 몰에서 등록되지 않았다고 확인했습니다.'),
   CHANNELS_EXECUTION_NOT_FOUND: def('channels', 'not_found', '몰 작업 기록을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   CHANNELS_EXECUTION_FENCE_LOST: def('channels', 'conflict', '이 몰 작업은 더 이상 이 요청이 진행할 수 없습니다. 새로고침한 뒤 다시 시작해 주세요.'),
   CHANNELS_EXECUTION_TERMINAL: def('channels', 'conflict', '이미 끝난 몰 작업입니다. 새로고침해 결과를 확인해 주세요.'),
@@ -247,6 +253,9 @@ export const ERROR_DEFINITIONS = {
   ADVERTISING_RANK_TARGETS_EMPTY: def('advertising', 'precondition', '순위를 확인할 자사 상품의 대표 키워드가 없습니다. 상품의 대표 키워드를 확인해 주세요.'),
   ADVERTISING_COMPETITOR_SELLER_NOT_FOUND: def('advertising', 'not_found', '추적 중인 경쟁 판매자가 아닙니다. 판매자 목록을 새로고침한 뒤 다시 시도해 주세요.'),
   ADVERTISING_TRACKED_PRODUCT_NOT_FOUND: def('advertising', 'conflict', '윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.'),
+  // 광고 보고서 kind(KID-371): 광고센터 세션의 업체코드가 계정의 업체코드와 다르다(확장·서버 finalize 모두 보낸다).
+  ADVERTISING_IDENTITY_MISMATCH: def('advertising', 'conflict', '광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.'),
+  ADVERTISING_AD_REPORT_DAY_NOT_READY: def('advertising', 'conflict', '어제 광고비가 아직 집계되지 않았습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED: def('analytics', 'conflict', '수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.'),
   ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN: def('analytics', 'validation', '셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.'),
@@ -270,6 +279,8 @@ export function errorDefinition(code: KiditemErrorCode): ErrorDefinition {
  * 보내는 쪽을 바꾸면 그때 지운다). 저장된 attempt `errorCode`도 이 표로 다시 읽는다.
  */
 export const EXTENSION_CODE_ALIASES: Readonly<Record<string, KiditemErrorCode>> = {
+  /** 옛 광고 콘텐츠 스크립트(`wing-unified.js`·`ads-report.js`, KID-373에서 삭제)가 보내는 옛 철자. */
+  ADVERTISER_IDENTITY_MISMATCH: 'ADVERTISING_IDENTITY_MISMATCH',
   auth_required: 'AUTH_REQUIRED',
   insufficient_role: 'FORBIDDEN',
   no_organization_context: 'NO_ORGANIZATION_CONTEXT',

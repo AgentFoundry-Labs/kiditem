@@ -8,9 +8,7 @@ channel capacity projections, shared selling-product authoring and dashboard rea
 verification are unsupported; the legacy sync HTTP routes return 501 without
 IO. Wing/browser evidence and approved internal sources remain supported.
 
-Login checks and registration form fills return current browser results without
-persisting an observation history. Actual submissions and provider outcomes use
-the registration execution ledger.
+Login checks and form fills return current browser results without history.
 
 The channel registry (`@kiditem/shared/channel-registry`) owns channel identity,
 the registration `delivery` (form · api · sheet · none) and `representativeImage`
@@ -54,15 +52,14 @@ sync, registration, matching, and capacity behavior is executable in
 
 ## Registration And Provider Contract
 
-- Every submission to a channel account passes the registration execution fence
-  (`ProductRegistrationExecution`), which opens the transaction, writes the
-  execution row itself. The fence identity is
-  `{organizationId, salesProductId, channelAccountId}`: a collected product and a
-  directly authored one enter the same door, and `SalesProduct.sourceRecordId`
-  is provenance the execution history keeps, never a key (ADR-0022). Channels also owns reusable registration targets:
-  successful execution does not close the target, and new intent creates a new
-  frozen execution. A form fill without submission returns only the
-  current browser result; it is not confirmed registration.
+- Every submission to a channel account is one `channels.registration`
+  operation (ADR-0014 · 0025, KID-364). `executionKind` is a plan field; the plan
+  freezes the payload (`registration-plan-payloads.ts`) and lock keys replace the
+  old uniques (target · listing · external listing; sold_out · resume batch per
+  `account:<id>`; thumbnail `resource:sales-product:<id>`). The old execution
+  table is neither read nor written (KID-365 drops it); read operations only via
+  `common/operation/transaction/*`. A successful operation does not close the target;
+  `SalesProduct.sourceRecordId` is provenance, never a key (ADR-0022).
 - A selling product has at most one active registration target per channel
   account. Nothing chooses among settings; a promotional listing is its own
   selling product. `channels/registration-targets` (resolve, update, archive) is
@@ -75,19 +72,19 @@ sync, registration, matching, and capacity behavior is executable in
 - Selected accounts must exist and be active. `ChannelAccount` stores the Wing
   vendor identity used to fence browser evidence; Open API credentials are not
   accepted or resolved.
-- Registration on every mall, Coupang Wing included, is a target `register`
-  execution (prepare → start → provider IO → `result`). `report_target_execution`
-  with `outcome: confirmed` is the only registration confirmation: the channel
-  adapter validates the evidence, a new first listing gets the product's content
-  workspace, and a frozen Sellpia match becomes the option recipe in the same
-  transaction. The extension presses a form's [등록] only with the execution's
-  context (KID-322).
+- The mall's confirmation is the only registration confirmation: finish
+  `succeeded` with a `registration_evidence` chunk, or `reconciling` then the
+  operator's `registration-operations/:id/confirm` · `close`. Finalize checks the
+  evidence via the channel adapter and links listing, options and recipes in one
+  transaction. The plan freezes the web `form` after the adapter's `freezeForm`;
+  [등록] is pressed only when the plan says `submit` (ADR-0019, KID-322).
 - 등록 상태는 `registration-state.service` 하나가 계정별로 읽는다; 화면·목록·매트릭스가 실행 표를 조합하지 않는다.
   `register` · `update` · `composition_change` 가 등록 상태를, `sold_out` · `resume` 는 품절만 정하고
   `thumbnail_update` 는 상태에 들어가지 않는다(`domain/registration/registration-account-state.ts`).
 - New Open API submission is an explicit unsupported path with no external IO
   or database intent. Listing deletion has no ledger or route; a mall delete
-  will be a registration execution kind once an adapter can delete (KID-321).
+  will be a registration `executionKind` once an adapter can delete (KID-321).
+- No Agent capability starts a mall write until KID-372 (KID-364).
 - Catalog publication refreshes channel facts while preserving product links,
   option recipes, and listing content. It never creates `MasterProduct` rows
   or changes stock.
@@ -124,7 +121,7 @@ sync, registration, matching, and capacity behavior is executable in
   implemented by `application/service/<business>` → `application/port/out`
   → `adapter/out`. Application and domain may use NestJS as described in the
   server guide; queries preserve the same owner and IO boundaries.
-- 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
+- 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 finalize 의 증거 거절은
   409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
 - Listing-day traffic coverage comes from Advertising's succeeded
   `advertising.wing_traffic` operations, read through Advertising's transaction

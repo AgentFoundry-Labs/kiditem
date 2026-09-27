@@ -14,7 +14,8 @@ export interface StockoutSubject {
   channel: string;
   status: string | null;
   salesProduct: StockoutSubjectSalesProduct | null;
-  activeExecutions: Array<{ id: string; idempotencyKey: string }>;
+  /** 이 리스팅을 붙잡은 살아 있는 등록 실행(`channels.registration`). */
+  activeExecutions: Array<{ id: string }>;
   options: Array<{ id: string; externalOptionId: string; status: string | null; registrationType: string | null; capacity: number | null; safetyStock: number; compositionUnconfirmed: boolean }>;
 }
 export interface StockoutCheckPersistencePort {

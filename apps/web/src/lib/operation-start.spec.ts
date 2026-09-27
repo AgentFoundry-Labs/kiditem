@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectExtensionId, sendToExtension } from './extension-bridge';
-import { extensionAcceptsOperationLogin, requestOperationStart } from './operation-start';
+import { extensionAcceptsOperationLogin, OperationStartFailure, requestOperationStart } from './operation-start';
 
 vi.mock('./extension-auth', () => ({ transferExtensionAuthTo: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('./extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
@@ -49,6 +49,45 @@ describe('requestOperationStart', () => {
         : { success: true, operationId: OPERATION_ID, reused: false });
     await requestOperationStart('orders.mall_orders', {}, { loginBlocked: true });
     expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.mall_orders', scope: {} }, 60_000);
+  });
+
+  it('표시를 여럿 요구하면 하나라도 없는 빌드에는 시작을 보내지 않는다(등록 kind + 몰 쓰기 사이트, KID-364)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await expect(requestOperationStart('channels.registration', {}, {
+      capability: ['channelsRegistrationOperationKindV1', 'mallWriteSite.art09'],
+    })).rejects.toThrow('확장 프로그램을 업데이트해 주세요.');
+    expect(sendToExtension).toHaveBeenCalledTimes(1);
+
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, channelsRegistrationOperationKindV1: true, 'mallWriteSite.art09': true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await expect(requestOperationStart('channels.registration', {}, {
+      capability: ['channelsRegistrationOperationKindV1', 'mallWriteSite.art09'],
+    })).resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
+  });
+
+  it('서버가 시작을 거절하면 그 등록 코드를 실어 던진다(화면이 까닭을 코드로 가른다)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true } }
+        : { success: false, errorCode: 'REGISTRATION_ALREADY_REGISTERED', error: '이미 이 몰 계정에 등록된 상품입니다.' });
+    const started = requestOperationStart('channels.registration', {});
+    await expect(started).rejects.toBeInstanceOf(OperationStartFailure);
+    await expect(started).rejects.toMatchObject({ code: 'REGISTRATION_ALREADY_REGISTERED', message: '이미 이 몰 계정에 등록된 상품입니다.' });
+  });
+
+  it('거절 봉투의 details(까닭 reason 등)를 그대로 싣는다 — 등록 코드가 VALIDATION_FAILED여도 화면은 reason으로 가른다', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true } }
+        : { success: false, errorCode: 'VALIDATION_FAILED', error: '어느 리스팅에 올릴지 골라 주세요.', details: { reason: 'ambiguous_listing' } });
+    await expect(requestOperationStart('channels.registration', {})).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED', details: { reason: 'ambiguous_listing' }, reason: 'ambiguous_listing',
+    });
   });
 
   it('extensionAcceptsOperationLogin은 ping의 operationLoginV1을 본다', async () => {

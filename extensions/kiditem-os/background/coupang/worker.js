@@ -12,8 +12,6 @@ chrome.runtime.onMessage.addListener(KidItemAdCollectorDelay.handleMessage);
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const AD_ACTION_URL =
   "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
-const WING_CATALOG_FORM_URL =
-  "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
 const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
 const WING_CATALOG_MAX_PAGES = 5;
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
@@ -206,38 +204,6 @@ const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
   takeWindowTurn: coupangWindowTurn("advertising.ad_sync"),
 });
 chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
-const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
-const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
-const wingImageFetch = KidItemWingImageFetch.create({
-  runtimeId: chrome.runtime.id,
-  fetchFn: fetch,
-  FileReaderCtor: FileReader,
-});
-chrome.runtime.onMessage.addListener(wingImageFetch.handleMessage);
-const WING_FORM_PORT_NAME = "kiditem-wing-form-v1";
-
-function handleWingFormPort(port) {
-  let started = false;
-  port.onMessage.addListener((message) => {
-    if (started) return;
-    started = true;
-    if (message?.action !== "registerToWingForm") {
-      port.postMessage({ ok: false, error: "지원하지 않는 WING 폼 요청입니다." });
-      port.disconnect();
-      return;
-    }
-    registerToWingForm(message)
-      .then((result) => port.postMessage(result))
-      .catch((error) =>
-        port.postMessage({
-          ok: false,
-          error: error?.message || "WING 상품등록 페이지 열기 실패",
-        }),
-      )
-      .finally(() => port.disconnect());
-  });
-}
-
 // Write-only Wing/Ads sync stamps no build reads any more. Remove them once from
 // installed profiles.
 const COUPANG_RETIRED_LOCAL_COPY_KEYS = [
@@ -262,24 +228,6 @@ chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 // ═══ content script에서 메시지 수신 ═══
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.action === "inputWingCategorySearch") {
-    wingFormRuntimeCompat
-      .insertText(
-        sender?.tab?.id,
-        sender?.url || sender?.tab?.url,
-        msg.value,
-      )
-      .then(sendResponse)
-      .catch((error) =>
-        sendResponse({
-          ok: false,
-          error:
-            error?.message || "WING 카테고리 검색 입력에 실패했습니다.",
-        }),
-      );
-    return true;
-  }
-
   if (msg.action === "bindKidItemEnvironment") {
     const tabId = sender?.tab?.id || msg.tabId;
     Promise.resolve()
@@ -396,27 +344,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // ping 은 통합 서비스워커가 세 도메인의 capabilities 를 합쳐 한 번만 응답한다.
   // 이 도메인의 capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
 
-  if (msg.action === "registerToWingForm") {
-    registerToWingForm(msg)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({ ok: false, error: e?.message || "WING 상품등록 페이지 열기 실패" }),
-      );
-    return true;
-  }
-
-  if (msg.action === "registerRepresentativeImage") {
-    registerRepresentativeImage(msg)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "쿠팡 Wing 대표이미지 등록 실패",
-        }),
-      );
-    return true;
-  }
-
   if (msg.action === "setAuthToken") {
     const token = typeof msg.token === "string" ? msg.token : null;
     if (!token) {
@@ -448,288 +375,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // ── 상품 수정 자동화: Wing 탭 열고 content script에 작업 위임 ──
-  if (msg.action === "openAndEditProduct") {
-    const { productName } = msg;
-    openAndEditProduct(productName)
-      .then((result) => sendResponse(result))
-      .catch((error) =>
-        sendResponse({
-          success: false,
-          error: error?.message || "상품 수정 탭 생성 실패",
-        }),
-      );
-    return true;
-  }
 });
-
-// 단일 상품 직접 등록: formV2 탭을 열고 content script(wing-registration-fill)에 채움 데이터 전송.
-// ⚠️ 제출은 하지 않는다 — content script 가 채우기만 하고 사용자가 확인 후 등록.
-function waitForTabComplete(tabId, timeoutMs = 60000) {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const check = () => {
-      chrome.tabs.get(tabId, (tab) => {
-        if (chrome.runtime.lastError || !tab) return resolve(false);
-        if (tab.status === "complete") return resolve(true);
-        if (Date.now() - start > timeoutMs) return resolve(false);
-        setTimeout(check, 400);
-      });
-    };
-    check();
-  });
-}
-
-async function registerToWingForm(message) {
-  const product = message && message.product;
-  if (!product || typeof product !== "object") {
-    return { ok: false, error: "product 데이터가 없습니다." };
-  }
-  // [상품등록]은 등록 대상 실행 안에서만 누른다(KID-322) — 웹이 `submit: true` 와 서버가 준 실행 컨텍스트
-  // (executionId · payloadHash · leaseToken)를 함께 보낼 때뿐이다. 판정은 몰 폼과 같은 관문 하나가 한다.
-  // 컨텍스트가 없거나 모자라면 폼만 채우고 `submitSkipped` 로 그 까닭을 돌려준다.
-  const submitRequested = message.submit === true;
-  const autoSubmit = KidItemMallFormSubmitGate.shouldPressRegister({
-    submit: message.submit,
-    executionContext: message.executionContext,
-  });
-  const executionId = autoSubmit ? message.executionContext.executionId.trim() : "";
-  const expectedVendorId = typeof message?.expectedVendorId === "string" ? message.expectedVendorId.trim() : "";
-  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedVendorId)) {
-    return { ok: false, error: "승인된 WING 판매자 식별자가 올바르지 않습니다." };
-  }
-  const submitSkipped = submitRequested && !autoSubmit ? { submitSkipped: "execution_context_required" } : {};
-  const url =
-    "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
-  const tab = await interactiveTabs.createTab({
-    url: "about:blank",
-    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
-  });
-  // 정적 document_start content script도 Wing 번들과 경합할 수 있다. 빈 탭에
-  // 새 문서 초기화 스크립트를 먼저 등록한 뒤 Wing으로 이동해 provider 코드보다
-  // 앞에서 전역 lodash 누락 기능을 보완한다. 이후 폼 채움 흐름은 기존과 동일하다.
-  const preparedNavigation = await wingFormRuntimeCompat.prepareNavigation(
-    tab.id,
-    url,
-  );
-  if (!preparedNavigation.ok) {
-    return {
-      ok: false,
-      tabId: tab.id,
-      error: `WING 상품등록 화면을 열지 못했습니다. ${preparedNavigation.error}`,
-    };
-  }
-  const loaded = await waitForTabComplete(tab.id, 60000);
-  if (!loaded) {
-    return {
-      ok: false,
-      tabId: tab.id,
-      error: "WING 상품등록 화면 로딩 시간이 초과되었습니다.",
-    };
-  }
-  // Wing formV2의 현재 배포 코드가 lodash import 없이 전역 `_.isEmpty`를
-  // 호출해 옵션 Vue 컴포넌트 렌더를 중단한다. 번들 버전이 아니라 필요한
-  // 런타임 capability만 MAIN world에서 확인·보완한다. Coupang이 고치면 no-op이다.
-  const runtimeCompatibility = await wingFormRuntimeCompat.ensure(tab.id);
-  if (!runtimeCompatibility.ok) {
-    return {
-      ok: false,
-      tabId: tab.id,
-      error: `WING 상품등록 화면을 준비하지 못했습니다. ${runtimeCompatibility.error}`,
-    };
-  }
-  const readiness = await wingFormReadiness.wait(tab.id, url);
-  if (!readiness.ok) {
-    return {
-      ok: false,
-      tabId: tab.id,
-      failure: readiness,
-      error: readiness.code === "wing_form_content_not_ready"
-        ? "WING 상품등록 확장 스크립트가 준비되지 않았습니다. 확장을 리로드한 뒤 다시 시도하세요."
-        : "WING 상품등록 화면 준비 상태를 확인하지 못했습니다.",
-    };
-  }
-  const formSessionId = globalThis.crypto?.randomUUID?.()
-    || `wing-form-${tab.id}-${Date.now()}`;
-  try {
-    const fill = await chrome.tabs.sendMessage(tab.id, {
-      action: "fillWingForm",
-      formSessionId,
-      product,
-      autoSubmit,
-      executionId,
-      expectedVendorId,
-    });
-    // 채움이 실패했으면 성공으로 보고하지 않는다. 예전에는 ok:true 로 덮어써서
-    // "폼은 열렸는데 아무것도 안 채워졌고 에러도 없는" 상태가 됐다.
-    if (!fill?.ok) {
-      return {
-        ok: false,
-        tabId: tab.id,
-        fill,
-        ...submitSkipped,
-        error: fill?.error || "WING 폼 자동 채우기에 실패했습니다. 열린 탭에서 직접 입력해 주세요.",
-      };
-    }
-    // 제출까지 요청받았으면 제출 결과를 그대로 올려보낸다. 성공을 확증하지 못한 경우
-    // (status:'unknown') 웹이 등록상품으로 올리지 않도록 submission 을 그대로 전달한다.
-    return {
-      ok: true,
-      tabId: tab.id,
-      fill,
-      submission: fill.submission || { attempted: false },
-      evidence: fill.evidence,
-      ...submitSkipped,
-    };
-  } catch (e) {
-    return {
-      ok: false,
-      tabId: tab.id,
-      error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
-    };
-  }
-}
-
-function stableInputFingerprint(value) {
-  const normalized = String(value || "").normalize("NFKC").trim();
-  let primary = 2166136261;
-  let secondary = 0x9e3779b9 ^ normalized.length;
-  for (let index = 0; index < normalized.length; index += 1) {
-    const code = normalized.charCodeAt(index);
-    primary ^= code;
-    primary = Math.imul(primary, 16777619);
-    secondary ^= code + index;
-    secondary = Math.imul(secondary ^ (secondary >>> 16), 0x5bd1e995);
-  }
-  return `fp64:${(primary >>> 0).toString(16).padStart(8, "0")}${(secondary >>> 0).toString(16).padStart(8, "0")}`;
-}
-
-function isWingCatalogFormUrl(url) {
-  if (typeof url !== "string") return false;
-  try {
-    const parsed = new URL(url);
-    return (
-      parsed.hostname === "wing.coupang.com" &&
-      parsed.pathname.includes("/tenants/seller-web/vendor-inventory/formV2")
-    );
-  } catch {
-    return false;
-  }
-}
-
-async function openAndEditProduct(value) {
-  const productName = typeof value === "string" ? value.trim() : "";
-  if (!productName) return { success: false, error: "상품명이 없습니다" };
-  await chrome.storage.local.set({
-    kiditem_pending_edit: { productName, ts: Date.now() },
-  });
-  const tab = await interactiveTabs.createTab({
-    url: buildWingProductSearchUrl(productName),
-    reason: INTERACTIVE_TAB_REASONS.PRODUCT_EDIT,
-  });
-  await waitForTabComplete(tab.id, { timeoutMs: 30000 });
-  await sleep(3000);
-  return sendTabMessage(tab.id, { action: "searchAndEdit", productName });
-}
-
-async function registerRepresentativeImage(message) {
-  const productName =
-    typeof message.productName === "string" ? message.productName.trim() : "";
-  const image = message.image || {};
-  if (!productName)
-    return { success: false, error: "쿠팡 등록 상품명이 없습니다" };
-  if (
-    typeof image.dataUrl !== "string" ||
-    !image.dataUrl.startsWith("data:image/")
-  ) {
-    return { success: false, error: "대표이미지 데이터가 없습니다" };
-  }
-
-  const tab = await interactiveTabs.createTab({
-    url: buildWingProductSearchUrl(productName),
-    reason: INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
-  });
-  if (!tab?.id) return { success: false, error: "Wing 탭을 열 수 없습니다" };
-  const tabId = tab.id;
-
-  const loaded = await waitForTabComplete(tabId, { timeoutMs: 60000 }).catch(
-    (error) => ({
-      error: error?.message || "Wing 탭 로딩 실패",
-    }),
-  );
-  if (loaded?.error) return { success: false, error: loaded.error, tabId };
-  if (!isWingInventoryUrl(loaded?.url || "")) {
-    await interactiveTabs.focusTab(
-      tabId,
-      INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
-    );
-    return {
-      success: false,
-      pendingLogin: true,
-      opened: true,
-      tabId,
-      error:
-        "쿠팡 Wing 로그인 필요 — 열린 Wing 탭에서 로그인 후 다시 실행하세요.",
-    };
-  }
-
-  await sleep(1500);
-  const openResult = await sendTabMessage(tabId, {
-    action: "kiditemOpenWingProductEdit",
-    productName,
-  });
-  if (!openResult?.success) {
-    await interactiveTabs.focusTab(
-      tabId,
-      INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
-    );
-    return {
-      success: false,
-      opened: true,
-      tabId,
-      error: openResult?.error || "Wing 상품 수정 화면을 열 수 없습니다",
-    };
-  }
-
-  await waitForTabComplete(tabId, {
-    expectedUrl: openResult.editUrl || undefined,
-    timeoutMs: 60000,
-  }).catch(() => null);
-  await sleep(2500);
-
-  const uploadResult = await sendTabMessage(tabId, {
-    action: "kiditemUploadWingThumbnail",
-    productName,
-    image,
-  });
-  if (!uploadResult?.success) {
-    await interactiveTabs.focusTab(
-      tabId,
-      INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
-    );
-    return {
-      success: false,
-      opened: true,
-      tabId,
-      error: uploadResult?.error || "Wing 대표이미지 업로드 실패",
-    };
-  }
-
-  await interactiveTabs.focusTab(
-    tabId,
-    INTERACTIVE_TAB_REASONS.THUMBNAIL_REGISTRATION,
-  );
-  return {
-    success: true,
-    opened: true,
-    tabId,
-    screenshotUrl: uploadResult.screenshotUrl,
-  };
-}
-
-function buildWingProductSearchUrl(productName) {
-  return `https://wing.coupang.com/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
-}
 
 function buildCoupangSearchUrl(keyword) {
   return `${COUPANG_SEARCH_URL}?component=&q=${encodeURIComponent(keyword)}&channel=user`;
@@ -1026,22 +672,6 @@ function matchesExpectedWingPage(currentUrl, expectedUrl) {
   }
 }
 
-function sendTabMessage(tabId, message) {
-  return new Promise((resolve, reject) => {
-    chrome.tabs.sendMessage(tabId, message, (response) => {
-      if (chrome.runtime.lastError) {
-        reject(
-          new Error(
-            chrome.runtime.lastError.message || "content script 미응답",
-          ),
-        );
-        return;
-      }
-      resolve(response);
-    });
-  });
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -1097,9 +727,6 @@ function recoverCoupangCollections(environmentId) {
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["advertising", "channels", "dashboard"],
-  externalPorts: {
-    [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
-  },
   externalActions: {
     startCollection: {
       validate: KidItemCoupangCollectionStart.parseRequest,
@@ -1117,10 +744,6 @@ KidItemDomains.register({
     advertisingKeywordSourceOwnerV1: true,
     advertisingCampaignSourceOwnerV1: true,
     kiditemEnvironmentProfilesV1: true,
-    wingFormRegister: true,
-    wingFormRegisterSource: "wing-formV2-fill",
-    wingFormReadinessV2: true,
-    wingFormPortV1: true,
   },
   cancelCollectionSession,
   recoverCollections: (environmentId) => recoverCoupangCollections(environmentId),

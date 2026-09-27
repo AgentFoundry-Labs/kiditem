@@ -161,16 +161,8 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   }
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
-  assert.match(worker, /wingFormPortV1:\s*true/);
-  assert.match(worker, /kiditem-wing-form-v1/);
-  assert.match(
-    worker,
-    /function handleWingFormPort[\s\S]*registerToWingForm\(message\)[\s\S]*port\.postMessage/,
-  );
-  assert.match(
-    worker,
-    /externalPorts:[\s\S]*WING_FORM_PORT_NAME[\s\S]*handleWingFormPort\(port\)/,
-  );
+  // 윙 상품등록 포트(`kiditem-wing-form-v1`)는 런타임 실행 kind `channels.registration`으로 옮겼다(KID-256).
+  assert.doesNotMatch(worker, /kiditem-wing-form-v1|registerToWingForm|registerRepresentativeImage|openAndEditProduct/);
   const dispatchSource = fs.readFileSync(
     path.join(extensionRoot, 'background/external-dispatch.js'),
     'utf8',
@@ -275,5 +267,4 @@ test('interactive focus helper requires a deliberate user-action reason', async 
     { windowId: 7, properties: { focused: true } },
   ]);
   assert.match(worker, /interactiveTabs\.createTab/);
-  assert.match(worker, /interactiveTabs\.focusTab/);
 });

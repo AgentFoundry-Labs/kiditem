@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   ICECREAM_DEFAULT_CATEGORY,
   ICECREAM_DEFAULT_CATEGORY_CODE,
@@ -7,13 +7,13 @@ import {
   icecreamSupplyPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/icecream-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -161,11 +161,7 @@ export const icecreamMallAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, 'icecream-mall');
     // 공통 안전인증번호 칸은 초안 고시로 넘긴다 — 몰 폼 빌더는 초안만 본다.
     const certNumber = values.certNumber?.trim();
@@ -182,7 +178,6 @@ export const icecreamMallAdapter: MallPublishAdapter = {
         : {}),
       ...(values.naverMinPriceUrl?.trim() ? { naverMinPriceUrl: values.naverMinPriceUrl.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('icecream-mall', withCert, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(withCert, form);
   },
 };

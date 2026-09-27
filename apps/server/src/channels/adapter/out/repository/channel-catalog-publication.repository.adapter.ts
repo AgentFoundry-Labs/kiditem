@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type {
@@ -61,7 +62,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
 
   async assertWingAccount(scope: CatalogAccountScope): Promise<{ vendorId: string }> {
     const account = await this.prisma.channelAccount.findFirst({
-      where: { id: scope.channelAccountId, organizationId: scope.organizationId, status: 'active' },
+      where: { id: scope.channelAccountId, organizationId: scope.organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
       select: { channel: true, externalAccountId: true, vendorId: true },
     });
     if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');

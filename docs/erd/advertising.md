@@ -10,7 +10,12 @@
 | Model | Table | Description |
 |---|---|---|
 | AdAction | `ad_actions` | 광고 자동 실행 큐. ChannelAdTargetDailySnapshot→AdAction→ExecutionTask 파이프라인. 실행 상태는 최신 ExecutionTask에서 파생한다. |
+| ChannelAdCampaign | `channel_ad_campaigns` | ChannelAdCampaign canonical state owned by advertising. |
+| ChannelAdCampaignAd | `channel_ad_campaign_ads` | ChannelAdCampaignAd canonical state owned by advertising. |
+| ChannelAdDailyBilling | `channel_ad_daily_billings` | ChannelAdDailyBilling canonical state owned by advertising. |
+| ChannelAdKeywordDailySnapshot | `channel_ad_keyword_daily_snapshots` | ChannelAdKeywordDailySnapshot canonical state owned by advertising. |
 | ChannelAdListingProductMonthlyFact | `channel_ad_listing_product_monthly_facts` | ChannelAdListingProductMonthlyFact canonical state owned by advertising. |
+| ChannelAdProductDailySnapshot | `channel_ad_product_daily_snapshots` | ChannelAdProductDailySnapshot canonical state owned by advertising. |
 | ChannelAdTargetDailySnapshot | `channel_ad_target_daily_snapshots` | ChannelAdTargetDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordRankDailySnapshot | `coupang_keyword_rank_daily_snapshots` | CoupangKeywordRankDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordSerpDailySnapshot | `coupang_keyword_serp_daily_snapshots` | CoupangKeywordSerpDailySnapshot canonical state owned by advertising. |
@@ -44,6 +49,75 @@ erDiagram
     DateTime approvedAt
     DateTime createdAt
   }
+  ChannelAdCampaign {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    String campaignId
+    String name
+    Boolean isActive
+    String status
+    String servingStatus
+    Int budget
+    String budgetType
+    Decimal roasTarget
+    String adSelectionType
+    Int totalAdCount
+    DateTime lastSeenAt
+    DateTime deletedAt
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdCampaignAd {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    String adId
+    String campaignId
+    String adGroupId
+    String vendorItemId
+    Boolean isActive
+    String status
+    DateTime lastSeenAt
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdDailyBilling {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    DateTime date
+    String settlementDomain
+    String campaignKey
+    Int deliveredSpend
+    Int billedSpend
+    Int promotionAdjustment
+    Int billableAdjustment
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdKeywordDailySnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    DateTime date
+    String campaignId
+    String adGroupId
+    String vendorItemId
+    String keyword
+    Int impressions
+    Int clicks
+    Int spend
+    Int orders
+    Int units
+    Int revenue
+    String operationId
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ChannelAdListingProductMonthlyFact {
     String id PK
     String organizationId FK
@@ -58,6 +132,27 @@ erDiagram
     BigInt mappingGeneration
     Int observedTargetDayCount
     BigInt allocatedSpend
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  ChannelAdProductDailySnapshot {
+    String id PK
+    String organizationId FK
+    String channelAccountId
+    DateTime date
+    String campaignId
+    String adGroupId
+    String vendorItemId
+    String listingId
+    String optionName
+    Int impressions
+    Int clicks
+    Int spend
+    Int orders
+    Int units
+    Int revenue
+    Int billedSpend
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -241,8 +336,13 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | AdAction | organization | references external | Core | Organization |
+| ChannelAdCampaign | organization | references external | Core | Organization |
+| ChannelAdCampaignAd | organization | references external | Core | Organization |
+| ChannelAdDailyBilling | organization | references external | Core | Organization |
+| ChannelAdKeywordDailySnapshot | organization | references external | Core | Organization |
 | ChannelAdListingProductMonthlyFact | organization | references external | Core | Organization |
 | ChannelAdListingProductMonthlyFact | sourceImportRun | references external | Core | SourceImportRun |
+| ChannelAdProductDailySnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | organization | references external | Core | Organization |
 | ChannelAdTargetDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangKeywordRankDailySnapshot | organization | references external | Core | Organization |

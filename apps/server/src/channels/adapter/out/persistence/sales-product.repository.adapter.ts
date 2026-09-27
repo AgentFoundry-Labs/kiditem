@@ -1,8 +1,9 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution-ledger.reader';
+import { LIVE_OPERATION_STATUSES, readRegistrationOperations, readSalesProductOptionExecutionCounts } from '../repository/registration-operation-facts';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { SalesProductStatusError, assertStatusInvariant } from '../../../domain/sales-product/sales-product-status';
@@ -1199,13 +1200,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const [listingCount, liveExecutionCount] = await Promise.all([
       // 내린 몰 상품도 이 줄을 가리킨다(외래키 Restrict) — 활성 여부를 가리지 않고 센다.
       tx.channelListing.count({ where: { organizationId, salesProductId } }),
-      tx.productRegistrationExecution.count({
-        where: {
-          organizationId,
-          status: { in: ['prepared', 'executing', 'reconciling'] },
-          preparation: { salesProductId },
-        },
-      }),
+      readRegistrationOperations(tx, {
+        organizationId,
+        planContainsAny: [{ salesProductId }],
+        statuses: LIVE_OPERATION_STATUSES,
+        plan: { payloadKeys: [] },
+      }).then((operations) => operations.length),
     ]);
     return {
       status: product.status as SalesProductStatus,
@@ -1471,7 +1471,7 @@ async function materializeImportedTarget(
   channelAccountId: string,
   data: SalesProductChannelOverrideRecord,
 ): Promise<void> {
-  const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: 'active' } });
+  const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } } });
   if (account !== 1) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
   const options = await tx.salesProductOption.findMany({
     where: { organizationId, salesProductId, supplyStatus: { not: 'unused' } },

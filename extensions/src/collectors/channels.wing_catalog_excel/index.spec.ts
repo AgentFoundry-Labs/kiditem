@@ -73,7 +73,8 @@ describe('collectors/channels.wing_catalog_excel', () => {
     const parts = chunks.filter((chunk) => chunk.chunkKind === 'workbook').map((chunk) => chunk.payload[0] as string);
     expect(parts.map((part) => part.length <= WORKBOOK_PART_CHARS)).toEqual([true, true]);
     expect(Uint8Array.from(atob(parts.join('')), (character) => character.charCodeAt(0))).toEqual(file);
-  });
+    // 몇 MB를 base64로 오가는 스펙이라 병렬로 도는 전체 스위트에서는 5초를 넘기기도 한다.
+  }, 20_000);
 
   it('Wing이 생성을 멈추면 CATALOG_EXCEL_FAILED로 실패한다', async () => {
     const error = await collect(fakeWing([{ status: 'FAILED', executeCount: 3, totalCount: 10 }]).site).then(() => null, (caught: unknown) => caught);

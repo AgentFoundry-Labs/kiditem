@@ -28,16 +28,36 @@ export type OperationStartOutcome =
   /** `existingOperationId`: 잠금을 쥔 실행(확장이 거절에 실어 줄 때만). */
   | Readonly<{ outcome: 'refused'; message: string; existingOperationId?: string | null }>;
 
+/** 확장·서버가 시작을 거절했다. `code`는 서버 등록 코드, `reason`은 `details.reason ?? code` — 화면은 문장이 아니라 이 값으로 가른다. */
+export class OperationStartFailure extends Error {
+  readonly code: string | null;
+  /** 거절 봉투의 `details`(예: `{ reason: 'ambiguous_listing' }`). 없으면 빈 객체. */
+  readonly details: Readonly<Record<string, unknown>>;
+
+  constructor(message: string, code: string | null, details: Record<string, unknown> | null = null) {
+    super(message);
+    this.name = 'OperationStartFailure';
+    this.code = code;
+    this.details = details ?? {};
+  }
+
+  /** 화면이 가를 까닭: `details.reason`이 있으면 그것, 없으면 등록 코드. */
+  get reason(): string | null {
+    return typeof this.details.reason === 'string' ? this.details.reason : this.code;
+  }
+}
+
 type StartReply =
   | { success: true; operationId: string; reused: boolean }
-  | { success: false; errorCode?: string; error?: string; details?: { existing?: { operationId?: unknown } | null } | null };
+  | { success: false; errorCode?: string; error?: string; details?: ({ existing?: { operationId?: unknown } | null } & Record<string, unknown>) | null };
 
-async function extensionWithRuntime(capability: string): Promise<{ extensionId: string; acceptsLogin: boolean; acceptsLoginBlocked: boolean }> {
+async function extensionWithRuntime(capability: string | readonly string[]): Promise<{ extensionId: string; acceptsLogin: boolean; acceptsLoginBlocked: boolean }> {
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error(EXTENSION_MISSING);
   const ping = await sendToExtension<PingReply>(extensionId, { action: 'ping' });
+  const required = typeof capability === 'string' ? [capability] : capability;
   if (ping?.success !== true || ping.capabilities?.[OPERATION_RUNTIME_CAPABILITY] !== true
-    || ping.capabilities?.[capability] !== true) {
+    || required.some((name) => ping.capabilities?.[name] !== true)) {
     throw new Error(OPERATION_RUNTIME_UPDATE_REQUIRED);
   }
   await transferExtensionAuthTo(extensionId);
@@ -63,12 +83,13 @@ export async function requestOperationStart(
   kind: OperationKind,
   scope: Record<string, unknown>,
   /**
-   * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). `idempotencyKey`: 같은 시작을
+   * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). 여럿이면 모두 있어야 한다
+   * (등록 kind 표시 + 그 몰의 쓰기 사이트 `mallWriteSite.<key>`, KID-364). `idempotencyKey`: 같은 시작을
    * 다시 보내도 같은 실행을 돌려받는다(끊긴 답을 되풀이할 때). `credentials`: 사이트 자동 로그인에 쓸 그 몰의 저장 자격 —
    * 확장 메시지에만 싣고 확장은 그 실행 동안만 쥔다(KID-377, `operation-login`). `loginBlocked`: 그 몰의 자동 로그인 차단 때문에
    * 자격을 싣지 않았다(실기기 R7).
    */
-  options: { capability?: string; idempotencyKey?: string; credentials?: OperationLoginCredentials; loginBlocked?: boolean } = {},
+  options: { capability?: string | readonly string[]; idempotencyKey?: string; credentials?: OperationLoginCredentials; loginBlocked?: boolean } = {},
 ): Promise<OperationStartOutcome> {
   const { extensionId, acceptsLogin, acceptsLoginBlocked } = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
   const reply = await sendToExtension<StartReply>(
@@ -97,7 +118,7 @@ export async function requestOperationStart(
       ...(typeof existing === 'string' ? { existingOperationId: existing } : {}),
     };
   }
-  throw new Error(operatorReason(failure?.error, START_FAILED));
+  throw new OperationStartFailure(operatorReason(failure?.error, START_FAILED), failure?.errorCode ?? null, failure?.details ?? null);
 }
 
 /** 이 브라우저에서 돌고 있는 실행을 멈춘다(`operation.cancel` — 확장이 서버 cancel도 부른다). */

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../core/errors';
-import { createTabPages, installDialogGuardAnswer, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
+import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
 
 function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
@@ -487,6 +487,19 @@ describe('운영자에게 넘긴 탭은 수집 탭이 아니다(리뷰 2 SHOULD 
     expect(sent).toEqual([{ action: 'kiditem.dialogGuard.setRunTab', runTab: false }]);
   });
 
+  it('leave(몰 쓰기가 채운 폼)는 닫지도 남긴 탭으로 적지도 않고 운영자에게 넘긴다 — 다음 등록이 그 탭을 닫지 않는다(KID-256)', async () => {
+    const sent: unknown[] = [];
+    const { chromeApi, log } = fakeChrome({ sendMessage: async (message) => { sent.push(message); return undefined; } });
+    const tabs = createTabPages(deps(chromeApi));
+    const page = await tabs.open('about:blank');
+    await page.leave();
+    expect(tabs.isRunTab(9)).toBe(false);
+    expect(sent).toEqual([{ action: 'kiditem.dialogGuard.setRunTab', runTab: false }]);
+    await page.close();
+    expect(log).not.toContain('remove 9');
+    expect(await tabs.reclaimKept('https://mall.test')).toBeNull();
+  });
+
   it('붙인 운영자 탭은 옮겨도 수집 탭이 되지 않는다', async () => {
     const { chromeApi } = fakeChrome({ sendMessage: async () => undefined });
     const tabs = createTabPages(deps(chromeApi));
@@ -516,5 +529,68 @@ describe('TabPage.ask — 가드 짝만 있는 탭(빈 답)도 처리기를 넣�
     await expect(page.ask({ type: 'KIDITEM_PAGE_CALL' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] } }))
       .resolves.toEqual({ ok: false, error: 'empty_response' });
     expect(log.filter((line) => line.startsWith('inject'))).toHaveLength(1);
+  });
+});
+
+describe('문서가 뜨기 전 스크립트와 실제 입력(KID-256 — 옛 Wing formV2 준비를 쓰기 탭으로)', () => {
+  function debuggerChrome(log: string[]) {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => undefined });
+    const listeners: Array<(message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown> = [];
+    const extended = {
+      ...chromeApi,
+      tabs: { ...chromeApi.tabs, update: async (tabId: number, properties: { url?: string }) => { log.push(`update ${tabId} ${properties.url}`); } },
+      runtime: {
+        ...chromeApi.runtime,
+        getURL: (path: string) => `chrome-extension://kiditem/${path}`,
+        onMessage: { addListener: (listener: (typeof listeners)[number]) => listeners.push(listener), removeListener: () => undefined },
+      },
+      debugger: {
+        attach: async (target: { tabId: number }, version: string) => { log.push(`attach ${target.tabId} ${version}`); },
+        sendCommand: async (target: { tabId: number }, method: string, params?: Record<string, unknown>) => {
+          log.push(`${method} ${params ? JSON.stringify(params) : ''}`.trim());
+          return method === 'Page.addScriptToEvaluateOnNewDocument' ? { identifier: '1' } : {};
+        },
+        detach: async (target: { tabId: number }) => { log.push(`detach ${target.tabId}`); },
+      },
+    };
+    return { chromeApi: extended as unknown as TabPageChrome, inputChrome: extended as unknown as Parameters<typeof installTrustedInputAnswer>[0], listeners };
+  }
+
+  it('navigate의 bootstrapFile은 디버거로 그 파일을 새 문서 스크립트로 등록한 뒤 옮긴다 — 페이지 번들보다 먼저 돈다', async () => {
+    const log: string[] = [];
+    const { chromeApi } = debuggerChrome(log);
+    const tabs = createTabPages({
+      chrome: chromeApi,
+      fetch: async (url) => new Response(url === 'chrome-extension://kiditem/content/page-call/wing-form-compat.js' ? '/* compat */' : 'x'),
+      sleep: async () => undefined,
+      now: () => 0,
+    });
+    const page = await tabs.open('about:blank');
+
+    await page.navigate('https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2', { timeoutMs: 1_000, bootstrapFile: 'content/page-call/wing-form-compat.js' });
+
+    expect(log).toEqual([
+      'attach 9 1.3',
+      'Page.enable',
+      'Page.addScriptToEvaluateOnNewDocument {"source":"/* compat */"}',
+      'Page.navigate {"url":"https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2"}',
+      'detach 9',
+    ]);
+  });
+
+  it('실제 입력 부탁은 이 런타임의 쓰기 탭에서 온 것만 디버거 입력으로 넣는다', async () => {
+    const log: string[] = [];
+    const { chromeApi, inputChrome, listeners } = debuggerChrome(log);
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response('x'), sleep: async () => undefined, now: () => 0 });
+    installTrustedInputAnswer(inputChrome, tabs);
+    const page = await tabs.open('about:blank');
+    const ask = (tabId: number, value: unknown) => new Promise((resolve) => {
+      listeners[0]!({ action: 'kiditem.write.insertText', value }, { tab: { id: tabId } }, resolve);
+    });
+
+    await expect(ask(page.tabId, '열쇠고리/키홀더')).resolves.toEqual({ ok: true });
+    await expect(ask(4, '열쇠고리/키홀더')).resolves.toMatchObject({ ok: false });
+    await expect(ask(page.tabId, 'a\nb')).resolves.toMatchObject({ ok: false });
+    expect(log.filter((line) => line.startsWith('Input.'))).toEqual(['Input.insertText {"text":"열쇠고리/키홀더"}']);
   });
 });

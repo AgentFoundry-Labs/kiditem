@@ -99,6 +99,13 @@ model Organization {
   channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
   channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
 
+  // Advertising — 광고 보고서 원장 5표(advertising.ad_report, KID-371)
+  channelAdProductDailySnapshots ChannelAdProductDailySnapshot[]
+  channelAdKeywordDailySnapshots ChannelAdKeywordDailySnapshot[]
+  channelAdCampaigns             ChannelAdCampaign[]
+  channelAdCampaignAds           ChannelAdCampaignAd[]
+  channelAdDailyBillings         ChannelAdDailyBilling[]
+
   // Channels — Coupang keyword and competitor rank tracking
   coupangRepresentativeKeywordOverrides   CoupangRepresentativeKeywordOverride[]
   coupangKeywordTrackers                  CoupangKeywordTracker[]

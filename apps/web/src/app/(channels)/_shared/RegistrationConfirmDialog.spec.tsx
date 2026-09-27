@@ -38,7 +38,7 @@ function adapter(overrides: Partial<NonNullable<MallPublishAdapter['confirmation
     }, { key: 'brand', label: '브랜드', origin: 'template', control: 'text', defaultValue: '노브랜드', required: true }],
     preview: () => [],
     validate: () => [],
-    send: vi.fn(),
+    buildForm: vi.fn(),
     confirmation: {
       fields: [{ key: 'displayName', label: '노출 이름', origin: 'override', control: 'text', defaultValue: '', required: true }],
       sellpiaMatch: true,

@@ -20,6 +20,11 @@ export interface OperationFinalizeContext {
   organizationId: string;
   operationId: string;
   plan: JsonObject;
+  /**
+   * `reconciling`으로 멈췄던 실행을 owner가 확인(`resolve` succeeded)할 때만: 멈출 때 저장한 `result`에 확인 요청의
+   * `result`를 덮은 값(KID-364). 확장 finish에서 온 finalize에는 finish 요청의 `result`(없으면 null)다.
+   */
+  result?: JsonObject | null;
   /** 이번 시도가 몇 번째 claim인가(begin으로 연 실행은 1)와 상한(KID-358). */
   attempts: number;
   maxAttempts: number;
@@ -38,12 +43,21 @@ export interface OperationOwnerPort {
    * 워커가 죽었을 때 다음 claim까지의 공백을 줄인다(KID-358).
    */
   readonly leaseMs?: number;
+  /**
+   * finish `reconciling`(외부에 제출했지만 결과를 못 읽음)을 받는 kind만 true(KID-364, 몰 등록). 없으면 계약이 그 finish 를
+   * `VALIDATION_FAILED` 로 거절한다 — 확인 경로(`resolve`)가 없는 kind 가 잠금을 영구히 쥐지 않게.
+   */
+  readonly reconciles?: true;
   plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult>;
+  /**
+   * `window`를 돌려주면 실행에 남는 확정 창을 그것으로 좁힌다(광고 보고서 kind의 전날 보류, KID-371).
+   * 넓히지는 못한다 — 계약이 요청 창 밖으로 나가는 값을 거절한다.
+   */
   finalize(
     chunks: OperationStagedChunk[],
     window: OperationWindow | null,
     context: OperationFinalizeContext,
-  ): Promise<{ result?: JsonObject }>;
+  ): Promise<{ result?: JsonObject; window?: OperationWindow }>;
   /**
    * 재시도가 남지 않은 최종 실패(finish failed 또는 임대 만료 판정)에서 같은 트랜잭션 안에 불린다(KID-358).
    * 원장에 "실패했다"를 적어야 하는 kind(AI 생성 기록)만 구현한다. 취소에서는 부르지 않는다.

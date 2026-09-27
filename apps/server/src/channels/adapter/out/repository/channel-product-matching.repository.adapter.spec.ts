@@ -163,9 +163,8 @@ function withPublishedInventory(prisma: unknown) {
       findFirst: vi.fn().mockResolvedValue({ id: 'inventory-run' }),
       findMany: vi.fn().mockResolvedValue([]),
     };
-    store.productRegistrationExecution ??= {
-      findMany: vi.fn().mockResolvedValue([]),
-    };
+    // 살아 있는 구성 전환(등록 실행, KID-364)은 실행 계약의 읽기 함수가 raw SQL 로 읽는다 — 이 단위 스펙에는 없다.
+    store.$queryRaw ??= vi.fn().mockResolvedValue([]);
     return store;
   };
   const wrapped = wrap(client);

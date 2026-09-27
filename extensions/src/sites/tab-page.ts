@@ -11,8 +11,10 @@ export interface TabPage {
   /**
    * 주소를 옮기고 다 그려질 때까지(또는 막힘 주소가 될 때까지) 기다린다. 마지막 주소를 돌려준다. `continueOnTimeout`이면
    * 시간이 다 돼도 실패하지 않고 그때 주소를 돌려준다(끝없이 불러오는 화면도 이미 그린 것을 읽는 사이트). 탭이 닫히면 늘 실패.
+   * `bootstrapFile`(확장 파일)이 있으면 그 파일을 새 문서 스크립트로 먼저 등록하고 옮긴다 — 페이지 번들보다 먼저 돌아야 하는
+   * 보완(Wing formV2 런타임 호환, KID-256). 정적 document_start content script도 번들과 경합할 수 있어 디버거로 건다.
    */
-  navigate(url: string, options: { timeoutMs: number; stopAt?: (url: string) => boolean; continueOnTimeout?: boolean }): Promise<string>;
+  navigate(url: string, options: { timeoutMs: number; stopAt?: (url: string) => boolean; continueOnTimeout?: boolean; bootstrapFile?: string }): Promise<string>;
   /**
    * 탭 주소가 `blocked`(검증 화면)인 동안 2초마다 본다 — 운영자가 열려 있는 탭에서 검증을 통과하길 기다린다. 벗어나면
    * true, 10분이 지나면 false. 기다리는 동안 3분마다 `onRemind`(임대 연장·progress). 탭이 닫히면 실패.
@@ -36,6 +38,12 @@ export interface TabPage {
   listen(listener: (message: Record<string, unknown>) => void): () => void;
   /** 이 사이트가 연 탭이면 닫는다(운영자 탭은 닫지 않는다). */
   close(): Promise<void>;
+  /**
+   * 닫지 않고 운영자에게 넘긴다(KID-256 — 몰 쓰기가 채운 등록 폼은 성공해도 사람이 본다). 수집 탭에서 빼고 가드 짝에 알려
+   * 진짜 알림 창으로 돌린다. `keep`과 달리 남긴 탭으로 적지 않는다 — 같은 몰에 이어 채운 다음 폼이 이 탭을 닫지 않게. 이 뒤의
+   * `close()`는 아무것도 하지 않는다.
+   */
+  leave(): Promise<void>;
 }
 
 /** content script 답의 공통 모양. 시간 초과·받는 쪽 없음은 `{ ok: false, error }`로 온다. */
@@ -233,7 +241,61 @@ export interface TabPageChrome {
       addListener(listener: (message: unknown, sender: { tab?: { id?: number } }) => void): void;
       removeListener(listener: (message: unknown, sender: { tab?: { id?: number } }) => void): void;
     };
+    /** 확장 파일 주소(새 문서 스크립트로 등록할 파일을 읽는다). */
+    getURL?(path: string): string;
   };
+  /** 문서가 뜨기 전 스크립트·실제 입력(KID-256). 없는 환경이면 그 기능만 실패한다. */
+  debugger?: {
+    attach(target: { tabId: number }, version: string): Promise<void>;
+    sendCommand(target: { tabId: number }, method: string, params?: Record<string, unknown>): Promise<unknown>;
+    detach(target: { tabId: number }): Promise<void>;
+  };
+}
+
+/** 실제 입력 부탁(쓰기 탭의 처리기 → 런타임). 편집 명령이어야 반응하는 칸(Wing 카테고리 검색)에 쓴다. */
+export const TRUSTED_INPUT_ACTION = 'kiditem.write.insertText';
+
+/**
+ * 쓰기 탭 처리기의 실제 입력 부탁에 답한다(KID-256 — 옛 Wing `inputWingCategorySearch`). 이 런타임이 쥔 탭(`isRunTab`)에서 온
+ * 짧은 한 줄 글자만 디버거 `Input.insertText`로 그 탭에 넣는다 — 다른 탭·운영자 탭·줄바꿈이 든 글자는 거절한다. 입구가 한 번 건다.
+ */
+export function installTrustedInputAnswer(
+  chromeApi: Pick<TabPageChrome, 'debugger'> & { runtime: { onMessage: { addListener(listener: (message: unknown, sender: { tab?: { id?: number } }, sendResponse: (answer: unknown) => void) => unknown): void } } },
+  tabs: Pick<TabPages, 'isRunTab'>,
+): void {
+  chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || typeof message !== 'object' || (message as { action?: unknown }).action !== TRUSTED_INPUT_ACTION) return undefined;
+    const value = (message as { value?: unknown }).value;
+    const tabId = sender.tab?.id;
+    if (typeof tabId !== 'number' || !tabs.isRunTab(tabId)) {
+      sendResponse({ ok: false, error: '이 확장이 쓰는 탭이 아닙니다.' });
+      return undefined;
+    }
+    if (typeof value !== 'string' || value.length === 0 || value.length > 100 || /[\r\n\0]/.test(value)) {
+      sendResponse({ ok: false, error: '넣을 글자가 올바르지 않습니다.' });
+      return undefined;
+    }
+    const api = chromeApi.debugger;
+    if (!api) {
+      sendResponse({ ok: false, error: '실제 입력을 쓸 수 없는 환경입니다.' });
+      return undefined;
+    }
+    const target = { tabId };
+    void (async () => {
+      let attached = false;
+      try {
+        await api.attach(target, '1.3');
+        attached = true;
+        await api.sendCommand(target, 'Input.insertText', { text: value });
+        sendResponse({ ok: true });
+      } catch (error) {
+        sendResponse({ ok: false, error: (error as Error)?.message ?? String(error) });
+      } finally {
+        if (attached) await api.detach(target).catch(() => undefined);
+      }
+    })();
+    return true;
+  });
 }
 
 export interface TabPageDeps {
@@ -287,15 +349,40 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         clearTimeout(timer);
       }
     }
+    /** 확장 파일을 새 문서 스크립트로 등록하고 디버거로 옮긴다(등록은 이 탭에만, 옮긴 뒤 디버거를 뗀다). */
+    async function navigateWithBootstrap(url: string, file: string): Promise<void> {
+      const api = deps.chrome.debugger;
+      const getURL = deps.chrome.runtime.getURL;
+      if (!api || !getURL) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지를 준비할 수 없는 환경입니다.', { url });
+      const response = await deps.fetch(getURL(file));
+      if (!response.ok) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지 준비 파일을 읽지 못했습니다.', { url, file });
+      const source = await response.text();
+      const target = { tabId };
+      let attached = false;
+      try {
+        await api.attach(target, '1.3');
+        attached = true;
+        await api.sendCommand(target, 'Page.enable');
+        const script = await api.sendCommand(target, 'Page.addScriptToEvaluateOnNewDocument', { source }) as { identifier?: unknown } | undefined;
+        if (typeof script?.identifier !== 'string') throw new Error('새 문서 스크립트를 등록하지 못했습니다.');
+        const navigation = await api.sendCommand(target, 'Page.navigate', { url }) as { errorText?: string } | undefined;
+        if (navigation?.errorText) throw new Error(navigation.errorText);
+      } catch (error) {
+        throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지가 뜨기 전에 준비하지 못했습니다.', { url, reason: (error as Error)?.message ?? String(error) });
+      } finally {
+        if (attached) await api.detach(target).catch(() => undefined);
+      }
+    }
     return {
       tabId,
-      async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+      async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false, bootstrapFile }) {
         // 옮기기 전 문서의 주소. Chrome은 새 주소를 커밋할 때까지 pendingUrl에 두고 url은 옛 문서다 — 옛 로그인 문서에서
         // stopAt이 먼저 맞으면 새 화면이 뜨기 전에 옛 문서에 채우게 된다(리뷰 2 MUST 1).
         const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
         // 이 런타임이 연 탭을 옮기면 다시 수집 탭이다(운영자 조치 뒤 이어 읽기) — 새 문서의 가드 짝이 묻는다.
         if (owned && !closed) runTabs.add(tabId);
-        await deps.chrome.tabs.update(tabId, { url });
+        if (bootstrapFile) await navigateWithBootstrap(url, bootstrapFile);
+        else await deps.chrome.tabs.update(tabId, { url });
         const deadline = deps.now() + timeoutMs;
         let last = url;
         // 주소를 바꾼 직후에는 옛 문서의 'complete'가 남아 있을 수 있어 한 번 쉬고 본다.
@@ -388,6 +475,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         closed = true;
         runTabs.delete(tabId);
         await deps.chrome.tabs.remove(tabId).catch(() => undefined);
+      },
+      async leave() {
+        closed = true;
+        await handToOperator(tabId);
       },
     };
   }

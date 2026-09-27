@@ -1,3 +1,4 @@
+import { seedRegistrationOperation } from './registration-operation-seeds';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
@@ -112,6 +113,19 @@ describe('registration target repository (PostgreSQL)', () => {
       salesProductId: productId,
       channelAccountId: accountId,
     })).resolves.toBe(replacementTargetId);
+  });
+
+  it('resolves a target on a mall account the mall account screen configured, and refuses a paused one (KID-330, KID-364 D1)', async () => {
+    const { productId } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const onch = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'onch', name: '온채널', externalAccountId: `onch-${randomUUID()}`, status: 'configured',
+    } });
+    await expect(repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: onch.id })).resolves.toEqual(expect.any(String));
+    const paused = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'kidkids', name: '멈춘 몰', externalAccountId: `kk-${randomUUID()}`, status: 'paused',
+    } });
+    await expect(repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: paused.id }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
   it('serializes concurrent resolves so one product-account pair creates one default target', async () => {
@@ -280,22 +294,11 @@ describe('registration target repository (PostgreSQL)', () => {
       selectedOptions: [selected(options[0]!.id)],
     }));
     const frozenPayload = { salePrice: 3_000, optionCode: options[0]!.optionCode };
-    const executionId = randomUUID();
-    await prisma.productRegistrationExecution.create({
-      data: {
-        id: executionId,
-        organizationId: TEST_ORGANIZATION_ID,
-        registrationTargetId: targetId,
-        channelAccountId: accountId,
-        executionKind: 'create',
-        idempotencyKey: `target-test-${executionId}`,
-        requestHash: 'request-hash',
-        submissionPayloadJson: frozenPayload,
-        submissionPayloadHash: 'payload-hash',
-        status: 'succeeded',
-        providerOutcome: 'succeeded',
-      },
+    const { id: executionId } = await seedRegistrationOperation(prisma, {
+      executionKind: 'register', registrationTargetId: targetId, channelAccountId: accountId,
+      payload: { snapshot: frozenPayload, form: null }, status: 'succeeded',
     });
+    const before = await prisma.operation.findUniqueOrThrow({ where: { id: executionId }, select: { plan: true, status: true } });
 
     const update = updateInput({
       expectedVersion: 1,
@@ -311,14 +314,10 @@ describe('registration target repository (PostgreSQL)', () => {
     await expect(repository.update(TEST_ORGANIZATION_ID, targetId, update))
       .rejects.toMatchObject({ code: 'CHANNELS_REGISTRATION_TARGET_STALE', kind: 'conflict' });
 
-    await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
+    await expect(prisma.operation.findUniqueOrThrow({
       where: { id: executionId },
-      select: { submissionPayloadJson: true, submissionPayloadHash: true, status: true },
-    })).resolves.toEqual({
-      submissionPayloadJson: frozenPayload,
-      submissionPayloadHash: 'payload-hash',
-      status: 'succeeded',
-    });
+      select: { plan: true, status: true },
+    })).resolves.toEqual(before);
   });
 
   it('fences organizations and prevents new retired-option selections while retaining existing ones', async () => {

@@ -267,6 +267,27 @@
       "text": "수집 결과가 올바르지 않아 저장하지 않았습니다. 다시 수집해 주세요.",
       "retryable": false
     },
+    "REGISTRATION_FILL_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "몰 상품등록 폼을 채우지 못했습니다. 열린 탭에서 확인해 주세요.",
+      "retryable": false
+    },
+    "REGISTRATION_ACCOUNT_MISMATCH": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "몰에 로그인된 판매자 계정이 등록할 계정과 다릅니다. 열린 탭의 계정을 확인해 주세요.",
+      "retryable": false
+    },
+    "MALL_WRITE_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "몰에 판매 상태를 보내지 못했습니다. 몰 화면에서 확인해 주세요.",
+      "retryable": false
+    },
     "EXTENSION_UNKNOWN_FAILURE": {
       "owner": "extension",
       "kind": "internal",
@@ -413,6 +434,13 @@
       "httpStatus": 409,
       "text": "등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
       "retryable": true
+    },
+    "CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "운영자가 몰에서 등록되지 않았다고 확인했습니다.",
+      "retryable": false
     },
     "CHANNELS_EXECUTION_NOT_FOUND": {
       "owner": "channels",
@@ -960,6 +988,20 @@
       "text": "윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.",
       "retryable": false
     },
+    "ADVERTISING_IDENTITY_MISMATCH": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_AD_REPORT_DAY_NOT_READY": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "어제 광고비가 아직 집계되지 않았습니다. 잠시 뒤 다시 수집해 주세요.",
+      "retryable": true
+    },
     "ANALYTICS_QUERY_FAILED": {
       "owner": "analytics",
       "kind": "internal",
@@ -991,6 +1033,7 @@
   });
 
   var EXTENSION_CODE_ALIASES = deepFreeze({
+    "ADVERTISER_IDENTITY_MISMATCH": "ADVERTISING_IDENTITY_MISMATCH",
     "auth_required": "AUTH_REQUIRED",
     "insufficient_role": "FORBIDDEN",
     "no_organization_context": "NO_ORGANIZATION_CONTEXT",

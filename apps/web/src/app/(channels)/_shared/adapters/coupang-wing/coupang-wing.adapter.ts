@@ -1,24 +1,17 @@
 import { salesProductApi } from '@/lib/sales-product-api';
 import { formatNumber } from '@/lib/utils';
 import { renderRegistrationDetailImage } from '../../../../(product-pipeline)/product-pipeline/collected-products/lib/detail-page-image-api';
-import {
-  listPriceProblem,
-  mallFormExecutionOptions,
-  publishItemSalesProductId,
-} from '../../mall-publish-adapter';
+import { listPriceProblem, publishItemSalesProductId } from '../../mall-publish-adapter';
 import type {
   MallConfirmationSpec,
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallPublishItem,
-  MallSendChannelAccount,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../../mall-publish-adapter';
 import { getWingCategoryDefinition, WING_CATEGORY_DEFINITIONS } from './wing-category-presets';
 import { translateWingError } from './wing-error-message';
-import { sendWingForm, WingFormNotReachedError, wingFormOutcome } from './wing-form';
 import {
   defaultWingMallValues,
   resolveWingCategoryDefault,
@@ -26,20 +19,20 @@ import {
   validateWingMallValues,
   validateWingProduct,
   WING_DISPLAY_NAME_MAX,
-  wingProductForExecution,
   wingTargetInput,
 } from './wing-product';
 import { WING_PRODUCT_DRAFT_DEFAULTS } from './wing-registration-excel';
 
 /**
- * 쿠팡 WING 어댑터(KID-321). 쿠팡도 몰 하나다 — 등록은 다른 폼 몰과 같은 등록 대상 실행(준비 → 시작 → 이
- * 어댑터의 `send` → 결과)을 지나고, 여기에는 WING 만의 사실만 있다:
+ * 쿠팡 WING 어댑터(KID-321). 쿠팡도 몰 하나다 — 등록은 다른 폼 몰과 같은 등록 실행(`channels.registration`)이고,
+ * 이 어댑터는 폼 지시(WingProduct 필드를 최상위에 둔 평평한 모양)만 만든다. 여기에는 WING 만의 사실만 있다:
  *
- *  - 몰에 닿는 방식은 레지스트리 `delivery: form` — 확장이 WING formV2 를 채운다. [상품등록]은 실행 컨텍스트가
- *    있을 때만 누른다(`mallFormExecutionOptions`, KID-322). 실행 없이 부르면 폼만 채운다.
+ *  - 몰에 닿는 방식은 레지스트리 `delivery: form` — 확장 몰 쓰기 모듈이 WING formV2 를 채운다. [상품등록]은 확장의
+ *    관문 한 곳이 정한다(ADR-0019). 판매자 ID 대조는 서버 plan의 `expectedProviderAccountId` 한 규칙이다.
  *  - WING 값(카테고리 · 노출상품명 · 등록상품명 · 구매옵션 · 재고)은 확인 창에서 받고 등록 대상의 쿠팡 값으로
- *    저장한다. 준비 때 서버 쿠팡 어댑터가 그 값과 셀피아 매칭 · 업체상품코드를 `adapterPayload` 에 얼린다.
- *  - 상세설명은 실행이 얼린 상세 revision 을 서버가 780px 긴 이미지 한 장으로 렌더한 것이다.
+ *    저장한다. 서버 plan(쿠팡 채널 어댑터)이 그 값과 셀피아 매칭 · 업체상품코드 · 대표이미지를 폼 위에 얼리고, 이미
+ *    같은 상품이 있는 계정이면 시작을 거절한다.
+ *  - 상세설명은 등록 대상이 고른 상세 revision 을 서버가 780px 긴 이미지 한 장으로 렌더한 것이다.
  *  - 완료 안내에서 본 등록상품ID와 WING 판매자 ID가 확인 증거다. 맞는지는 서버가 판정한다.
  *
  * 일괄등록 엑셀은 이 어댑터의 파일 경로(`wing-excel-export.ts`)다 — 등록 실행을 열지 않는다.
@@ -112,7 +105,7 @@ const CONFIRMATION_FIELDS: readonly MallFieldSpec[] = [
   { key: 'stock', label: '재고수량', origin: 'override', control: 'text', defaultValue: '999', required: true },
 ];
 
-const DETAIL_PAGE_REQUIRED = '상세페이지가 없습니다. 저장한 상세페이지가 있는 상품만 쿠팡 WING 에 올립니다.';
+const DETAIL_PAGE_REQUIRED = '저장한 상세페이지가 있는 상품만 쿠팡 WING 에 올립니다.';
 
 function evidenceNotes(evidence: Awaited<ReturnType<typeof resolveWingCategoryDefault>>['evidence']): string[] {
   if (!evidence) return [];
@@ -143,74 +136,22 @@ const confirmation: MallConfirmationSpec = {
   validate: validateWingMallValues,
 };
 
-/** 계정 행의 WING 판매자 ID. 옛 행은 외부 계정 ID 로 대신한다(서버 쿠팡 어댑터와 같은 규칙). */
-function accountVendorId(account: MallSendChannelAccount | undefined): string | null {
-  return account?.vendorId?.trim() || account?.externalAccountId?.trim() || null;
-}
-
-function notSubmitted(error: string): MallSendOutcome {
-  return { ok: false, confirmed: false, submitted: false, manualSteps: [], warnings: [], error };
-}
-
-function existingListing(item: MallPublishItem): { externalListingId: string } | null {
-  const existing = item.targetExecution?.snapshot.adapterPayload.existingChannelListing;
-  if (!existing || typeof existing !== 'object') return null;
-  const externalListingId = (existing as Record<string, unknown>).externalListingId;
-  return typeof externalListingId === 'string' && externalListingId.trim() ? { externalListingId } : null;
-}
-
-async function send({ items, values, channelAccount }: MallSendInput): Promise<MallSendOutcome> {
-  const [item] = items;
-  if (!item) return notSubmitted('보낼 상품이 없습니다.');
-  const execution = item.targetExecution;
-
-  // 이 계정에 같은 상품이 이미 있으면 몰 폼을 열지 않는다 — 한 번 더 올리면 중복 리스팅이다. 보낸 것이 없으니
-  // `not_submitted` 이고, 그 상품으로 확인하려면 확인 창에서 그 id 와 판매자 ID 를 넣는다(증거 없는 확인은 없다, ADR-0014).
-  const existing = existingListing(item);
-  if (existing) {
-    return notSubmitted(
-      `이 계정에 같은 상품이 이미 있습니다(몰 상품 id ${existing.externalListingId}) — 확인 창에서 그 id로 확인하세요`,
-    );
+/** 판매상품 + 확인 창 값 → WING 폼 지시. 상세는 등록 대상이 고른 revision을 서버가 한 장으로 렌더한 것. */
+async function buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
+  const salesProduct = await salesProductApi.get(publishItemSalesProductId(item));
+  const wing = salesProductToWingProduct(salesProduct, values);
+  const problems = validateWingProduct(wing);
+  if (problems.length > 0) throw new Error(problems.join(' '));
+  const rendered = await renderRegistrationDetailImage({
+    salesProductId: salesProduct.id,
+    detailPageRevisionId: item.detailPageRevisionId ?? null,
+  });
+  if (rendered.status !== 'ready') {
+    const reason = rendered.status === 'missing' ? rendered.message : '상세페이지 이미지 생성이 끝나지 않았습니다.';
+    throw new Error(`${reason} ${DETAIL_PAGE_REQUIRED}`);
   }
-
-  let product;
-  try {
-    const salesProduct = execution ? execution.snapshot.product : await salesProductApi.get(publishItemSalesProductId(item));
-    const wing = execution
-      ? wingProductForExecution(execution.snapshot, values)
-      : salesProductToWingProduct(salesProduct, values);
-    const problems = validateWingProduct(wing);
-    if (problems.length > 0) return notSubmitted(problems.join(' '));
-    const rendered = await renderRegistrationDetailImage({
-      salesProductId: salesProduct.id,
-      detailPageRevisionId: execution?.snapshot.detailPage?.revisionId ?? null,
-    });
-    if (rendered.status !== 'ready') {
-      const reason = rendered.status === 'missing' ? rendered.message : '상세페이지 이미지 생성이 끝나지 않았습니다.';
-      return notSubmitted(`${reason} 저장한 상세페이지가 있는 상품만 쿠팡 WING 에 올립니다.`);
-    }
-    product = { ...wing, detailImageUrls: [rendered.imageUrl] };
-  } catch (error) {
-    return notSubmitted(error instanceof Error ? error.message : String(error));
-  }
-
-  const expectedVendorId = execution ? execution.expectedProviderAccountId?.trim() || null : accountVendorId(channelAccount);
-  if (!expectedVendorId) {
-    return notSubmitted('쿠팡 계정에 WING 판매자 ID(vendorId)가 없습니다. 쇼핑몰 계정 설정에서 먼저 넣으세요.');
-  }
-
-  const options = mallFormExecutionOptions(item);
-  try {
-    const response = await sendWingForm({ product, expectedVendorId, ...options });
-    return wingFormOutcome(response, options.submit);
-  } catch (error) {
-    // 확장에 닿지도 못했으면 올라간 것이 없다. 닿은 뒤 통신이 끊기면 제출 여부를 모른다 — 던져서 실행이
-    // `uncertain` 으로 남게 한다.
-    if (error instanceof WingFormNotReachedError || !options.submit) {
-      return notSubmitted(error instanceof Error ? error.message : String(error));
-    }
-    throw error;
-  }
+  // 평평한 모양(리더 결정): 서버 freezeForm이 categoryCell·variants를 최상위에서 읽고 얼린 WING 값을 덮는다.
+  return { ...wing, detailImageUrls: [rendered.imageUrl] };
 }
 
 export const coupangWingAdapter: MallPublishAdapter = {
@@ -221,7 +162,7 @@ export const coupangWingAdapter: MallPublishAdapter = {
   acceptsSalesProducts: true,
   supportsOptions: false,
   batchSize: 1,
-  // 등록 실행 안에서는 확장이 [상품등록]까지 누른다. 실행 밖에서는 폼만 채운다.
+  // 등록 실행의 `submit`이면 확장 관문이 [상품등록]까지 누를 수 있다(WING spec만 제출이 검증돼 있다).
   requiresOperatorSubmit: false,
   fields: FIELDS,
   confirmation,
@@ -265,18 +206,11 @@ export const coupangWingAdapter: MallPublishAdapter = {
   },
 
   validate(item, values): string[] {
-    const execution = item.targetExecution;
-    if (!execution) {
-      return [
-        ...(item.name.trim() ? [] : ['상품명이 비어 있습니다.']),
-        ...[listPriceProblem(item.salePrice)].filter((problem): problem is string => Boolean(problem)),
-      ];
-    }
     return [
-      ...(execution.snapshot.detailPage ? [] : [DETAIL_PAGE_REQUIRED]),
-      ...validateWingProduct(wingProductForExecution(execution.snapshot, values)),
+      ...(item.name.trim() ? [] : ['상품명이 비어 있습니다.']),
+      ...[listPriceProblem(item.salePrice)].filter((problem): problem is string => Boolean(problem)),
     ];
   },
 
-  send,
+  buildForm,
 };

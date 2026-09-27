@@ -37,19 +37,9 @@ function specKeys(relativePath) {
 }
 
 /**
- * 확장 스펙의 키는 채널 키다(KID-250).
- *
- * 예전에는 확장만 제 철자(`gsshop` · `artgonggu` · `alwayz` …)를 쓰고 웹이 번역표를 들고
- * 있었다. 표를 빠뜨린 몰은 자동 로그인이 조용히 아무것도 하지 않았다 — 실패도 아니고
- * 성공도 아닌, 사람이 알아채기 가장 어려운 고장이다.
+ * 확장 스펙의 키는 채널 키다(KID-250). 몰 쓰기 모듈(등록 폼·판매 상태)의 몰 키는 런타임 스펙
+ * `extensions/src/entry/mall-site-capabilities.spec.ts`가 본다(KID-256 — 옛 `mall-form-register.js`는 지웠다).
  */
-test('⭐ 상품등록 폼 스펙 키가 모두 채널 키다', () => {
-  const registry = loadRegistry();
-  for (const key of specKeys('background/orders/mall-form-register.js')) {
-    assert.ok(registry.findChannel(key), `unknown channel key in mall-form-register SPECS: ${key}`);
-  }
-});
-
 test('⭐ 몰 세션 스펙 키가 모두 채널 키다', () => {
   const registry = loadRegistry();
   for (const key of specKeys('background/orders/mall-session.js')) {
@@ -69,15 +59,4 @@ test('레지스트리는 전역 하나만 만들고 얼려 둔다', () => {
   assert.equal(Object.isFrozen(registry.CHANNEL_REGISTRY), true);
   assert.equal(registry.channelFormSpec('auction'), 'gmarket');
   assert.equal(registry.channelOutcomeKey('coupang-direct'), 'rocket');
-});
-
-/**
- * 확장이 "어느 몰 폼을 채울 수 있다" 고 광고하는 목록은 스펙에서 나온다(KID-250).
- * 손으로 적어 두면 몰을 붙인 날 이 줄만 옛말이 되고, 웹은 그 몰을 모른다고 읽는다.
- */
-test('⭐ 폼 자동채움 능력 목록은 스펙 키에서 파생한다', () => {
-  const worker = readFileSync(path.join(EXTENSION, 'background/orders/worker.js'), 'utf8');
-  const line = worker.match(/mallFormRegisterMalls: [^\n]*(\n[^\n]*){0,3}/)?.[0] ?? '';
-  assert.match(line, /Object\.keys\(/, 'the advertised list must be derived, not hand-written');
-  assert.doesNotMatch(line, /"(domeggook|onch|artgonggu|alwayz|teacherville)"/);
 });

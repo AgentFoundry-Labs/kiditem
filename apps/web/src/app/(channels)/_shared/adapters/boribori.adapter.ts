@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   BORIBORI_DEFAULT_CATEGORY,
   BORIBORI_DEFAULT_CATEGORY_LABEL,
@@ -10,13 +10,13 @@ import {
   boriboriListPrice,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/boribori-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -173,11 +173,7 @@ export const boriboriAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, 'boribori');
     const category = parseCategory(values.categoryCodes);
     const form = boriboriFormFromDraft(draft, {
@@ -186,7 +182,6 @@ export const boriboriAdapter: MallPublishAdapter = {
       ...(values.decoWord?.trim() ? { decoWord: values.decoWord.trim() } : {}),
       ...(values.sellerCode?.trim() ? { sellerCode: values.sellerCode.trim() } : {}),
     });
-    const result = await fillMallRegistrationForm('boribori', draft, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(draft, form);
   },
 };

@@ -69,6 +69,8 @@ describe('error registry (ADR-0023)', () => {
       expect(ERROR_DEFINITIONS[code].httpStatus, code).toBe(409);
     }
     expect(ERROR_DEFINITIONS.REGISTRATION_ALREADY_REGISTERED.owner).toBe('channels');
+    // KID-364: 운영자가 몰에 없다고 닫은 등록 실행의 errorCode — 던지지 않지만 알림(정책 B)이 이 문장을 라벨로 쓴다.
+    expect(ERROR_DEFINITIONS.CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL).toMatchObject({ owner: 'channels', text: '운영자가 몰에서 등록되지 않았다고 확인했습니다.' });
     expect(ERROR_DEFINITIONS.CHANNELS_EXECUTION_NOT_FOUND.httpStatus).toBe(404);
     expect(ERROR_DEFINITIONS.CHANNELS_REGISTRATION_TARGET_NOT_FOUND.httpStatus).toBe(404);
     expect(ERROR_DEFINITIONS.CHANNELS_ACCOUNT_INACTIVE.httpStatus).toBe(422);

@@ -1,5 +1,4 @@
 import type { MallProductDraft } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
-import type { TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
 import type { ChannelDelivery } from '@kiditem/shared/channel-registry';
 
 /**
@@ -95,18 +94,12 @@ export interface MallPublishItem {
   /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
   optionCount?: number;
   /**
-   * Target execution context attached after the server has frozen the payload and
-   * granted the provider-I/O lease. Adapters must use this snapshot instead of
-   * re-reading the mutable sales product.
+   * 등록 대상의 몰 문서(`registrationInput`: 몰 카테고리 · 몰 전용 칸 · 어댑터 namespace, ADR-0020). 등록 대상에서
+   * 시작하는 실행만 싣는다 — 빠른 등록(대상 없음)은 비어 있다. 폼 빌더는 홍보문 같은 몰 전용 값을 여기서 읽는다.
    */
-  targetExecution?: {
-    executionId: string;
-    payloadHash: string;
-    leaseToken: string;
-    snapshot: TargetExecutionSnapshot;
-    /** 준비가 얼린 몰 계정 식별자(쿠팡 vendorId 같은). 몰 화면이 같은 계정인지 확인하는 데 쓴다. */
-    expectedProviderAccountId?: string | null;
-  };
+  registrationInput?: Record<string, unknown>;
+  /** 등록 대상이 고른 상세 revision(없으면 작업공간의 현재 상세). 상세를 이미지로 렌더하는 몰(쿠팡 WING)이 쓴다. */
+  detailPageRevisionId?: string | null;
 }
 
 /** 폼만 채울 때(등록 실행 없이) 어댑터가 몰 계정을 알아야 하면 넘기는 계정 행. */
@@ -116,12 +109,18 @@ export interface MallSendChannelAccount {
   externalAccountId?: string | null;
 }
 
-export interface MallSendInput {
-  items: readonly MallPublishItem[];
+export interface MallFormInput {
+  item: MallPublishItem;
   values: Readonly<Record<string, string>>;
-  /** 확인 창에서 고른 계정. 등록 실행이 있으면 실행이 얼린 계정이 이긴다. */
+  /** 확인 창에서 고른 계정(쿠팡 WING 판매자 ID처럼 폼이 계정을 알아야 할 때). */
   channelAccount?: MallSendChannelAccount;
 }
+
+/**
+ * 몰별 폼 지시 — 등록 실행 시작 scope의 `form`(2026-09-27 리더 결정 A). 서버가 `plan.payload.form`으로 얼려
+ * `payloadHash`에 넣고, 확장 몰 쓰기 모듈이 그 몰 화면을 이 지시대로 채운다. 폼만 만든다 — 확장을 부르지 않는다.
+ */
+export type MallRegistrationForm = object;
 
 /**
  * 이 항목의 판매상품 초안 id. 수집상품 항목은 초안 id 를 `salesProductId` 에, 판매상품 항목은
@@ -134,30 +133,9 @@ export function publishItemSalesProductId(item: MallPublishItem): string {
   return salesProductId;
 }
 
-/**
- * 확장 폼 채우기의 제출 관문(KID-322). [등록] 은 등록 대상 실행이 살아 있을 때만 — `submit: true` 는
- * 실행 컨텍스트와 함께만 나간다. 실행이 없는 빠른 등록은 폼만 채운다(`submit: false`). 확장도 같은
- * 규칙으로 컨텍스트 없는 `submit` 을 무시한다.
- */
-export type MallFormExecutionOptions =
-  | { submit: false }
-  | { submit: true; executionContext: { executionId: string; payloadHash: string; leaseToken: string } };
-
-export function mallFormExecutionOptions(item: MallPublishItem): MallFormExecutionOptions {
-  if (!item.targetExecution) return { submit: false };
-  return {
-    submit: true,
-    executionContext: {
-      executionId: item.targetExecution.executionId,
-      payloadHash: item.targetExecution.payloadHash,
-      leaseToken: item.targetExecution.leaseToken,
-    },
-  };
-}
-
 export interface MallSendOutcome {
   ok: boolean;
-  /** 확장이 몰 [등록]을 눌렀는가(ADR-0015). 누른 것도 `confirmed` 는 아니다. */
+  /** 확장이 몰 [등록]을 눌렀는가(ADR-0019). 누른 것만으로는 `confirmed` 가 아니다. */
   submitted?: boolean;
   /** 몰이 받았다고 답했나 · 거절했나 · 모르나. */
   accepted?: boolean | null;
@@ -175,15 +153,6 @@ export interface MallSendOutcome {
   manualSteps: string[];
   warnings: string[];
   error?: string;
-  /**
-   * 몰 화면이 보여 준 등록 증거(몰 계정 식별자 · 새 상품번호). 있으면 등록 실행이 `confirmed` 로 보고하고,
-   * 증거가 이 실행의 계정 · 형식에 맞는지는 서버의 채널 어댑터가 판정한다. 웹은 판정하지 않는다.
-   */
-  providerEvidence?: {
-    providerAccountId: string;
-    externalListingId: string;
-    observedUrl?: string;
-  };
 }
 
 /**
@@ -207,13 +176,9 @@ export interface MallConfirmationSpec {
 
 export interface MallPublishAdapter {
   /**
-   * 몰 키. **서버 매니페스트·채널 계정과 같은 값이어야 한다**(`art09`,
-   * `always`, `teacher-mall` …).
-   *
-   * 화면은 이 키로 계정을 찾아 불을 켜고 로고를 고른다. 확장에 넘기는 키
-   * (`fillMallRegistrationForm('art09', …)`)와는 다른 이름일 수 있다 —
-   * 그건 확장 안의 폼 스펙 이름이다. 둘을 섞으면 계정이 있는데도 카드가
-   * 빨강으로 남고, 등록현황 표에서 그 몰의 열이 통째로 비어 보인다.
+   * 몰 키. **서버 매니페스트·채널 계정·확장 몰 쓰기 사이트(`mallWriteSite.<key>`)와 같은 값이어야 한다**
+   * (`art09`, `always`, `teacher-mall` …). 화면은 이 키로 계정을 찾아 불을 켜고 로고를 고르고, 등록 실행은 이 키로
+   * 그 몰의 쓰기 사이트와 저장 자격을 고른다.
    */
   mallKey: string;
   mallName: string;
@@ -245,7 +210,11 @@ export interface MallPublishAdapter {
   preview(item: MallPublishItem, values: Readonly<Record<string, string>>): MallPreviewRow[];
   /** 몰 기준으로 이 상품이 부족한 지점. 비어 있어야 보낼 수 있다. */
   validate(item: MallPublishItem, values: Readonly<Record<string, string>>): string[];
-  send(input: MallSendInput): Promise<MallSendOutcome>;
+  /**
+   * 이 몰의 폼 지시를 만든다(등록 실행 scope의 `form`). 보낼 수 없으면 사람이 읽는 문장으로 던진다 — 반쯤 빈 폼이
+   * 열리면 사람이 그대로 제출할 수 있고, 그건 우리가 만든 사고다.
+   */
+  buildForm(input: MallFormInput): Promise<MallRegistrationForm>;
   /** 이 몰에 확인 창이 필요한가. 없으면 버튼이 바로 보낸다. */
   confirmation?: MallConfirmationSpec;
   /**
@@ -305,41 +274,3 @@ export function missingRequiredFields(
 }
 
 export type { MallProductDraft };
-
-/** 폼 채움 · [등록] 누르기 결과 → 송신 결과. 결과는 화면 작업 목록에만 남긴다. */
-export function registrationOutcome(result: {
-  ok: boolean;
-  submitted: boolean;
-  accepted?: boolean | null;
-  productNo?: string | null;
-  mallMessage?: string | null;
-  submitSkipped?: string | null;
-  manualSteps: string[];
-  warnings: string[];
-  error?: string;
-}): MallSendOutcome {
-  if (result.submitted && result.accepted === false) {
-    return {
-      ok: false,
-      confirmed: false,
-      submitted: true,
-      accepted: false,
-      manualSteps: [],
-      warnings: result.warnings,
-      error: result.mallMessage
-        ? `몰이 등록을 받지 않았습니다: ${result.mallMessage}`
-        : '몰이 등록을 받지 않았습니다. 열어 둔 화면에서 까닭을 확인하세요.',
-    };
-  }
-  return {
-    ok: result.ok,
-    confirmed: false,
-    submitted: result.submitted,
-    ...(result.submitted ? { accepted: result.accepted ?? null, productNo: result.productNo ?? null } : {}),
-    manualSteps: result.submitted
-      ? []
-      : [...(result.submitSkipped ? [result.submitSkipped] : []), ...result.manualSteps],
-    warnings: result.warnings,
-    ...(result.error ? { error: result.error } : {}),
-  };
-}

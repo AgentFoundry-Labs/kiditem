@@ -1,489 +1,200 @@
-import { describe, expect, it, vi } from 'vitest';
-import { executeTargetRegistration, valuesForTargetExecution } from './target-registration-execution';
-import type { MallPublishAdapter } from './mall-publish-adapter';
-import { ApiError } from '@/lib/api-error';
-import type {
-  TargetExecutionResult,
-  TargetExecutionSnapshot,
-} from '@kiditem/shared/sales-product';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MallPublishAdapter, MallPublishItem } from './mall-publish-adapter';
 
-const TARGET_ID = '11111111-1111-4111-8111-111111111111';
-const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
-const EXECUTION_ID = '33333333-3333-4333-8333-333333333333';
-const OPTION_ID = '44444444-4444-4444-8444-444444444444';
-const LEASE = '55555555-5555-4555-8555-555555555555';
+// 등록 대상 실행 = `channels.registration` 실행 하나(KID-364). 가짜는 확장 메시지 · 서버 HTTP · 저장 자격 경계뿐이다 —
+// 시작 · 대기는 진짜로 돌아 확장에 보낸 scope가 계약 스키마를 통과하는지 본다.
+vi.mock('@/lib/extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn().mockResolvedValue({ loginId: null, password: null }) } }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
+vi.mock('@/lib/sales-product-api', () => ({ salesProductApi: { get: vi.fn() } }));
 
-function snapshot(): TargetExecutionSnapshot {
+const { apiClient } = await import('@/lib/api-client');
+const { executeTargetRegistration, valuesForTarget } = await import('./target-registration-execution');
+const { salesProductApi } = await import('@/lib/sales-product-api');
+const {
+  REGISTRATION_OPERATION_ID,
+  fakeRegistrationExtension,
+  parsedRegistrationScope,
+  registrationOperationResponse,
+} = await import('@/test/fixtures/registration-operation');
+
+const TARGET = '11111111-1111-4111-8111-111111111111';
+const PRODUCT = '22222222-2222-4222-8222-222222222222';
+const OPERATION = '33333333-3333-4333-8333-333333333333';
+
+const item: MallPublishItem = { candidateId: PRODUCT, name: '딸깍 키링', salePrice: 2200, thumbnailUrl: null, source: 'sales_product' };
+
+const target = {
+  id: TARGET,
+  version: 4,
+  selectedDetailPageRevisionId: '44444444-4444-4444-8444-444444444444',
+  registrationInput: {
+    mallCategory: { key: 'C-1', label: '완구' },
+    mallFields: { promoText: '특가' },
+    adapter: { art09: { supplyPrice: 1200 }, kakao: { other: 'x' } },
+    name: '대상 문서의 다른 칸은 값이 아니다',
+  },
+};
+
+function adapter(patch: Partial<MallPublishAdapter> = {}): MallPublishAdapter {
   return {
-    targetId: TARGET_ID,
-    targetVersion: 4,
-    channelAccountId: ACCOUNT_ID,
-    kind: 'register',
-    channelListingId: null,
-    applyCompositionTemplate: false,
-    adapterDefaults: { quantity: '1' },
-    product: {
-      id: '66666666-6666-4666-8666-666666666666',
-      name: '동결된 상품명',
-      imageUrls: ['https://cdn.example.test/product.png'],
-      options: [{ id: OPTION_ID, salePrice: 9900 }],
-      channelOverrides: [{ mallKey: 'smartstore', adapterValues: { quantity: '2' } }],
-    } as unknown as TargetExecutionSnapshot['product'],
-    detailPage: null,
-    registrationInput: { mallCategory: null, mallFields: { smartstoreCategory: '50004643:기타감각발달완구' }, adapter: {} },
-    adapterPayload: {},
-  };
-}
-
-function execution(overrides: Partial<TargetExecutionResult> = {}): TargetExecutionResult {
-  return {
-    executionId: EXECUTION_ID,
-    targetId: TARGET_ID,
-    channelAccountId: ACCOUNT_ID,
-    status: 'prepared',
-    providerOutcome: 'not_attempted',
-    payloadHash: 'hash-1',
-    payload: snapshot(),
-    leaseToken: null,
-    maySubmit: false,
-    externalListingId: null,
-    result: null,
-    ...overrides,
-  };
-}
-
-function adapter(
-  send: MallPublishAdapter['send'],
-  fields: MallPublishAdapter['fields'] = [{
-    key: 'quantity', label: '수량', origin: 'override', control: 'text', defaultValue: '1', required: true,
-  }],
-): MallPublishAdapter {
-  return {
-    mallKey: 'smartstore',
-    mallName: '스마트스토어',
+    mallKey: 'art09',
+    mallName: '아트공구',
     mode: 'form',
     batchSize: 1,
     requiresOperatorSubmit: true,
-    fields,
+    fields: [{ key: 'quantity', label: '수량', origin: 'override', control: 'text', defaultValue: '1', required: true }],
     preview: () => [],
     validate: () => [],
-    send,
+    buildForm: vi.fn(async ({ values }) => ({ url: 'https://art09.example/new', manualSteps: [], quantity: values.quantity })),
+    ...patch,
   };
 }
 
+const fill = { steps: ['상품명'], warnings: [], manualSteps: [], dialogs: [] };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(salesProductApi.get).mockResolvedValue({
+    id: PRODUCT, channelOverrides: [{ mallKey: 'art09', adapterValues: { namePrefix: '[키드]' } }],
+  } as never);
+  window.localStorage.clear();
+});
+
+function serveOperation(patch: Parameters<typeof registrationOperationResponse>[0]) {
+  vi.mocked(apiClient.get).mockResolvedValue(registrationOperationResponse(patch));
+}
+
 describe('executeTargetRegistration', () => {
-  it('resumes a fresh prepared history row without creating a second intent', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true,
-      submitted: true,
-      accepted: true,
-      productNo: 'provider-prepared',
-      confirmed: false,
-      manualSteps: [],
-      warnings: [],
+  it('⭐ 대상 값으로 폼을 만들고 register 실행 하나를 시작한다 — 제출 의도·버전·폼이 계약 scope로 실린다', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
+    const mall = adapter();
+    serveOperation({
+      status: 'succeeded',
+      result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, submitSkipped: null,
+        externalListingId: '9001', mallMessage: null, fill, evidence: null },
     });
-    const started = execution({
-      status: 'executing',
-      providerOutcome: 'uncertain',
-      leaseToken: LEASE,
-      maySubmit: true,
-    });
-    const client = {
-      prepare: vi.fn(),
-      start: vi.fn().mockResolvedValue(started),
-      report: vi.fn().mockResolvedValue(execution({ status: 'reconciling', providerOutcome: 'uncertain' })),
-    };
 
-    const result = await executeTargetRegistration({
-      targetId: TARGET_ID,
+    const run = await executeTargetRegistration({
+      target, mallKey: 'art09', adapter: mall, item, adapterValues: { quantity: '3' }, idempotencyKey: 'reg-1',
+    });
+
+    expect(mall.buildForm).toHaveBeenCalledWith({
+      item: { ...item, registrationInput: target.registrationInput, detailPageRevisionId: target.selectedDetailPageRevisionId },
+      values: expect.objectContaining({ quantity: '3', namePrefix: '[키드]', supplyPrice: '1200', mallCategoryKey: 'C-1' }),
+    });
+    expect(starts).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ kind: 'channels.registration', idempotencyKey: 'reg-1' });
+    expect(parsedRegistrationScope(starts[0])).toEqual({
+      executionKind: 'register',
+      registrationTargetId: TARGET,
       expectedVersion: 4,
-      channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore',
-      adapter: adapter(send),
-      client,
-      existingExecution: execution(),
+      idempotencyKey: 'reg-1',
+      submit: true,
+      applyCompositionTemplate: false,
+      adapterDefaults: { quantity: '1' },
+      adapterValues: { quantity: '3' },
+      form: { url: 'https://art09.example/new', manualSteps: [], quantity: '3' },
     });
-
-    expect(client.prepare).not.toHaveBeenCalled();
-    expect(client.start).toHaveBeenCalledWith(EXECUTION_ID);
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(result.adapterCalled).toBe(true);
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${REGISTRATION_OPERATION_ID}`);
+    expect(run.started).toBe(true);
+    expect(run.outcome).toMatchObject({ ok: true, confirmed: true, submitted: true, productNo: '9001' });
+    expect(run.operation?.state).toBe('confirmed');
   });
 
-  it('only refreshes an executing or reconciling history row and never sends it again', async () => {
-    const send = vi.fn();
-    const client = {
-      prepare: vi.fn(),
-      start: vi.fn(),
-      report: vi.fn(),
-    };
-
-    const result = await executeTargetRegistration({
-      targetId: TARGET_ID,
-      expectedVersion: 4,
-      channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore',
-      adapter: adapter(send),
-      client,
-      existingExecution: execution({ status: 'reconciling', providerOutcome: 'uncertain' }),
-    });
-
-    expect(client.prepare).not.toHaveBeenCalled();
-    expect(client.start).not.toHaveBeenCalled();
-    expect(client.report).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
-    expect(result.adapterCalled).toBe(false);
-    expect(result.outcome.warnings.join(' ')).toContain('재조정 대기');
-  });
-
-  it('does not call the adapter when start returns an existing execution', async () => {
-    const send = vi.fn();
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(execution({
-        status: 'reconciling',
-        providerOutcome: 'uncertain',
-        maySubmit: false,
-      })),
-      report: vi.fn(),
-    };
-
-    const result = await executeTargetRegistration({
-      targetId: TARGET_ID,
-      expectedVersion: 4,
-      channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore',
-      adapter: adapter(send),
-      client,
-      idempotencyKey: 'intent-1',
-    });
-
-    expect(send).not.toHaveBeenCalled();
-    expect(client.report).not.toHaveBeenCalled();
-    expect(result.adapterCalled).toBe(false);
-    expect(result.outcome.warnings.join(' ')).toContain('외부 송신을 건너뛰었습니다');
-  });
-
-  it('sends the frozen snapshot only after a fresh lease and reports approval state', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true,
-      submitted: true,
-      accepted: true,
-      productNo: 'provider-123',
-      confirmed: true,
-      manualSteps: [],
-      warnings: [],
-    });
-    const started = execution({
-      status: 'executing',
-      providerOutcome: 'uncertain',
-      leaseToken: LEASE,
-      maySubmit: true,
-    });
-    const reported = execution({
+  it('⭐ 몰에 제출했지만 결과를 못 읽었으면(reconciling) "확인 필요" — 성공으로 적지 않는다', async () => {
+    fakeRegistrationExtension(['art09']);
+    serveOperation({
       status: 'reconciling',
-      providerOutcome: 'uncertain',
-      maySubmit: false,
-      externalListingId: 'provider-123',
+      result: { providerOutcome: 'uncertain', mallOutcome: 'submitted', submitted: true, submitSkipped: null,
+        externalListingId: null, mallMessage: null, fill, evidence: null },
     });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(started),
-      report: vi.fn().mockResolvedValue(reported),
-    };
-
-    const result = await executeTargetRegistration({
-      targetId: TARGET_ID,
-      expectedVersion: 4,
-      channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore',
-      adapter: adapter(send),
-      client,
-      idempotencyKey: 'intent-2',
-    });
-
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({
-      items: [expect.objectContaining({
-        name: '동결된 상품명',
-        targetExecution: expect.objectContaining({ payloadHash: 'hash-1', leaseToken: LEASE }),
-      })],
-      values: expect.objectContaining({ quantity: '2', smartstoreCategory: '50004643:기타감각발달완구' }),
-    }));
-    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({
-      leaseToken: LEASE,
-      payloadHash: 'hash-1',
-      outcome: 'awaiting_approval',
-      evidence: expect.objectContaining({
-        channelAccountId: ACCOUNT_ID,
-        externalListingId: 'provider-123',
-      }),
-    }));
-    expect(result.outcome.confirmed).toBe(false);
-    expect(result.adapterCalled).toBe(true);
+    const run = await executeTargetRegistration({ target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'reg-2' });
+    expect(run.operation?.state).toBe('needs_confirmation');
+    expect(run.outcome).toMatchObject({ ok: false, confirmed: false, submitted: true });
+    expect(run.outcome.manualSteps.join(' ')).toContain('등록상품ID');
   });
 
-  it('records an uncertain result when the adapter can have reached the provider', async () => {
-    const send = vi.fn().mockRejectedValue(new Error('extension disconnected after submit'));
-    const started = execution({ status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(started),
-      report: vi.fn().mockResolvedValue(execution({ status: 'reconciling', providerOutcome: 'uncertain' })),
-    };
-
-    const result = await executeTargetRegistration({
-      targetId: TARGET_ID,
-      expectedVersion: 4,
-      channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore',
-      adapter: adapter(send),
-      client,
-      idempotencyKey: 'intent-3',
+  it('관문이 [등록]을 거르면 폼만 채운 것 — 사람이 누를 일을 적는다', async () => {
+    fakeRegistrationExtension(['art09']);
+    serveOperation({
+      status: 'succeeded',
+      result: { providerOutcome: 'not_attempted', mallOutcome: 'not_submitted', submitted: false,
+        submitSkipped: '이 몰은 [등록]을 사람이 누릅니다.', externalListingId: null, mallMessage: null,
+        fill: { ...fill, manualSteps: ['배송비 확인'] }, evidence: null },
     });
-
-    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({
-      outcome: 'uncertain',
-      evidence: expect.objectContaining({ observedStatus: 'uncertain' }),
-    }));
-    expect(result.outcome.warnings).toContain('제출 여부를 확인할 수 없어 재송신하지 않습니다.');
+    const run = await executeTargetRegistration({ target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'reg-3' });
+    expect(run.outcome).toMatchObject({ ok: true, confirmed: false, submitted: false });
+    expect(run.outcome.manualSteps).toEqual(['이 몰은 [등록]을 사람이 누릅니다.', '배송비 확인']);
   });
 
-  it('keeps an omitted submission result uncertain instead of allowing a new submission', async () => {
-    const send = vi.fn().mockResolvedValue({ ok: false, confirmed: false, manualSteps: [], warnings: [], error: 'response incomplete' });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(execution({ status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true })),
-      report: vi.fn().mockResolvedValue(execution({ status: 'reconciling', providerOutcome: 'uncertain' })),
-    };
-    await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore', adapter: adapter(send), client });
-    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({ outcome: 'uncertain' }));
+  it('어댑터가 막으면 실행을 시작하지 않는다', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
+    const run = await executeTargetRegistration({
+      target, mallKey: 'art09', adapter: adapter({ validate: () => ['수량은 1 이상이어야 합니다.'] }), item, idempotencyKey: 'reg-4',
+    });
+    expect(starts).toEqual([]);
+    expect(run).toMatchObject({ started: false, operation: null, outcome: { ok: false, submitted: false, error: '수량은 1 이상이어야 합니다.' } });
   });
 
-  it('reports a confirmed registration with the provider evidence the adapter observed, for the server to judge', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true,
-      submitted: true,
-      accepted: true,
-      productNo: '427011919',
-      providerEvidence: { providerAccountId: 'A00012345', externalListingId: '427011919' },
-      confirmed: false,
-      manualSteps: [],
-      warnings: [],
+  it('폼을 만들지 못하면 실행을 시작하지 않는다(반쯤 빈 폼 금지)', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
+    const run = await executeTargetRegistration({
+      target, mallKey: 'art09', idempotencyKey: 'reg-5', item,
+      adapter: adapter({ buildForm: vi.fn().mockRejectedValue(new Error('상세 이미지가 없습니다.')) }),
     });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(execution({
-        status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true,
-        expectedProviderAccountId: 'A00012345',
-      })),
-      report: vi.fn().mockResolvedValue(execution({ status: 'succeeded', providerOutcome: 'succeeded' })),
-    };
-    const confirming = adapter(send);
-    confirming.requiresOperatorSubmit = false;
-
-    await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore', adapter: confirming, client });
-
-    expect(send.mock.calls[0]![0].items[0].targetExecution.expectedProviderAccountId).toBe('A00012345');
-    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, {
-      leaseToken: LEASE,
-      payloadHash: 'hash-1',
-      outcome: 'confirmed',
-      evidence: {
-        channelAccountId: ACCOUNT_ID,
-        externalListingId: '427011919',
-        providerAccountId: 'A00012345',
-        observedStatus: 'confirmed',
-      },
-    });
+    expect(starts).toEqual([]);
+    expect(run.outcome).toMatchObject({ ok: false, submitted: false, error: '상세 이미지가 없습니다.' });
   });
 
-  it('reports submitted with the same evidence when the server rejects the automatic confirmation', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true,
-      submitted: true,
-      accepted: true,
-      productNo: '427011919',
-      providerEvidence: {
-        providerAccountId: 'A00012345',
-        externalListingId: '427011919',
-        observedUrl: 'https://wing.example.test/vendor-inventory/427011919',
-      },
-      confirmed: false,
-      manualSteps: [],
-      warnings: [],
-    });
-    const reconciling = execution({ status: 'reconciling', providerOutcome: 'uncertain', externalListingId: '427011919' });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(execution({
-        status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true,
-        expectedProviderAccountId: 'A00012345',
-      })),
-      report: vi.fn()
-        .mockRejectedValueOnce(new ApiError(409, 'STATE_CONFLICT', '몰 상품이 다른 등록과 겹칩니다.'))
-        .mockResolvedValueOnce(reconciling),
-    };
-    const confirming = adapter(send);
-    confirming.requiresOperatorSubmit = false;
-
-    const run = await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore', adapter: confirming, client });
-
-    expect(client.report).toHaveBeenCalledTimes(2);
-    expect(client.report).toHaveBeenLastCalledWith(EXECUTION_ID, {
-      leaseToken: LEASE,
-      payloadHash: 'hash-1',
-      outcome: 'submitted',
-      evidence: {
-        channelAccountId: ACCOUNT_ID,
-        externalListingId: '427011919',
-        providerAccountId: 'A00012345',
-        observedUrl: 'https://wing.example.test/vendor-inventory/427011919',
-        observedStatus: 'submitted',
-        message: '몰 상품이 다른 등록과 겹칩니다.',
-      },
-    });
-    expect(run.execution).toBe(reconciling);
-    expect(run.outcome.confirmed).toBe(false);
-    expect(run.outcome.warnings).toContain('몰에는 올라갔지만 확인이 거절됐습니다 — 확인 창에서 마무리하세요');
+  it('⭐ 같은 대상의 실행이 이미 있으면 다시 보내지 않고 그 실행을 보여 준다', async () => {
+    const starts = fakeRegistrationExtension(['art09'], [{
+      success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 대상의 다른 실행이 진행 중입니다.',
+      details: { existing: { operationId: OPERATION } },
+    }]);
+    serveOperation({ id: OPERATION, status: 'reconciling' });
+    const run = await executeTargetRegistration({ target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'reg-6' });
+    expect(starts).toHaveLength(1);
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${OPERATION}`);
+    expect(run.started).toBe(false);
+    expect(run.operation?.state).toBe('needs_confirmation');
+    expect(run.outcome.warnings).toContain('같은 대상의 다른 실행이 진행 중입니다.');
   });
 
-  it('keeps a transport failure on the automatic confirmation a thrown error', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true, submitted: true, accepted: true, productNo: '427011919',
-      providerEvidence: { providerAccountId: 'A00012345', externalListingId: '427011919' },
-      confirmed: false, manualSteps: [], warnings: [],
+  it('구성 변경은 그 kind와 몰 상품·전이, 그리고 폼을 싣는다(제출 의도 없음)', async () => {
+    const starts = fakeRegistrationExtension(['art09']);
+    serveOperation({ status: 'reconciling' });
+    await executeTargetRegistration({
+      target, mallKey: 'art09', adapter: adapter(), item, idempotencyKey: 'comp-1', submit: false,
+      executionKind: 'composition_change', applyCompositionTemplate: true, channelListingId: TARGET,
+      optionTransitions: [{ channelListingOptionId: TARGET, salesProductOptionId: PRODUCT }],
     });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(execution({ status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true })),
-      report: vi.fn().mockRejectedValueOnce(new Error('network down')),
-    };
-    const confirming = adapter(send);
-    confirming.requiresOperatorSubmit = false;
-
-    await expect(executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore', adapter: confirming, client })).rejects.toThrow('network down');
-    expect(client.report).toHaveBeenCalledTimes(1);
-  });
-
-  it('never claims confirmation from a submission without provider evidence', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true, submitted: true, accepted: true, productNo: '427011919', confirmed: true, manualSteps: [], warnings: [],
+    expect(parsedRegistrationScope(starts[0])).toMatchObject({
+      executionKind: 'composition_change', submit: false, applyCompositionTemplate: true, channelListingId: TARGET,
+      optionTransitions: [{ channelListingOptionId: TARGET, salesProductOptionId: PRODUCT }],
+      form: { url: 'https://art09.example/new' },
     });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValue(execution({ status: 'executing', providerOutcome: 'uncertain', leaseToken: LEASE, maySubmit: true })),
-      report: vi.fn().mockResolvedValue(execution({ status: 'reconciling', providerOutcome: 'uncertain' })),
-    };
-    const submitting = adapter(send);
-    submitting.requiresOperatorSubmit = false;
-
-    const run = await executeTargetRegistration({ targetId: TARGET_ID, expectedVersion: 4, channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore', adapter: submitting, client });
-
-    expect(client.report).toHaveBeenCalledWith(EXECUTION_ID, expect.objectContaining({ outcome: 'submitted' }));
-    expect(run.outcome.confirmed).toBe(false);
-  });
-
-  it('does not resend when the report response is retried with the same intent', async () => {
-    const send = vi.fn().mockResolvedValue({
-      ok: true,
-      submitted: true,
-      accepted: true,
-      productNo: 'provider-456',
-      confirmed: true,
-      manualSteps: [],
-      warnings: [],
-    });
-    const started = execution({
-      status: 'executing',
-      providerOutcome: 'uncertain',
-      leaseToken: LEASE,
-      maySubmit: true,
-    });
-    const existing = execution({
-      status: 'reconciling',
-      providerOutcome: 'uncertain',
-      maySubmit: false,
-      externalListingId: 'provider-456',
-    });
-    const client = {
-      prepare: vi.fn().mockResolvedValue(execution()),
-      start: vi.fn().mockResolvedValueOnce(started).mockResolvedValueOnce(existing),
-      report: vi.fn().mockRejectedValueOnce(new Error('result response lost')),
-    };
-    const input = {
-      targetId: TARGET_ID,
-      expectedVersion: 4,
-      channelAccountId: ACCOUNT_ID,
-      mallKey: 'smartstore',
-      adapter: adapter(send),
-      client,
-      idempotencyKey: 'stable-intent-after-report-timeout',
-    };
-
-    await expect(executeTargetRegistration(input)).rejects.toThrow('result response lost');
-    const retry = await executeTargetRegistration(input);
-
-    expect(send).toHaveBeenCalledTimes(1);
-    expect(client.start).toHaveBeenCalledTimes(2);
-    expect(retry.adapterCalled).toBe(false);
-    expect(retry.outcome.warnings.join(' ')).toContain('외부 송신을 건너뛰었습니다');
   });
 });
 
-describe('valuesForTargetExecution', () => {
-  it('uses frozen defaults even when the current adapter defaults have changed', () => {
-    const frozen = snapshot();
-    frozen.product.channelOverrides = [];
-    frozen.adapterDefaults = { quantity: '2' };
-    const current = adapter(vi.fn());
-    current.fields[0].defaultValue = '999';
-    const values = valuesForTargetExecution(frozen, 'smartstore', current);
+describe('valuesForTarget', () => {
+  it('어댑터 기본값 < 판매상품 몰별 값 < 대상 몰 문서 < 이번 편집 순으로 이긴다', () => {
+    const values = valuesForTarget({
+      registrationInput: target.registrationInput,
+      mallKey: 'art09',
+      adapterDefaults: { quantity: '1', namePrefix: '' },
+      overrideValues: { namePrefix: '[키드]', supplyPrice: '999' },
+      adapterValues: { quantity: '5' },
+    });
     expect(values).toEqual({
-      quantity: '2',
-      smartstoreCategory: '50004643:기타감각발달완구',
+      quantity: '5', namePrefix: '[키드]', supplyPrice: '1200', mallCategoryKey: 'C-1', mallCategoryLabel: '완구', promoText: '특가',
     });
   });
 
-  it('uses explicit frozen submission edits over saved settings without changing those settings', () => {
-    const frozen = snapshot();
-    frozen.registrationInput = { mallCategory: null, mallFields: { quantity: '3', certNumber: 'saved' }, adapter: {} };
-    frozen.adapterValues = { quantity: '4', certNumber: '' };
-    expect(valuesForTargetExecution(frozen, 'smartstore', adapter(vi.fn()))).toMatchObject({ quantity: '4', certNumber: '' });
-    expect(frozen.registrationInput.mallFields).toEqual({ quantity: '3', certNumber: 'saved' });
-  });
-
-  it('passes the target\'s mall category, mall fields and this channel\'s adapter values, and nothing else from registrationInput', () => {
-    const target = snapshot();
-    target.product.channelOverrides = [];
-    target.adapterDefaults = {};
-    target.registrationInput = {
-      mallCategory: { key: '50000001', label: '완구>감각발달' },
-      mallFields: { sabangnetCategory: '001002', stockPercent: 80, supplyPrice: 4700, sabangnetTemplate: null },
-      adapter: { coupang: { wingCategoryKey: '77777', linkedOptions: { a: 1 } }, smartstore: { storeKey: 'S-1' } },
-      mallRegisterShared: { certNumber: 'OLD-SHAPE' },
-      salePrice: 1,
-    } as unknown as TargetExecutionSnapshot['registrationInput'];
-
-    expect(valuesForTargetExecution(target, 'coupang', adapter(vi.fn()))).toEqual({
-      mallCategoryKey: '50000001',
-      mallCategoryLabel: '완구>감각발달',
-      sabangnetCategory: '001002',
-      stockPercent: '80',
-      supplyPrice: '4700',
-      wingCategoryKey: '77777',
-      linkedOptions: JSON.stringify({ a: 1 }),
-    });
-    expect(valuesForTargetExecution(target, 'teacherville', adapter(vi.fn()))).toEqual({
-      mallCategoryKey: '50000001',
-      mallCategoryLabel: '완구>감각발달',
-      sabangnetCategory: '001002',
-      stockPercent: '80',
-      supplyPrice: '4700',
-    });
+  it('대상 몰 문서에서는 몰 카테고리 · 몰 전용 칸 · 이 몰 namespace만 읽는다', () => {
+    const values = valuesForTarget({ registrationInput: target.registrationInput, mallKey: 'art09' });
+    expect(values).not.toHaveProperty('name');
+    expect(values).not.toHaveProperty('other');
   });
 });

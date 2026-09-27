@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
+import { mallPublishingApi } from '@/app/(channels)/_shared/mall-publishing-api';
+import { queryKeys } from '@/lib/query-keys';
 import {
   FORM_MALL_ADAPTERS,
   mallRegisterReadiness,
@@ -72,6 +75,19 @@ export function useMallQuickRegister(input: {
 
   const detail = detailQuery.data?.product ?? null;
 
+  // 몰 키 → 계정 행. 빠른 등록도 등록 실행이라 계정 하나를 짚는다(등록 마법사와 같은 조회).
+  const targetsQuery = useQuery({
+    queryKey: queryKeys.mallPublishing.targets(),
+    queryFn: mallPublishingApi.targets,
+    enabled,
+  });
+  const channelAccountIds = useMemo<Record<string, string>>(
+    () => Object.fromEntries((targetsQuery.data ?? []).flatMap((target) => (
+      target.channelAccountId ? [[target.manifest.key, target.channelAccountId]] : []
+    ))),
+    [targetsQuery.data],
+  );
+
   // 구버전 응답에는 `basicInfo` 가 아예 없을 수 있다. 없다고 화면을 깨뜨리지 않는다 —
   // 저장한 값이 없는 것과 같게 다루고, 그러면 기본값으로 채워진 몰만 열린다.
   const basicInfo = detail?.basicInfo ?? null;
@@ -123,6 +139,7 @@ export function useMallQuickRegister(input: {
         mallKeys,
         item,
         values,
+        channelAccountIds,
         onStart: (mallKey) => setRunningMallKeys((current) => [...current, mallKey]),
         onOutcome: (outcome) => {
           setRunningMallKeys((current) => current.filter((key) => key !== outcome.mallKey));
@@ -141,18 +158,18 @@ export function useMallQuickRegister(input: {
       running.current = false;
       setRunningMallKeys([]);
     }
-  }, [item, values]);
+  }, [item, values, channelAccountIds]);
 
   /**
-   * 확인 창에서 정한 값 · 계정으로 그 몰 폼만 채운다(`submit: false`). 등록 실행을 열지 않는다 — [등록]까지
-   * 누르는 등록 실행은 화면이 등록 실행 훅으로 따로 돌린다.
+   * 확인 창에서 정한 값 · 계정으로 그 몰 폼만 채운다(등록 대상 없는 등록 실행, `submit: false`). [등록]까지
+   * 부탁하는 등록 대상 실행은 화면이 등록 실행 훅으로 따로 돌린다.
    */
   const fillConfirmed = useCallback(async (mallKey: string, confirmed: ConfirmedMallInput) => {
     if (running.current) return null;
     running.current = true;
     setRunningMallKeys([mallKey]);
     try {
-      const outcome = await runOneMallRegistration(mallKey, item, values, confirmed);
+      const outcome = await runOneMallRegistration(mallKey, item, values, channelAccountIds[mallKey] ?? null, confirmed);
       setResults((current) => ({ ...current, [mallKey]: outcome }));
       const summary = summarizeMallRun([outcome]);
       if (outcome.status === 'filled') toast.success(summary.title, { description: summary.description });
@@ -162,7 +179,7 @@ export function useMallQuickRegister(input: {
       running.current = false;
       setRunningMallKeys([]);
     }
-  }, [item, values]);
+  }, [item, values, channelAccountIds]);
 
   /** 이 모달 밖(등록 실행)에서 난 결과를 그 몰 줄에 적는다 — 예: 이미 등록된 계정이라 울타리가 거절했다. */
   const recordOutcome = useCallback((outcome: MallRunOutcome) => {

@@ -58,5 +58,28 @@ visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDi
 그려지기를 기다리지 않는다(`stopAt`). `chrome.scripting`은 `sites/tab-page.ts`만 만진다. 로그인 결과 알림 창(`login-dialogs.js`)은 가드가 있으면 가드가 모은 문장을 몰의 말로 쓰고, 없으면(운영자 탭) 옛 규칙대로
 `alert`을 바꿨다가 되돌린다.
 
+광고센터(`sites/ad-center`, KID-371 `advertising.ad_report`): 읽기 전용이고 허용된 쓰기는 보고서 생성(`requestReport`) 하나다.
+잠금 키 `resource:ad-center:<id>`가 사이트 이름 `ad-center`의 탭(`/marketing`)을 연다 — 로그인 직후 그 화면을 한 번 열어야
+`cmg-api`·`tetris-api`가 답하므로 탭을 여는 것이 곧 워밍업이고, 그래도 처음 500이 오면 탭을 다시 열고 한 번만 다시 묻는다.
+호출은 서비스워커 fetch(쿠키, 리다이렉트 안 따라감)이고 GraphQL은 HTTP 200에 `errors[]`로 실패하므로 사이트가 `SITE_REQUEST_FAILED`
+(`graphql_error`)로 바꾼다. 로그인 화면은 광고센터 `/user/login…`(계정 유형 선택)과 판매자 로그인(`xauth.coupang.com`)이다:
+리다이렉트면 잠금 탭에서, 계정 유형 선택 화면이면 "쿠팡 wing 로그인"을 한 번 누르고(페이지 호출 `content/ad-center/account-choice.js`,
+자격증명 없음 — 옛 `ads-report.js`가 하던 이동 클릭) xauth의 Wing과 같은 아이디·비밀번호 폼을 실행 자격으로 채운 뒤 한 번
+다시 묻는다. 보고서 생성(`requestReport`)은 첫 500에도 다시 묻지 않는다(보고서가 두 번 생기지 않게). 누를 버튼이 없거나 폼이 오지 않으면 `SITE_LOGIN_REQUIRED`(`login_unconfirmed`)로 멈춰 탭을 운영자에게 남긴다.
+업체코드는 탭 화면의 "업체코드" 항목을
+파일 주입(`content/ad-center/vendor-code.js`, 읽기만)으로 읽는다.
+
+몰 쓰기(KID-256, `channels.registration`·`channels.mall_availability_read`): 몰마다 `sites/<mall>/registration.ts`(등록 폼 명세나
+전용 흐름 — 페이지 쪽은 `content/page-call/form-fill.js`와 전용 몰 `<mall>-register.js`)와 `sites/<mall>/availability.ts`(품절·재개·
+가격·지금 상태 — 페이지 쪽은 `content/page-call/mall-availability*.js`)를 몰 키로 등록하고, 라우터 사이트 `sites/mall-write`가 plan의
+몰 키로 찾는다. [등록]을 누를지는 관문 한 곳 `sites/mall-write/submit-gate.ts`만 정한다 — plan `submit`, 검증된 누르기(Wing만),
+경고·수동 단계 없음 셋이 다 맞을 때만([ADR-0019](../../docs/adr/0019-mall-registrations-submit-all-the-way.md)). 채운 쓰기 탭은 성공해도
+운영자에게 남긴다(`TabPage.leave`). 쓰기 탭의 `confirm`은 거절하고 문장만 모은다(가드 write 모드). 몰의 `alert`·`confirm`은
+바꿔 끼우지 않는다 — 예외 둘은 채우는 동안만 바꾸고 되돌린다: 롯데ON 화면 알림 함수(`com.alert`·`com.confirm`, DOM 대화상자라 가드가
+닿지 않는다, `lotte-on-register.js`)와 도매꾹 작성하기 에디터 팝업 창의 `alert`(가드가 없는 새 창, `form-fill.js` `driveDetailEditor`).
+채우는 동안 허용된 몰 쓰기는 사진·상세 파일을 그 몰의 업로드 엔드포인트에 올리는 POST뿐이다(에디터 사진 버튼·업로드 창이 쓰는 곳 —
+상품을 만들거나 저장하지 않는다). 품절·재개는 보낸 뒤 몰을 다시 읽은 것만 리스팅마다 증거로 싣는다(옵션 단위 몰은 `observedOptions`, 리스팅 단위 몰은
+`observedStatus`). 대표이미지(`sites/wing/thumbnail.ts`)는 올리기만 하고 [저장]은 운영자가 누른다.
+
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
 import 한 줄씩(수집기 하나, 사이트 하나)이다.

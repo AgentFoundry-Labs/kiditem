@@ -1,4 +1,5 @@
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   AvailabilityOptionKind,
@@ -12,10 +13,8 @@ import {
   CHANNEL_REGISTRATION_PORT,
   type ChannelRegistrationPort,
 } from '../../../../application/port/in/registration/channel-registration.port';
-import type { RepresentativeImageRunnerPort } from '../../../../application/port/out/automation/representative-image-runner.port';
 import { decideConfirmationEvidence } from '../channel-evidence';
 import { resolveCoupangVendorId } from '../../../../domain/account/coupang-account-identity';
-import { CoupangRepresentativeImageRunnerAdapter } from './representative-image-runner.adapter';
 
 export const COUPANG_CHANNEL_KEY = 'coupang';
 const WING_ADMIN_ORIGIN = 'https://wing.coupang.com';
@@ -30,7 +29,6 @@ const WING_LISTING_ID_PATTERN = /^\d{6,20}$/;
  *  - 등록 준비는 셀피아 매칭을 하고, 대상의 `adapter.coupang.wingProduct` 와 판매 상품으로 WING 상품
  *    문서를 만들어 얼린다(업체상품코드 = 선택한 옵션의 KID).
  *  - 옵션 판매 방식이 `NORMAL` 인 옵션만 판매자 재고를 받는다 — 로켓그로스(`RFM`)는 받지 않는다.
- *  - 대표이미지는 개발 서버 Playwriter runner 로 WING 상품 수정 화면에 넣는다.
  */
 @Injectable()
 export class CoupangChannelAdapter implements ChannelAdapter {
@@ -39,8 +37,6 @@ export class CoupangChannelAdapter implements ChannelAdapter {
   constructor(
     @Inject(CHANNEL_REGISTRATION_PORT)
     private readonly registration: Pick<ChannelRegistrationPort, 'preflightExternalProductRegistration'>,
-    @Inject(CoupangRepresentativeImageRunnerAdapter)
-    readonly representativeImage: RepresentativeImageRunnerPort,
   ) {}
 
   providerAccountId(account: ChannelAccountIdentity): string | null {
@@ -56,6 +52,7 @@ export class CoupangChannelAdapter implements ChannelAdapter {
       evidence,
       isTrustedAdminUrl: (url) => url.origin === WING_ADMIN_ORIGIN,
       externalListingIdPattern: WING_LISTING_ID_PATTERN,
+      requireProviderAccount: true,
     });
   }
 
@@ -105,6 +102,42 @@ export class CoupangChannelAdapter implements ChannelAdapter {
       },
       existingChannelListing: preflight.existingListing,
       vendorItemCode,
+    };
+  }
+
+  /**
+   * WING 폼 지시의 최종본(옛 웹 `wingProductForExecution` · 보내기 전 중복 차단을 옮김, KID-364). 준비가 얼린
+   * `wingProduct`(등록 대상 저장값 · 이름 · 업체상품코드)와 대표이미지 자산이 웹이 만든 값보다 이긴다. 이 계정에
+   * 같은 상품이 이미 있으면 한 번 더 올리면 중복 리스팅이므로 거절한다.
+   */
+  freezeForm(form: Record<string, unknown> | null, adapterPayload: Readonly<Record<string, unknown>>): Record<string, unknown> | null {
+    const existing = record(adapterPayload.existingChannelListing);
+    const existingId = text(existing.externalListingId);
+    if (existingId) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        message: `이 계정에 같은 상품이 이미 있습니다(몰 상품 번호 ${existingId}).`,
+        details: { reason: 'EXISTING_CHANNEL_LISTING', existing: { externalListingId: existingId } },
+      });
+    }
+    if (form === null) return null;
+    const frozen = record(adapterPayload.wingProduct);
+    const frozenVariant = record(Array.isArray(frozen.variants) ? frozen.variants[0] : null);
+    const formVariants = Array.isArray(form.variants) ? form.variants : [];
+    const formVariant = record(formVariants[0]);
+    const vendorItemCode = text(frozenVariant.vendorItemCode) ?? text(adapterPayload.vendorItemCode) ?? text(formVariant.vendorItemCode);
+    const representativeImageUrl = text(record(adapterPayload.representativeImage).url) ?? text(formVariant.representativeImageUrl);
+    return {
+      ...form,
+      ...(text(frozen.categoryCell) ? { categoryCell: text(frozen.categoryCell) } : {}),
+      ...(text(frozen.productName) ? { productName: text(frozen.productName) } : {}),
+      ...(text(frozen.sellerProductName) ? { sellerProductName: text(frozen.sellerProductName) } : {}),
+      variants: [{
+        ...formVariant,
+        ...(Array.isArray(frozenVariant.purchaseOptions) ? { purchaseOptions: frozenVariant.purchaseOptions } : {}),
+        ...(typeof frozenVariant.stock === 'number' ? { stock: frozenVariant.stock } : {}),
+        ...(representativeImageUrl ? { representativeImageUrl } : {}),
+        ...(vendorItemCode ? { vendorItemCode } : {}),
+      }, ...formVariants.slice(1)],
     };
   }
 

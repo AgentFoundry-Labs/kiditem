@@ -85,6 +85,19 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   it (KID-355 policy B). These owners and the Wing daily owners have no
   `onFailed` and write no alert rows.
 
+## Ad Report
+
+- `advertising.ad_report` (KID-371, `adapter/in/operation/ad-report-operation-owner.ts`)
+  writes the five ad ledgers — `ChannelAdProductDailySnapshot`,
+  `ChannelAdKeywordDailySnapshot`, `ChannelAdCampaign`, `ChannelAdCampaignAd`,
+  `ChannelAdDailyBilling` — in its finish transaction. `ChannelAdTargetDailySnapshot`
+  and the monthly facts take no new writer; their readers move in KID-372 and
+  the tables go in KID-373.
+- It holds `resource:ad-center:<id>`, never `account:<id>`. The closed-day hold
+  (`domain/ad-report-confirmation`) narrows the run window, and product
+  `billedSpend` sums to the settlement bill per campaign-day to the won
+  (`domain/ad-report-billing`).
+
 ## Cross-Domain Boundaries
 
 - A source attempt ends at Advertising's `COMPLETE`/`FAILED` owner record and

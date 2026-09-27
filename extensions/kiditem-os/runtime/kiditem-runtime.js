@@ -4092,9 +4092,9 @@ var KidItemRuntime = (() => {
   });
 
   // packages/shared/src/schemas/operation.ts
-  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
+  var OPERATION_STATUSES = ["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"];
   var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
-  var OPERATION_OUTCOMES = ["succeeded", "failed"];
+  var OPERATION_OUTCOMES = ["succeeded", "failed", "reconciling"];
   var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
   var OPERATION_CANCEL_CODE = "USER_CANCELLED";
   var OPERATION_LEASE_MS = 30 * 60 * 1e3;
@@ -4104,8 +4104,8 @@ var KidItemRuntime = (() => {
   var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
   var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
   var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
-  function resourceLockKey(site, id) {
-    return `resource:${site}:${id}`;
+  function resourceLockKey(site, id3) {
+    return `resource:${site}:${id3}`;
   }
   var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
   var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
@@ -4190,6 +4190,9 @@ var KidItemRuntime = (() => {
   ).refine(
     (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
     { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
+  ).refine(
+    (value) => value.outcome !== "reconciling" || value.result !== void 0,
+    { message: "\uD655\uC778 \uC911\uC73C\uB85C \uBA48\uCD9C \uB54C\uB294 `result` \uBCF8\uBB38\uC774 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["result"] }
   );
   var OperationFinishResponseSchema = external_exports.object({
     operation: OperationViewSchema
@@ -4684,6 +4687,610 @@ var KidItemRuntime = (() => {
     coverage: AdTrafficSourceCoverageSchema,
     reconciliation: AdTrafficSourceReconciliationSchema
   }).strict();
+  var AD_REPORT_KIND = "advertising.ad_report";
+  var ADVERTISING_AD_REPORT_OPERATION_CAPABILITY = "advertisingAdReportOperationKindV1";
+  var AD_SETTLEMENT_DOMAINS = ["SELLER", "RETAIL"];
+  var AdSettlementDomainSchema = external_exports.enum(AD_SETTLEMENT_DOMAINS);
+  var adCalendarDate = external_exports.string().date();
+  var adMoney = external_exports.number().int().safe();
+  var adCount = external_exports.number().int().nonnegative().safe();
+  var AdReportScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    startDate: adCalendarDate.optional(),
+    endDate: adCalendarDate.optional()
+  }).strict().refine((scope) => !scope.startDate || !scope.endDate || scope.startDate <= scope.endDate, {
+    message: "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4",
+    path: ["endDate"]
+  });
+  var AdReportPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    vendorId: external_exports.string().min(1).nullable(),
+    startDate: adCalendarDate,
+    endDate: adCalendarDate,
+    settlementDomains: external_exports.array(AdSettlementDomainSchema).min(1),
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var AD_REPORT_ROWS_PER_CHUNK = 1500;
+  var AD_REPORT_CAMPAIGNS_CHUNK_KIND = "ad_campaigns";
+  var AD_REPORT_ADS_CHUNK_KIND = "ad_ads";
+  var AD_REPORT_PRODUCT_ROWS_CHUNK_KIND = "ad_product_rows";
+  var AD_REPORT_KEYWORD_ROWS_CHUNK_KIND = "ad_keyword_rows";
+  var AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND = "ad_settlement_rows";
+  var AD_REPORT_PERIOD_CHUNK_KIND = "ad_period";
+  var AdReportCampaignSchema = external_exports.object({
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    name: external_exports.string(),
+    isActive: external_exports.boolean(),
+    status: external_exports.string().nullable(),
+    servingStatus: external_exports.string().nullable(),
+    budget: adMoney.nullable(),
+    budgetType: external_exports.string().nullable(),
+    roasTarget: external_exports.number().finite().nullable(),
+    /** 자동 선택(AI스마트광고) 여부 등 광고 선택 방식. 광고센터 `objective`/`adSelectionType` 원문. */
+    adSelectionType: external_exports.string().nullable(),
+    adGroups: external_exports.array(external_exports.object({ adGroupId: external_exports.string().regex(/^[1-9]\d*$/), name: external_exports.string() }).strict()),
+    totalAdCount: adCount.nullable()
+  }).strict();
+  var AdReportAdSchema = external_exports.object({
+    adId: external_exports.string().regex(/^[1-9]\d*$/),
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/),
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    isActive: external_exports.boolean().nullable(),
+    status: external_exports.string().nullable()
+  }).strict();
+  var AdReportProductRowSchema = external_exports.object({
+    date: adCalendarDate,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    campaignName: external_exports.string(),
+    /** 큰 보고서(TSV)에는 그룹 id가 없고 삭제 캠페인은 목록에도 없어 못 풀 수 있다 → null. owner는 키에 `''`로 넣는다. */
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    adGroupName: external_exports.string(),
+    /** 광고한 옵션. */
+    advertisedVendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** 실제 팔린 옵션(halo 행에서 다르다). */
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    placementGroup: external_exports.string(),
+    impressions: adCount,
+    clicks: adCount,
+    spend: adMoney,
+    orders: adCount,
+    units: adCount,
+    revenue: adMoney
+  }).strict();
+  var AdReportKeywordRowSchema = external_exports.object({
+    date: adCalendarDate,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    adGroupName: external_exports.string(),
+    advertisedVendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** 비검색 행은 빈 문자열. */
+    keyword: external_exports.string(),
+    impressions: adCount,
+    clicks: adCount,
+    spend: adMoney,
+    orders: adCount,
+    units: adCount,
+    revenue: adMoney
+  }).strict();
+  var AdReportSettlementRowSchema = external_exports.object({
+    date: adCalendarDate,
+    settlementDomain: AdSettlementDomainSchema,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    campaignName: external_exports.string().nullable(),
+    /** 집행액(`deliveredAdcost`). */
+    deliveredSpend: adMoney,
+    /** 청구액(`billableAmount`: 일예산 초과분 제외·조정 반영, VAT 전). */
+    billedSpend: adMoney,
+    promotionAdjustment: adMoney,
+    billableAdjustment: adMoney
+  }).strict();
+  var AdReportPeriodSchema = external_exports.object({
+    startDate: adCalendarDate,
+    endDate: adCalendarDate,
+    capturedAt: external_exports.string().datetime({ offset: true }),
+    vendorId: external_exports.string().min(1).nullable(),
+    reports: external_exports.array(external_exports.object({
+      granularity: external_exports.enum(["vendorItem", "keyword"]),
+      reportId: external_exports.string().min(1),
+      requestedAt: external_exports.string().datetime({ offset: true }),
+      completedAt: external_exports.string().datetime({ offset: true }),
+      rowCount: adCount,
+      isLargeReport: external_exports.boolean()
+    }).strict()).min(2),
+    campaignCount: adCount,
+    adCount
+  }).strict();
+  var AdReportReconciliationWarningSchema = external_exports.object({
+    date: adCalendarDate,
+    campaignId: external_exports.string().regex(/^[1-9]\d*$/),
+    reportSpend: adMoney,
+    settlementSpend: adMoney
+  }).strict();
+  var AdReportResultSchema = external_exports.object({
+    startDate: adCalendarDate,
+    endDate: adCalendarDate,
+    confirmedEndDate: adCalendarDate,
+    productRowCount: adCount,
+    keywordRowCount: adCount,
+    campaignCount: adCount,
+    adCount,
+    settlementRowCount: adCount,
+    /** 창 안 집행액·청구액 합(원). */
+    spendTotal: adMoney,
+    billedTotal: adMoney,
+    /** 보고서에만 있어 `billedSpend = spend`로 넣은 캠페인×일 수("정산 미확인" 경고). */
+    unsettledCampaignDays: adCount,
+    /** 정산에만 있어 계정 조정으로 넣은 행 수. */
+    accountAdjustmentRows: adCount,
+    warnings: external_exports.array(AdReportReconciliationWarningSchema)
+  }).strict();
+
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code2, message, details = null, cause) {
+      super(message);
+      this.code = code2;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed3 = ErrorEnvelopeSchema.safeParse(body);
+    return parsed3.success ? parsed3.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  var BODY_HEAD_LENGTH = 120;
+  function bodyHeadOf(body) {
+    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
+    return head || null;
+  }
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+    async function send16(url, { requireXsrf = false, ...init } = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (token) headers.set(options.xsrf.headerName, token);
+        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
+      }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
+      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
+      } catch (error) {
+        const timedOut = timeout?.aborted === true;
+        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
+        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
+      }
+      if (!response.ok) {
+        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send16(url, init);
+        const body = await safeText(response);
+        try {
+          return JSON.parse(body);
+        } catch (error) {
+          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send16(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send16(url, init)).arrayBuffer()))
+    };
+  }
+  async function safeText(response) {
+    try {
+      return await response.text();
+    } catch {
+      return "";
+    }
+  }
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/collectors/chunk-items.ts
+  var encoder = new TextEncoder();
+  var ChunkBuffer = class {
+    // "[]"
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    items = [];
+    bytes = 2;
+    /** 넣고 나서 내보낼 payload(있으면). */
+    push(item) {
+      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
+      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
+      if (itemBytes + 2 > maxBytes) {
+        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
+      }
+      let flushed = null;
+      const separator = this.items.length > 0 ? 1 : 0;
+      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
+      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
+      this.items.push(item);
+      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
+      return flushed;
+    }
+    /** 남은 원소(없으면 null). */
+    flush() {
+      if (this.items.length === 0) return null;
+      const out = this.items;
+      this.items = [];
+      this.bytes = 2;
+      return out;
+    }
+  };
+
+  // extensions/src/collectors/advertising.ad_report/index.ts
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
+  var AD_REPORT_POLL_INTERVAL_MS = 5e3;
+  var AD_REPORT_POLL_LIMIT_MS = 5 * 60 * 1e3;
+  var AD_CENTER_PAGE_SIZE = 500;
+  var MAX_CAMPAIGN_PAGES = 20;
+  var MAX_AD_PAGES = 40;
+  var adReportCollector = {
+    kind: AD_REPORT_KIND,
+    site: "ad-center",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed3 = AdReportPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uBCF4\uACE0\uC11C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      const plan = parsed3.data;
+      const range = { startDate: plan.startDate, endDate: plan.endDate };
+      if (signal.aborted) return;
+      const reportCampaignIds = (await site.listReportCampaigns(range)).map((campaign) => campaign.id);
+      let vendorId2 = null;
+      if (plan.vendorId !== null) {
+        vendorId2 = await site.readVendorId();
+        if (vendorId2 !== plan.vendorId) {
+          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+            plannedVendorId: plan.vendorId,
+            observedVendorId: vendorId2
+          });
+        }
+      }
+      if (reportCampaignIds.length === 0) throw failed("no_report_campaigns", "\uBCF4\uACE0\uC11C\uB97C \uB9CC\uB4E4 \uCEA0\uD398\uC778\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      const requested = [];
+      for (const granularity of ["vendorItem", "keyword"]) {
+        const requestedAt = (/* @__PURE__ */ new Date()).toISOString();
+        const created = await site.requestReport({ ...range, campaignIds: reportCampaignIds, granularity });
+        requested.push({ granularity, reportId: created.id, requestedAt, isLargeReport: created.isLargeReport, completedAt: null });
+      }
+      for (let waited = 0; ; waited += AD_REPORT_POLL_INTERVAL_MS) {
+        if (signal.aborted) return;
+        const listed = new Map((await site.listReports()).map((entry) => [entry.id, entry]));
+        for (const entry of requested) {
+          const current = listed.get(entry.reportId);
+          if (!current || entry.completedAt) continue;
+          if (current.status === "error") throw failed("report_failed", "\uAD11\uACE0\uC13C\uD130\uAC00 \uBCF4\uACE0\uC11C\uB97C \uB9CC\uB4E4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { reportId: entry.reportId });
+          if (current.status === "completed") {
+            entry.completedAt = (/* @__PURE__ */ new Date()).toISOString();
+            entry.isLargeReport = current.isLargeReport;
+          }
+        }
+        if (requested.every((entry) => entry.completedAt)) break;
+        if (waited >= AD_REPORT_POLL_LIMIT_MS) {
+          throw failed("report_timeout", "\uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C\uAC00 5\uBD84 \uC548\uC5D0 \uB9CC\uB4E4\uC5B4\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", {
+            pending: requested.filter((entry) => !entry.completedAt).map((entry) => entry.reportId)
+          });
+        }
+        await report?.({ phase: "waiting_reports", waitedMs: waited + AD_REPORT_POLL_INTERVAL_MS, completed: requested.filter((entry) => entry.completedAt).length });
+        await site.pause(AD_REPORT_POLL_INTERVAL_MS);
+      }
+      const [productReport, keywordReport] = requested;
+      const campaigns = await readCampaigns(site);
+      const campaignGroups = /* @__PURE__ */ new Map();
+      for (const campaign of campaigns) {
+        for (const group of campaign.adGroups) {
+          const key = groupKey(campaign.campaignId, group.name);
+          if (!campaignGroups.has(key)) campaignGroups.set(key, group.adGroupId);
+        }
+      }
+      if (signal.aborted) return;
+      const productRecords = await site.downloadReport({ id: productReport.reportId, isLargeReport: productReport.isLargeReport });
+      const productRows2 = [];
+      const reportGroups = /* @__PURE__ */ new Map();
+      for (const [index, record4] of productRecords.entries()) {
+        const row = productRow(record4, index, campaignGroups);
+        productRows2.push(row);
+        const key = groupKey(row.campaignId, row.adGroupName);
+        if (row.adGroupId && !reportGroups.has(key)) reportGroups.set(key, row.adGroupId);
+      }
+      yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows2, "\uC0C1\uD488 \uBCF4\uACE0\uC11C \uD589", {
+        phase: "product_rows",
+        advertisedFallbackRows: productRecords.filter(advertisedMissing).length
+      });
+      if (signal.aborted) return;
+      const keywordRecords = await site.downloadReport({ id: keywordReport.reportId, isLargeReport: keywordReport.isLargeReport });
+      const keywordRows = keywordRecords.map((record4, index) => keywordRow(record4, index, reportGroups));
+      yield* chunked(AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, keywordRows, "\uD0A4\uC6CC\uB4DC \uBCF4\uACE0\uC11C \uD589", {
+        phase: "keyword_rows",
+        advertisedFallbackRows: keywordRecords.filter(advertisedMissing).length
+      });
+      yield* chunked(AD_REPORT_CAMPAIGNS_CHUNK_KIND, campaigns, "\uCEA0\uD398\uC778", { phase: "campaigns" });
+      const ads = [];
+      for (const campaign of campaigns) {
+        for (const group of campaign.adGroups) {
+          if (signal.aborted) return;
+          ads.push(...await readAds(site, campaign.campaignId, group.adGroupId));
+        }
+      }
+      yield* chunked(AD_REPORT_ADS_CHUNK_KIND, ads, "\uAD11\uACE0", { phase: "ads" });
+      const settlementCampaignIds = reportCampaignIds.map(Number);
+      const reportCampaigns = new Set(reportCampaignIds);
+      for (const domain of plan.settlementDomains) {
+        if (signal.aborted) return;
+        let items;
+        try {
+          items = await site.readSettlement({ ...range, domain, campaignIds: settlementCampaignIds });
+        } catch (error) {
+          if (!campaignIdsRejected(error)) throw error;
+          items = (await site.readSettlement({ ...range, domain, campaignIds: null })).filter((item) => {
+            const campaignId = record(item)?.campaignId;
+            return blank(campaignId) || reportCampaigns.has(id(campaignId) ?? "");
+          });
+        }
+        const rows = items.map((item, index) => settlementRow(item, domain, index));
+        yield* chunked(AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND, rows, "\uC815\uC0B0 \uD589", { phase: "settlement", domain });
+      }
+      if (signal.aborted) return;
+      const period = {
+        ...range,
+        capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        vendorId: vendorId2,
+        reports: [
+          { granularity: "vendorItem", reportId: productReport.reportId, requestedAt: productReport.requestedAt, completedAt: productReport.completedAt, rowCount: productRows2.length, isLargeReport: productReport.isLargeReport },
+          { granularity: "keyword", reportId: keywordReport.reportId, requestedAt: keywordReport.requestedAt, completedAt: keywordReport.completedAt, rowCount: keywordRows.length, isLargeReport: keywordReport.isLargeReport }
+        ],
+        campaignCount: campaigns.length,
+        adCount: ads.length
+      };
+      yield { chunkKind: AD_REPORT_PERIOD_CHUNK_KIND, payload: [period], progress: { phase: "done", productRows: productRows2.length, keywordRows: keywordRows.length } };
+    }
+  };
+  function* chunked(chunkKind, items, label, progress4) {
+    const buffer = new ChunkBuffer({ maxItems: AD_REPORT_ROWS_PER_CHUNK, label });
+    for (const item of items) {
+      const full = buffer.push(item);
+      if (full) yield { chunkKind, payload: full, progress: progress4 };
+    }
+    const rest = buffer.flush();
+    if (rest) yield { chunkKind, payload: rest, progress: progress4 };
+  }
+  async function readCampaigns(site) {
+    const campaigns = [];
+    for (let page = 0; ; page += 1) {
+      if (page >= MAX_CAMPAIGN_PAGES) throw failed("campaign_page_limit", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { page });
+      const list2 = await site.listCampaigns(page);
+      campaigns.push(...list2.map((value, index) => campaignOf(value, page * AD_CENTER_PAGE_SIZE + index)));
+      if (list2.length < AD_CENTER_PAGE_SIZE) return campaigns;
+    }
+  }
+  async function readAds(site, campaignId, adGroupId) {
+    const ads = [];
+    for (let page = 0; ; page += 1) {
+      if (page >= MAX_AD_PAGES) throw failed("ads_page_limit", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { adGroupId });
+      const { ads: list2, totalCount } = await site.listAds({ adGroupId, page });
+      ads.push(...list2.map((value) => adOf(value, campaignId, adGroupId)));
+      if (ads.length >= totalCount) return ads;
+      if (list2.length === 0) throw failed("ads_incomplete", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uBAA9\uB85D\uC774 \uC804\uCCB4 \uC218\uBCF4\uB2E4 \uC801\uAC8C \uC654\uC2B5\uB2C8\uB2E4.", { adGroupId, totalCount, received: ads.length });
+    }
+  }
+  function advertisedOf(record4) {
+    return id(record4.advertised_vendor_item_id) ?? (blank(record4.advertised_vendor_item_id) ? id(record4.vendor_item_id) : null);
+  }
+  function advertisedMissing(record4) {
+    return blank(record4.advertised_vendor_item_id) && id(record4.vendor_item_id) !== null;
+  }
+  function productRow(record4, index, campaignGroups) {
+    const advertisedVendorItemId = advertisedOf(record4);
+    const campaignId = id(record4.campaign_id);
+    const adGroupName = text(record4.ad_group_name);
+    const adGroupId = id(record4.ad_group_id) ?? (campaignId && adGroupName !== null ? campaignGroups.get(groupKey(campaignId, adGroupName)) ?? null : null);
+    const date = reportDate(record4.dt);
+    const vendorItemId = id(record4.vendor_item_id) ?? advertisedVendorItemId;
+    const campaignName = text(record4.campaign_name);
+    const placementGroup = text(record4.placement_group);
+    if (!date || !campaignId || !advertisedVendorItemId || !vendorItemId || campaignName === null || adGroupName === null || placementGroup === null) {
+      throw rowInvalid("product", index);
+    }
+    return { date, campaignId, campaignName, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, placementGroup, ...metrics(record4, "product", index) };
+  }
+  function keywordRow(record4, index, reportGroups) {
+    const advertisedVendorItemId = advertisedOf(record4);
+    const date = reportDate(record4.dt);
+    const campaignId = id(record4.campaign_id);
+    const adGroupName = text(record4.ad_group_name);
+    const vendorItemId = id(record4.vendor_item_id) ?? advertisedVendorItemId;
+    const keyword2 = blank(record4.keywords) ? "" : text(record4.keywords);
+    if (!date || !campaignId || !advertisedVendorItemId || !vendorItemId || adGroupName === null || keyword2 === null) throw rowInvalid("keyword", index);
+    const adGroupId = id(record4.ad_group_id) ?? reportGroups.get(groupKey(campaignId, adGroupName)) ?? null;
+    return { date, campaignId, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, keyword: keyword2, ...metrics(record4, "keyword", index) };
+  }
+  function metrics(record4, report, index) {
+    const value = (field) => {
+      const parsed3 = number(record4[field]);
+      if (parsed3 === null) throw rowInvalid(report, index, field);
+      return Math.round(parsed3);
+    };
+    const sum = (kind) => value(`direct_${kind}`) + value(`halo_${kind}`);
+    return {
+      impressions: value("impressions_count"),
+      clicks: value("clicks_count"),
+      spend: value("ad_cost_sum"),
+      orders: sum("order_14_days_by_cli_count"),
+      units: sum("unit_14_days_by_cli_count"),
+      revenue: sum("sale_14_days_by_cli_price")
+    };
+  }
+  function campaignOf(value, index) {
+    const campaign = record(value);
+    const campaignId = id(campaign?.id ?? campaign?.campaignId);
+    if (!campaign || !campaignId) throw failed("campaign_invalid", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { index });
+    const groups = Array.isArray(campaign.groupList) ? campaign.groupList : [];
+    return {
+      campaignId,
+      name: text(campaign.name) ?? "",
+      isActive: campaign.isActive === true,
+      status: text(campaign.status),
+      servingStatus: text(campaign.servingStatus),
+      budget: integerOrNull(campaign.budget),
+      budgetType: text(campaign.capType ?? campaign.budgetType),
+      roasTarget: number(campaign.roasTarget),
+      adSelectionType: text(campaign.adSelectionType ?? campaign.objective),
+      adGroups: groups.flatMap((group) => {
+        const entry = record(group);
+        const adGroupId = id(entry?.id ?? entry?.adGroupId);
+        return adGroupId ? [{ adGroupId, name: text(entry?.name) ?? "" }] : [];
+      }),
+      totalAdCount: count(campaign.totalAdCount)
+    };
+  }
+  function adOf(value, campaignId, adGroupId) {
+    const ad = record(value);
+    const adId = id(ad?.adId ?? ad?.id);
+    if (!ad || !adId) throw failed("ad_invalid", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uC751\uB2F5\uC5D0 \uAD11\uACE0 ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { adGroupId });
+    const vendorItem = record(ad.vendorItem);
+    const active = typeof ad.isActive === "boolean" ? ad.isActive : typeof ad.active === "boolean" ? ad.active : null;
+    return {
+      adId,
+      campaignId,
+      adGroupId,
+      vendorItemId: id(ad.vendorItemId ?? vendorItem?.vendorItemId ?? vendorItem?.id),
+      isActive: active,
+      status: text(ad.status ?? ad.adStatus)
+    };
+  }
+  function settlementRow(value, domain, index) {
+    const item = record(value);
+    const date = settlementDate(item?.date);
+    const money2 = (field) => {
+      const parsed3 = number(item?.[field]);
+      if (parsed3 === null) throw rowInvalid("settlement", index, field);
+      return Math.round(parsed3);
+    };
+    if (!item || !date) throw rowInvalid("settlement", index, "date");
+    const campaignId = blank(item.campaignId) ? null : id(item.campaignId);
+    if (!blank(item.campaignId) && campaignId === null) throw rowInvalid("settlement", index, "campaignId");
+    return {
+      date,
+      settlementDomain: domain,
+      campaignId,
+      campaignName: text(item.campaignName),
+      deliveredSpend: money2("deliveredAdcost"),
+      billedSpend: money2("billableAmount"),
+      promotionAdjustment: money2("promotionAdjustment"),
+      billableAdjustment: money2("billableAdjustment")
+    };
+  }
+  function campaignIdsRejected(error) {
+    if (!(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === "graphql_error")) return false;
+    const message = typeof error.details.graphqlMessage === "string" ? error.details.graphqlMessage : "";
+    return error.details.httpStatus === 400 || /campaignIds|\bInt\b|got invalid value/i.test(message);
+  }
+  function groupKey(campaignId, adGroupName) {
+    return JSON.stringify([campaignId, adGroupName]);
+  }
+  function reportDate(value) {
+    const digits3 = typeof value === "number" && Number.isSafeInteger(value) ? String(value) : typeof value === "string" ? value.trim() : "";
+    const match = /^(\d{4})(\d{2})(\d{2})$/.exec(digits3);
+    return match ? calendarDate2(`${match[1]}-${match[2]}-${match[3]}`) : null;
+  }
+  function settlementDate(value) {
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return calendarDate2(value.trim());
+    return reportDate(value);
+  }
+  function calendarDate2(value) {
+    const parsed3 = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+    return Number.isNaN(parsed3.getTime()) || parsed3.toISOString().slice(0, 10) !== value ? null : value;
+  }
+  function id(value) {
+    const textValue = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(textValue) ? textValue : null;
+  }
+  function blank(value) {
+    return value === null || value === void 0 || typeof value === "string" && value.trim() === "";
+  }
+  function text(value) {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return null;
+  }
+  function number(value) {
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.replace(/,/g, "")) : Number.NaN;
+    return Number.isFinite(parsed3) ? parsed3 : null;
+  }
+  function integerOrNull(value) {
+    const parsed3 = number(value);
+    return parsed3 === null ? null : Math.round(parsed3);
+  }
+  function count(value) {
+    const parsed3 = number(value);
+    return parsed3 !== null && Number.isSafeInteger(parsed3) && parsed3 >= 0 ? parsed3 : null;
+  }
+  function record(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function rowInvalid(report, index, field) {
+    return failed("report_row_invalid", "\uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uD589 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { report, row: index + 1, ...field ? { field } : {} });
+  }
+  function failed(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
+  }
+  registerCollector(adReportCollector);
 
   // extensions/src/collectors/collector.ts
   function attentionReporter(report, base) {
@@ -4772,10 +5379,10 @@ var KidItemRuntime = (() => {
       try {
         for (const [index, { keyword: keyword2, maxPages }] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const read = await site.serp(keyword2, maxPages, {
+          const read15 = await site.serp(keyword2, maxPages, {
             onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 })
           });
-          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read };
+          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read15 };
           yield {
             chunkKind: KEYWORD_SERP_CHUNK_KIND,
             payload: [chunk],
@@ -4789,102 +5396,38 @@ var KidItemRuntime = (() => {
   };
   registerCollector(advertisingKeywordSerpCollector);
 
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
-      super(message);
-      this.code = code;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
-    return parsed2.success ? parsed2.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
-
-  // extensions/src/collectors/chunk-items.ts
-  var encoder = new TextEncoder();
-  var ChunkBuffer = class {
-    // "[]"
-    constructor(options) {
-      this.options = options;
-    }
-    options;
-    items = [];
-    bytes = 2;
-    /** 넣고 나서 내보낼 payload(있으면). */
-    push(item) {
-      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
-      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
-      if (itemBytes + 2 > maxBytes) {
-        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
-      }
-      let flushed = null;
-      const separator = this.items.length > 0 ? 1 : 0;
-      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
-      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
-      this.items.push(item);
-      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
-      return flushed;
-    }
-    /** 남은 원소(없으면 null). */
-    flush() {
-      if (this.items.length === 0) return null;
-      const out = this.items;
-      this.items = [];
-      this.bytes = 2;
-      return out;
-    }
-  };
-
   // extensions/src/collectors/advertising.wing_itemwinner/index.ts
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
   var CHUNK_ITEMS = 500;
   var wingItemwinnerCollector = {
     kind: WING_ITEMWINNER_KIND,
     site: "wing-itemwinner",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = WingItemwinnerPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      const parsed3 = WingItemwinnerPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
-      if (vendorId2 !== parsed2.data.vendorId) {
+      if (vendorId2 !== parsed3.data.vendorId) {
         throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
-          plannedVendorId: parsed2.data.vendorId,
+          plannedVendorId: parsed3.data.vendorId,
           observedVendorId: vendorId2
         });
       }
-      const list = await site.readItemwinnerList();
+      const list2 = await site.readItemwinnerList();
       const observedAt = (/* @__PURE__ */ new Date()).toISOString();
       if (signal.aborted) return;
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS, label: "\uC544\uC774\uD15C\uC704\uB108 \uD589" });
-      for (const row of list.rows) {
+      for (const row of list2.rows) {
         const full = buffer.push(row);
         if (full) yield rowsChunk(full);
       }
       const rest = buffer.flush();
       if (rest) yield rowsChunk(rest);
-      const marker = { totalSize: list.totalSize, observedAt, vendorId: vendorId2 };
-      yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list.rows.length } };
+      const marker = { totalSize: list2.totalSize, observedAt, vendorId: vendorId2 };
+      yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list2.rows.length } };
     }
   };
   function rowsChunk(payload) {
@@ -4930,13 +5473,13 @@ var KidItemRuntime = (() => {
     site: "wing-search",
     async *collect(plan, site, { signal }) {
       for (const [index, { keyword: keyword2 }] of plan.keywords.entries()) {
-        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (read === null) return;
+        const read15 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read15 === null) return;
         const chunk = {
           keyword: keyword2,
           capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          pagesScanned: read.pagesScanned,
-          items: rankBySales(read.rows)
+          pagesScanned: read15.pagesScanned,
+          items: rankBySales(read15.rows)
         };
         yield {
           chunkKind: WING_RANK_CHUNK_KIND,
@@ -4974,10 +5517,10 @@ var KidItemRuntime = (() => {
     async *collect(plan, site, { signal }) {
       const planned = new Set(plan.products.map((product) => product.productId));
       for (const [index, keyword2] of plan.keywords.entries()) {
-        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (read === null) return;
+        const read15 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read15 === null) return;
         const items = /* @__PURE__ */ new Map();
-        for (const row of read.rows) {
+        for (const row of read15.rows) {
           if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
         }
         const chunk = { keyword: keyword2, items: [...items.values()] };
@@ -5006,7 +5549,7 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/advertising.wing_traffic/index.ts
   var PAGE_SIZE = 100;
   var CHUNK_ITEMS2 = 1e3;
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var WING_TRAFFIC_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
   var WING_TRAFFIC_DATA_NOT_READY = "WING_TRAFFIC_DATA_NOT_READY";
   var WING_TRAFFIC_PAGE_CONFLICT = "WING_TRAFFIC_PAGE_CONFLICT";
@@ -5014,10 +5557,10 @@ var KidItemRuntime = (() => {
     kind: WING_TRAFFIC_KIND,
     site: "wing-traffic",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = WingTrafficPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      const plan = parsed2.data;
+      const parsed3 = WingTrafficPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      const plan = parsed3.data;
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
       if (vendorId2 !== plan.vendorId) {
@@ -5178,88 +5721,6 @@ var KidItemRuntime = (() => {
     }).strict()
   }).strict();
 
-  // extensions/src/core/site-caller.ts
-  function delayUntilNext(input) {
-    if (input.lastSentAt === null) return 0;
-    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
-  }
-  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
-  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
-  var BODY_HEAD_LENGTH = 120;
-  function bodyHeadOf(body) {
-    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
-    return head || null;
-  }
-  function createSiteCaller(options, deps) {
-    let lastSentAt = null;
-    let queue = Promise.resolve();
-    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send(url, { requireXsrf = false, ...init } = {}) {
-      const headers = new Headers(init.headers);
-      if (options.xsrf) {
-        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
-        const token = decodeCookie(cookie?.value);
-        if (token) headers.set(options.xsrf.headerName, token);
-        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
-      }
-      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
-      if (wait > 0) await deps.sleep(wait);
-      lastSentAt = deps.now();
-      let response;
-      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
-      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
-      try {
-        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
-      } catch (error) {
-        const timedOut = timeout?.aborted === true;
-        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
-        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
-      }
-      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
-      }
-      if (!response.ok) {
-        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
-        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
-      }
-      return response;
-    }
-    function enqueue(task) {
-      const next = queue.then(task);
-      queue = next.catch(() => void 0);
-      return next;
-    }
-    return {
-      json: (url, init) => enqueue(async () => {
-        const response = await send(url, init);
-        const body = await safeText(response);
-        try {
-          return JSON.parse(body);
-        } catch (error) {
-          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
-        }
-      }),
-      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
-      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
-    };
-  }
-  async function safeText(response) {
-    try {
-      return await response.text();
-    } catch {
-      return "";
-    }
-  }
-  function decodeCookie(value) {
-    if (!value) return null;
-    try {
-      return decodeURIComponent(value) || null;
-    } catch {
-      return null;
-    }
-  }
-
   // extensions/src/collectors/analytics.sellpia_product_profitability/index.ts
   var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var PlanSchema = external_exports.object({
@@ -5268,7 +5729,7 @@ var KidItemRuntime = (() => {
     coveredMonths: external_exports.array(external_exports.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).min(1)
   }).passthrough();
   var CHUNK_PRODUCTS = 500;
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var MISMATCH_MESSAGE = "\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uAD6C\uB9E4\uAE30\uAC04 \uC751\uB2F5\uC774 401\uC77C \uD310\uB9E4 \uC99D\uAC70\uC640 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.";
   function purchasePeriods(plan) {
     return plan.coveredMonths.map((yearMonth) => {
@@ -5346,19 +5807,19 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_PRODUCT_PROFITABILITY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
-      const periods = purchasePeriods(parsed2.data);
-      const read = await site.productProfit(
-        { start: parsed2.data.from, end: parsed2.data.to, periods, signal },
+      const parsed3 = PlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      const periods = purchasePeriods(parsed3.data);
+      const read15 = await site.productProfit(
+        { start: parsed3.data.from, end: parsed3.data.to, periods, signal },
         async (done, total) => {
           await report?.({ months: total, monthsRead: done });
         }
       );
       if (signal.aborted) return;
-      const products = assembleProfitProducts(read.baseline, read.periods);
-      const progress4 = { months: periods.length, monthsRead: periods.length, products: products.length, skippedAdjustments: read.baseline.skippedAdjustmentCount };
+      const products = assembleProfitProducts(read15.baseline, read15.periods);
+      const progress4 = { months: periods.length, monthsRead: periods.length, products: products.length, skippedAdjustments: read15.baseline.skippedAdjustmentCount };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_PRODUCTS, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uD55C \uC0C1\uD488" });
       for (const product of products) {
         const full = buffer.push(product);
@@ -5376,15 +5837,15 @@ var KidItemRuntime = (() => {
     range: external_exports.object({ from: isoDay4, to: isoDay4 })
   }).passthrough();
   var CHUNK_ROWS = 500;
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var sellpiaSalesCollector = {
     kind: SELLPIA_SALES_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema2.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
-      const { rows, sellers } = await site.sales({ startDate: parsed2.data.range.from, endDate: parsed2.data.range.to });
+      const parsed3 = PlanSchema2.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      const { rows, sellers } = await site.sales({ startDate: parsed3.data.range.from, endDate: parsed3.data.range.to });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, sellers };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC140\uD53C\uC544 \uD310\uB9E4\uCC98\xB7\uC77C \uD55C \uC904" });
@@ -5397,6 +5858,86 @@ var KidItemRuntime = (() => {
     }
   };
   registerCollector(sellpiaSalesCollector);
+
+  // packages/shared/src/operation-lifecycle.ts
+  var OPERATION_STATUSES2 = [
+    "prepared",
+    "executing",
+    "reconciling",
+    "succeeded",
+    "failed",
+    "cancelled"
+  ];
+  var PROVIDER_OUTCOMES = [
+    "not_attempted",
+    "uncertain",
+    "succeeded",
+    "definitive_failure"
+  ];
+  var OperationStatusSchema2 = external_exports.enum(OPERATION_STATUSES2);
+  var ProviderOutcomeSchema = external_exports.enum(PROVIDER_OUTCOMES);
+
+  // packages/shared/src/registration-execution.ts
+  var TARGET_EXECUTION_KINDS = ["register", "update", "sold_out", "resume", "composition_change"];
+
+  // packages/shared/src/thumbnail-execution.ts
+  var THUMBNAIL_UPDATE_EXECUTION_KIND = "thumbnail_update";
+  var ThumbnailExecutionPrepareRequestSchema = external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    /** 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
+    assetId: external_exports.string().uuid().optional(),
+    /** 판매상품에 쿠팡 listing 이 여럿일 때만 고른다. */
+    channelListingId: external_exports.string().uuid().optional()
+  }).strict();
+  var ThumbnailExecutionImageSchema = external_exports.object({
+    dataUrl: external_exports.string().min(1),
+    filename: external_exports.string().min(1),
+    mimeType: external_exports.string().min(1)
+  }).strict();
+  var ThumbnailExecutionPrepareResponseSchema = external_exports.object({
+    executionId: external_exports.string().uuid(),
+    salesProductId: external_exports.string().uuid(),
+    assetId: external_exports.string().uuid(),
+    productName: external_exports.string().min(1),
+    image: ThumbnailExecutionImageSchema
+  }).strict();
+  var ThumbnailExecutionReportRequestSchema = external_exports.discriminatedUnion("outcome", [
+    external_exports.object({
+      outcome: external_exports.literal("uploaded_pending_save"),
+      screenshotUrl: external_exports.string().trim().min(1).max(2048).optional(),
+      externalId: external_exports.string().trim().min(1).max(120).optional()
+    }).strict(),
+    external_exports.object({ outcome: external_exports.literal("definitive_failure"), error: external_exports.string().trim().min(1).max(2e3) }).strict(),
+    external_exports.object({ outcome: external_exports.literal("uncertain"), error: external_exports.string().trim().min(1).max(2e3) }).strict()
+  ]);
+  var ThumbnailExecutionResultSchema = external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    assetId: external_exports.string().uuid(),
+    executionId: external_exports.string().uuid(),
+    success: external_exports.boolean(),
+    status: OperationStatusSchema2,
+    screenshotPath: external_exports.string().nullable(),
+    error: external_exports.string().optional()
+  }).strict();
+  var ThumbnailExecutionListingChoiceSchema = external_exports.object({
+    channelListingId: external_exports.string().uuid(),
+    channelName: external_exports.string().nullable(),
+    channelAccountName: external_exports.string(),
+    externalId: external_exports.string()
+  }).strict();
+  var ThumbnailExecutionStatusQuerySchema = external_exports.object({
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(200)
+  }).strict();
+  var ThumbnailExecutionStatusSchema = external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    assetId: external_exports.string().uuid(),
+    executionId: external_exports.string().uuid(),
+    status: OperationStatusSchema2,
+    providerOutcome: ProviderOutcomeSchema,
+    checkedAt: zIsoDate.nullable(),
+    error: external_exports.string().nullable(),
+    screenshotPath: external_exports.string().nullable()
+  }).strict();
 
   // packages/shared/src/schemas/channels-operations.ts
   var SABANGNET_MALL_LISTINGS_KIND = "channels.sabangnet_mall_listings";
@@ -5423,6 +5964,927 @@ var KidItemRuntime = (() => {
   var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var CHANNELS_OPERATION_CAPABILITY = "channelsOperationKindsV1";
+  var REGISTRATION_KIND = "channels.registration";
+  var MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
+  var CHANNELS_REGISTRATION_OPERATION_CAPABILITY = "channelsRegistrationOperationKindV1";
+  var REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, THUMBNAIL_UPDATE_EXECUTION_KIND];
+  var RegistrationExecutionKindSchema = external_exports.enum(REGISTRATION_EXECUTION_KINDS);
+  var RegistrationScopeSchema = external_exports.object({
+    executionKind: RegistrationExecutionKindSchema,
+    /** register·update·composition_change·sold_out·resume: 등록 대상. thumbnail_update: 판매 상품(`salesProductId`). */
+    registrationTargetId: external_exports.string().uuid().optional(),
+    salesProductId: external_exports.string().uuid().optional(),
+    channelListingId: external_exports.string().uuid().optional(),
+    expectedVersion: external_exports.number().int().positive().optional(),
+    idempotencyKey: external_exports.string().trim().min(1).max(200),
+    submit: external_exports.boolean().default(false),
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean().optional(),
+    optionTransitions: external_exports.array(external_exports.object({
+      channelListingOptionId: external_exports.string().uuid(),
+      salesProductOptionId: external_exports.string().uuid()
+    }).strict()).max(1e3).optional(),
+    /** thumbnail_update만: 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
+    assetId: external_exports.string().uuid().optional(),
+    /**
+     * 몰별 폼 지시(웹 `*-registration-form.ts` 빌더 18개가 draft·values로 만든 것 — url·카테고리 경로·공급가·수량·상세 호스팅·
+     * manualSteps). 서버 plan이 `payload.form`에 얼려 `payloadHash`에 넣는다(2026-09-27 리더 결정 A: 빌더는 이 파동에서 웹에
+     * 남기고, 서버 채널 어댑터 freeze로 옮기는 일은 KID-364 파생). 서버는 모양만 검사한다.
+     */
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+    /** 빠른 등록(등록 대상 없이 수집 상품 → 폼만 채우기)의 출처. 그때 `registrationTargetId`는 없고 `submit`은 false여야 한다. */
+    sourceProductId: external_exports.string().uuid().optional(),
+    /**
+     * sold_out·resume만: 몰 계정 하나의 리스팅 묶음(옛 일괄 품절과 같이 실행 하나 = 계정 묶음 하나, 2026-09-27 리더 결정).
+     * 항목은 리스팅 id나 옵션 id로 가리키고(후보 화면은 옵션 id만 안다) 서버 plan이 외부 id·옵션으로 푼다. 잠금 = `account:<id>` + 리스팅마다 하나.
+     */
+    channelAccountId: external_exports.string().uuid().optional(),
+    items: external_exports.array(external_exports.object({
+      channelListingId: external_exports.string().uuid().optional(),
+      channelListingOptionIds: external_exports.array(external_exports.string().uuid()).min(1).max(200).optional()
+    }).strict().refine((item) => item.channelListingId !== void 0 || item.channelListingOptionIds !== void 0, {
+      message: "\uB9AC\uC2A4\uD305 id\uB098 \uC635\uC158 id\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4"
+    })).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS).optional()
+  }).strict().refine(
+    (scope) => {
+      if (scope.executionKind === "thumbnail_update") return scope.salesProductId !== void 0;
+      if (scope.executionKind === "sold_out" || scope.executionKind === "resume") {
+        return scope.channelAccountId !== void 0 && scope.items !== void 0;
+      }
+      if (scope.registrationTargetId !== void 0) return true;
+      return scope.executionKind === "register" && scope.submit === false && scope.form !== void 0;
+    },
+    { message: "\uB4F1\uB85D \uB300\uC0C1\uC774 \uD544\uC694\uD569\uB2C8\uB2E4(\uC378\uB124\uC77C\uC740 \uD310\uB9E4 \uC0C1\uD488, \uD488\uC808\xB7\uC7AC\uAC1C\uB294 \uACC4\uC815 + \uB9AC\uC2A4\uD305 \uBB36\uC74C, \uBE60\uB978 \uB4F1\uB85D\uC740 \uD3FC\uB9CC \uCC44\uC6B0\uAE30 + submit false)", path: ["registrationTargetId"] }
+  );
+  var RegistrationPlanSchema = external_exports.object({
+    executionKind: RegistrationExecutionKindSchema,
+    mallKey: external_exports.string().min(1).max(64),
+    channelAccountId: external_exports.string().uuid(),
+    registrationTargetId: external_exports.string().uuid().nullable(),
+    salesProductId: external_exports.string().uuid().nullable(),
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().min(1).nullable(),
+    /** 몰 세션의 판매자 식별자와 대조한다(Wing `vendorId`, 몰 `providerAccountId`). 없으면 대조 생략. */
+    expectedProviderAccountId: external_exports.string().min(1).nullable(),
+    submit: external_exports.boolean(),
+    payloadHash: external_exports.string().min(1),
+    payload: external_exports.record(external_exports.string(), external_exports.unknown()),
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var REGISTRATION_FILL_CHUNK_KIND = "registration_fill";
+  var REGISTRATION_EVIDENCE_CHUNK_KIND = "registration_evidence";
+  var RegistrationFillSchema = external_exports.object({
+    steps: external_exports.array(external_exports.string()),
+    warnings: external_exports.array(external_exports.string()),
+    manualSteps: external_exports.array(external_exports.string()),
+    /** 몰이 띄운 대화상자 문장(가드가 기록한 것). */
+    dialogs: external_exports.array(external_exports.string())
+  }).strict();
+  var RegistrationEvidenceSchema = external_exports.object({
+    /**
+     * 이 증거가 가리키는 얼린 문서(plan `payloadHash`). 다르면 이 실행의 증거가 아니다(`OPERATION`이 아니라 등록 fence의 거절,
+     * `CHANNELS_EXECUTION_FENCE_LOST{PAYLOAD_HASH_MISMATCH}`). KID-364 M1 추가.
+     */
+    payloadHash: external_exports.string().min(1),
+    channelAccountId: external_exports.string().uuid(),
+    externalListingId: external_exports.string().trim().min(1).nullable(),
+    observedUrl: external_exports.string().url().nullable(),
+    providerAccountId: external_exports.string().nullable(),
+    observedStatus: external_exports.string().nullable(),
+    message: external_exports.string().nullable(),
+    options: external_exports.array(external_exports.object({
+      salesProductOptionId: external_exports.string().uuid(),
+      externalOptionId: external_exports.string().trim().min(1),
+      sellerSku: external_exports.string().nullable()
+    }).strict()),
+    /**
+     * 품절 · 재개만(KID-364 M1 추가, 리더 결정): 보낸 뒤 몰에서 다시 읽은 옵션 상태. 옵션 단위 몰은 얼린 옵션마다 한 줄이 있어야
+     * 확인이다(sold_out은 재고 0 또는 판매중지, resume은 판매중). 리스팅 단위 몰은 `observedStatus`로 확인한다. 묶음 실행은 리스팅마다
+     * 증거 청크 하나를 보낸다.
+     */
+    observedOptions: external_exports.array(external_exports.object({
+      externalOptionId: external_exports.string().trim().min(1),
+      stock: external_exports.number().int().nonnegative().nullable(),
+      status: external_exports.string().nullable()
+    }).strict()).max(1e3).optional()
+  }).strict();
+  var REGISTRATION_MALL_OUTCOMES = ["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"];
+  var RegistrationMallOutcomeSchema = external_exports.enum(REGISTRATION_MALL_OUTCOMES);
+  var RegistrationResultSchema = external_exports.object({
+    providerOutcome: ProviderOutcomeSchema,
+    mallOutcome: RegistrationMallOutcomeSchema,
+    submitted: external_exports.boolean(),
+    submitSkipped: external_exports.string().nullable(),
+    externalListingId: external_exports.string().nullable(),
+    mallMessage: external_exports.string().nullable(),
+    fill: RegistrationFillSchema,
+    evidence: RegistrationEvidenceSchema.nullable(),
+    /** owner finalize가 연결 · 생성한 리스팅(확인된 등록만). 확장은 보내지 않는다. KID-364 M1 추가. */
+    channelListingId: external_exports.string().uuid().nullable().optional()
+  }).strict();
+  var RegistrationConfirmRequestSchema = external_exports.object({
+    externalListingId: external_exports.string().trim().min(1).max(64),
+    observedUrl: external_exports.string().url().optional(),
+    options: external_exports.array(external_exports.object({
+      salesProductOptionId: external_exports.string().uuid(),
+      externalOptionId: external_exports.string().trim().min(1),
+      sellerSku: external_exports.string().nullable().optional()
+    }).strict()).max(1e3).optional()
+  }).strict();
+  var RegistrationCloseRequestSchema = external_exports.object({
+    /** 운영자가 몰에서 확인한 사실: 등록되지 않았다(failed). */
+    reason: external_exports.string().trim().min(1).max(500)
+  }).strict();
+  var MALL_AVAILABILITY_READ_KIND = "channels.mall_availability_read";
+  var MallAvailabilityReadScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string().min(1).max(64),
+    externalListingIds: external_exports.array(external_exports.string().trim().min(1).max(64)).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS)
+  }).strict();
+  var MallAvailabilityReadPlanSchema = MallAvailabilityReadScopeSchema.extend({
+    expectedProviderAccountId: external_exports.string().min(1).nullable(),
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var MALL_AVAILABILITY_ROWS_CHUNK_KIND = "availability_rows";
+  var MallAvailabilityRowSchema = external_exports.object({
+    externalListingId: external_exports.string().min(1),
+    externalOptionId: external_exports.string().min(1).nullable(),
+    /** 몰이 지금 팔고 있다고 보이는가(품절·판매중지는 false). */
+    available: external_exports.boolean(),
+    stock: external_exports.number().int().nonnegative().nullable(),
+    /** 쿠팡 로켓그로스 옵션인가(다른 몰은 false). 웹 품절 후보 화면이 구별해 보여 준다. */
+    rocket: external_exports.boolean(),
+    /** 몰 화면의 상태 원문. */
+    observedStatus: external_exports.string().nullable(),
+    observedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var MallAvailabilityReadResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative(),
+    /** 요청했지만 몰에서 못 찾은 리스팅. */
+    missingExternalListingIds: external_exports.array(external_exports.string()),
+    rows: external_exports.array(MallAvailabilityRowSchema)
+  }).strict();
+
+  // packages/shared/src/schemas/registration-state.ts
+  var MallListingStateSchema = external_exports.enum([
+    "published",
+    "reviewing",
+    "error",
+    "paused",
+    "discontinued",
+    "unknown",
+    "unregistered"
+  ]);
+  var REGISTRATION_ACCOUNT_STATES = [
+    "unregistered",
+    "preparing",
+    "submitting",
+    "confirming",
+    "registered",
+    "failed"
+  ];
+  var RegistrationAccountStateValueSchema = external_exports.enum(REGISTRATION_ACCOUNT_STATES);
+  var RegistrationAccountLastExecutionSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    kind: external_exports.string(),
+    status: external_exports.string(),
+    providerOutcome: external_exports.string(),
+    createdAt: external_exports.string(),
+    completedAt: external_exports.string().nullable()
+  }).strict();
+  var RegistrationAccountStateSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    channel: external_exports.string(),
+    channelAccountName: external_exports.string().nullable(),
+    /** 이 계정의 등록 설정(상품 × 계정당 하나). 리스팅만 있고 설정이 없으면 null. */
+    registrationTargetId: external_exports.string().uuid().nullable(),
+    /** 몰에 있는 리스팅(활성이든 내렸든 가장 최근 것). 없으면 null. */
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().nullable(),
+    /** 그 리스팅을 몰이 보고한 상태(우리 어휘). 등록됨 배지는 `published` 일 때만 초록이고, 그 밖은 몰 상태를 옆에 보인다. */
+    listingState: MallListingStateSchema.nullable(),
+    /** 몰이 준 원문 상태. 툴팁용. */
+    listingRawStatus: external_exports.string().nullable(),
+    /** 리스팅이 몰에 살아 있는가. 카탈로그 부재로 내린 리스팅은 false — "등록됨 · 내림". 리스팅이 없으면 false. */
+    listingActive: external_exports.boolean(),
+    state: RegistrationAccountStateValueSchema,
+    /** 등록됨 위 품절 표시. 등록되지 않았으면 false. */
+    soldOut: external_exports.boolean(),
+    /** 등록 뒤 상품 · 옵션 · 등록 설정 · 상세 revision · 대표이미지가 바뀌어 재전송이 필요하다. 등록되지 않았으면 false. */
+    changedSinceRegistration: external_exports.boolean(),
+    /** 등록 설정이 고른 콘텐츠(Content id). 비면 워크스페이스의 현재 값. */
+    selectedThumbnailAssetId: external_exports.string().uuid().nullable(),
+    selectedDetailPageRevisionId: external_exports.string().uuid().nullable(),
+    lastExecution: RegistrationAccountLastExecutionSchema.nullable()
+  }).strict();
+  var SalesProductRegistrationStateSchema = external_exports.object({
+    accounts: external_exports.array(RegistrationAccountStateSchema)
+  }).strict();
+
+  // packages/shared/src/schemas/sales-product.ts
+  var SALES_PRODUCT_STATUSES = ["draft", "active", "archived"];
+  var SalesProductStatusSchema = external_exports.enum(SALES_PRODUCT_STATUSES);
+  var SALES_PRODUCT_OPTION_SUPPLY_STATUSES = ["selling", "sold_out", "unused"];
+  var SalesProductOptionSupplyStatusSchema = external_exports.enum(SALES_PRODUCT_OPTION_SUPPLY_STATUSES);
+  var SALES_PRODUCT_TAX_TYPES = ["taxable", "tax_free", "zero_rated", "unknown"];
+  var SalesProductTaxTypeSchema = external_exports.enum(SALES_PRODUCT_TAX_TYPES);
+  var SALES_PRODUCT_KC_STATUSES = ["unknown", "none", "exists"];
+  var SalesProductKcStatusSchema = external_exports.enum(SALES_PRODUCT_KC_STATUSES);
+  var SALES_PRODUCT_DELIVERY_FEE_TYPES = ["free", "collect", "prepay", "collect_or_prepay"];
+  var SalesProductDeliveryFeeTypeSchema = external_exports.enum(SALES_PRODUCT_DELIVERY_FEE_TYPES);
+  var SALES_PRODUCT_MAX_OPTION_AXES = 3;
+  var SALES_PRODUCT_MAX_OPTIONS = 200;
+  var SALES_PRODUCT_OPTION_FORBIDDEN_CHARS = [":", "|", "^", "<", ">"];
+  var MAX_KRW = 1e9;
+  var money = external_exports.number().int().min(0).max(MAX_KRW);
+  var optionalText = (max) => external_exports.string().trim().max(max).nullable().optional();
+  var requiredText = (max) => external_exports.string().trim().min(1).max(max);
+  function hasForbiddenOptionChar(value) {
+    return SALES_PRODUCT_OPTION_FORBIDDEN_CHARS.some((char) => value.includes(char));
+  }
+  var optionText = requiredText(100).refine(
+    (value) => !hasForbiddenOptionChar(value),
+    { message: `\uC635\uC158\uC5D0\uB294 ${SALES_PRODUCT_OPTION_FORBIDDEN_CHARS.join(" ")} \uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` }
+  );
+  function salesProductOptionKey(values) {
+    return values.map((value) => value.trim()).join(":");
+  }
+  var SalesProductCertificationSchema = external_exports.object({
+    number: requiredText(100),
+    issuer: optionalText(100),
+    field: optionalText(100),
+    validFrom: optionalText(10),
+    validTo: optionalText(10),
+    issuedAt: optionalText(10),
+    certifiedAt: optionalText(10),
+    imageUrl: optionalText(1e3)
+  }).strict();
+  var SalesProductOptionComponentInputSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    quantity: external_exports.number().int().min(1).max(999)
+  }).strict();
+  var SalesProductOptionInputSchema = external_exports.object({
+    /** 이미 있는 단품을 고칠 때 그 단품 id. 없으면 값(optionKey)으로 찾고, 그래도 없으면 새로 만든다. */
+    id: external_exports.string().uuid().optional(),
+    optionCode: external_exports.string().trim().min(1).max(80).optional(),
+    values: external_exports.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES),
+    alias: optionalText(100),
+    barcode: optionalText(60),
+    /** 초안은 판매가가 아직 없다. 비어 있으면 상품이 `draft` 로 내려간다. */
+    salePrice: money.nullable().default(null),
+    normalPrice: money.nullable().default(null),
+    supplyStatus: SalesProductOptionSupplyStatusSchema.default("selling"),
+    safetyStock: external_exports.number().int().min(0).max(1e6).nullable().optional(),
+    components: external_exports.array(SalesProductOptionComponentInputSchema).max(10).default([])
+  }).strict();
+  var OptionSetSchema = external_exports.object({
+    optionAxes: external_exports.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES).default([]),
+    options: external_exports.array(SalesProductOptionInputSchema).min(1).max(SALES_PRODUCT_MAX_OPTIONS)
+  });
+  function refineOptionSet(value, ctx) {
+    const axes = value.optionAxes;
+    if (new Set(axes).size !== axes.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["optionAxes"], message: "\uC635\uC158 \uB2E8 \uC774\uB984\uC774 \uACB9\uCE69\uB2C8\uB2E4." });
+    }
+    if (axes.length === 0 && value.options.length !== 1) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options"], message: "\uC635\uC158 \uB2E8\uC774 \uC5C6\uC73C\uBA74 \uB2E8\uD488\uC740 \uD558\uB098\uC785\uB2C8\uB2E4." });
+    }
+    const keys = /* @__PURE__ */ new Set();
+    value.options.forEach((option, index) => {
+      if (option.values.length !== axes.length) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["options", index, "values"],
+          message: `\uC635\uC158 \uAC12\uC740 \uB2E8 \uC218(${axes.length})\uB9CC\uD07C \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4.`
+        });
+        return;
+      }
+      const key = salesProductOptionKey(option.values);
+      if (keys.has(key)) {
+        ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options", index, "values"], message: "\uAC19\uC740 \uC635\uC158\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4." });
+      }
+      keys.add(key);
+      const skuIds = option.components.map((component) => component.masterProductId);
+      if (new Set(skuIds).size !== skuIds.length) {
+        ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options", index, "components"], message: "\uAC19\uC740 \uC140\uD53C\uC544 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4." });
+      }
+    });
+    const codes = value.options.map((option) => option.optionCode).filter(Boolean);
+    if (new Set(codes).size !== codes.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options"], message: "\uB2E8\uD488\uCF54\uB4DC\uAC00 \uACB9\uCE69\uB2C8\uB2E4." });
+    }
+  }
+  var SalesProductBasicsInputSchema = external_exports.object({
+    name: requiredText(255),
+    ownCode: optionalText(100),
+    shortName: optionalText(255),
+    englishName: optionalText(255),
+    printName: optionalText(255),
+    modelName: optionalText(60),
+    modelNo: optionalText(60),
+    brand: optionalText(50),
+    manufacturer: optionalText(50),
+    originCountry: optionalText(50),
+    originRegion: optionalText(50),
+    keywords: external_exports.array(requiredText(60)).max(30).default([]),
+    standardCategory: optionalText(40),
+    /** 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML 은 Content 의 상세 페이지 revision 이 정본이다(KID-313 W2). */
+    description: external_exports.string().max(2e4).default(""),
+    targetAudience: optionalText(200),
+    ageGroup: optionalText(100),
+    productSize: optionalText(200),
+    colorVariantNames: external_exports.array(requiredText(60)).max(30).default([]),
+    boxSetQuantity: external_exports.number().int().min(1).max(1e5).nullable().optional(),
+    /** 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다. */
+    registrationDefaults: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().optional(),
+    taxType: SalesProductTaxTypeSchema.default("taxable"),
+    deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable().optional(),
+    deliveryFee: money.nullable().optional(),
+    stockManaged: external_exports.boolean().default(false),
+    imageUrls: external_exports.array(requiredText(1e3)).max(30).default([]),
+    noticeCategory: optionalText(10),
+    noticeValues: external_exports.array(external_exports.string().max(1e3)).max(40).default([]),
+    certifications: external_exports.array(SalesProductCertificationSchema).max(10).default([]),
+    /** KC 가 이 상품에 어떻게 걸리는가. '해당 없음'은 여기서만 말할 수 있다. */
+    kcStatus: SalesProductKcStatusSchema.default("unknown"),
+    importDeclarationNo: optionalText(60),
+    adminMemo: optionalText(2e3)
+  }).strict();
+  var SalesProductCreateInputSchema = SalesProductBasicsInputSchema.extend({
+    /** 판매상품코드. 비우면 서버가 만든다. */
+    code: external_exports.string().trim().min(1).max(60).optional(),
+    optionAxes: OptionSetSchema.shape.optionAxes,
+    options: OptionSetSchema.shape.options
+  }).strict().superRefine(refineOptionSet);
+  var SalesProductUpdateInputSchema = SalesProductBasicsInputSchema.partial().extend({
+    expectedVersion: external_exports.number().int().min(1),
+    status: external_exports.literal("archived").optional()
+  }).strict();
+  var SalesProductOptionsReplaceInputSchema = OptionSetSchema.extend({
+    expectedVersion: external_exports.number().int().min(1)
+  }).strict().superRefine(refineOptionSet);
+  var SalesProductOptionComponentSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    sellpiaCode: external_exports.string(),
+    name: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    quantity: external_exports.number().int(),
+    currentStock: external_exports.number().int().nullable()
+  });
+  var SalesProductOptionSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 초안의 단품은 비어 있다. */
+    optionCode: external_exports.string().nullable(),
+    values: external_exports.array(external_exports.string()),
+    optionKey: external_exports.string(),
+    alias: external_exports.string().nullable(),
+    barcode: external_exports.string().nullable(),
+    /** 초안은 아직 정하지 않아 비어 있다. */
+    salePrice: money.nullable(),
+    normalPrice: money.nullable(),
+    supplyStatus: SalesProductOptionSupplyStatusSchema,
+    safetyStock: external_exports.number().int().nullable(),
+    sortOrder: external_exports.number().int(),
+    components: external_exports.array(SalesProductOptionComponentSchema),
+    /**
+     * 참고 원가(원). 구성 원천 상품의 지금 매입가 × 수량의 합이다. 구성이 없거나 매입가가 빠진
+     * 원천이 하나라도 있으면 null(계산 불가). 읽기 전용 표시이며 손익 · ABC 계산과 무관하다.
+     */
+    // 이 칸이 생기기 전에 동결한 실행 payload 도 읽히도록 비어 있으면 null 이다.
+    referenceCost: external_exports.number().int().nullable().default(null),
+    /** 이 단품에 연결된 몰 옵션 수. 연결된 단품은 지우지 않는다. */
+    linkedChannelOptionCount: external_exports.number().int().min(0)
+  });
+  var SalesProductChannelOverrideSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string(),
+    mallName: external_exports.string(),
+    salePrice: external_exports.number().int().nullable(),
+    stockPercent: external_exports.number().int().nullable(),
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).nullable(),
+    version: external_exports.number().int(),
+    updatedAt: zIsoDate
+  });
+  var SalesProductChannelListingSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string(),
+    mallName: external_exports.string(),
+    externalId: external_exports.string(),
+    displayName: external_exports.string().nullable(),
+    status: external_exports.string().nullable(),
+    isActive: external_exports.boolean(),
+    /** 몰 옵션 — 가져올 때 읽은 몰 판매가와 이어진 단품. */
+    options: external_exports.array(external_exports.object({
+      id: external_exports.string().uuid(),
+      externalOptionId: external_exports.string(),
+      itemName: external_exports.string().nullable(),
+      salePrice: external_exports.number().int().nullable(),
+      salesProductOptionId: external_exports.string().uuid().nullable()
+    }))
+  });
+  var SalesProductSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다(화면은 '미발급'). */
+    code: external_exports.string().nullable(),
+    ownCode: external_exports.string().nullable(),
+    sabangnetGoodsNo: external_exports.string().nullable(),
+    /** 이 상품을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷 상품은 없다. 초안을 지우면 함께 지워진다. */
+    sourceRecordId: external_exports.string().uuid().nullable(),
+    /** 원천 장터(`1688` · `coupang` · `sabangnet` …). 초안을 만들 때 복사하고 바꾸지 않는다. */
+    sourcePlatform: external_exports.string().nullable(),
+    sourceUrl: external_exports.string().nullable(),
+    name: external_exports.string(),
+    shortName: external_exports.string().nullable(),
+    englishName: external_exports.string().nullable(),
+    printName: external_exports.string().nullable(),
+    modelName: external_exports.string().nullable(),
+    modelNo: external_exports.string().nullable(),
+    brand: external_exports.string().nullable(),
+    manufacturer: external_exports.string().nullable(),
+    originCountry: external_exports.string().nullable(),
+    originRegion: external_exports.string().nullable(),
+    keywords: external_exports.array(external_exports.string()),
+    standardCategory: external_exports.string().nullable(),
+    description: external_exports.string(),
+    targetAudience: external_exports.string().nullable(),
+    ageGroup: external_exports.string().nullable(),
+    productSize: external_exports.string().nullable(),
+    colorVariantNames: external_exports.array(external_exports.string()),
+    boxSetQuantity: external_exports.number().int().nullable(),
+    registrationDefaults: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
+    status: SalesProductStatusSchema,
+    taxType: SalesProductTaxTypeSchema,
+    deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable(),
+    deliveryFee: external_exports.number().int().nullable(),
+    optionAxes: external_exports.array(external_exports.string()),
+    stockManaged: external_exports.boolean(),
+    imageUrls: external_exports.array(external_exports.string()),
+    noticeCategory: external_exports.string().nullable(),
+    noticeValues: external_exports.array(external_exports.string()),
+    certifications: external_exports.array(SalesProductCertificationSchema),
+    kcStatus: SalesProductKcStatusSchema,
+    importDeclarationNo: external_exports.string().nullable(),
+    adminMemo: external_exports.string().nullable(),
+    version: external_exports.number().int(),
+    createdAt: zIsoDate,
+    updatedAt: zIsoDate,
+    options: external_exports.array(SalesProductOptionSchema),
+    channelOverrides: external_exports.array(SalesProductChannelOverrideSchema),
+    channelListings: external_exports.array(SalesProductChannelListingSchema)
+  });
+  var SalesProductListQuerySchema = external_exports.object({
+    query: external_exports.string().trim().max(200).optional(),
+    status: SalesProductStatusSchema.optional(),
+    /** 원천 장터 탭(수집상품 화면의 1688 · 쿠팡 · 사방넷). 초안에 복사된 값으로 거른다. */
+    sourcePlatform: external_exports.string().trim().max(40).optional(),
+    /**
+     * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
+     * `unregistered`: KID 를 받은 판매 상품(`active`) 중 아직 어느 몰에도 올라가지 않은 것 ·
+     * `preparing`: 수집상품 화면 — 초안(`draft`, KID 없음)만(KID-313).
+     */
+    focus: external_exports.enum(["all", "with_options", "unlinked", "unregistered", "preparing"]).default("all"),
+    page: external_exports.coerce.number().int().min(1).default(1),
+    limit: external_exports.coerce.number().int().min(1).max(100).default(50)
+  });
+  var SalesProductListItemSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다. */
+    code: external_exports.string().nullable(),
+    ownCode: external_exports.string().nullable(),
+    /** 이 상품을 만든 원본 기록(SourceRecord) id. */
+    sourceRecordId: external_exports.string().uuid().nullable(),
+    sourcePlatform: external_exports.string().nullable(),
+    sourceUrl: external_exports.string().nullable(),
+    name: external_exports.string(),
+    status: SalesProductStatusSchema,
+    /** 팔 옵션 중 가장 싼 값. 초안이라 아직 정하지 않았으면 null. */
+    salePrice: external_exports.number().int().nullable(),
+    imageUrl: external_exports.string().nullable(),
+    optionAxes: external_exports.array(external_exports.string()),
+    optionCount: external_exports.number().int(),
+    sellingOptionCount: external_exports.number().int(),
+    /** 셀피아 구성이 비어 있는 단품 수(미사용 제외). */
+    unlinkedOptionCount: external_exports.number().int(),
+    channelListingCount: external_exports.number().int(),
+    /** 몰 계정별 등록 상태(KID-313 결정 11). 화면은 이것만 읽고 실행 · 리스팅 표를 조합하지 않는다. */
+    registrationAccounts: external_exports.array(RegistrationAccountStateSchema),
+    updatedAt: zIsoDate
+  });
+  var SalesProductListResponseSchema = external_exports.object({
+    items: external_exports.array(SalesProductListItemSchema),
+    total: external_exports.number().int(),
+    page: external_exports.number().int(),
+    limit: external_exports.number().int(),
+    summary: external_exports.object({
+      total: external_exports.number().int(),
+      withOptions: external_exports.number().int(),
+      withUnlinkedOptions: external_exports.number().int(),
+      /** 아직 어느 몰에도 올라가지 않은 판매상품 수. */
+      unregistered: external_exports.number().int(),
+      /** KID 를 아직 받지 않은 초안 수. */
+      draft: external_exports.number().int()
+    })
+  });
+  var SALES_PRODUCT_LINK_SOURCES = ["sabangnet_record", "send_record_file", "seller_code"];
+  var SalesProductLinkSourceSchema = external_exports.enum(SALES_PRODUCT_LINK_SOURCES);
+  var SalesProductLinkResultSchema = external_exports.object({
+    /** 이번에 판매상품을 새로 이은 몰 상품 수. */
+    linkedListings: external_exports.number().int(),
+    /** 이미 이어져 있던 몰 상품 수(그대로 둔다). */
+    alreadyLinked: external_exports.number().int(),
+    /** 몰 옵션 ↔ 단품을 이은 수(옵션 하나인 상품끼리만). */
+    linkedOptions: external_exports.number().int(),
+    /** 비어 있던 몰 옵션 레시피를 단품의 셀피아 구성으로 채운 수. */
+    recipesFilled: external_exports.number().int(),
+    /** 근거가 서로 다른 판매상품을 가리켜 잇지 않은 몰 상품 수. */
+    conflicts: external_exports.number().int(),
+    bySource: external_exports.record(SalesProductLinkSourceSchema, external_exports.number().int())
+  });
+  var SABANGNET_WORKBOOK_KINDS = [
+    "products",
+    "options",
+    "channel_overrides",
+    "send_records",
+    "mall_categories",
+    "mall_templates"
+  ];
+  var SabangnetWorkbookKindSchema = external_exports.enum(SABANGNET_WORKBOOK_KINDS);
+  var SabangnetImportIssueSchema = external_exports.object({
+    kind: SabangnetWorkbookKindSchema,
+    row: external_exports.number().int(),
+    code: external_exports.string().nullable(),
+    message: external_exports.string()
+  });
+  var SabangnetImportSelectionSchema = external_exports.array(external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    expectedVersion: external_exports.number().int().positive()
+  }).strict()).max(1e4);
+  var SabangnetImportPreviewSchema = external_exports.object({
+    dryRun: external_exports.boolean(),
+    existingChanges: external_exports.array(external_exports.object({
+      salesProductId: external_exports.string().uuid(),
+      code: external_exports.string(),
+      name: external_exports.string(),
+      sourceKey: external_exports.string(),
+      expectedVersion: external_exports.number().int().positive(),
+      changed: external_exports.boolean(),
+      /** 판매상품 값은 그대로이고 다음 가져오기가 비교할 저장된 원문(기준값)만 바뀐다. */
+      baselineOnly: external_exports.boolean(),
+      /** 파일 값이 달랐지만 지난 가져오기 뒤 사람이 고쳐서 지킨 칸(판매상품 필드 이름). */
+      preserved: external_exports.array(external_exports.string()),
+      /** 사람이 고치지 않아 파일 값으로 바꾸는 칸. */
+      updated: external_exports.array(external_exports.string())
+    })),
+    files: external_exports.array(external_exports.object({ name: external_exports.string(), kind: SabangnetWorkbookKindSchema, rows: external_exports.number().int() })),
+    products: external_exports.object({
+      total: external_exports.number().int(),
+      created: external_exports.number().int(),
+      updated: external_exports.number().int(),
+      unchanged: external_exports.number().int()
+    }),
+    options: external_exports.object({
+      total: external_exports.number().int(),
+      withOptionsProducts: external_exports.number().int(),
+      /** 셀피아 상품코드 · 옵션명이 정확히 맞아 연결한 단품 수. */
+      linked: external_exports.number().int(),
+      unlinked: external_exports.number().int()
+    }),
+    channelOverrides: external_exports.object({
+      total: external_exports.number().int(),
+      saved: external_exports.number().int(),
+      /** 우리 몰 계정이 없어 넘긴 사방넷 쇼핑몰 코드와 줄 수. */
+      skippedByShop: external_exports.record(external_exports.string(), external_exports.number().int())
+    }),
+    issues: external_exports.array(SabangnetImportIssueSchema).max(200),
+    issueCount: external_exports.number().int(),
+    /** 몰에 올라간 상품 ↔ 판매상품 잇기 결과. 옮길 때는 늘 잇고, 송신 기록 없이 미리볼 때만 null. */
+    links: SalesProductLinkResultSchema.nullable(),
+    /** 송신 기록에서 읽은 상품 × 몰의 사방넷 분류 · 부가정보. 송신 기록이 없으면 null. */
+    mallValues: external_exports.object({
+      pairs: external_exports.number().int(),
+      withCategory: external_exports.number().int(),
+      withTemplate: external_exports.number().int()
+    }).nullable()
+  });
+  var SalesProductExternalImagesSchema = external_exports.object({
+    /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
+    images: external_exports.number().int(),
+    /** 그런 사진이 있는 판매상품 수. */
+    products: external_exports.number().int()
+  });
+  var SalesProductImageMirrorResultSchema = external_exports.object({
+    mirrored: external_exports.number().int(),
+    failedCount: external_exports.number().int(),
+    failed: external_exports.array(external_exports.object({ url: external_exports.string(), reason: external_exports.string() })).max(20),
+    productsUpdated: external_exports.number().int(),
+    /** 그사이 누가 고쳐 이번에 쓰지 못한 판매상품. 다음 묶음에서 다시 옮긴다. */
+    productsSkipped: external_exports.number().int(),
+    /** 아직 옮기지 못한 사진 수. */
+    remaining: external_exports.number().int(),
+    /** 다음 묶음을 부를 때 넘길 `skip` — 이번까지 못 옮긴 사진은 건너뛴다. */
+    nextSkip: external_exports.number().int()
+  });
+  var SalesProductMallCategoriesSchema = external_exports.object({
+    mallKey: external_exports.string(),
+    categories: external_exports.array(external_exports.object({
+      /** 몰 분류 경로(사방넷이 몰에 보낸 그대로, `>` 로 잇는다). */
+      path: external_exports.string(),
+      /** 사방넷에서 붙인 분류 이름. */
+      title: external_exports.string().nullable(),
+      /** 이 분류를 쓴 판매상품 수. */
+      count: external_exports.number().int()
+    }))
+  });
+  var SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ["options_disagree"];
+  var SalesProductMallPriceConflictReasonSchema = external_exports.enum(SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS);
+  var SalesProductMallPriceAdoptionSchema = external_exports.object({
+    /** false 면 미리보기 — 쓰지 않았다. */
+    applied: external_exports.boolean(),
+    /** 단품 판매가를 몰 가격으로 바꿀(바꾼) 상품의 가격 근거 상품 × 몰. */
+    pairs: external_exports.number().int(),
+    products: external_exports.number().int(),
+    /** 이미 같은 상품 × 몰. */
+    unchanged: external_exports.number().int(),
+    conflicts: external_exports.number().int(),
+    conflictSamples: external_exports.array(external_exports.object({
+      code: external_exports.string(),
+      name: external_exports.string(),
+      mallName: external_exports.string(),
+      reason: SalesProductMallPriceConflictReasonSchema,
+      prices: external_exports.array(external_exports.number().int())
+    })).max(20),
+    /** 몰 이름 → 바꿀(바꾼) 상품 수. */
+    byMall: external_exports.record(external_exports.string(), external_exports.number().int())
+  });
+  var SalesProductMallSheetSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    label: external_exports.string(),
+    /** 이 파일이 올라가는 몰 키(ESM 은 G마켓 · 옥션 둘). */
+    mallKeys: external_exports.array(external_exports.string()),
+    /** 몰 분류를 번호로 받는가(`code`, 몰 카테고리표로 경로를 번호로 바꾼다), 이름 그대로 받는가(`name`). */
+    categoryBy: external_exports.enum(["code", "name"]),
+    /** 몰이 한 파일에 받는 상품 수. */
+    maxProducts: external_exports.number().int(),
+    /** 몰 계정에 한 번 정하는 값(출하지 코드 · 스토어명 …)과 기본값. */
+    fixedFields: external_exports.array(external_exports.object({
+      key: external_exports.string(),
+      label: external_exports.string(),
+      required: external_exports.boolean(),
+      defaultValue: external_exports.string(),
+      help: external_exports.string().nullable()
+    })),
+    /** 올리는 곳 · 올린 뒤 할 일. */
+    notes: external_exports.array(external_exports.string())
+  });
+  var SalesProductMallSheetListSchema = external_exports.object({
+    sheets: external_exports.array(SalesProductMallSheetSchema),
+    /** 신규 등록 엑셀이 없는 몰과 그 까닭 — 폼 채우기 등록으로 간다. */
+    unavailable: external_exports.array(external_exports.object({ mallKey: external_exports.string(), reason: external_exports.string() }))
+  });
+  var SALES_PRODUCT_MALL_SHEET_MAX_IDS = 1e3;
+  var SalesProductMallSheetRequestSchema = external_exports.object({
+    /** 비우면(확인만) 이 몰에 아직 없는 판매상품 — 몰 상품과 이어지지 않았고 사방넷이 보낸 적도 없는 것. */
+    salesProductIds: external_exports.array(external_exports.string().uuid()).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS).optional(),
+    /** 고정값. 빈 칸은 기본값을 쓴다. */
+    fixed: external_exports.record(external_exports.string(), external_exports.string().max(1e3)).default({})
+  }).strict();
+  var SalesProductMallSheetCategorySchema = external_exports.object({
+    mallKey: external_exports.string(),
+    path: external_exports.string().nullable(),
+    code: external_exports.string().nullable(),
+    source: external_exports.enum(["set", "sabangnet", "none"]),
+    /** 엑셀에 넣을 수 있는가(번호로 받는 몰은 번호가, 이름으로 받는 몰은 경로가 있어야). */
+    resolved: external_exports.boolean(),
+    /** 풀리지 않았을 때, 같은 상품이 다른 몰에서 쓰는 분류로 짐작한 이 몰 분류. 사람이 확인해 저장해야 쓴다. */
+    suggestion: external_exports.object({
+      path: external_exports.string(),
+      /** 투표한 몰들(또는 비슷한 이름의 판매상품들)이 이 분류에 준 몫의 평균(0~1). */
+      share: external_exports.number(),
+      voters: external_exports.number().int(),
+      /** 짐작 근거: 같은 상품의 다른 몰 분류 · 이름이 비슷한 판매상품의 이 몰 분류. */
+      basis: external_exports.enum(["other_malls", "similar_names"]),
+      /** 이 분류가 번호로 풀리는가(번호로 받는 몰). */
+      resolves: external_exports.boolean()
+    }).nullable()
+  });
+  var SalesProductMallSheetCheckSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    /** `missing`: 이 몰에 없는 판매상품을 서버가 골랐다. `selected`: 보낸 id 그대로. */
+    scope: external_exports.enum(["selected", "missing"]),
+    /** 비어 있는 필수 고정값 이름. 있으면 파일을 만들지 않는다. */
+    missingFixed: external_exports.array(external_exports.string()),
+    /**
+     * `missing` 에서 뺀 판매상품 수 — 몰 상품과 이어지지 않았지만 사방넷이 이 몰에 보낸 적이 있어 이미 올라가 있을 수
+     * 있는 것. 다시 올리면 몰에 같은 상품이 둘 생긴다.
+     */
+    maybeListed: external_exports.number().int(),
+    products: external_exports.array(external_exports.object({
+      salesProductId: external_exports.string().uuid(),
+      /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있고, 파일을 만들 때 발급된다. */
+      code: external_exports.string().nullable(),
+      name: external_exports.string(),
+      /** 파일에 들어갈 행 수(쿠팡은 단품마다 한 줄). 못 넣는 상품은 0. */
+      rows: external_exports.number().int(),
+      problems: external_exports.array(external_exports.string()),
+      warnings: external_exports.array(external_exports.string()),
+      /** 이 파일에 들어갈 사진 중 몰이 못 읽어(우리 저장소) 막는 사진 수. [사진 올리기]가 공개 주소를 만든다. */
+      unreadableImages: external_exports.number().int(),
+      /** 이 파일이 다루는 몰마다의 분류. */
+      categories: external_exports.array(SalesProductMallSheetCategorySchema)
+    })),
+    ready: external_exports.number().int(),
+    blocked: external_exports.number().int()
+  });
+  var SalesProductMallSheetCategoryListSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    mallKey: external_exports.string(),
+    /** 찾은 분류 경로(`>` 로 이은 이름). 몰 분류표가 없는 몰이면 빈 배열. */
+    paths: external_exports.array(external_exports.string()),
+    /** 몰 분류표에 있는 전체 분류 수(0 이면 표가 없다). */
+    total: external_exports.number().int()
+  });
+  var SalesProductMallCategoryAssignRequestSchema = external_exports.object({
+    mallKey: external_exports.string().trim().min(1).max(40),
+    path: external_exports.string().trim().min(1).max(300),
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS)
+  }).strict();
+  var SalesProductMallCategoryAssignResultSchema = external_exports.object({
+    /** 바뀐 상품 × 몰 줄 수(이미 같은 분류면 세지 않는다). */
+    written: external_exports.number().int(),
+    /** 몰 카테고리표에서 이 경로의 번호(번호로 받는 몰). 없으면 null — 엑셀은 여전히 막힌다. */
+    code: external_exports.string().nullable()
+  });
+  var CoupangCatalogChangeSchema = external_exports.object({
+    column: external_exports.string(),
+    before: external_exports.string(),
+    after: external_exports.string()
+  });
+  var CoupangCatalogRowSchema = external_exports.object({
+    /** 윙 옵션 ID. 한 줄은 상품이 아니라 옵션 하나다. */
+    optionId: external_exports.string(),
+    listingName: external_exports.string(),
+    optionName: external_exports.string(),
+    /** 이어진 판매상품 코드. 이어지지 않았으면 null. */
+    salesProductCode: external_exports.string().nullable(),
+    unlinked: external_exports.boolean(),
+    changes: external_exports.array(CoupangCatalogChangeSchema),
+    conflicts: external_exports.array(CoupangCatalogChangeSchema)
+  });
+  var CoupangCatalogPlanResultSchema = external_exports.object({
+    /** 파일의 옵션 줄 수. */
+    rows: external_exports.number().int(),
+    /** 우리 단품과 이어진 옵션 줄 수. */
+    linked: external_exports.number().int(),
+    /** 값이 바뀌는 줄 수. */
+    changedRows: external_exports.number().int(),
+    /** 바뀌는 칸 수. */
+    changedCells: external_exports.number().int(),
+    /** 다르지만 두고 센 칸 수. */
+    conflicts: external_exports.number().int(),
+    /** 칸 이름 → 그 칸을 채우는 줄 수. */
+    byColumn: external_exports.record(external_exports.string(), external_exports.number().int()),
+    /** 화면이 보여 줄 줄(바뀌는 줄 · 다른 줄 먼저). */
+    samples: external_exports.array(CoupangCatalogRowSchema)
+  });
+  var SalesProductPublicImagePendingSchema = external_exports.object({
+    urls: external_exports.array(external_exports.string()),
+    /** 그런 사진이 있는 판매상품 수. */
+    products: external_exports.number().int()
+  });
+  var SalesProductPublicImagePendingRequestSchema = external_exports.object({
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS)
+  }).strict();
+  var SalesProductPublicImageSaveRequestSchema = external_exports.object({
+    images: external_exports.array(external_exports.object({
+      sourceUrl: external_exports.string().trim().min(1).max(2e3),
+      publicUrl: external_exports.string().trim().url().max(2e3),
+      host: external_exports.string().trim().min(1).max(40)
+    }).strict()).min(1).max(500)
+  }).strict();
+
+  // packages/shared/src/schemas/registration-target-execution.ts
+  var TargetExecutionKindSchema = external_exports.enum(TARGET_EXECUTION_KINDS);
+  var OptionTransitionSchema = external_exports.object({
+    channelListingOptionId: external_exports.string().uuid(),
+    salesProductOptionId: external_exports.string().uuid()
+  }).strict();
+  var PrepareTargetExecutionInputSchema = external_exports.object({
+    expectedVersion: external_exports.number().int().positive(),
+    kind: TargetExecutionKindSchema,
+    idempotencyKey: external_exports.string().trim().min(1).max(200),
+    channelListingId: external_exports.string().uuid().optional(),
+    /** Supported price update sends only this field, never the whole registration form. */
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    /** Execution-only provider defaults; target settings remain authoritative overrides. */
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    /** Explicit values edited for this submission only; never writes reusable settings. */
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean().default(false),
+    /** Explicit old marketplace option → new common option; never match by order/name. */
+    optionTransitions: external_exports.array(OptionTransitionSchema).max(1e3).optional()
+  }).strict();
+  var TargetExecutionSnapshotSchema = external_exports.object({
+    targetId: external_exports.string().uuid(),
+    targetVersion: external_exports.number().int().positive(),
+    channelAccountId: external_exports.string().uuid(),
+    kind: TargetExecutionKindSchema,
+    channelListingId: external_exports.string().uuid().nullable(),
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    /** Execution-only provider defaults; target settings remain authoritative overrides. */
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    /** Explicit values edited for this submission only; never writes reusable settings. */
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean(),
+    optionTransitions: external_exports.array(OptionTransitionSchema).optional(),
+    product: SalesProductSchema,
+    /**
+     * 이 실행이 몰에 보낼 상세 — 준비 순간 Content 의 revision 을 읽어 동결한다(KID-313 W2). 등록 대상이 고른
+     * revision, 없으면 워크스페이스의 현재 revision. 상세가 없으면 null.
+     */
+    detailPage: external_exports.object({
+      revisionId: external_exports.string().uuid(),
+      html: external_exports.string()
+    }).strict().nullable(),
+    /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). 몰 공급가는 `mallFields.supplyPrice` 다. */
+    registrationInput: external_exports.record(external_exports.string(), external_exports.unknown()),
+    /**
+     * 준비 순간 채널 어댑터가 얼려 넣는 실행 시점 몰 사실(KID-321) — 쿠팡: 해석된 `wingProduct` ·
+     * Sellpia 매칭 · 기존 몰 상품 · vendorItemCode. 등록 대상에는 저장하지 않는다(대상에 남는 몰 값은
+     * `registrationInput.adapter[channel]` 뿐). 어댑터가 얼릴 것이 없으면 `{}`.
+     */
+    adapterPayload: external_exports.record(external_exports.string(), external_exports.unknown())
+  });
+  var TargetExecutionResultSchema = external_exports.object({
+    executionId: external_exports.string().uuid(),
+    targetId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    status: external_exports.enum(["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"]),
+    providerOutcome: external_exports.enum(["not_attempted", "uncertain", "succeeded", "definitive_failure"]),
+    payloadHash: external_exports.string(),
+    payload: TargetExecutionSnapshotSchema,
+    leaseToken: external_exports.string().uuid().nullable(),
+    /** Only the request that atomically starts this execution may perform provider IO. */
+    maySubmit: external_exports.boolean(),
+    externalListingId: external_exports.string().nullable(),
+    expectedProviderAccountId: external_exports.string().nullable().optional(),
+    result: external_exports.unknown().nullable(),
+    createdAt: zIsoDate.optional()
+  }).strict();
+  var ReportTargetExecutionInputSchema = external_exports.object({
+    leaseToken: external_exports.string().uuid(),
+    payloadHash: external_exports.string().min(1),
+    outcome: external_exports.enum(["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"]),
+    evidence: external_exports.object({
+      channelAccountId: external_exports.string().uuid(),
+      externalListingId: external_exports.string().trim().min(1).optional(),
+      observedUrl: external_exports.string().url().optional(),
+      providerAccountId: external_exports.string().optional(),
+      observedStatus: external_exports.string().optional(),
+      message: external_exports.string().optional(),
+      options: external_exports.array(external_exports.object({
+        salesProductOptionId: external_exports.string().uuid(),
+        externalOptionId: external_exports.string().trim().min(1),
+        sellerSku: external_exports.string().nullable().optional()
+      }).strict()).optional()
+    }).strict()
+  }).strict();
+
+  // packages/shared/src/schemas/registration-plan-payloads.ts
+  var RegistrationDocumentPayloadSchema = external_exports.object({
+    snapshot: TargetExecutionSnapshotSchema.nullable(),
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
+  }).strict().refine((payload) => payload.snapshot !== null || payload.form !== null, {
+    message: "\uC5BC\uB9B0 \uBB38\uC11C\uB098 \uD3FC \uC9C0\uC2DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4"
+  });
+  var RegistrationAvailabilityOptionSchema = external_exports.object({
+    /** 판매 옵션에 연결되지 않은 몰 옵션(수집으로만 들어온 것)은 null. */
+    salesProductOptionId: external_exports.string().uuid().nullable(),
+    channelListingOptionId: external_exports.string().uuid(),
+    externalOptionId: external_exports.string().min(1),
+    sellerSku: external_exports.string().nullable()
+  }).strict();
+  var RegistrationAvailabilityListingSchema = external_exports.object({
+    channelListingId: external_exports.string().uuid(),
+    externalListingId: external_exports.string().min(1),
+    /** 바꿀 옵션. 리스팅 단위로 받는 몰은 그 리스팅의 살아 있는 옵션 전부다. */
+    options: external_exports.array(RegistrationAvailabilityOptionSchema).max(1e3)
+  }).strict();
+  var RegistrationAvailabilityPayloadSchema = external_exports.object({
+    action: external_exports.enum(["sold_out", "resume"]),
+    listings: external_exports.array(RegistrationAvailabilityListingSchema).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS)
+  }).strict();
+  var RegistrationThumbnailPayloadSchema = ThumbnailExecutionImageSchema.extend({
+    salesProductId: external_exports.string().uuid(),
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().min(1).nullable(),
+    assetId: external_exports.string().uuid(),
+    /** 몰 관리자에서 상품을 찾는 이름. */
+    productName: external_exports.string().min(1)
+  }).strict();
 
   // packages/shared/src/schemas/mall-admin-listings.ts
   var MALL_ADMIN_LISTINGS_SOURCE_TYPE = "mall_admin_listings";
@@ -5576,7 +7038,7 @@ var KidItemRuntime = (() => {
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
-  var requiredText = (max) => boundedText(max).min(1);
+  var requiredText2 = (max) => boundedText(max).min(1);
   var MallAdminListingsPlanSchema = external_exports.object({
     sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
     parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
@@ -5609,11 +7071,11 @@ var KidItemRuntime = (() => {
      */
     codedListings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
     /** 우리 상태 글자별 상품 수. */
-    statuses: external_exports.record(requiredText(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
+    statuses: external_exports.record(requiredText2(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
   }).strict();
   var MallAdminListingsSourceMallSchema = external_exports.object({
     mallKey: MallKeySchema,
-    mallName: requiredText(40),
+    mallName: requiredText2(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
     /** `latestSucceeded`가 남긴 발행 결과. */
@@ -5627,23 +7089,23 @@ var KidItemRuntime = (() => {
   }).strict();
   var MallAdminListingRowSchema = external_exports.object({
     /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
-    mallProductCode: requiredText(60),
+    mallProductCode: requiredText2(60),
     /**
      * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
      * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
      */
-    alternateCodes: external_exports.array(requiredText(60)).max(3).optional(),
-    productName: requiredText(400),
+    alternateCodes: external_exports.array(requiredText2(60)).max(3).optional(),
+    productName: requiredText2(400),
     /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
-    sellpiaName: requiredText(400).nullable(),
+    sellpiaName: requiredText2(400).nullable(),
     /**
      * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
      * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
      * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
      */
-    sellerCode: requiredText(60).nullable(),
+    sellerCode: requiredText2(60).nullable(),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
-    statusWords: external_exports.array(requiredText(20)).min(1).max(4),
+    statusWords: external_exports.array(requiredText2(20)).min(1).max(4),
     registeredOn: YYYY_MM_DD.nullable(),
     /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
     imageUrl: external_exports.string().url().max(2e3).optional()
@@ -5672,22 +7134,22 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.mall_admin_listings/index.ts
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var SOURCE_SNAPSHOT_INVALID = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS2 = 1e3;
   var mallAdminListingsCollector = {
     kind: MALL_ADMIN_LISTINGS_KIND,
     site: "mall-admin-listings",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = MallAdminListingsPlanSchema.safeParse(rawPlan);
-      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
-      if (!parsed2.success || !reader?.readListings) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+      const parsed3 = MallAdminListingsPlanSchema.safeParse(rawPlan);
+      const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
+      if (!parsed3.success || !reader?.readListings) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ADMIN_LISTINGS_KIND,
-          mallKey: parsed2.success ? parsed2.data.mallKey : null
+          mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
       }
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       const snapshot = await reader.readListings(plan);
       if (signal.aborted) return;
       const scan = MallAdminListingsScanSchema.safeParse({ collection: snapshot.collection, proof: snapshot.proof });
@@ -5711,6 +7173,387 @@ var KidItemRuntime = (() => {
   };
   registerCollector(mallAdminListingsCollector);
 
+  // packages/shared/src/channel-registry.ts
+  var REGISTRY_ROWS = [
+    { key: "one-polaris", name: "\uC6D0\uD3F4\uB77C\uB9AC\uC2A4", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: null },
+    { key: "icecream-mall", name: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0", kind: "mall", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/icecream-mall.png" },
+    { key: "kidkids", name: "\uD0A4\uB4DC\uD0A4\uC988", kind: "mall", collector: "extension", uploadTracking: true, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/kidkids.ico" },
+    { key: "kidsnote", name: "\uD0A4\uC988\uB178\uD2B8", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/kidsnote.png" },
+    { key: "haebub-mall", name: "\uD574\uBC95\uBAB0", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/haebub-mall.ico" },
+    { key: "onch", name: "\uC628\uCC44\uB110", kind: "mall", collector: "extension", uploadTracking: true, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/onch.ico" },
+    { key: "kkomangse", name: "\uAF2C\uB9DD\uC138", kind: "mall", collector: "extension", uploadTracking: false, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/kkomangse.ico" },
+    { key: "art09", name: "\uC544\uD2B8\uACF5\uAD6C", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/art09.ico" },
+    { key: "tekville-edu", name: "\uD14C\uD06C\uBE4C\uAD50\uC721", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/tekville-edu.ico" },
+    { key: "benepia-mul", name: "\uBCA0\uB124\uD53C\uC544\uBB3C", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/benepia-mul.png" },
+    { key: "domeggook", name: "\uB3C4\uB9E4\uAFB9", kind: "mall", collector: "extension", uploadTracking: true, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/domeggook.ico" },
+    { key: "lotte-on", name: "\uB86F\uB370ON", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/lotte-on.png" },
+    { key: "boribori", name: "\uBCF4\uB9AC\uBCF4\uB9AC", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/boribori.ico" },
+    { key: "always", name: "\uC62C\uC6E8\uC774\uC988", kind: "mall", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/always.png" },
+    { key: "woongjin-class", name: "\uC6C5\uC9C4\uD074\uB798\uC2A4\uBAB0", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/woongjin-class.ico" },
+    { key: "kakao", name: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/kakao.ico" },
+    { key: "toss", name: "\uD1A0\uC2A4\uC1FC\uD551", kind: "mall", collector: "none", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/toss.ico" },
+    { key: "teacher-mall", name: "\uD2F0\uCCD0\uBAB0", kind: "mall", collector: "extension", uploadTracking: false, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/teacher-mall.ico" },
+    { key: "gs-shop", name: "GS\uC0F5", kind: "mall", collector: "extension", uploadTracking: false, delivery: "form", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/gs-shop.ico" },
+    { key: "coupang-direct", name: "\uCFE0\uD321\uC9C1\uBC30\uC1A1", kind: "mall", sharedAccountChannel: "rocket", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/coupang-direct.ico" },
+    { key: "gmarket", name: "\uC9C0\uB9C8\uCF13", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/gmarket.ico" },
+    { key: "auction", name: "\uC625\uC158", kind: "mall", formSpec: "gmarket", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/auction.png" },
+    { key: "11st", name: "11\uBC88\uAC00", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/11st.ico" },
+    { key: "smartstore", name: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/smartstore.ico" },
+    { key: "ssg", name: "\uC2E0\uC138\uACC4(SSG)", kind: "mall", collector: "sellpia", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/ssg.ico" },
+    { key: "thirtymall", name: "\uB5A0\uB9AC\uBAB0", kind: "mall", collector: "none", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/thirtymall.ico" },
+    { key: "yoons", name: "\uC724\uC120\uC0DD", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/yoons.ico" },
+    // ── 마켓 판매자 시스템 — 몰 등록 마법사에 서지 않는다 ──────────────────────
+    { key: "coupang", name: "\uCFE0\uD321 WING", kind: "marketplace", collector: "sellpia", uploadTracking: false, delivery: "form", representativeImage: true, soldOutScope: "option", verified: true, logo: "/mall-logos/coupang.ico" },
+    { key: "rocket", name: "\uCFE0\uD321 \uB85C\uCF13", kind: "marketplace", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/rocket.ico" }
+  ];
+  var BY_KEY = new Map(
+    REGISTRY_ROWS.map((entry) => [entry.key, entry])
+  );
+  function findChannel(key) {
+    return BY_KEY.get(key) ?? null;
+  }
+  var MALL_CHANNELS = REGISTRY_ROWS.filter(
+    (entry) => entry.kind === "mall"
+  );
+  var MARKETPLACE_CHANNELS = REGISTRY_ROWS.filter(
+    (entry) => entry.kind === "marketplace"
+  );
+
+  // extensions/src/collectors/channels.mall_availability_read/index.ts
+  var READ_BATCH = 50;
+  var mallAvailabilityReadCollector = {
+    kind: MALL_AVAILABILITY_READ_KIND,
+    site: "mall-write",
+    async *collect(rawPlan, site) {
+      const parsed3 = MallAvailabilityReadPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError("RUNTIME_PLAN_INVALID", "\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589\uD560 \uC218 \uC5C6\uB294 \uD310\uB9E4 \uC0C1\uD0DC \uC77D\uAE30 \uACC4\uD68D\uC785\uB2C8\uB2E4.", { kind: MALL_AVAILABILITY_READ_KIND });
+      const plan = parsed3.data;
+      const reader = site?.reader(plan.mallKey) ?? null;
+      if (!reader) {
+        throw new RuntimeError("RUNTIME_PLAN_INVALID", `\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uD310\uB9E4 \uC0C1\uD0DC \uC77D\uAE30\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`, { kind: MALL_AVAILABILITY_READ_KIND, mallKey: plan.mallKey });
+      }
+      const byOption = findChannel(plan.mallKey)?.soldOutScope === "option";
+      const codes = [...new Set(plan.externalListingIds)];
+      const rows = [];
+      const missing = [];
+      for (let start = 0; start < codes.length; start += READ_BATCH) {
+        const batch = codes.slice(start, start + READ_BATCH);
+        const read15 = await reader.read(batch);
+        const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+        const batchRows = read15.products.flatMap((product) => product.options.map((option) => ({
+          externalListingId: product.code,
+          externalOptionId: byOption ? option.optionCode : null,
+          available: option.stock !== 0,
+          stock: option.stock,
+          rocket: option.rocket,
+          observedStatus: option.state ?? null,
+          observedAt
+        })));
+        missing.push(...read15.missing);
+        rows.push(...batchRows);
+        if (batchRows.length > 0) {
+          yield { chunkKind: MALL_AVAILABILITY_ROWS_CHUNK_KIND, payload: batchRows, progress: { mallKey: plan.mallKey, read: Math.min(start + batch.length, codes.length), total: codes.length } };
+        }
+      }
+      return { result: { rowCount: rows.length, missingExternalListingIds: missing, rows } };
+    }
+  };
+  registerCollector(mallAvailabilityReadCollector);
+
+  // extensions/src/collectors/channels.registration/payload.ts
+  var RegistrationDocumentPayloadSchema2 = external_exports.object({
+    snapshot: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
+  }).passthrough();
+
+  // extensions/src/collectors/channels.registration/index.ts
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var REGISTRATION_ACCOUNT_MISMATCH = "REGISTRATION_ACCOUNT_MISMATCH";
+  var MALL_WRITE_FAILED = "MALL_WRITE_FAILED";
+  function observedConfirms(resume, stock, status) {
+    if (!resume) return stock === 0;
+    return stock !== 0 && (stock !== null || status !== null);
+  }
+  function listingConfirms(resume, byOption, frozen, observed) {
+    if (!observed || observed.options.length === 0) return false;
+    const lines = byOption ? frozen.map((id3) => observed.options.find((option) => option.externalOptionId === id3)) : observed.options;
+    return lines.every((line) => line !== void 0 && observedConfirms(resume, line.stock, line.status ?? observed.status));
+  }
+  function invalid(message, details) {
+    return new RuntimeError(RUNTIME_PLAN_INVALID7, message, { kind: REGISTRATION_KIND, ...details });
+  }
+  function mallOutcomeOf(submission, providerAccountId) {
+    if (!submission) return { outcome: "not_submitted", observed: "not_submitted" };
+    if (submission.accepted === false) return { outcome: "uncertain", observed: "submission_rejected" };
+    if (submission.accepted === true && submission.externalListingId && providerAccountId) return { outcome: "confirmed", observed: "confirmed" };
+    return { outcome: "submitted", observed: "submitted" };
+  }
+  function providerOutcomeOf(outcome) {
+    if (outcome === "not_submitted") return "not_attempted";
+    if (outcome === "confirmed") return "succeeded";
+    return "uncertain";
+  }
+  var registrationCollector = {
+    kind: REGISTRATION_KIND,
+    site: "mall-write",
+    async *collect(rawPlan, site) {
+      const parsed3 = RegistrationPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw invalid("\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589\uD560 \uC218 \uC5C6\uB294 \uB4F1\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", { mallKey: null });
+      const plan = parsed3.data;
+      const writer = site?.writer(plan.mallKey) ?? null;
+      if (!writer) throw invalid(`\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uC4F0\uAE30 \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { mallKey: plan.mallKey });
+      const progress4 = { mallKey: plan.mallKey, executionKind: plan.executionKind };
+      if (plan.executionKind === "thumbnail_update") {
+        const payload = RegistrationThumbnailPayloadSchema.safeParse(plan.payload);
+        if (!payload.success || !writer.thumbnail) {
+          throw invalid("\uB300\uD45C\uC774\uBBF8\uC9C0 \uACC4\uD68D\uC5D0 \uC0AC\uC9C4\uC774 \uC5C6\uAC70\uB098 \uC774 \uBAB0\uC740 \uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFB8\uC9C0 \uBABB\uD569\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const image = payload.data;
+        const session = await writer.thumbnail({
+          externalListingId: image.externalListingId,
+          productName: image.productName,
+          expectedProviderAccountId: plan.expectedProviderAccountId,
+          image: { dataUrl: image.dataUrl, filename: image.filename, mimeType: image.mimeType }
+        });
+        try {
+          if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
+            throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uC2E4\uD589\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: plan.mallKey });
+          }
+          yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress4, stage: "uploaded" } };
+          const evidence = {
+            payloadHash: plan.payloadHash,
+            channelAccountId: plan.channelAccountId,
+            externalListingId: image.externalListingId,
+            observedUrl: session.observedUrl,
+            providerAccountId: session.providerAccountId,
+            observedStatus: null,
+            message: "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC218\uC815 \uD654\uBA74\uC5D0 \uC62C\uB838\uC2B5\uB2C8\uB2E4. [\uC800\uC7A5]\uC740 \uC6B4\uC601\uC790\uAC00 \uB204\uB985\uB2C8\uB2E4.",
+            options: []
+          };
+          yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "uploaded" } };
+          return {
+            outcome: "reconciling",
+            result: {
+              providerOutcome: "uncertain",
+              mallOutcome: "uncertain",
+              submitted: false,
+              submitSkipped: "operator_saves",
+              externalListingId: image.externalListingId,
+              mallMessage: null,
+              fill: session.fill,
+              evidence
+            }
+          };
+        } finally {
+          await session.done();
+        }
+      }
+      if (plan.executionKind === "update") {
+        const payload = RegistrationDocumentPayloadSchema2.safeParse(plan.payload);
+        const snapshot = payload.success ? payload.data.snapshot : null;
+        const options = snapshot?.product?.options;
+        const price2 = options?.length === 1 ? options[0].salePrice : null;
+        if (!writer.price || !plan.externalListingId || typeof price2 !== "number" || !Number.isInteger(price2)) {
+          throw invalid("\uAC00\uACA9 \uC218\uC815 \uACC4\uD68D\uC5D0 \uBAB0 \uC0C1\uD488 \uBC88\uD638\uB098 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const empty = { steps: [], warnings: [], manualSteps: [], dialogs: [] };
+        if (!plan.submit) {
+          return {
+            result: {
+              providerOutcome: "not_attempted",
+              mallOutcome: "not_submitted",
+              submitted: false,
+              submitSkipped: "not_requested",
+              externalListingId: null,
+              mallMessage: null,
+              fill: empty,
+              evidence: null
+            }
+          };
+        }
+        const answer = await writer.price({ externalListingId: plan.externalListingId, price: price2 });
+        const warnings = [...answer.warnings ?? [], ...answer.notes ?? []];
+        if (!answer.submissionAttempted || (answer.sent ?? 0) === 0) {
+          throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(" ") : "\uBAB0\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey });
+        }
+        const observed = answer.results?.find((item) => item.code === plan.externalListingId) ?? null;
+        const won = (value) => `${value.toLocaleString("ko-KR")}\uC6D0`;
+        const fill = {
+          ...empty,
+          steps: [`\uD310\uB9E4\uAC00 ${won(price2)}\uC744 \uBCF4\uB0C8\uC2B5\uB2C8\uB2E4${observed?.before != null && observed.after != null ? `(${won(observed.before)} \u2192 ${won(observed.after)})` : ""}.`],
+          warnings
+        };
+        yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [fill], progress: { ...progress4, stage: "sent" } };
+        const confirmed = observed?.confirmed === true;
+        let evidence = null;
+        if (confirmed) {
+          evidence = {
+            payloadHash: plan.payloadHash,
+            channelAccountId: plan.channelAccountId,
+            externalListingId: plan.externalListingId,
+            observedUrl: observed?.observedUrl ?? null,
+            providerAccountId: null,
+            observedStatus: null,
+            message: null,
+            options: []
+          };
+          yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "reread" } };
+        }
+        const outcome = confirmed ? "confirmed" : "submitted";
+        return {
+          ...confirmed ? {} : { outcome: "reconciling" },
+          result: {
+            providerOutcome: providerOutcomeOf(outcome),
+            mallOutcome: outcome,
+            submitted: true,
+            submitSkipped: null,
+            externalListingId: plan.externalListingId,
+            mallMessage: warnings.length > 0 ? warnings.join(" ") : null,
+            fill,
+            evidence
+          }
+        };
+      }
+      if (plan.executionKind === "register" || plan.executionKind === "composition_change") {
+        const payload = RegistrationDocumentPayloadSchema2.safeParse(plan.payload);
+        if (!payload.success || !payload.data.form || !writer.fill) {
+          throw invalid("\uB4F1\uB85D \uACC4\uD68D\uC5D0 \uBAB0 \uD3FC \uC9C0\uC2DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const session = await writer.fill({
+          executionKind: plan.executionKind,
+          externalListingId: plan.externalListingId,
+          form: payload.data.form,
+          submit: plan.submit,
+          expectedProviderAccountId: plan.expectedProviderAccountId
+        });
+        try {
+          if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
+            throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uB4F1\uB85D\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", {
+              mallKey: plan.mallKey
+            });
+          }
+          yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress4, stage: "filled" } };
+          const attempt = session.decision.press ? await session.submit() : null;
+          const submission = attempt?.pressed ? attempt : null;
+          const { outcome, observed } = mallOutcomeOf(submission, session.providerAccountId);
+          let evidence = null;
+          if (submission) {
+            evidence = {
+              payloadHash: plan.payloadHash,
+              channelAccountId: plan.channelAccountId,
+              externalListingId: submission.externalListingId,
+              observedUrl: submission.observedUrl ?? session.observedUrl,
+              providerAccountId: session.providerAccountId,
+              observedStatus: observed,
+              message: submission.mallMessage,
+              options: []
+            };
+            yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "submitted" } };
+          }
+          return {
+            // 몰에 제출했지만 새 상품번호를 못 읽었다(또는 몰이 거절했다) — 운영자가 몰에서 읽은 등록상품ID로 닫는다(KID-218).
+            ...outcome === "submitted" || outcome === "uncertain" || outcome === "awaiting_approval" ? { outcome: "reconciling" } : {},
+            result: {
+              providerOutcome: providerOutcomeOf(outcome),
+              mallOutcome: outcome,
+              submitted: submission !== null,
+              submitSkipped: session.decision.press ? submission ? null : "submit_button_missing" : session.decision.skipped,
+              externalListingId: submission?.externalListingId ?? null,
+              mallMessage: (submission ?? attempt)?.mallMessage ?? null,
+              fill: session.fill,
+              evidence
+            }
+          };
+        } finally {
+          await session.done();
+        }
+      }
+      if (plan.executionKind === "sold_out" || plan.executionKind === "resume") {
+        const payload = RegistrationAvailabilityPayloadSchema.safeParse(plan.payload);
+        if (!payload.success || !writer.availability) {
+          throw invalid("\uD488\uC808\xB7\uC7AC\uAC1C \uACC4\uD68D\uC5D0 \uB9AC\uC2A4\uD305 \uBB36\uC74C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const resume = plan.executionKind === "resume";
+        const listings = payload.data.listings.map((listing) => ({
+          externalListingId: listing.externalListingId,
+          externalOptionIds: listing.options.map((option) => option.externalOptionId)
+        }));
+        if (!plan.submit) {
+          return {
+            result: {
+              providerOutcome: "not_attempted",
+              mallOutcome: "not_submitted",
+              submitted: false,
+              submitSkipped: "not_requested",
+              externalListingId: null,
+              mallMessage: null,
+              fill: { steps: [], warnings: [], manualSteps: [], dialogs: [] },
+              evidence: null
+            }
+          };
+        }
+        const byOption = findChannel(plan.mallKey)?.soldOutScope === "option";
+        const run = await writer.availability({ resume, byOption, listings, expectedProviderAccountId: plan.expectedProviderAccountId });
+        if (plan.expectedProviderAccountId && run.providerAccountId && run.providerAccountId !== plan.expectedProviderAccountId) {
+          throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uC2E4\uD589\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: plan.mallKey });
+        }
+        const sent = run.answer.sent ?? 0;
+        const warnings = run.answer.warnings ?? [];
+        const byListing = new Map(run.observed.map((observed) => [observed.externalListingId, observed]));
+        const confirmed = listings.filter((listing) => listingConfirms(resume, byOption, listing.externalOptionIds, byListing.get(listing.externalListingId)));
+        if (sent === 0 && confirmed.length < listings.length) {
+          throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(" ") : "\uBAB0\uC774 \uD310\uB9E4 \uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey });
+        }
+        const fill = {
+          steps: [
+            `\uBAB0\uC5D0 ${sent}\uAC74\uC744 \uBCF4\uB0C8\uC2B5\uB2C8\uB2E4.`,
+            ...run.observed.length > 0 ? [`\uB2E4\uC2DC \uC77D\uC5B4 ${confirmed.length}\uAC74\uC774 \uBC14\uB010 \uAC83\uC744 \uD655\uC778\uD588\uC2B5\uB2C8\uB2E4.`] : []
+          ],
+          warnings,
+          manualSteps: [],
+          dialogs: []
+        };
+        yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [fill], progress: { ...progress4, stage: "sent" } };
+        const evidence = listings.flatMap((listing) => {
+          const observed = byListing.get(listing.externalListingId);
+          if (!observed) return [];
+          return [{
+            payloadHash: plan.payloadHash,
+            channelAccountId: plan.channelAccountId,
+            externalListingId: listing.externalListingId,
+            observedUrl: run.observedUrl,
+            providerAccountId: run.providerAccountId,
+            observedStatus: byOption ? observed.status : observed.status ?? (observed.options.every((option) => option.stock === 0) ? "\uD488\uC808" : "\uD310\uB9E4\uC911"),
+            message: null,
+            options: [],
+            ...byOption ? {
+              observedOptions: listing.externalOptionIds.flatMap((id3) => observed.options.filter((option) => option.externalOptionId === id3)).map((option) => ({ externalOptionId: option.externalOptionId, stock: option.stock, status: option.status }))
+            } : {}
+          }];
+        });
+        for (const row of evidence) {
+          yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [row], progress: { ...progress4, stage: "reread", externalListingId: row.externalListingId } };
+        }
+        const outcome = confirmed.length === listings.length ? "confirmed" : run.answer.requestOnly ? "awaiting_approval" : "uncertain";
+        return {
+          ...outcome === "confirmed" ? {} : { outcome: "reconciling" },
+          result: {
+            providerOutcome: providerOutcomeOf(outcome),
+            mallOutcome: outcome,
+            submitted: true,
+            submitSkipped: null,
+            externalListingId: null,
+            mallMessage: null,
+            fill,
+            evidence: null
+          }
+        };
+      }
+      throw invalid(`\uC774 \uD655\uC7A5\uC774 \uC544\uC9C1 \uC2E4\uD589\uD558\uC9C0 \uBABB\uD558\uB294 \uB4F1\uB85D \uC885\uB958\uC785\uB2C8\uB2E4: ${plan.executionKind}`, { mallKey: plan.mallKey, executionKind: plan.executionKind });
+    }
+  };
+  registerCollector(registrationCollector);
+
   // packages/shared/src/schemas/sabangnet-mall-listings.ts
   var SABANGNET_ADMIN_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var SABANGNET_MALL_LISTING_LIST_PATH = "/prod-api/customer/mall/MallProductUpdate/getMallProductUpdateLists";
@@ -5722,9 +7565,9 @@ var KidItemRuntime = (() => {
   var SHOP_ID = external_exports.string().regex(/^shop\d{4}$/);
   var YYYYMMDD = external_exports.string().regex(/^\d{8}$/);
   var boundedText2 = (max) => external_exports.string().trim().max(max);
-  var requiredText2 = (max) => boundedText2(max).min(1);
+  var requiredText3 = (max) => boundedText2(max).min(1);
   var SabangnetMallListingsPlanMallSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     channelAccountId: external_exports.string().uuid(),
     sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
   }).strict();
@@ -5752,7 +7595,7 @@ var KidItemRuntime = (() => {
     }
   });
   var SabangnetMallListingsPublicationSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     channelAccountId: external_exports.string().uuid(),
     /** 이번에 받은 몰 상품코드 수. */
     listings: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
@@ -5760,7 +7603,7 @@ var KidItemRuntime = (() => {
     deactivated: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
   }).strict();
   var SabangnetMallListingsSourceMallSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
     sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
@@ -5783,17 +7626,17 @@ var KidItemRuntime = (() => {
     sendSerial: external_exports.string().regex(/^\d{1,30}$/),
     sabangnetShopId: SHOP_ID,
     /** 몰 상품코드(`shmaPrdNo`). 옵션 외부 ID 칸이 60자다. */
-    mallProductCode: requiredText2(60),
+    mallProductCode: requiredText3(60),
     /** 사방넷 품번(`prdNo`). */
     sabangnetProductNo: external_exports.string().regex(/^\d{1,30}$/),
     /** 사방넷 모델명(`modlNm`). 셀피아 재고 SKU 코드와 같다. */
-    modelName: requiredText2(120).nullable(),
+    modelName: requiredText3(120).nullable(),
     /** 사방넷 자체상품코드(`onsfPrdCd`). 바코드인 경우가 많다. */
-    ownProductCode: requiredText2(120).nullable(),
-    productName: requiredText2(400),
+    ownProductCode: requiredText3(120).nullable(),
+    productName: requiredText3(400),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
     /** 사방넷 공급상태 이름(`prdSplyStsCdNm`) — 공급중 · 일시중지 · 완전품절 · 대기중. */
-    supplyStatus: requiredText2(20),
+    supplyStatus: requiredText3(20),
     /** 첫 송신 시각(`prdRegsFstTrnmDt`, `yyyyMMdd HH:mm`). */
     firstSentAt: external_exports.string().regex(/^\d{8} \d{2}:\d{2}$/).nullable()
   }).strict();
@@ -5821,39 +7664,39 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS3 = 500;
   function drift(stage) {
     throw new RuntimeError(MALL_CONTRACT_CHANGED, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage, field: stage });
   }
-  function text(value, maximum) {
+  function text2(value, maximum) {
     if (typeof value !== "string" && typeof value !== "number") return null;
     const normalized = String(value).replace(/\s+/g, " ").trim();
     return normalized && normalized.length <= maximum ? normalized : null;
   }
   function digits(value, maximum) {
-    const normalized = text(value, maximum);
+    const normalized = text2(value, maximum);
     return normalized && /^\d+$/.test(normalized) ? normalized : null;
   }
   function price(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const parsed2 = Number(value);
-    return Number.isSafeInteger(parsed2) && parsed2 >= 0 && parsed2 <= 1e9 ? parsed2 : null;
+    const parsed3 = Number(value);
+    return Number.isSafeInteger(parsed3) && parsed3 >= 0 && parsed3 <= 1e9 ? parsed3 : null;
   }
   function sentAt(value) {
-    const normalized = text(value, 20);
+    const normalized = text2(value, 20);
     return normalized && /^\d{8} \d{2}:\d{2}$/.test(normalized) ? normalized : null;
   }
   var sabangnetMallListingsCollector = {
     kind: SABANGNET_MALL_LISTINGS_KIND,
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      const plan = parsed2.data;
+      const parsed3 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      const plan = parsed3.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uD55C \uC904" });
@@ -5883,7 +7726,7 @@ var KidItemRuntime = (() => {
           }
           pagesRead += 1;
           for (const item of page.items) {
-            const shopId = text(item.shmaId, 20);
+            const shopId = text2(item.shmaId, 20);
             if (!shopId || !/^shop\d{4}$/.test(shopId)) drift("shop");
             const sendSerial = digits(item.prdRegsTrnmSrno, 30);
             if (!sendSerial) drift("send_serial");
@@ -5894,14 +7737,14 @@ var KidItemRuntime = (() => {
               skippedByShop[shopId] = (skippedByShop[shopId] ?? 0) + 1;
               continue;
             }
-            const mallProductCode = text(item.shmaPrdNo, 60);
+            const mallProductCode = text2(item.shmaPrdNo, 60);
             if (!mallProductCode) {
               missingMallCode += 1;
               continue;
             }
             const sabangnetProductNo = digits(item.prdNo, 30);
-            const productName = text(item.prdNm, 400);
-            const supplyStatus = text(item.prdSplyStsCdNm, 20);
+            const productName = text2(item.prdNm, 400);
+            const supplyStatus = text2(item.prdSplyStsCdNm, 20);
             if (!sabangnetProductNo) drift("product_no");
             if (!productName) drift("product_name");
             if (!supplyStatus) drift("supply_status");
@@ -5911,8 +7754,8 @@ var KidItemRuntime = (() => {
               sabangnetShopId: shopId,
               mallProductCode,
               sabangnetProductNo,
-              modelName: text(item.modlNm, 120),
-              ownProductCode: text(item.onsfPrdCd, 120),
+              modelName: text2(item.modlNm, 120),
+              ownProductCode: text2(item.onsfPrdCd, 120),
               productName,
               salePrice: price(item.sepr),
               supplyStatus,
@@ -5984,13 +7827,13 @@ var KidItemRuntime = (() => {
         message: "targetCount must equal targetCodes length"
       });
     }
-    plan.targetCodes.forEach((code, index) => {
+    plan.targetCodes.forEach((code2, index) => {
       const previous = plan.targetCodes[index - 1];
-      if (previous !== void 0 && code <= previous) {
+      if (previous !== void 0 && code2 <= previous) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["targetCodes", index],
-          message: code === previous ? "targetCodes must be unique" : "targetCodes must be sorted"
+          message: code2 === previous ? "targetCodes must be unique" : "targetCodes must be sorted"
         });
       }
     });
@@ -6005,7 +7848,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sellpia_manual_match/index.ts
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
   var SEARCH_BATCH = 100;
@@ -6018,10 +7861,10 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_MANUAL_MATCH_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      const { targetCodes } = parsed2.data;
+      const parsed3 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      const { targetCodes } = parsed3.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
         const received = [];
@@ -6358,8 +8201,8 @@ var KidItemRuntime = (() => {
         }
       }
     }
-    for (const [optionId, count3] of mediaCountByOption.entries()) {
-      if (count3 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+    for (const [optionId, count5] of mediaCountByOption.entries()) {
+      if (count5 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["media"],
@@ -6624,7 +8467,7 @@ var KidItemRuntime = (() => {
   var ROCKET_PO_ROW_LIMIT = 4e3;
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
   var boundedText3 = (max) => external_exports.string().trim().max(max);
-  var requiredText3 = (max) => boundedText3(max).min(1);
+  var requiredText4 = (max) => boundedText3(max).min(1);
   var isoDay5 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -6641,7 +8484,7 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     truncated: external_exports.boolean(),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
-    failedPoNumbers: external_exports.array(requiredText3(80)).max(ROCKET_PO_ROW_LIMIT)
+    failedPoNumbers: external_exports.array(requiredText4(80)).max(ROCKET_PO_ROW_LIMIT)
   }).strict().superRefine((value, ctx) => {
     if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
       ctx.addIssue({
@@ -6652,12 +8495,12 @@ var KidItemRuntime = (() => {
     }
   });
   var RocketPoCatalogRowSchema = external_exports.object({
-    poLineId: requiredText3(300),
-    poNumber: requiredText3(80),
+    poLineId: requiredText4(300),
+    poNumber: requiredText4(80),
     vendorId: boundedText3(120),
-    productNo: requiredText3(60),
+    productNo: requiredText4(60),
     barcode: boundedText3(80),
-    productName: requiredText3(240),
+    productName: requiredText4(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
     plannedDeliveryDate: isoDay5,
     poStatusCode: boundedText3(20).optional(),
@@ -6694,14 +8537,14 @@ var KidItemRuntime = (() => {
   var RocketSavedPoSummarySchema = external_exports.object({
     /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
     rocketPoOperationId: external_exports.string().uuid(),
-    poNumber: requiredText3(80),
+    poNumber: requiredText4(80),
     orderedAt: boundedText3(40),
     plannedDeliveryDate: isoDay5,
     status: boundedText3(80),
     vendorId: boundedText3(120),
     centerName: boundedText3(120),
     inboundType: boundedText3(80),
-    firstProductName: requiredText3(240),
+    firstProductName: requiredText4(240),
     skuCount: external_exports.number().int().nonnegative(),
     orderQuantity: external_exports.number().int().nonnegative(),
     /** Null when any listed line has no provider-confirmed total. */
@@ -6719,7 +8562,7 @@ var KidItemRuntime = (() => {
     // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
     // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
     // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
-    exportedPoLineIds: external_exports.array(requiredText3(300)).max(ROCKET_PO_ROW_LIMIT)
+    exportedPoLineIds: external_exports.array(requiredText4(300)).max(ROCKET_PO_ROW_LIMIT)
   }).strict();
   var RocketPurchaseRequestBaseSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -6789,12 +8632,12 @@ var KidItemRuntime = (() => {
   var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
   var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
     idempotencyKey: external_exports.string().uuid(),
-    selectedPoLineIds: external_exports.array(requiredText3(300)).min(1).max(4e3).optional(),
+    selectedPoLineIds: external_exports.array(requiredText4(300)).min(1).max(4e3).optional(),
     shortageReasons: external_exports.record(
       external_exports.string().min(1).max(300),
       RocketShortageReasonSchema
     ),
-    artifactFileName: requiredText3(240),
+    artifactFileName: requiredText4(240),
     artifactContentType: external_exports.literal(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -6885,17 +8728,17 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketPurchasePreviewComponentSchema = external_exports.object({
     masterProductId: external_exports.string().uuid(),
-    code: requiredText3(120).nullable(),
-    name: requiredText3(240).nullable(),
+    code: requiredText4(120).nullable(),
+    name: requiredText4(240).nullable(),
     optionName: external_exports.string().trim().min(1).max(240).nullable(),
     quantity: external_exports.number().int().positive(),
     currentStock: external_exports.number().int().nonnegative().nullable()
   }).strict();
   var RocketPurchasePreviewRowSchema = external_exports.object({
-    poLineId: requiredText3(300),
-    poNumber: requiredText3(80),
-    productNo: requiredText3(60),
-    productName: requiredText3(240),
+    poLineId: requiredText4(300),
+    poNumber: requiredText4(80),
+    productNo: requiredText4(60),
+    productName: requiredText4(240),
     plannedDeliveryDate: isoDay5,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -6927,7 +8770,7 @@ var KidItemRuntime = (() => {
     inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
     generatedAt: external_exports.string().datetime(),
     artifact: external_exports.object({
-      fileName: requiredText3(240),
+      fileName: requiredText4(240),
       contentType: external_exports.literal(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       ),
@@ -6941,7 +8784,7 @@ var KidItemRuntime = (() => {
       componentQuantity: external_exports.number().int().nonnegative()
     }).strict(),
     rows: external_exports.array(external_exports.object({
-      poLineId: requiredText3(300),
+      poLineId: requiredText4(300),
       workbookQuantity: external_exports.number().int().nonnegative(),
       shortageReason: RocketShortageReasonSchema.nullable()
     }).strict()).max(ROCKET_PO_ROW_LIMIT)
@@ -7193,7 +9036,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -7204,9 +9047,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -7271,13 +9114,13 @@ var KidItemRuntime = (() => {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const parsed2 = Date.parse(raw);
-    if (Number.isNaN(parsed2)) return raw.slice(0, 10);
-    return new Date(parsed2 + KST_OFFSET_MS).toISOString().slice(0, 10);
+    const parsed3 = Date.parse(raw);
+    if (Number.isNaN(parsed3)) return raw.slice(0, 10);
+    return new Date(parsed3 + KST_OFFSET_MS).toISOString().slice(0, 10);
   }
   function isUrgent(row) {
-    const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
-    if (code) return code === "URGENT";
+    const code2 = String(row.purchaseOrderType ?? "").trim().toUpperCase();
+    if (code2) return code2 === "URGENT";
     return /긴급/.test(String(row.purchaseOrderTypeDescription ?? ""));
   }
   function listedPurchaseOrder(raw) {
@@ -7300,18 +9143,18 @@ var KidItemRuntime = (() => {
   }
   function centerMap(value) {
     const body = value?.body ?? value;
-    const list = Array.isArray(body) ? body : body?.body ?? [];
+    const list2 = Array.isArray(body) ? body : body?.body ?? [];
     const centers = {};
-    for (const center of Array.isArray(list) ? list : []) {
-      const record2 = center;
-      if (!record2?.centerName) continue;
+    for (const center of Array.isArray(list2) ? list2 : []) {
+      const record4 = center;
+      if (!record4?.centerName) continue;
       const entry = {};
-      if (typeof record2.address === "string" && record2.address.trim()) entry.addr = record2.address.trim();
-      if (typeof record2.zipCode === "string" && record2.zipCode.trim() || typeof record2.zipCode === "number") {
-        entry.zip = typeof record2.zipCode === "number" ? record2.zipCode : String(record2.zipCode).trim();
+      if (typeof record4.address === "string" && record4.address.trim()) entry.addr = record4.address.trim();
+      if (typeof record4.zipCode === "string" && record4.zipCode.trim() || typeof record4.zipCode === "number") {
+        entry.zip = typeof record4.zipCode === "number" ? record4.zipCode : String(record4.zipCode).trim();
       }
-      if (typeof record2.contact === "string" && record2.contact.trim()) entry.contact = record2.contact.trim();
-      centers[String(record2.centerName).trim()] = entry;
+      if (typeof record4.contact === "string" && record4.contact.trim()) entry.contact = record4.contact.trim();
+      centers[String(record4.centerName).trim()] = entry;
     }
     return centers;
   }
@@ -7475,15 +9318,15 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      const plan = parsed2.data;
+      const parsed3 = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed3.data;
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
@@ -7525,17 +9368,17 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
     kind: COUPANG_ROCKET_PO_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      const plan = parsed2.data;
+      const parsed3 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const plan = parsed3.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
         const listed = [];
@@ -7600,12 +9443,12 @@ var KidItemRuntime = (() => {
   function listedPo(raw, status, page) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
     const row = raw;
-    const poNumber = requiredText4(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
-    const purchaseOrderStatus = requiredText4(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    const poNumber = requiredText5(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText5(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
     if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
     return {
       poNumber,
-      vendorId: requiredText4(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      vendorId: requiredText5(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
       purchaseOrderStatus,
       plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
       listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
@@ -7653,11 +9496,11 @@ var KidItemRuntime = (() => {
       skip = rowSpan - 1;
       if (!/^\d+$/.test(values[0] ?? "")) continue;
       if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
-      const lineNumber = requiredText4(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      const lineNumber = requiredText5(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
       if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
       lineNumbers.add(lineNumber);
-      const productNo = requiredText4(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
-      const productText = requiredText4(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const productNo = requiredText5(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText5(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
       const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
       const productName = clean(productText, 240);
       if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -7715,10 +9558,10 @@ var KidItemRuntime = (() => {
   function clean(value, max) {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
-  function requiredText4(value, field) {
-    const text5 = norm(value);
-    if (!text5) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-    return text5;
+  function requiredText5(value, field) {
+    const text8 = norm(value);
+    if (!text8) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text8;
   }
   function requiredInteger(value, field) {
     if (typeof value === "number") {
@@ -7728,9 +9571,9 @@ var KidItemRuntime = (() => {
     if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     const raw = value.trim();
     if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    const parsed2 = Number(raw.replace(/,/g, ""));
-    if (!Number.isSafeInteger(parsed2) || parsed2 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
-    return parsed2;
+    const parsed3 = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed3) || parsed3 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed3;
   }
   function isCalendarDate(year, month, day) {
     if (month < 1 || month > 12 || day < 1) return false;
@@ -7745,24 +9588,24 @@ var KidItemRuntime = (() => {
       return raw;
     }
     const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
-    const parsed2 = iso ? Date.parse(raw) : Number.NaN;
-    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed2)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    return new Date(parsed2 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+    const parsed3 = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed3)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed3 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   registerCollector(coupangRocketPoCollector);
 
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema3 = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      const { maxPages } = parsed2.data;
+      const parsed3 = PlanSchema3.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const { maxPages } = parsed3.data;
       try {
         const seen = /* @__PURE__ */ new Set();
         const byDate = /* @__PURE__ */ new Map();
@@ -7841,20 +9684,20 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
   var CHUNK_ROWS5 = 200;
-  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema4.safeParse(rawPlan);
-      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
-      if (!parsed2.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+      const parsed3 = PlanSchema4.safeParse(rawPlan);
+      const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
+      if (!parsed3.success || !reader) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
-          mallKey: parsed2.success ? parsed2.data.mallKey : null
+          mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
       }
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       try {
         const { rows, continuation } = await reader.readOrders({
           collectionDate: plan.collectionDate,
@@ -7886,15 +9729,15 @@ var KidItemRuntime = (() => {
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
   var CHUNK_ROWS6 = 500;
-  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema5.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
+      const parsed3 = PlanSchema5.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed3.data.startDate, endDate: parsed3.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS6, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
@@ -7915,14 +9758,14 @@ var KidItemRuntime = (() => {
     sourceAccountKey: external_exports.literal("kiditem")
   }).passthrough();
   var CHUNK_ROWS7 = 5e3;
-  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
   var sellpiaInventoryCollector = {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema6.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      const parsed3 = PlanSchema6.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
       const progress4 = { rows: rows.length };
@@ -8381,7 +10224,7 @@ var KidItemRuntime = (() => {
     const scripting = chromeApi?.scripting;
     if (!scripting?.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
     try {
-      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id3) => id3.startsWith(DIALOG_GUARD_ID_PREFIX));
       if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
     } catch {
     }
@@ -8395,6 +10238,42 @@ var KidItemRuntime = (() => {
     const cleared = await page.waitWhile(blocked, { onRemind: () => onAttention?.(attention) });
     if (cleared) await onAttention?.(null);
     return cleared;
+  }
+  var TRUSTED_INPUT_ACTION = "kiditem.write.insertText";
+  function installTrustedInputAnswer(chromeApi, tabs) {
+    chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (!message || typeof message !== "object" || message.action !== TRUSTED_INPUT_ACTION) return void 0;
+      const value = message.value;
+      const tabId = sender.tab?.id;
+      if (typeof tabId !== "number" || !tabs.isRunTab(tabId)) {
+        sendResponse({ ok: false, error: "\uC774 \uD655\uC7A5\uC774 \uC4F0\uB294 \uD0ED\uC774 \uC544\uB2D9\uB2C8\uB2E4." });
+        return void 0;
+      }
+      if (typeof value !== "string" || value.length === 0 || value.length > 100 || /[\r\n\0]/.test(value)) {
+        sendResponse({ ok: false, error: "\uB123\uC744 \uAE00\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." });
+        return void 0;
+      }
+      const api = chromeApi.debugger;
+      if (!api) {
+        sendResponse({ ok: false, error: "\uC2E4\uC81C \uC785\uB825\uC744 \uC4F8 \uC218 \uC5C6\uB294 \uD658\uACBD\uC785\uB2C8\uB2E4." });
+        return void 0;
+      }
+      const target = { tabId };
+      void (async () => {
+        let attached = false;
+        try {
+          await api.attach(target, "1.3");
+          attached = true;
+          await api.sendCommand(target, "Input.insertText", { text: value });
+          sendResponse({ ok: true });
+        } catch (error) {
+          sendResponse({ ok: false, error: error?.message ?? String(error) });
+        } finally {
+          if (attached) await api.detach(target).catch(() => void 0);
+        }
+      })();
+      return true;
+    });
   }
   var POLL_MS = 250;
   var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
@@ -8415,7 +10294,7 @@ var KidItemRuntime = (() => {
     }
     function page(tabId, owned) {
       let closed = false;
-      async function send(message, timeoutMs, frameId) {
+      async function send16(message, timeoutMs, frameId) {
         let timer;
         const timeout = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
@@ -8430,12 +10309,36 @@ var KidItemRuntime = (() => {
           clearTimeout(timer);
         }
       }
+      async function navigateWithBootstrap(url, file) {
+        const api = deps.chrome.debugger;
+        const getURL = deps.chrome.runtime.getURL;
+        if (!api || !getURL) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC900\uBE44\uD560 \uC218 \uC5C6\uB294 \uD658\uACBD\uC785\uB2C8\uB2E4.", { url });
+        const response = await deps.fetch(getURL(file));
+        if (!response.ok) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0 \uC900\uBE44 \uD30C\uC77C\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url, file });
+        const source = await response.text();
+        const target = { tabId };
+        let attached = false;
+        try {
+          await api.attach(target, "1.3");
+          attached = true;
+          await api.sendCommand(target, "Page.enable");
+          const script = await api.sendCommand(target, "Page.addScriptToEvaluateOnNewDocument", { source });
+          if (typeof script?.identifier !== "string") throw new Error("\uC0C8 \uBB38\uC11C \uC2A4\uD06C\uB9BD\uD2B8\uB97C \uB4F1\uB85D\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+          const navigation = await api.sendCommand(target, "Page.navigate", { url });
+          if (navigation?.errorText) throw new Error(navigation.errorText);
+        } catch (error) {
+          throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uAC00 \uB728\uAE30 \uC804\uC5D0 \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url, reason: error?.message ?? String(error) });
+        } finally {
+          if (attached) await api.detach(target).catch(() => void 0);
+        }
+      }
       return {
         tabId,
-        async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+        async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false, bootstrapFile }) {
           const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
           if (owned && !closed) runTabs.add(tabId);
-          await deps.chrome.tabs.update(tabId, { url });
+          if (bootstrapFile) await navigateWithBootstrap(url, bootstrapFile);
+          else await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
           await deps.sleep(POLL_MS);
@@ -8484,7 +10387,7 @@ var KidItemRuntime = (() => {
             checkPageUrl(guard, tab.url ?? "");
           };
           await checkHere();
-          const first = await send(message, timeoutMs, frameId);
+          const first = await send16(message, timeoutMs, frameId);
           if (!inject || !(isMissing(first) || isEmpty(first))) {
             if (isMissing(first) || isTimeout(first)) await checkHere();
             return first;
@@ -8497,7 +10400,7 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          const second = await send(message, timeoutMs, frameId);
+          const second = await send16(message, timeoutMs, frameId);
           if (isMissing(second) || isTimeout(second)) await checkHere();
           return second;
         },
@@ -8518,6 +10421,10 @@ var KidItemRuntime = (() => {
           closed = true;
           runTabs.delete(tabId);
           await deps.chrome.tabs.remove(tabId).catch(() => void 0);
+        },
+        async leave() {
+          closed = true;
+          await handToOperator(tabId);
         }
       };
     }
@@ -8560,19 +10467,19 @@ var KidItemRuntime = (() => {
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
         dialogGuardSerial += 1;
-        const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
+        const id3 = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
         const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
         let registered = false;
         if (matches.length > 0 && scripting.registerContentScripts) {
           registered = await scripting.registerContentScripts([
-            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
-            { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+            { id: id3, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
+            { id: `${id3}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
           ]).then(() => true, () => false);
         }
         return async () => {
           if (!registered) return;
           registered = false;
-          await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => void 0);
+          await scripting.unregisterContentScripts?.({ ids: [id3, `${id3}-bridge`] }).catch(() => void 0);
         };
       },
       async fetchText(url, init) {
@@ -8597,16 +10504,16 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS = 3e4;
-  async function withFreshTab(tabs, url, read, options = {}) {
+  async function withFreshTab(tabs, url, read15, options = {}) {
     const guardHosts = options.dialogGuardHosts ?? options.signIn?.hosts ?? [];
     const releaseGuard = guardHosts.length > 0 ? await tabs.guardDialogs(guardHosts) : null;
     try {
-      return await readInTab(tabs, url, read, options);
+      return await readInTab(tabs, url, read15, options);
     } finally {
       await releaseGuard?.();
     }
   }
-  async function readInTab(tabs, url, read, options) {
+  async function readInTab(tabs, url, read15, options) {
     const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
     const site = siteKey(url);
     const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
@@ -8614,7 +10521,7 @@ var KidItemRuntime = (() => {
     try {
       const stopAt = options.signIn ? (landed) => options.signIn.isLoginUrl(landed) : void 0;
       if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...stopAt ? { stopAt } : {} });
-      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read15(page)) : read15(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
       const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
@@ -8631,16 +10538,6 @@ var KidItemRuntime = (() => {
     } catch {
       return url;
     }
-  }
-
-  // extensions/src/sites/mall-maintenance.ts
-  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
-    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
-      status: null,
-      reason: "maintenance",
-      url,
-      ...details
-    });
   }
 
   // extensions/src/sites/page-call.ts
@@ -8672,266 +10569,6 @@ var KidItemRuntime = (() => {
     });
   }
 
-  // extensions/src/sites/mall-listings.ts
-  var READ_TIMEOUT_MS = 20 * 6e4;
-  var NAVIGATION_TIMEOUT_MS2 = 45e3;
-  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
-  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
-  function readMallListings(tabs, spec, plan, signIn) {
-    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
-    const guard = { ...spec.guard, loginMessage: login };
-    return withFreshTab(tabs, spec.startUrl, async (page) => {
-      const answer = await callPage(page, spec.call, { plan }, {
-        timeoutMs: READ_TIMEOUT_MS,
-        guard,
-        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
-        displayName: spec.displayName
-      });
-      if (answer?.success === true) return answer.snapshot;
-      const stage = answer?.stage ?? null;
-      switch (answer?.errorCode) {
-        case "mall_login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
-        case "mall_contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { stage, field: stage, mallKey: spec.mallKey });
-        case "mall_total_changed":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
-        case "mall_invalid_snapshot":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
-        case "mall_maintenance":
-          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
-        case "mall_timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
-        default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
-      }
-    }, {
-      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS2,
-      ...signIn ? { signIn } : {},
-      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
-    });
-  }
-
-  // extensions/src/sites/registry.ts
-  var sites = /* @__PURE__ */ new Map();
-  function registerSite(factory) {
-    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
-    sites.set(factory.name, factory);
-  }
-  function siteFactoryFor(name) {
-    return sites.get(name) ?? null;
-  }
-  function registeredSites() {
-    return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
-  }
-
-  // extensions/src/sites/11st/listings.ts
-  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
-  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
-  var ST11_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["11st.co.kr"]),
-    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
-    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  function create11stListings(tabs) {
-    return {
-      readListings: (plan) => readMallListings(tabs, {
-        mallKey: "11st",
-        displayName: "11\uBC88\uAC00",
-        startUrl: ST11_LISTINGS_URL,
-        file: ST11_LISTINGS_FILE,
-        call: "11st.listings",
-        guard: ST11_LISTINGS_GUARD
-      }, plan)
-    };
-  }
-  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
-
-  // extensions/src/sites/1688/index.ts
-  var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
-  var EXTRACTION_TIMEOUT_MS = 2e4;
-  var MAX_RESULTS_PER_KEYWORD = 20;
-  var MAX_VERIFICATION_ROUNDS = 5;
-  var ALIBABA_CONTENT_FILES = {
-    isolated: [
-      "content/sourcing/extractors/common.js",
-      "content/sourcing/extractors/alibaba.js",
-      "content/sourcing/extractors/1688.js",
-      "content/sourcing/content.js"
-    ]
-  };
-  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
-  var ALIBABA_1688_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["1688.com"]),
-    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
-    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  var ALIBABA_1688_SITE = {
-    name: "ali1688",
-    origin: SEARCH_ORIGIN,
-    caller: { minIntervalMs: 0, displayName: "1688" }
-  };
-  function build1688SearchUrl(keyword2) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
-  }
-  function is1688VerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
-    } catch {
-      return false;
-    }
-  }
-  function create1688SearchSite(tabs) {
-    let page = null;
-    let keepOpen = false;
-    return {
-      /**
-       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
-       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
-       */
-      async offers(keyword2, options = {}) {
-        page ??= await tabs.open("about:blank");
-        const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword2 };
-        const waitOrFail = async (url) => {
-          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword2, () => {
-            keepOpen = true;
-          });
-        };
-        for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: is1688VerificationUrl, continueOnTimeout: true });
-          if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
-              keepOpen = true;
-            });
-            await waitOrFail(landed);
-            continue;
-          }
-          let extracted;
-          try {
-            extracted = await current.ask(
-              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
-            );
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          if (extracted.status === "verification_required") {
-            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
-            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
-                keepOpen = true;
-              });
-            }
-            await waitOrFail(here);
-            continue;
-          }
-          if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
-          }
-          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
-        }
-      },
-      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
-      async close() {
-        if (page && !keepOpen) await page.close();
-        page = null;
-      }
-    };
-  }
-  function verification(url, keyword2, keep) {
-    keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
-  }
-  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
-
-  // extensions/src/sites/mall-excel.ts
-  var MALL_FILE_PART_CHARS = 7e5;
-  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
-  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
-  function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
-    const parts = Math.max(1, Math.ceil(base642.length / partChars));
-    return Array.from({ length: parts }, (_, part) => ({
-      fileName,
-      part,
-      parts,
-      base64: base642.slice(part * partChars, (part + 1) * partChars)
-    }));
-  }
-  function mallExcelRows(answer, context) {
-    const message = answer?.error || `${context.displayName} \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
-    if (answer?.success === true) {
-      if (answer.empty === true) return { rows: [] };
-      const base642 = typeof answer.xlsxBase64 === "string" ? answer.xlsxBase64.trim() : "";
-      if (!base642) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, `${context.displayName} \uC8FC\uBB38 \uC6D0\uBCF8 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: context.url });
-      }
-      return { rows: filePartRows(answer.fileName || context.fileName, base642) };
-    }
-    if (answer?.pendingLogin === true || answer?.errorCode === "login_required") {
-      throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
-    }
-    if (answer?.errorCode === "provider_contract_changed") {
-      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
-    }
-    if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
-      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
-    }
-    throw new RuntimeError(SITE_REQUEST_FAILED, message, {
-      status: null,
-      reason: answer?.errorCode === "network_failed" ? "network" : "page_error",
-      url: context.url
-    });
-  }
-
-  // extensions/src/sites/always/listings.ts
-  var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
-  var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
-  function createAlwaysListings(tabs) {
-    return {
-      readListings: (plan) => readMallListings(tabs, {
-        mallKey: "always",
-        displayName: "\uC62C\uC6E8\uC774\uC988",
-        startUrl: ALWAYS_LISTINGS_URL,
-        file: ALWAYS_LISTINGS_FILE,
-        call: "always.listings",
-        guard: ALWAYS_PAGE_GUARD
-      }, plan)
-    };
-  }
-
-  // extensions/src/sites/always/index.ts
-  var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
-  var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
-  var READ_TIMEOUT_MS2 = 12e4;
-  var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
-  var ALWAYS_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
-    isLogin: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE
-  };
-  function createAlwaysSite(tabs) {
-    return {
-      ...createAlwaysListings(tabs),
-      readOrders() {
-        return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
-          const answer = await callPage(page, "always.orders", {}, {
-            timeoutMs: READ_TIMEOUT_MS2,
-            guard: ALWAYS_PAGE_GUARD,
-            main: [ALWAYS_ORDERS_FILE],
-            displayName: "\uC62C\uC6E8\uC774\uC988"
-          });
-          return mallExcelRows(answer, { displayName: "\uC62C\uC6E8\uC774\uC988", url: ALWAYS_ORDER_URL, fileName: "\uC62C\uC6E8\uC774\uC988.xlsx" });
-        });
-      }
-    };
-  }
-  registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
-
   // packages/shared/src/schemas/mall-login.ts
   var MALL_CREDENTIAL_REJECTIONS = [
     "\uBE44\uBC00\uBC88\uD638\uAC00 \uC77C\uCE58\uD558\uC9C0",
@@ -8948,9 +10585,9 @@ var KidItemRuntime = (() => {
     "password does not match"
   ];
   function mallRejectedCredentials(message) {
-    const text5 = (message ?? "").toLowerCase();
-    if (!text5) return false;
-    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text5.includes(phrase.toLowerCase()));
+    const text8 = (message ?? "").toLowerCase();
+    if (!text8) return false;
+    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text8.includes(phrase.toLowerCase()));
   }
 
   // extensions/src/sites/site-login.ts
@@ -8960,7 +10597,7 @@ var KidItemRuntime = (() => {
   var FILL_RETRY_MS = 500;
   var AFTER_SUBMIT_MS = 1500;
   var AFTER_REDIRECT_MS = 1200;
-  var NAVIGATION_TIMEOUT_MS4 = 3e4;
+  var NAVIGATION_TIMEOUT_MS2 = 3e4;
   var CALL_TIMEOUT_MS = 5e3;
   var REMAIN_CHECKS = 3;
   var REMAIN_CHECK_GAP_MS = 1500;
@@ -8971,7 +10608,7 @@ var KidItemRuntime = (() => {
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
     if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -9112,9 +10749,9 @@ var KidItemRuntime = (() => {
     return {
       hosts: spec.hosts,
       isLoginUrl: (url) => isLogin(spec, url),
-      onPage: (page, returnTo, read) => withLogin(read, async () => {
+      onPage: (page, returnTo, read15) => withLogin(read15, async () => {
         const outcome = await login(page);
-        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS2 });
         return outcome;
       }),
       beforeTab: async (tabs, call2) => {
@@ -9164,13 +10801,1852 @@ var KidItemRuntime = (() => {
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
-    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
+    const text8 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text8}`, {
       ...error.details ?? {},
       reason,
       ...mallMessage ? { mallMessage } : {}
     }, error);
   }
+
+  // extensions/src/sites/mall-write/availability.ts
+  var AVAILABILITY_FILE = "content/page-call/mall-availability.js";
+  var AVAILABILITY_MAIN_FILE = "content/page-call/mall-availability-main.js";
+  var CALL_TIMEOUT_MS2 = 3 * 6e4;
+  var modules = /* @__PURE__ */ new Map();
+  function registerMallAvailability(module) {
+    if (modules.has(module.mallKey)) throw new Error(`duplicate mall availability: ${module.mallKey}`);
+    modules.set(module.mallKey, module);
+  }
+  function mallAvailabilityFor(mallKey) {
+    return modules.get(mallKey) ?? null;
+  }
+  function registeredMallAvailability() {
+    return [...modules.values()].sort((a, b) => a.mallKey < b.mallKey ? -1 : a.mallKey > b.mallKey ? 1 : 0);
+  }
+  function availabilityContext(module, deps, lease) {
+    return {
+      ...deps,
+      mallKey: module.mallKey,
+      displayName: module.displayName,
+      guard: module.guard,
+      signIn: module.login ? createSiteSignIn(module.login, lease.credentials, deps) : null,
+      dialogHosts: module.dialogHosts
+    };
+  }
+  async function withSellerPage(context, origin, pageUrl, work, options = {}) {
+    return withFreshTab(context.tabs, pageUrl, async (page) => work(pageRun(context, page, options.isolated ?? []), page), {
+      reuseTabMatching: `${origin}/*`,
+      ...context.signIn ? { signIn: context.signIn } : { dialogGuardHosts: context.dialogHosts }
+    });
+  }
+  function pageRun(context, page, isolated) {
+    return async (name, args, world) => {
+      try {
+        const answer = await callPage(page, `availability.${name}`, args, {
+          timeoutMs: CALL_TIMEOUT_MS2,
+          guard: context.guard,
+          displayName: context.displayName,
+          ...world === "main" ? { main: [AVAILABILITY_MAIN_FILE] } : { isolated: [...isolated, AVAILABILITY_FILE] }
+        });
+        return answer ?? { status: 0, json: null };
+      } catch (error) {
+        if (error instanceof RuntimeError && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url")) throw error;
+        return { status: 0, json: null, preview: error instanceof Error ? error.message.slice(0, 200) : "" };
+      }
+    };
+  }
+  function flagOption(code2, selling, state) {
+    return selling ? { optionCode: code2, stock: null, rocket: false, state: state ? String(state) : "\uD310\uB9E4\uC911" } : { optionCode: code2, stock: 0, rocket: false, ...state ? { state: String(state) } : {} };
+  }
+  function stoppedMidway(message, counts) {
+    const { sent, failed: failed9, confirmed, already, warnings, left } = counts;
+    if (sent === 0) return { success: false, error: message };
+    return {
+      success: true,
+      sent: sent + already,
+      failed: failed9 + left,
+      confirmed: confirmed + already,
+      already,
+      rocket: 0,
+      requestOnly: false,
+      warnings: [...warnings, `${message} ${left > 0 ? `\u2014 ${left}\uAC74\uC740 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.` : ""}`.trim()],
+      stopped: "halted"
+    };
+  }
+  function readAnswer(status, text8) {
+    const failed9 = /로그인|login|오류|실패|error|권한/i.test(String(text8 || "").slice(0, 500));
+    return { status, accepted: status >= 200 && status < 400 && !failed9, failed: failed9 };
+  }
+  async function readJson(response) {
+    const text8 = await response.text().catch(() => "");
+    try {
+      return { json: JSON.parse(text8), text: text8 };
+    } catch {
+      return { json: null, text: text8 };
+    }
+  }
+  async function postForm(fetchApi, origin, action, pairs, encoding) {
+    const params = new URLSearchParams();
+    for (const [name, value] of pairs) params.append(name, value);
+    const response = await fetchApi(`${origin}${action}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": `application/x-www-form-urlencoded${encoding ? `; charset=${encoding}` : ""}` },
+      body: params.toString()
+    });
+    const landed = String(response.url || "");
+    if (landed && (!landed.startsWith(origin) || /login/i.test(landed))) {
+      return { status: response.status, accepted: false, failed: true, loggedOut: true };
+    }
+    return readAnswer(response.status, await response.text().catch(() => ""));
+  }
+  var PRICE_BATCH = 50;
+  var PRICE_MIN = 10;
+  var PRICE_MAX = 1e7;
+  var READ_LIMIT = 50;
+  function failureOf(error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+  function rethrowIfLeftForOperator(error) {
+    if (error instanceof RuntimeError && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url")) throw error;
+  }
+  async function sendMallAvailability(module, context, input) {
+    const codes = [...new Set(input.codes.map((code2) => String(code2 || "").trim()).filter(Boolean))];
+    if (codes.length === 0) return { success: false, error: "\uD488\uC808\uB85C \uBCF4\uB0BC \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4." };
+    try {
+      return await module.send(context, { codes, options: input.options ?? null, resume: input.resume, expectedProviderAccountId: input.expectedProviderAccountId ?? null });
+    } catch (error) {
+      rethrowIfLeftForOperator(error);
+      return failureOf(error);
+    }
+  }
+  async function readMallAvailability(module, context, codes) {
+    if (!module.read) return { success: false, error: `\uC9C0\uAE08 \uC7AC\uACE0\uB97C \uC77D\uC744 \uC218 \uC788\uB294 \uBAB0\uC774 \uC544\uB2D9\uB2C8\uB2E4: ${module.mallKey}` };
+    try {
+      return await module.read(context, codes.map((code2) => String(code2 || "").trim()).filter(Boolean));
+    } catch (error) {
+      rethrowIfLeftForOperator(error);
+      return failureOf(error);
+    }
+  }
+  async function sendMallPrice(module, context, raw) {
+    if (!module.sendPrice) return { success: false, error: `\uAC00\uACA9 \uACBD\uB85C\uB97C \uC544\uB294 \uBAB0\uC774 \uC544\uB2D9\uB2C8\uB2E4: ${module.mallKey}` };
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const item of raw) {
+      const code2 = String(item?.code || "").trim();
+      const price2 = Number(item?.price);
+      const ifPrice = item?.ifPrice === null || item?.ifPrice === void 0 ? null : Number(item.ifPrice);
+      if (!code2 || seen.has(code2)) continue;
+      if (!Number.isInteger(price2) || price2 < PRICE_MIN || price2 > PRICE_MAX) {
+        return { success: false, error: `${code2}: \uAC00\uACA9\uC740 ${PRICE_MIN}\uC6D0 ~ ${PRICE_MAX.toLocaleString("ko-KR")}\uC6D0 \uC0AC\uC774 \uC815\uC218\uC5EC\uC57C \uD569\uB2C8\uB2E4.` };
+      }
+      if (ifPrice !== null && !Number.isInteger(ifPrice)) return { success: false, error: `${code2}: \uC9C0\uAE08 \uBAB0 \uAC00\uACA9 \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.` };
+      seen.add(code2);
+      items.push({ code: code2, price: price2, ifPrice });
+    }
+    if (items.length === 0) return { success: false, error: "\uAC00\uACA9\uC744 \uBCF4\uB0BC \uC0C1\uD488\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." };
+    if (items.length > PRICE_BATCH) return { success: false, error: `\uAC00\uACA9\uC740 \uD55C \uBC88\uC5D0 ${PRICE_BATCH}\uAC1C\uAE4C\uC9C0 \uBCF4\uB0C5\uB2C8\uB2E4.` };
+    try {
+      return await module.sendPrice(context, items);
+    } catch (error) {
+      rethrowIfLeftForOperator(error);
+      return failureOf(error);
+    }
+  }
+  var MALL_WRITE_FAILED2 = "MALL_WRITE_FAILED";
+  function answerError(module, error) {
+    const message = error || `${module.displayName}\uC5D0 \uD310\uB9E4 \uC0C1\uD0DC\uB97C \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
+    return /로그인/.test(message) ? new RuntimeError(SITE_LOGIN_REQUIRED, message, { mallKey: module.mallKey }) : new RuntimeError(MALL_WRITE_FAILED2, message, { mallKey: module.mallKey });
+  }
+  function observedOf(product) {
+    return {
+      externalListingId: product.code,
+      status: product.options.find((option) => option.state)?.state ?? null,
+      options: product.options.map((option) => ({ externalOptionId: option.optionCode, stock: option.stock, status: option.state ?? null }))
+    };
+  }
+  async function runAvailability(module, context, input) {
+    const codes = input.listings.map((listing) => listing.externalListingId);
+    const options = input.byOption ? Object.fromEntries(input.listings.map((listing) => [listing.externalListingId, [...listing.externalOptionIds]])) : null;
+    const answer = await sendMallAvailability(module, context, { codes, options, resume: input.resume, expectedProviderAccountId: input.expectedProviderAccountId });
+    if (!answer.success) throw answerError(module, answer.error);
+    let products = answer.observed ?? null;
+    if (!products && module.read && !answer.requestOnly) {
+      products = [];
+      for (let start = 0; start < codes.length; start += READ_LIMIT) {
+        const read15 = await readMallAvailability(module, context, codes.slice(start, start + READ_LIMIT));
+        if (!read15.success) {
+          answer.warnings = [...answer.warnings ?? [], `${module.displayName}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${read15.error}`];
+          break;
+        }
+        products.push(...read15.products);
+      }
+    }
+    return {
+      answer,
+      observed: (products ?? []).map(observedOf),
+      providerAccountId: answer.providerAccountId ?? null,
+      observedUrl: answer.observedUrl ?? null
+    };
+  }
+  async function readAvailabilityOrThrow(module, context, codes) {
+    const read15 = await readMallAvailability(module, context, codes);
+    if (!read15.success) throw answerError(module, read15.error);
+    return { products: read15.products, missing: read15.missing };
+  }
+  async function observedUrlOf(page, origin) {
+    const raw = await page.currentUrl().catch(() => "");
+    try {
+      return new URL(raw).origin === origin ? raw : null;
+    } catch {
+      return null;
+    }
+  }
+  function priceNumber(value) {
+    return Number(String(value ?? "").replace(/[,\s원]/g, ""));
+  }
+  async function sendPriceOrThrow(module, context, input) {
+    const answer = await sendMallPrice(module, context, [{ code: input.externalListingId, price: input.price }]);
+    if (!answer.success) throw answerError(module, answer.error);
+    return answer;
+  }
+
+  // extensions/src/sites/mall-write/guard.ts
+  function registrationGuard(site, displayName, isLogin2) {
+    return {
+      allows: site.allows,
+      isLogin: isLogin2 ?? site.isLogin,
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694.`
+    };
+  }
+  function availabilityGuard(site, displayName, isLogin2) {
+    return {
+      allows: site.allows,
+      isLogin: isLogin2 ?? site.isLogin,
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`
+    };
+  }
+
+  // extensions/src/sites/mall-maintenance.ts
+  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
+      status: null,
+      reason: "maintenance",
+      url,
+      ...details
+    });
+  }
+
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS3 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan, signIn) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    const guard = { ...spec.guard, loginMessage: login };
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard,
+        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { stage, field: stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_maintenance":
+          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, {
+      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS3,
+      ...signIn ? { signIn } : {},
+      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
+    });
+  }
+
+  // extensions/src/sites/registry.ts
+  var sites = /* @__PURE__ */ new Map();
+  function registerSite(factory) {
+    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
+    sites.set(factory.name, factory);
+  }
+  function siteFactoryFor(name) {
+    return sites.get(name) ?? null;
+  }
+  function registeredSites() {
+    return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  }
+
+  // extensions/src/sites/11st/listings.ts
+  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
+  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
+  var ST11_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["11st.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
+    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function create11stListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "11st",
+        displayName: "11\uBC88\uAC00",
+        startUrl: ST11_LISTINGS_URL,
+        file: ST11_LISTINGS_FILE,
+        call: "11st.listings",
+        guard: ST11_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
+
+  // extensions/src/sites/11st/availability.ts
+  var ORIGIN = "https://soffice.11st.co.kr";
+  var PAGE_URL = "https://soffice.11st.co.kr/view/8006";
+  var LIST_PATH = "/product/SellProductAjaxAction.tmall";
+  var SAVE_PATH = "/product/SellProductAction.tmall";
+  var BATCH_SIZE = 100;
+  var PACE_MS = 700;
+  var RECHECK_MS = 2e3;
+  var RECHECK_TIMES = 3;
+  var LABEL = "11\uBC88\uAC00";
+  var LOGGED_OUT = `${LABEL} \uC140\uB7EC\uC624\uD53C\uC2A4 \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var ST11_WORDS = { 101: "\uC2B9\uC778\uB300\uAE30", 102: "\uC804\uC2DC\uC804", 104: "\uD488\uC808", 105: "\uD310\uB9E4\uC911\uC9C0" };
+  var isProductNo = (code2) => /^\d{6,12}$/.test(code2);
+  async function readRows(context, run, prdNos) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < prdNos.length; start += BATCH_SIZE) {
+      if (start > 0) await context.sleep(PACE_MS);
+      const answer = await run("st11ListOnPage", [LIST_PATH, prdNos.slice(start, start + BATCH_SIZE)]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
+      for (const row of answer.rows) if (row?.prdNo) rows.set(row.prdNo, row);
+    }
+    return { rows };
+  }
+  async function send(context, input) {
+    const { codes, resume } = input;
+    const mode = resume ? "SELL_RELEASE" : "SELL_STOP";
+    const wanted = resume ? "103" : "105";
+    const warnings = [];
+    const products = codes.filter(isProductNo);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN, PAGE_URL, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT };
+      if (!before.rows) return { success: false, error: `${LABEL} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(\uC9C0\uC6B4 \uC0C1\uD488\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4).`);
+      }
+      const stat = (no) => rows.get(no).selStatCd;
+      let targets;
+      if (resume) {
+        const stopped = found.filter((no) => stat(no) === "105");
+        const empty = stopped.filter((no) => !(rows.get(no).stckQty > 0) && rows.get(no).setTypCd !== "02");
+        if (empty.length > 0) {
+          failed9 += empty.length;
+          warnings.push(`${empty.length}\uAC74\uC740 ${LABEL} \uC7AC\uACE0\uAC00 0 \uC774\uB77C \uD310\uB9E4\uC911\uC9C0\uB97C \uD480\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 \uC7AC\uACE0\uB97C \uB123\uC740 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+        }
+        targets = stopped.filter((no) => !empty.includes(no));
+        already += found.filter((no) => stat(no) === "103").length;
+        const other = found.filter((no) => !["103", "105"].includes(stat(no))).length;
+        if (other > 0) {
+          failed9 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uC804\uC2DC\uC804 \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+      } else {
+        targets = found.filter((no) => stat(no) === "103");
+        already += found.length - targets.length;
+      }
+      const accepted = [];
+      for (let start = 0; start < targets.length; start += BATCH_SIZE) {
+        const group = targets.slice(start, start + BATCH_SIZE);
+        const answer = await run("st11SaveOnPage", [SAVE_PATH, mode, group]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT;
+          left = targets.length - start;
+          return null;
+        }
+        if (answer?.status !== 200 || answer.msg !== "SAVE_OK") {
+          failed9 += group.length;
+          const said = answer?.alert || answer?.msg || answer?.error || `HTTP ${answer?.status ?? 0}`;
+          warnings.push(`${LABEL}\uC774 ${resume ? "\uD310\uB9E4\uC911\uC9C0 \uD574\uC81C" : "\uD310\uB9E4\uC911\uC9C0"}\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+        } else {
+          sent += group.length;
+          accepted.push(...group);
+          if (answer.total !== null && answer.done !== null && answer.done < answer.total) {
+            warnings.push(`${LABEL}\uC774 ${answer.total}\uAC74 \uC911 ${answer.done}\uAC74\uB9CC \uCC98\uB9AC\uD588\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+          }
+        }
+        await context.sleep(PACE_MS);
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS);
+        const after = await readRows(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((no) => after.rows.get(no)?.selStatCd === wanted).length;
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488\uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488\uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read(context, codes) {
+    const valid = [...new Set(codes)].filter(isProductNo).slice(0, READ_LIMIT);
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN, PAGE_URL, async (run) => {
+      const result = await readRows(context, run, valid);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT };
+      if (!result.rows) return { success: false, error: `${LABEL} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = valid.filter((code2) => rows.has(code2)).map((code2) => {
+        const stat = String(rows.get(code2).selStatCd);
+        return { code: code2, options: [flagOption(code2, stat === "103", stat === "103" ? null : ST11_WORDS[stat] || "\uD310\uB9E4\uC911\uC9C0")] };
+      });
+      missing = valid.filter((code2) => !rows.has(code2));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "11st",
+    displayName: LABEL,
+    guard: availabilityGuard(ST11_LISTINGS_GUARD, LABEL),
+    dialogHosts: ["soffice.11st.co.kr"],
+    send,
+    read
+  });
+
+  // extensions/src/sites/mall-write/form.ts
+  var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
+  var isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
+  var entries = (value) => isObject(value) ? Object.entries(value) : [];
+  var list = (value) => Array.isArray(value) ? value : [];
+  function textMap(value, keepEmptyKey = true) {
+    const out = {};
+    for (const [key, entry] of entries(value)) {
+      if (!keepEmptyKey && !key || entry === null || entry === void 0) continue;
+      out[key] = String(entry);
+    }
+    return out;
+  }
+  function assertRegisterUrl(spec, value) {
+    const invalid2 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID17, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
+    let url;
+    try {
+      url = new URL(String(value ?? "").trim());
+    } catch {
+      throw invalid2();
+    }
+    if (url.origin !== spec.origin || !url.pathname.startsWith(spec.pathPrefix)) throw invalid2();
+    if (spec.exactPath && url.pathname.replace(/\/+$/, "") !== spec.pathPrefix) throw invalid2();
+    if (spec.noQuery && url.search) throw invalid2(" \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74\uC5D0\uB294 \uCC44\uC6B0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (spec.hash && (url.pathname !== spec.pathPrefix || url.hash !== spec.hash)) throw invalid2(" \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74\uC5D0\uB294 \uCC44\uC6B0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return url.toString();
+  }
+  function normalizeForm(spec, value) {
+    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
+    const url = assertRegisterUrl(spec, value.url);
+    const fields = {};
+    for (const [name, fieldValue] of entries(value.fields)) {
+      if (!name) continue;
+      fields[name] = fieldValue === null || fieldValue === void 0 ? "" : String(fieldValue);
+    }
+    const radios = {};
+    for (const [name, radioValue] of entries(value.radios)) if (name) radios[name] = String(radioValue);
+    const checks = {};
+    if (Array.isArray(value.checks)) {
+      for (const name of value.checks) if (typeof name === "string") checks[name] = true;
+    } else {
+      for (const [name, on] of entries(value.checks)) checks[name] = Boolean(on);
+    }
+    const multiFormFields = {};
+    const multiFormRadios = {};
+    const multiFormChecks = {};
+    if (spec.multiForm) {
+      for (const [formId, values] of entries(value.formFields)) {
+        if (!isObject(values)) continue;
+        const box = {};
+        for (const [name, raw] of Object.entries(values)) if (name) box[name] = raw == null ? "" : String(raw);
+        if (Object.keys(box).length > 0) multiFormFields[formId] = box;
+      }
+      for (const [formId, values] of entries(value.formRadios)) if (isObject(values)) multiFormRadios[formId] = { ...values };
+      for (const [formId, values] of entries(value.formChecks)) if (isObject(values)) multiFormChecks[formId] = { ...values };
+    }
+    const category = isObject(value.category) ? { code: String(value.category.code ?? ""), path: String(value.category.path ?? "") } : null;
+    const rawNotice = value.notice;
+    const notice = isObject(rawNotice) ? {
+      itemCode: String(rawNotice.itemCode ?? ""),
+      safeYn: rawNotice.safeCertiTgtYn === "Y" ? "Y" : "N",
+      rows: list(rawNotice.rows).filter((row) => isObject(row) && typeof row.title === "string" && row.title !== "").map((row) => ({ title: row.title, value: row.value == null ? "" : String(row.value) })),
+      radios: {
+        ...rawNotice.kcCertified ? { "072": String(rawNotice.kcCertified) } : {},
+        ...rawNotice.safeCertiTgtYn ? { safeCertiTgtYn: String(rawNotice.safeCertiTgtYn) } : {}
+      }
+    } : null;
+    const slotNames = spec.imageSlots ?? [];
+    const slots = new Set(slotNames);
+    const fileUploads = list(value.fileUploads).filter((entry) => isObject(entry) && slots.has(String(entry.name)) && typeof entry.url === "string").map((entry) => ({ name: entry.name, url: entry.url }));
+    const imageUploads = list(value.imageUploads).filter((entry) => isObject(entry) && typeof entry.url === "string").map((entry, index) => ({ name: slotNames[index] ?? "", url: entry.url })).filter((entry) => entry.name);
+    const imageGroups = {};
+    for (const [key, group] of entries(value.imageGroups)) {
+      if (Array.isArray(group)) imageGroups[key] = group.filter((url2) => typeof url2 === "string" && url2 !== "");
+    }
+    if (spec.sectionImages && Array.isArray(value.images)) {
+      const images = value.images.filter((url2) => typeof url2 === "string" && url2 !== "");
+      if (images.length > 0) imageGroups[spec.sectionImages.groupKey] = images;
+    }
+    const selectorChecks = {};
+    for (const [key, on] of entries(value.selectorChecks)) selectorChecks[key] = Boolean(on);
+    const groups = {};
+    for (const [key, group] of entries(value.groups)) {
+      if (Array.isArray(group)) groups[key] = group.map((entry) => String(entry ?? "")).filter(Boolean);
+    }
+    const dedicated = spec.dedicated ? spec.dedicated.normalize(value[spec.dedicated.formKey]) : null;
+    return {
+      url,
+      fields,
+      radios,
+      checks,
+      multiFormFields,
+      multiFormRadios,
+      multiFormChecks,
+      category,
+      notice,
+      fileUploads: fileUploads.length > 0 ? fileUploads : imageUploads,
+      detailHtmlTarget: typeof value.detailHtmlTarget === "string" ? value.detailHtmlTarget : "",
+      promoHtml: typeof value.promoHtml === "string" ? value.promoHtml : "",
+      selectorChecks,
+      categoryPaths: list(value.categoryPaths).filter((path) => Array.isArray(path) && path.length > 0).map((path) => path.map((part) => String(part))),
+      imageUrls: list(value.imageUrls).map((url2) => typeof url2 === "string" ? url2 : ""),
+      imageGroups,
+      selectorFields: textMap(value.selectorFields),
+      rowFields: textMap(value.rowFields),
+      sectionFields: textMap(value.sectionFields),
+      sectionRadios: textMap(value.sectionRadios),
+      sectionDropdowns: textMap(value.sectionDropdowns),
+      optionalSections: list(value.optionalSections).filter((title) => typeof title === "string" && title !== ""),
+      sectionCategory: isObject(value.category) && typeof value.category.path === "string" && value.category.path ? { query: String(value.category.query ?? ""), path: value.category.path } : null,
+      rowOptions: textMap(value.rowOptions),
+      tableFields: textMap(value.tableFields, false),
+      tableRadios: textMap(value.tableRadios, false),
+      tableSelects: textMap(value.tableSelects, false),
+      tablePicks: list(value.tablePicks).filter((entry) => isObject(entry) && typeof entry.row === "string" && entry.row !== "" && typeof entry.pick === "string" && entry.pick !== "").map((entry) => ({
+        row: entry.row,
+        query: typeof entry.query === "string" && entry.query ? entry.query : entry.pick,
+        pick: entry.pick
+      })),
+      groups,
+      infoRows: textMap(value.infoRows, false),
+      detailUploads: list(value.detailUploads).filter((entry) => isObject(entry) && typeof entry.url === "string"),
+      manualSteps: list(value.manualSteps).filter((step) => typeof step === "string"),
+      dedicated
+    };
+  }
+
+  // extensions/src/sites/mall-write/images.ts
+  var MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+  var DETAIL_HOSTS = {
+    /** 온채널 자기 서버. 상품등록 화면 안의 `img_form`이 쏘는 곳이고 응답이 곧 공개 주소다(라이브 확인 2026-09-10). */
+    onch: {
+      origin: "https://www.onch3.co.kr",
+      uploadPath: "/access/img_upload_access.php",
+      uploadField: "img",
+      label: "\uC628\uCC44\uB110 \uC774\uBBF8\uC9C0 \uC11C\uBC84"
+    },
+    /**
+     * 우리 키즈노트 상점의 상품 첨부 저장소. 등록화면이 발급하는 빈 상품번호(`pno`)에 파일을 붙이고 첨부 목록에서 공개 CDN
+     * 주소를 읽는다 — 상품은 만들어지지 않는다(라이브 확인 2026-09-10). 키즈노트 관리자 세션으로만 열린다.
+     */
+    kidsnote: {
+      origin: "https://shop.kidsnote.com",
+      registerPath: "/_manage/?body=product@product_register",
+      uploadPath: "/_manage/",
+      listPath: "/_manage/?body=product@product_file.frm&filetype=3&stat=1&content_id=content2",
+      filetype: "3",
+      label: "\uD0A4\uC988\uB178\uD2B8 \uCCA8\uBD80 \uC800\uC7A5\uC18C",
+      loginLabel: "\uD0A4\uC988\uB178\uD2B8 \uAD00\uB9AC\uC790"
+    }
+  };
+  var HOSTED_URL = /https?:\/\/[A-Za-z0-9.-]*kakaocdn\.net\/dn\/[^"'\s<>()]+/g;
+  var DetailHostLoginError = class extends Error {
+    needsLogin = true;
+  };
+  function isMallReadable(url) {
+    return /kakaocdn\.net|diskn\.com|onch3\.co\.kr|coupangcdn\.com/.test(url);
+  }
+  function detailImageHtml(url, paragraph) {
+    const img = `<img referrerpolicy="no-referrer" src="${url}">`;
+    return paragraph ? `<center><p>${img}</p></center>` : `<center>${img}</center>`;
+  }
+  function detailFileName(sourceUrl, mime) {
+    let base = "detail";
+    try {
+      base = new URL(sourceUrl).pathname.split("/").pop() || base;
+    } catch {
+    }
+    if (/\.(jpe?g|png|gif|webp)$/i.test(base)) return base;
+    return `${base}.${mime.includes("png") ? "png" : "jpg"}`;
+  }
+  function toBase64(bytes) {
+    let binary = "";
+    const CHUNK = 32768;
+    for (let i = 0; i < bytes.length; i += CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+    return btoa(binary);
+  }
+  async function toDataUrls(fetchApi, uploads) {
+    const images = [];
+    for (const upload of uploads) {
+      try {
+        const response = await fetchApi(upload.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (blob.size > MAX_IMAGE_BYTES) throw new Error("\uC774\uBBF8\uC9C0\uAC00 8MB \uB97C \uB118\uC2B5\uB2C8\uB2E4.");
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const dataUrl = `data:${blob.type || "image/jpeg"};base64,${toBase64(bytes)}`;
+        const fileName = new URL(upload.url).pathname.split("/").pop() || "image";
+        images.push({ name: upload.name, dataUrl, fileName });
+      } catch (error) {
+        let host = "";
+        try {
+          host = new URL(upload.url).host;
+        } catch {
+        }
+        const message = error instanceof Error ? error.message : String(error);
+        images.push({ name: upload.name, error: host ? `${message} (${host})` : message });
+      }
+    }
+    return images;
+  }
+  async function hostDetailImage(fetchApi, host, sourceUrl, options = {}) {
+    const decode = (buffer) => new TextDecoder("euc-kr").decode(buffer);
+    const source = await fetchApi(sourceUrl);
+    if (!source.ok) throw new Error(`\uC0C1\uC138 \uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 HTTP ${source.status}`);
+    const blob = await source.blob();
+    if (blob.size > MAX_IMAGE_BYTES) throw new Error("\uC0C1\uC138 \uC774\uBBF8\uC9C0\uAC00 8MB \uB97C \uB118\uC2B5\uB2C8\uB2E4.");
+    if (options.imageOnly && !/^image\//i.test(blob.type || "")) throw new Error("\uC0AC\uC9C4 \uD30C\uC77C\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
+    if (host.uploadField) {
+      const body2 = new FormData();
+      body2.append(host.uploadField, blob, detailFileName(sourceUrl, blob.type));
+      const response = await fetchApi(host.origin + host.uploadPath, { method: "POST", body: body2, credentials: "include" });
+      if (!response.ok) throw new Error(`\uC5C5\uB85C\uB4DC \uC751\uB2F5 HTTP ${response.status}`);
+      const url = decode(await response.arrayBuffer()).trim();
+      if (!/^https?:\/\//.test(url)) throw new Error("\uC5C5\uB85C\uB4DC \uACB0\uACFC\uAC00 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+      return url;
+    }
+    const read15 = async (path) => {
+      const response = await fetchApi(host.origin + path, { credentials: "include" });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return decode(await response.arrayBuffer());
+    };
+    const page = await read15(host.registerPath ?? "");
+    const pno = (page.match(/name=["']?pno["']?[^>]*value=["']?(\d+)/i) || [])[1];
+    if (!pno) throw new DetailHostLoginError("\uC0C1\uD488\uBC88\uD638\uB97C \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    const body = new FormData();
+    body.append("body", "product@product_file.exe");
+    body.append("pno", pno);
+    body.append("upload_one", "Y");
+    body.append("filetype", host.filetype ?? "");
+    body.append("ino", "");
+    body.append("upfile", blob, detailFileName(sourceUrl, blob.type));
+    const upload = await fetchApi(host.origin + host.uploadPath, { method: "POST", body, credentials: "include" });
+    if (!upload.ok) throw new Error(`\uC5C5\uB85C\uB4DC \uC751\uB2F5 HTTP ${upload.status}`);
+    await upload.arrayBuffer();
+    const list2 = await read15(`${host.listPath ?? ""}&pno=${pno}`);
+    const found = list2.match(HOSTED_URL);
+    if (!found || found.length === 0) throw new Error("\uC62C\uB77C\uAC04 \uC8FC\uC18C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    return found[found.length - 1];
+  }
+
+  // extensions/src/sites/mall-write/form-register.ts
+  var FORM_FILL_FILE = "content/page-call/form-fill.js";
+  var FORM_FRAME_FILE = "content/page-call/form-frame.js";
+  var REGISTRATION_FILL_FAILED = "REGISTRATION_FILL_FAILED";
+  var FILL_TIMEOUT_MS = 12e4;
+  var STATE_TIMEOUT_MS = 5e3;
+  async function prepareMallForm(context, spec, form) {
+    const warnings = [];
+    const uploaded = await toDataUrls(context.fetch, form.fileUploads);
+    const images = uploaded.filter((image) => image.dataUrl);
+    for (const image of uploaded.filter((entry) => entry.error)) warnings.push(`\uC774\uBBF8\uC9C0 ${image.name}: ${image.error}`);
+    const detailWarnings = [];
+    const host = spec.detailHost ? DETAIL_HOSTS[spec.detailHost] ?? null : null;
+    let detailUrl = form.detailUploads.find((entry) => isMallReadable(entry.url))?.url ?? "";
+    if (!detailUrl && form.detailUploads.length > 0 && host) {
+      try {
+        detailUrl = await hostDetailImage(context.fetch, host, form.detailUploads[0].url);
+      } catch (error) {
+        detailWarnings.push(
+          error instanceof DetailHostLoginError && host.loginLabel ? `\uC0C1\uC138 \uC774\uBBF8\uC9C0\uB97C \uC62C\uB9AC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 ${host.loginLabel}\uC5D0 \uB85C\uADF8\uC778\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. ${host.loginLabel}\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uCC44\uC6B0\uC138\uC694.` : `${host.label}\uC5D0 \uC0C1\uC138\uC124\uBA85\uC744 \uC62C\uB9AC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${error instanceof Error ? error.message : String(error)}. \uD654\uBA74\uC5D0\uC11C \uC9C1\uC811 \uC62C\uB9AC\uC138\uC694.`
+        );
+      }
+    } else if (!detailUrl && form.detailUploads.length > 0 && !spec.detailSelfUpload) {
+      detailWarnings.push("\uC0C1\uC138\uC124\uBA85 \uC774\uBBF8\uC9C0\uAC00 \uBAB0\uC774 \uC77D\uC744 \uC218 \uC788\uB294 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4. \uD654\uBA74\uC5D0\uC11C \uC9C1\uC811 \uC62C\uB9AC\uC138\uC694.");
+    }
+    const detailHtml = detailUrl ? detailImageHtml(detailUrl, Boolean(spec.detailParagraph)) : "";
+    const imageGroups = {};
+    const slotSpecs = [
+      ...spec.imageFileInputs ?? [],
+      ...spec.imageDialogs ?? [],
+      ...spec.imageRepeat ? [{ key: spec.imageRepeat.groupKey, label: spec.imageRepeat.label }] : [],
+      ...spec.imageUpload ? [{ key: spec.imageUpload.groupKey, label: spec.imageUpload.label }] : [],
+      ...spec.sectionImages ? [{ key: spec.sectionImages.groupKey, label: spec.sectionImages.label }] : [],
+      ...(spec.tableForm?.images ?? []).map((slot) => ({ key: slot.key, label: slot.row })),
+      ...spec.dedicated ? [{ key: spec.dedicated.imageGroupKey, label: "\uC0C1\uD488\uC774\uBBF8\uC9C0" }] : []
+    ];
+    for (const slot of slotSpecs) {
+      const urls = form.imageGroups[slot.key] ?? [];
+      if (urls.length === 0) continue;
+      const loaded = await toDataUrls(context.fetch, urls.map((url, index) => ({ name: `${slot.key}${index}`, url })));
+      for (const bad of loaded.filter((image) => image.error)) warnings.push(`${slot.label} \uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${bad.error}`);
+      const ok = loaded.filter((image) => image.dataUrl);
+      if (ok.length > 0) imageGroups[slot.key] = ok;
+    }
+    let repImage = null;
+    if (spec.imageFileInput && form.imageUrls[0]) {
+      const [image] = await toDataUrls(context.fetch, [{ name: "rep", url: form.imageUrls[0] }]);
+      if (image?.dataUrl) repImage = image;
+      else warnings.push(`\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${image?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`);
+    }
+    let detailImage = null;
+    if (spec.detailSelfUpload && form.detailUploads[0]) {
+      const [image] = await toDataUrls(context.fetch, [{ name: "detail", url: form.detailUploads[0].url }]);
+      if (image?.dataUrl) detailImage = image;
+      else warnings.push(`\uC0C1\uC138\uC124\uBA85 \uC774\uBBF8\uC9C0\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${image?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`);
+    }
+    return { form, images, imageGroups, repImage, detailImage, detailHtml, warnings: [...warnings, ...detailWarnings] };
+  }
+  function fillPayload(spec, prepared) {
+    const { form, imageGroups, repImage, detailImage, detailHtml } = prepared;
+    if (spec.dedicated) {
+      return {
+        call: spec.dedicated.call,
+        files: [spec.dedicated.file],
+        payload: {
+          form: form.dedicated,
+          images: imageGroups[spec.dedicated.imageGroupKey] ?? [],
+          ...spec.dedicated.options,
+          detailImage,
+          detailHtml
+        }
+      };
+    }
+    const editor = spec.detailEditor ?? null;
+    const sectionForm = spec.sectionForm;
+    return {
+      call: "mallForm.fill",
+      files: [],
+      payload: {
+        formSelector: spec.formSelector,
+        dynamic: spec.dynamic,
+        acceptRecommendation: spec.acceptRecommendation ?? null,
+        groupInputs: spec.groupInputs ?? [],
+        groups: form.groups,
+        selectorChecks: spec.selectorChecks ?? [],
+        selectorCheckValues: form.selectorChecks,
+        selectorFields: spec.selectorFields ?? [],
+        selectorFieldValues: form.selectorFields,
+        selectFirstOptions: spec.selectFirstOptions ?? [],
+        wizardSteps: spec.wizardSteps ?? [],
+        detailRich: spec.detailRich ?? null,
+        categoryPicker: spec.categoryPicker ?? null,
+        categoryPaths: form.categoryPaths,
+        imageFileInput: spec.imageFileInput ?? null,
+        repImage,
+        detailSelfUpload: spec.detailSelfUpload ?? null,
+        detailImage,
+        categorySearch: spec.categorySearch ?? null,
+        categoryFirst: Boolean(spec.categoryFirst),
+        categoryConnect: spec.categoryConnect ?? null,
+        rowFields: spec.rowFields ?? [],
+        rowFieldValues: form.rowFields,
+        rowOptions: spec.rowOptions ?? [],
+        rowOptionValues: form.rowOptions,
+        detailSelector: spec.detailSelector ?? "",
+        detailPreviewSelector: spec.detailPreviewSelector ?? "",
+        imageFileInputs: spec.imageFileInputs ?? [],
+        imageRepeat: spec.imageRepeat ?? null,
+        imageDialogs: spec.imageDialogs ?? [],
+        imageUpload: spec.imageUpload ?? null,
+        imageGroups,
+        fields: form.fields,
+        radios: form.radios,
+        checks: form.checks,
+        images: prepared.images,
+        // 팝업 에디터 몰은 칸에 직접 쓰지 않는다. 폼을 채운 뒤 버튼을 눌러서 넣는다.
+        detailHtmlTarget: editor ? "" : form.detailHtmlTarget,
+        detailHtml: editor ? "" : detailHtml,
+        multiFormFields: form.multiFormFields,
+        multiFormRadios: form.multiFormRadios,
+        multiFormChecks: form.multiFormChecks,
+        categoryFields: spec.categoryFields ?? null,
+        categoryCode: form.category?.code ?? "",
+        categoryPath: form.category?.path ?? "",
+        noticeSection: spec.noticeSection ?? null,
+        noticeItemCode: form.notice?.itemCode ?? "",
+        noticeSafeYn: form.notice?.safeYn ?? "N",
+        noticeRows: form.notice?.rows ?? [],
+        noticeRadios: form.notice?.radios ?? {},
+        detailSmartEditor: spec.detailSmartEditor ?? null,
+        // 섹션 제목이 유일한 손잡이인 몰(ESM Plus). 스펙 네 조각을 한 덩어리로 묶어 넘긴다.
+        sectionLayout: sectionForm ? { ...sectionForm, category: spec.sectionCategory ?? null, detail: spec.sectionDetail ?? null, images: spec.sectionImages ?? null } : null,
+        sectionFields: form.sectionFields,
+        sectionRadios: form.sectionRadios,
+        sectionDropdowns: form.sectionDropdowns,
+        sectionCategory: form.sectionCategory,
+        optionalSections: form.optionalSections,
+        dismissDialogs: spec.dismissDialogs ?? null,
+        formWaitMs: spec.formWaitMs ?? 0,
+        readySelector: spec.readySelector ?? "",
+        preRadios: spec.preRadios ?? [],
+        afterSelectorClicks: spec.afterSelectorClicks ?? [],
+        infoRows: spec.infoRows ?? null,
+        fireKeyup: Boolean(spec.fireKeyup),
+        infoRowValues: form.infoRows,
+        tableForm: spec.tableForm ?? null,
+        tableFields: form.tableFields,
+        tableRadios: form.tableRadios,
+        tableSelects: form.tableSelects,
+        tablePicks: form.tablePicks,
+        frameUrlIncludes: spec.frameUrlIncludes ?? ""
+      }
+    };
+  }
+  async function waitForFormFrame(context, page, spec) {
+    if (!spec.frameUrlIncludes) return;
+    const until = context.now() + (spec.frameWaitMs ?? 3e4);
+    let lastDoc = null;
+    let steady = 0;
+    while (context.now() < until && steady < 2) {
+      const frame = (await frameStates(page)).find((entry) => entry.href.includes(spec.frameUrlIncludes)) ?? null;
+      const ready = frame ? await readyIn(context, page, spec, frame.frameId) : false;
+      steady = frame && ready && frame.doc === lastDoc ? steady + 1 : 0;
+      lastDoc = frame ? frame.doc : null;
+      if (steady < 2) await context.sleep(1e3);
+    }
+  }
+  async function frameStates(page) {
+    try {
+      const frames = await page.frames([FORM_FRAME_FILE]);
+      return frames.map((frame) => ({ frameId: frame.frameId, href: String(frame.result.href ?? ""), doc: Number(frame.result.doc ?? 0) })).sort((a, b) => a.frameId - b.frameId);
+    } catch {
+      return [];
+    }
+  }
+  async function readyIn(context, page, spec, frameId) {
+    try {
+      const state = await callPage(page, "mallForm.state", { formSelector: spec.formSelector, readySelector: spec.readySelector ?? "" }, {
+        timeoutMs: STATE_TIMEOUT_MS,
+        guard: context.guard,
+        main: [FORM_FILL_FILE],
+        displayName: context.displayName,
+        frameId
+      });
+      return state?.form === true && state.ready === true;
+    } catch {
+      return false;
+    }
+  }
+  async function fillTargets(page, spec) {
+    if (!spec.allFrames) return [void 0];
+    const frames = await frameStates(page);
+    if (frames.length === 0) return [void 0];
+    const preferred = spec.frameUrlIncludes ? frames.filter((frame) => frame.href.includes(spec.frameUrlIncludes)) : frames;
+    return (preferred.length > 0 ? preferred : frames).map((frame) => frame.frameId);
+  }
+  async function callFill(context, page, spec, prepared) {
+    const { call: call2, files, payload } = fillPayload(spec, prepared);
+    let last = { ok: false, error: "\uD3FC \uCC44\uC6C0 \uACB0\uACFC\uB97C \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4." };
+    for (const frameId of await fillTargets(page, spec)) {
+      const answer = await callPage(page, call2, payload, {
+        timeoutMs: FILL_TIMEOUT_MS,
+        guard: context.guard,
+        main: [DIALOG_GUARD_FILE, FORM_FILL_FILE, ...files],
+        displayName: context.displayName,
+        ...frameId !== void 0 ? { frameId } : {}
+      });
+      last = answer ?? last;
+      if (last.ok === true || !last.noForm) return last;
+    }
+    return last;
+  }
+  async function fillMallForm(context, page, spec, prepared) {
+    await waitForFormFrame(context, page, spec);
+    let outcome = await callFill(context, page, spec, prepared);
+    if (outcome.ok !== true && outcome.noForm && spec.frameUrlIncludes) {
+      await waitForFormFrame(context, page, spec);
+      outcome = await callFill(context, page, spec, prepared);
+    }
+    if (outcome.ok !== true) {
+      if (outcome.noForm && (context.signIn || /로그인/.test(outcome.error ?? ""))) {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, context.guard.loginMessage, { url: prepared.form.url, reason: "no_form" });
+      }
+      throw new RuntimeError(REGISTRATION_FILL_FAILED, outcome.error ?? `${context.displayName} \uC0C1\uD488\uB4F1\uB85D \uD3FC\uC744 \uCC44\uC6B0\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, {
+        mallKey: context.mallKey,
+        steps: outcome.steps ?? []
+      });
+    }
+    const steps = [...outcome.steps ?? []];
+    const warnings = [...outcome.warnings ?? [], ...prepared.warnings];
+    const editor = spec.detailEditor;
+    if (editor && prepared.detailHtml && prepared.form.detailHtmlTarget) {
+      const said = await writeDetailThroughEditor(context, page, spec, prepared).catch((error) => {
+        warnings.push(`\uC0C1\uC138\uC124\uBA85\uC744 \uC5D0\uB514\uD130\uB85C \uB123\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${error instanceof Error ? error.message : String(error)}. \uD654\uBA74\uC5D0\uC11C \uC9C1\uC811 \uB123\uC73C\uC138\uC694.`);
+        return null;
+      });
+      if (said !== null) steps.push("\uC0C1\uC138\uC124\uBA85(\uC791\uC131\uD558\uAE30 \uC5D0\uB514\uD130)");
+    }
+    return { steps, warnings, manualSteps: prepared.form.manualSteps, dialogs: outcome.dialogs ?? [] };
+  }
+  async function writeDetailThroughEditor(context, page, spec, prepared) {
+    const editor = spec.detailEditor;
+    const outcome = await callPage(page, "mallForm.detailEditor", {
+      html: prepared.detailHtml,
+      formSelector: spec.formSelector,
+      target: prepared.form.detailHtmlTarget,
+      buttonId: editor.buttonId,
+      editorKey: editor.editorKey,
+      toggleSelector: editor.toggleSelector,
+      framePrefix: editor.framePrefix,
+      frameSuffix: editor.frameSuffix,
+      submitId: editor.submitId,
+      promoKey: editor.promoKey ?? "",
+      promoHtml: prepared.form.promoHtml,
+      openTimeoutMs: editor.openTimeoutMs,
+      submitTimeoutMs: editor.submitTimeoutMs
+    }, {
+      timeoutMs: FILL_TIMEOUT_MS,
+      guard: context.guard,
+      main: [DIALOG_GUARD_FILE, FORM_FILL_FILE],
+      displayName: context.displayName
+    });
+    if (!outcome?.ok) throw new Error(outcome?.error ?? "\uC0C1\uC138\uB0B4\uC6A9\uC744 \uB123\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    if (!outcome.filled) throw new Error((outcome.alerts ?? []).join(" / ") || "\uC5D0\uB514\uD130\uAC00 \uB4F1\uB85D\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.");
+    return true;
+  }
+
+  // extensions/src/sites/mall-write/submit-gate.ts
+  function shouldPressRegister(input) {
+    if (input.submit !== true) return { press: false, skipped: null };
+    if (!input.verifiedSubmit) return { press: false, skipped: "no_verified_submit" };
+    if (input.warnings.length > 0) return { press: false, skipped: "fill_warnings" };
+    if (input.manualSteps.length > 0) return { press: false, skipped: "manual_steps" };
+    return { press: true };
+  }
+
+  // extensions/src/sites/mall-write/write-tab.ts
+  var NAVIGATION_TIMEOUT_MS4 = 45e3;
+  var SETTLE_MS = 1200;
+  async function openWriteTab(deps, url, options) {
+    const signIn = options.signIn ?? null;
+    const hosts = signIn?.hosts ?? options.dialogHosts;
+    const releaseGuard = hosts.length > 0 ? await deps.tabs.guardDialogs(hosts) : null;
+    let reached = false;
+    let finished = false;
+    let page = null;
+    const done = async () => {
+      if (finished) return;
+      finished = true;
+      if (page) {
+        if (reached) await page.leave().catch(() => void 0);
+        else await page.close().catch(() => void 0);
+      }
+      await releaseGuard?.();
+    };
+    try {
+      page = await deps.tabs.open("about:blank");
+      const stopAt = signIn ? (landed) => signIn.isLoginUrl(landed) : void 0;
+      await page.navigate(url, {
+        timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS4,
+        ...stopAt ? { stopAt } : {},
+        ...options.bootstrapFile ? { bootstrapFile: options.bootstrapFile } : {}
+      });
+      reached = true;
+      await deps.sleep(SETTLE_MS);
+    } catch (error) {
+      await done();
+      throw error;
+    }
+    const opened = page;
+    return {
+      page: opened,
+      async run(work) {
+        try {
+          return await (signIn ? signIn.onPage(opened, url, () => work(opened)) : work(opened));
+        } catch (error) {
+          const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
+          if (operatorStep) await opened.focus().catch(() => void 0);
+          throw error;
+        }
+      },
+      done
+    };
+  }
+
+  // extensions/src/sites/mall-write/writer.ts
+  var writers = /* @__PURE__ */ new Map();
+  function registerMallWriter(definition) {
+    if (writers.has(definition.mallKey)) throw new Error(`duplicate mall writer: ${definition.mallKey}`);
+    writers.set(definition.mallKey, definition);
+  }
+  function mallWriterFor(mallKey) {
+    return writers.get(mallKey) ?? null;
+  }
+  function registeredMallWriters() {
+    return [...writers.values()].sort((a, b) => a.mallKey < b.mallKey ? -1 : a.mallKey > b.mallKey ? 1 : 0);
+  }
+  function mallWriteContext(definition, deps, lease) {
+    return {
+      ...deps,
+      mallKey: definition.mallKey,
+      displayName: definition.displayName,
+      guard: definition.guard,
+      signIn: definition.login ? createSiteSignIn(definition.login, lease.credentials, deps) : null
+    };
+  }
+  async function fillRegistration(definition, context, input) {
+    const spec = definition.form;
+    const custom2 = definition.custom;
+    if (!spec && !custom2) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
+    }
+    if (spec && !custom2 && input.executionKind !== "register") {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, {
+        mallKey: definition.mallKey,
+        executionKind: input.executionKind
+      });
+    }
+    const normalized = spec ? normalizeForm(spec, input.form) : null;
+    const prepared = spec && normalized ? await prepareMallForm(context, spec, normalized) : null;
+    const url = normalized ? normalized.url : custom2.url(input);
+    const tab = await openWriteTab(context, url, {
+      signIn: context.signIn,
+      dialogHosts: definition.dialogHosts,
+      ...custom2?.bootstrapFile ? { bootstrapFile: custom2.bootstrapFile } : {}
+    });
+    try {
+      const filled = await tab.run(async (page) => {
+        if (spec && prepared) return { fill: await fillMallForm(context, page, spec, prepared), providerAccountId: null };
+        return custom2.fill(context, page, input);
+      });
+      const decision = shouldPressRegister({
+        submit: input.submit,
+        verifiedSubmit: Boolean(custom2?.submit),
+        warnings: filled.fill.warnings,
+        manualSteps: filled.fill.manualSteps
+      });
+      const observedUrl = await tab.page.currentUrl().catch(() => null);
+      return {
+        fill: filled.fill,
+        decision,
+        providerAccountId: filled.providerAccountId,
+        observedUrl: observedUrl ? observedUrl.split(/[?#]/)[0] : null,
+        submit: async () => {
+          if (!decision.press || !custom2?.submit) throw new Error("\uAD00\uBB38\uC774 \uB204\uB974\uC9C0 \uC54A\uAE30\uB85C \uD55C \uB4F1\uB85D\uC785\uB2C8\uB2E4.");
+          return custom2.submit(context, tab.page);
+        },
+        done: () => tab.done()
+      };
+    } catch (error) {
+      await tab.done();
+      throw error;
+    }
+  }
+  var thumbnailWriters = /* @__PURE__ */ new Map();
+  function registerMallThumbnail(mallKey, writer) {
+    if (thumbnailWriters.has(mallKey)) throw new Error(`duplicate mall thumbnail writer: ${mallKey}`);
+    thumbnailWriters.set(mallKey, writer);
+  }
+  function mallThumbnailFor(mallKey) {
+    return thumbnailWriters.get(mallKey) ?? null;
+  }
+
+  // extensions/src/sites/11st/registration.ts
+  var ST11_REGISTRATION_FORM = {
+    label: "11\uBC88\uAC00",
+    origin: "https://soffice.11st.co.kr",
+    /**
+     * 셀러오피스는 메뉴를 번호로 연다. `123124025` 가 '신규상품 등록'이다.
+     * 접두어를 `/view/` 로만 두면 아무 메뉴에나 값을 넣을 수 있으니 번호까지 건다.
+     */
+    pathPrefix: "/view/123124025",
+    /**
+     * ⭐ 폼이 **iframe 안**에 있다. 겉은 셀러오피스 껍데기고, 실제 등록 화면은
+     * `/pages/product-reg/index.html`(Vue 앱)이다. 바깥 문서에 값을 넣으면 아무
+     * 칸도 못 찾는다(라이브 확인 2026-09-10).
+     */
+    allFrames: true,
+    formSelector: "#app.l-content--product",
+    imageSlots: [],
+    dynamic: null,
+    /**
+     * ⭐ 카테고리가 방아쇠다. 고르기 전에는 상품정보 제공고시 블록이
+     * `display:none` 이라 유형을 못 넣는다(라이브 확인: 고른 직후 나타났다).
+     * 그래서 이 몰만 분류를 맨 앞에서 끝낸다.
+     */
+    categoryFirst: true,
+    /**
+     * 분류는 검색해서 고른다. 올웨이즈와 비슷하지만 두 가지가 다르다.
+     *  1. 경로 구분자가 **공백 없는 `>`** 다 — `문구/사무용품>디자인/팬시용품>기능성 팬시`.
+     *  2. **띄어쓴 이름으로 검색하면 0건**이다(`기능성 팬시` → 없음, `팬시` → 20건).
+     *     그래서 마지막 단의 첫 낱말만 넣고, 결과에서 전체 경로가 똑같은 것을 누른다.
+     */
+    categorySearch: {
+      inputSelector: '#section-category input[placeholder="\uCE74\uD14C\uACE0\uB9AC\uBA85\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694"]',
+      optionSelector: "#section-category .c-dropdown li button",
+      joiner: ">",
+      queryFirstWord: true,
+      waitMs: 2200
+    },
+    /**
+     * 이 화면은 이름도 id도 거의 없다. 라디오 이름이 `nameRadio17207` 처럼 **런타임
+     * 해시**라 그대로 쓰면 다음 배포에 통째로 깨진다(라이브 실측 2026-09-10).
+     *
+     * 대신 마크업이 `블록(#section-*) > .b-box__row > .b-box__title | .b-box__cont`
+     * 로 규칙적이다. **블록 id + 행 제목**으로 잡으면 해시에 걸리지 않는다.
+     */
+    rowFields: [
+      { key: "productName", section: "section-name", row: "\uC0C1\uD488\uBA85", label: "\uC0C1\uD488\uBA85" },
+      { key: "promoText", section: "section-name", row: "\uD64D\uBCF4\uBB38\uAD6C", label: "\uD64D\uBCF4\uBB38\uAD6C" },
+      { key: "salePrice", section: "section-option", row: "\uD310\uB9E4\uAC00", label: "\uD310\uB9E4\uAC00" },
+      { key: "consumerPrice", section: "section-option", row: "\uAD8C\uC7A5 \uC18C\uBE44\uC790\uAC00", label: "\uAD8C\uC7A5 \uC18C\uBE44\uC790\uAC00" },
+      { key: "stock", section: "section-option", row: "\uC7AC\uACE0\uC218\uB7C9", label: "\uC7AC\uACE0\uC218\uB7C9" },
+      { key: "sellerPrdCd", section: "section-primary-info", row: "\uD310\uB9E4\uC790 \uC0C1\uD488\uCF54\uB4DC", label: "\uD310\uB9E4\uC790 \uC0C1\uD488\uCF54\uB4DC" }
+    ],
+    /** 값이 계정마다 다른 번호라 **보이는 글자**로 고른다(배송 템플릿이 그렇다). */
+    rowOptions: [
+      { key: "salePeriod", section: "section-sales-info", row: "\uD310\uB9E4\uAE30\uAC04", label: "\uD310\uB9E4\uAE30\uAC04" },
+      { key: "deliveryTemplate", section: "section-delivery", row: "\uD15C\uD50C\uB9BF \uBAA9\uB85D", label: "\uBC30\uC1A1\uC815\uBCF4 \uD15C\uD50C\uB9BF" }
+    ],
+    /** 고시 유형만 진짜 id 를 갖고 있다. 분류를 고른 뒤라야 보인다. */
+    selectorFields: [
+      { key: "noticeType", selector: "#prdInfoTypeOpt", label: "\uC0C1\uD488\uC815\uBCF4 \uC81C\uACF5\uACE0\uC2DC \uC720\uD615", waitMs: 1500 }
+    ],
+    /** 브랜드는 필수인데 우리 상품은 브랜드가 없다. '브랜드 없음'으로 통과시킨다. */
+    selectorChecks: [
+      { key: "noBrand", selector: "#lbCheckNobrand01", label: "\uBE0C\uB79C\uB4DC \uC5C6\uC74C" }
+    ],
+    /**
+     * 이미지는 **창을 열어서** 넣는다.
+     *
+     * 파일 칸이 화면에 붙어 있지 않다. `+` 를 누르면 '이미지 불러오기' 창이 뜨고
+     * 파일 칸은 그 창 안에 있는데, 창 id 가 `dialog-8c1a040468632` 처럼 매번 다르다
+     * (라이브 실측 2026-09-10). 그래서 열린 창에서 찾는다.
+     *
+     * ⚠️ 같은 이름으로 시작하는 줄이 둘이다 — `추가이미지` 라디오 줄과 사진 줄.
+     *    제목만 보면 라디오 줄을 집어서 `+` 를 못 찾는다. `+` 가 있는 줄만 고른다.
+     */
+    imageDialogs: [
+      { key: "representative", section: "section-image", row: "\uB300\uD45C \uC774\uBBF8\uC9C0", label: "\uB300\uD45C \uC774\uBBF8\uC9C0" },
+      { key: "additional", section: "section-image", row: "\uCD94\uAC00\uC774\uBBF8\uC9C0", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0" }
+    ],
+    /**
+     * 상세설명은 `HTML` / `11에디터` 라디오인데 **HTML 이 기본 선택**이라 그대로
+     * textarea 에 넣으면 된다(라이브 확인 2026-09-10). 이름이 없어 선택자로 잡는다.
+     */
+    detailSelector: "#section-description textarea",
+    detailHost: "kidsnote",
+    /**
+     * ⚠️ 광고 블록(`#section-advertisement`)에는 포커스클릭·리스팅광고가 있고
+     * 켜지면 셀러캐시에서 돈이 나간다. 이 몰의 어떤 단계도 그 블록을 건드리지 않는다.
+     * 규칙은 시험(`mall-form-11st.test.mjs`)이 지킨다.
+     */
+    forbiddenSelector: "#section-advertisement"
+  };
+  registerMallWriter({
+    mallKey: "11st",
+    displayName: "11\uBC88\uAC00",
+    guard: registrationGuard(ST11_LISTINGS_GUARD, "11\uBC88\uAC00"),
+    dialogHosts: ["11st.co.kr"],
+    form: ST11_REGISTRATION_FORM
+  });
+
+  // extensions/src/sites/1688/index.ts
+  var SEARCH_ORIGIN = "https://s.1688.com";
+  var NAVIGATION_TIMEOUT_MS5 = 3e4;
+  var EXTRACTION_TIMEOUT_MS = 2e4;
+  var MAX_RESULTS_PER_KEYWORD = 20;
+  var MAX_VERIFICATION_ROUNDS = 5;
+  var ALIBABA_CONTENT_FILES = {
+    isolated: [
+      "content/sourcing/extractors/common.js",
+      "content/sourcing/extractors/alibaba.js",
+      "content/sourcing/extractors/1688.js",
+      "content/sourcing/content.js"
+    ]
+  };
+  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  var ALIBABA_1688_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
+    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var ALIBABA_1688_SITE = {
+    name: "ali1688",
+    origin: SEARCH_ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "1688" }
+  };
+  function build1688SearchUrl(keyword2) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
+  }
+  function is1688VerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
+    } catch {
+      return false;
+    }
+  }
+  function create1688SearchSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      /**
+       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
+       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
+       */
+      async offers(keyword2, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "1688", label: keyword2 };
+        const waitOrFail = async (url) => {
+          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
+          throw verification(url, keyword2, () => {
+            keepOpen = true;
+          });
+        };
+        for (let round = 1; ; round += 1) {
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          if (is1688VerificationUrl(landed)) {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
+              keepOpen = true;
+            });
+            await waitOrFail(landed);
+            continue;
+          }
+          let extracted;
+          try {
+            extracted = await current.ask(
+              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
+            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
+              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
+                keepOpen = true;
+              });
+            }
+            await waitOrFail(here);
+            continue;
+          }
+          if (!extracted.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
+          }
+          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function verification(url, keyword2, keep) {
+    keep();
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
+  }
+  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
+
+  // extensions/src/sites/wing/login.ts
+  var WING_LOGIN = {
+    displayName: "\uCFE0\uD321 \uC719",
+    loginUrl: "https://wing.coupang.com/",
+    hosts: ["wing.coupang.com", "xauth.coupang.com"],
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname),
+    fields: ["loginId", "password"]
+  };
+  function wingCallerWithLogin(caller, deps, lease) {
+    const credentials = lease.credentials;
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
+    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
+    return {
+      json: (url, init) => gate(() => caller.json(url, init)),
+      text: (url, init) => gate(() => caller.text(url, init)),
+      bytes: (url, init) => gate(() => caller.bytes(url, init))
+    };
+  }
+
+  // extensions/src/sites/ad-center/login.ts
+  var AD_CENTER_LOGIN = {
+    displayName: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130",
+    loginUrl: "https://advertising.coupang.com/marketing",
+    hosts: ["advertising.coupang.com", "xauth.coupang.com"],
+    // 광고센터 쪽은 옛 `startsWith('/user/login')`처럼 넓게 본다.
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || isAccountChoiceUrl(url),
+    fields: WING_LOGIN.fields
+  };
+  var AD_CENTER_ACCOUNT_CHOICE_FILE = "content/ad-center/account-choice.js";
+  var NAVIGATION_TIMEOUT_MS6 = 3e4;
+  var CALL_TIMEOUT_MS3 = 5e3;
+  var FORM_WAIT_MS = 15e3;
+  var FORM_POLL_MS = 500;
+  function isAccountChoiceUrl(url) {
+    return url.hostname.toLowerCase() === "advertising.coupang.com" && url.pathname.startsWith("/user/login");
+  }
+  function parsed2(value) {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  }
+  var GUARD = {
+    allows: (url) => hostWithin(url, AD_CENTER_LOGIN.hosts),
+    isLogin: () => false,
+    loginMessage: `${AD_CENTER_LOGIN.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
+  };
+  async function chooseWingAccount(page, deps) {
+    const loginUrl = (value) => {
+      const url2 = parsed2(value);
+      return url2 !== null && AD_CENTER_LOGIN.isLoginUrl(url2);
+    };
+    let current = await page.currentUrl().catch(() => "");
+    if (!loginUrl(current)) {
+      current = await page.navigate(AD_CENTER_LOGIN.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true, stopAt: loginUrl }).catch(() => "");
+    }
+    const url = parsed2(current);
+    if (!url || !isAccountChoiceUrl(url)) return;
+    const answer = await callPage(page, "adCenter.chooseWingAccount", {}, {
+      timeoutMs: CALL_TIMEOUT_MS3,
+      guard: GUARD,
+      displayName: AD_CENTER_LOGIN.displayName,
+      isolated: [AD_CENTER_ACCOUNT_CHOICE_FILE]
+    }).catch(() => null);
+    if (answer?.state !== "clicked") return;
+    const deadline = deps.now() + FORM_WAIT_MS;
+    while (deps.now() < deadline) {
+      const frames = await page.frames([LOGIN_FILL_FILE]).catch(() => []);
+      if (frames.some((frame) => frame.result?.loginForm === true)) return;
+      await deps.sleep(FORM_POLL_MS);
+    }
+  }
+
+  // extensions/src/sites/ad-center/index.ts
+  var AD_CENTER_ORIGIN = "https://advertising.coupang.com";
+  var AD_CENTER_HOME_URL = `${AD_CENTER_ORIGIN}/marketing`;
+  var AD_CENTER_GRAPHQL_URL = `${AD_CENTER_ORIGIN}/marketing-reporting/v2/graphql`;
+  var AD_CENTER_CHART_REPORT_URL = `${AD_CENTER_ORIGIN}/marketing-reporting/v2/api/chart-report`;
+  var AD_CENTER_EXCEL_REPORT_URL = `${AD_CENTER_ORIGIN}/marketing-reporting/v2/api/excel-report`;
+  var AD_CENTER_CAMPAIGNS_URL = `${AD_CENTER_ORIGIN}/marketing/tetris-api/campaigns`;
+  var AD_CENTER_VENDOR_FILE = "content/ad-center/vendor-code.js";
+  var AD_CENTER_PAGE_SIZE2 = 500;
+  var AD_CENTER_CALLER = { minIntervalMs: 1500, timeoutMs: 12e4, displayName: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130" };
+  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var VENDOR_READS = 10;
+  var VENDOR_READ_GAP_MS = 1e3;
+  var JSON_HEADERS = { Accept: "application/json", "Content-Type": "application/json" };
+  var CAMPAIGN_LIST_QUERY = `query ($startDate: Int!, $endDate: Int!, $reportType: ReportType!, $rbacReportType: String) {
+  getCampaignList(startDate: $startDate, endDate: $endDate, reportType: $reportType, rbacReportType: $rbacReportType) { id name }
+}`;
+  var REQUEST_REPORT_MUTATION = `mutation ($startDate: Int!, $endDate: Int!, $campaignIds: [ID], $reportType: ReportType!, $dateGroup: DateGroup!, $granularity: Granularity, $excludeIfNoClickCount: Boolean) {
+  requestReport(data: {startDate: $startDate, endDate: $endDate, campaignIds: $campaignIds, reportType: $reportType, dateGroup: $dateGroup, granularity: $granularity, excludeIfNoClickCount: $excludeIfNoClickCount}) {
+    id requestDate startDate endDate dateGroup granularity campaignCount status isLargeReport
+  }
+}`;
+  var REPORT_LIST_QUERY = `query ($reportType: ReportType!, $page: Int!, $pageSize: Int!, $duration: Int!) {
+  reportList(data: {reportType: $reportType, page: $page, pageSize: $pageSize, duration: $duration}) { reports { id status isLargeReport } }
+}`;
+  var SETTLEMENT_ITEMS = "items { date type settlementDomain campaignId campaignName adType goalType deliveredAdcost deliveredAdcostAdj deliveredAdcostAfterAdj budgetAmount budgetType priorSpend deliveredAdcostAfterCap billableAmount promotionAdjustment billableAdjustment }";
+  var SETTLEMENT_BY_CAMPAIGNS_MUTATION = `mutation ($startDate: Int!, $endDate: Int!, $settlementDomain: SettlementDomain!, $campaignIds: [Int!]!) {
+  getDailySettlementByCampaigns(startDate: $startDate, endDate: $endDate, settlementDomain: $settlementDomain, campaignIds: $campaignIds) { ${SETTLEMENT_ITEMS} }
+}`;
+  var SETTLEMENT_ACCOUNT_MUTATION = `mutation ($startDate: Int!, $endDate: Int!, $settlementDomain: SettlementDomain!) {
+  getDailySettlement(startDate: $startDate, endDate: $endDate, settlementDomain: $settlementDomain) { ${SETTLEMENT_ITEMS} }
+}`;
+  function createAdCenterSite(deps, lease) {
+    const caller = createSiteCaller(AD_CENTER_CALLER, deps);
+    const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
+    const call2 = adCenterCall(deps, lease, page);
+    async function graphql(query, variables, options = {}) {
+      const body = record2(await call2(() => caller.json(AD_CENTER_GRAPHQL_URL, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ query, variables })
+      }).catch((error) => {
+        throw graphqlRejection(error) ?? error;
+      }), { retryAfterWarmUp: options.write !== true }));
+      const errors = body?.errors;
+      if (Array.isArray(errors) && errors.length > 0) {
+        const first = record2(errors[0]);
+        throw graphqlError(typeof first?.message === "string" ? first.message : "", text3(record2(first?.extensions)?.code));
+      }
+      const data = record2(body?.data);
+      if (!data) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      return data;
+    }
+    return {
+      async readVendorId() {
+        if (!page) throw failed2("tab_missing", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD0ED\uC774 \uC5C6\uC5B4 \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+        if (!(await page.currentUrl().catch(() => "")).startsWith(AD_CENTER_HOME_URL)) {
+          await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
+        }
+        for (let read15 = 0; read15 < VENDOR_READS; read15 += 1) {
+          if (read15 > 0) await deps.sleep(VENDOR_READ_GAP_MS);
+          const frames = await page.frames([AD_CENTER_VENDOR_FILE]).catch(() => []);
+          const found = frames.map((frame) => text3(frame.result?.vendorId)?.trim()).find(Boolean);
+          if (found) return found;
+        }
+        if (isLoginUrl(await page.currentUrl().catch(() => ""))) {
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.", { reason: "login_unconfirmed" });
+        }
+        throw failed2("vendor_code_missing", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      },
+      async listReportCampaigns(range) {
+        const data = await graphql(CAMPAIGN_LIST_QUERY, { ...reportRange(range), reportType: "pa", rbacReportType: "AD_REPORT" });
+        const list2 = data.getCampaignList;
+        if (!Array.isArray(list2)) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        return list2.flatMap((value) => {
+          const campaign = record2(value);
+          const campaignId = id2(campaign?.id);
+          return campaignId ? [{ id: campaignId, name: text3(campaign?.name) ?? "" }] : [];
+        });
+      },
+      async requestReport(input) {
+        const data = await graphql(REQUEST_REPORT_MUTATION, {
+          ...reportRange(input),
+          campaignIds: input.campaignIds,
+          reportType: "pa",
+          dateGroup: "daily",
+          granularity: input.granularity,
+          // 상품 보고서는 클릭 없는 행까지(노출), 키워드 보고서는 클릭 있는 행만(광고비는 빠지지 않는다, 문서 §13.4).
+          excludeIfNoClickCount: input.granularity === "keyword"
+        }, { write: true });
+        const created = record2(data.requestReport);
+        const reportId = text3(created?.id);
+        if (!created || !reportId) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uC0DD\uC131 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        return { id: reportId, isLargeReport: created.isLargeReport === true };
+      },
+      async listReports() {
+        const data = await graphql(REPORT_LIST_QUERY, { reportType: "pa", page: 1, pageSize: 10, duration: 90 });
+        const reports = record2(data.reportList)?.reports;
+        if (!Array.isArray(reports)) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uBAA9\uB85D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        return reports.flatMap((value) => {
+          const entry = record2(value);
+          const reportId = text3(entry?.id);
+          return reportId ? [{ id: reportId, status: text3(entry?.status) ?? "", isLargeReport: entry?.isLargeReport === true }] : [];
+        });
+      },
+      async downloadReport(input) {
+        const url = `${input.isLargeReport ? AD_CENTER_EXCEL_REPORT_URL : AD_CENTER_CHART_REPORT_URL}?id=${encodeURIComponent(input.id)}`;
+        const body = await call2(() => caller.text(url, { headers: { Accept: "text/plain, application/x-ndjson, application/json" } }));
+        return input.isLargeReport ? parseReportTsv(body) : parseReportNdjson(body);
+      },
+      async listCampaigns(pageNumber) {
+        const body = record2(await call2(() => caller.json(AD_CENTER_CAMPAIGNS_URL, {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ isDeleted: false, pagination: { page: pageNumber, size: AD_CENTER_PAGE_SIZE2 }, sortedBy: "IS_ACTIVE", isSortDesc: false })
+        })));
+        const campaigns = record2(body?.data)?.campaigns;
+        if (!Array.isArray(campaigns)) throw failed2("campaigns_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { page: pageNumber });
+        return campaigns;
+      },
+      async listAds(input) {
+        const body = record2(await call2(() => caller.json(`${AD_CENTER_ORIGIN}/marketing/tetris-api/${encodeURIComponent(input.adGroupId)}/ads`, {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ pagination: { page: input.page, size: AD_CENTER_PAGE_SIZE2 } })
+        })));
+        const data = record2(body?.data) ?? body;
+        const ads = [data?.ads, data?.adList, data?.content, data?.list, data?.items].find(Array.isArray);
+        const declared = count2(data?.totalCount ?? record2(data?.pageInfo)?.totalCount ?? body?.totalCount);
+        const totalCount = declared ?? (ads && ads.length < AD_CENTER_PAGE_SIZE2 ? input.page * AD_CENTER_PAGE_SIZE2 + ads.length : null);
+        if (!ads || totalCount === null) throw failed2("ads_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { adGroupId: input.adGroupId, page: input.page });
+        return { ads, totalCount };
+      },
+      async readSettlement(input) {
+        const byCampaigns = input.campaignIds !== null;
+        const data = await graphql(byCampaigns ? SETTLEMENT_BY_CAMPAIGNS_MUTATION : SETTLEMENT_ACCOUNT_MUTATION, {
+          ...reportRange(input),
+          settlementDomain: input.domain,
+          ...byCampaigns ? { campaignIds: input.campaignIds } : {}
+        });
+        const items = record2(data[byCampaigns ? "getDailySettlementByCampaigns" : "getDailySettlement"])?.items;
+        if (!Array.isArray(items)) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uC815\uC0B0 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { domain: input.domain });
+        return items;
+      },
+      pause: (ms) => deps.sleep(ms)
+    };
+  }
+  function adCenterCall(deps, lease, page) {
+    const credentials = lease.credentials;
+    const withLogin = createSiteLoginGate(credentials);
+    const login = async (target) => {
+      if (!credentials) return { status: "unconfirmed" };
+      await chooseWingAccount(target, deps);
+      return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
+    };
+    let warmed = false;
+    const warm = async (request, retry) => {
+      try {
+        return await request();
+      } catch (error) {
+        if (!retry || warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
+        warmed = true;
+        await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
+        return request();
+      }
+    };
+    return (request, options = {}) => {
+      const retry = options.retryAfterWarmUp !== false;
+      return page ? withLogin(() => warm(request, retry), () => login(page)) : withLoginTab(withLogin, () => warm(request, retry), () => deps.tabs.open("about:blank"), login);
+    };
+  }
+  function parseReportNdjson(body) {
+    const rows = [];
+    for (const [index, raw] of body.split(/\r?\n/).entries()) {
+      const line = raw.trim();
+      if (!line) continue;
+      let parsed3;
+      try {
+        parsed3 = JSON.parse(line);
+      } catch {
+        parsed3 = null;
+      }
+      const row = record2(parsed3);
+      if (!row) throw failed2("report_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uD30C\uC77C \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { line: index + 1 });
+      rows.push(row);
+    }
+    return rows;
+  }
+  function parseReportTsv(body) {
+    if (body.startsWith("PK")) throw failed2("excel_report_not_tsv", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD070 \uBCF4\uACE0\uC11C\uAC00 \uD0ED \uAD6C\uBD84 \uD45C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+    const lines = body.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim() !== "");
+    const [head, ...rest] = lines;
+    if (!head) return [];
+    const columns = head.split("	").map((column) => column.trim());
+    return rest.map((line) => {
+      const cells = line.split("	");
+      return Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? ""]));
+    });
+  }
+  function isLoginUrl(value) {
+    try {
+      return AD_CENTER_LOGIN.isLoginUrl(new URL(value));
+    } catch {
+      return false;
+    }
+  }
+  function graphqlRejection(error) {
+    if (!isRuntimeError(error) || error.code !== SITE_REQUEST_FAILED || error.details?.reason !== "http") return null;
+    const head = typeof error.details.bodyHead === "string" ? error.details.bodyHead : "";
+    if (!/"errors"\s*:\s*\[/.test(head)) return null;
+    const match = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head);
+    let message = match?.[1] ?? "";
+    try {
+      message = JSON.parse(`"${message}"`);
+    } catch {
+    }
+    return graphqlError(message, null, error.details.status);
+  }
+  function graphqlError(message, code2, status = 200) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uC870\uD68C\uAC00 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4: ${message || "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      reason: "graphql_error",
+      httpStatus: status,
+      graphqlMessage: message,
+      ...code2 ? { graphqlCode: code2 } : {}
+    });
+  }
+  function reportRange(range) {
+    return { startDate: Number(range.startDate.replace(/-/g, "")), endDate: Number(range.endDate.replace(/-/g, "")) };
+  }
+  function id2(value) {
+    const textValue = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(textValue) ? textValue : null;
+  }
+  function text3(value) {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return null;
+  }
+  function count2(value) {
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(parsed3) && parsed3 >= 0 ? parsed3 : null;
+  }
+  function record2(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function failed2(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
+  }
+  registerSite({
+    name: "ad-center",
+    origin: AD_CENTER_HOME_URL,
+    create: (deps, lease) => createAdCenterSite(deps, lease)
+  });
+
+  // extensions/src/sites/mall-excel.ts
+  var MALL_FILE_PART_CHARS = 7e5;
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
+  function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
+    const parts = Math.max(1, Math.ceil(base642.length / partChars));
+    return Array.from({ length: parts }, (_, part) => ({
+      fileName,
+      part,
+      parts,
+      base64: base642.slice(part * partChars, (part + 1) * partChars)
+    }));
+  }
+  function mallExcelRows(answer, context) {
+    const message = answer?.error || `${context.displayName} \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
+    if (answer?.success === true) {
+      if (answer.empty === true) return { rows: [] };
+      const base642 = typeof answer.xlsxBase64 === "string" ? answer.xlsxBase64.trim() : "";
+      if (!base642) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `${context.displayName} \uC8FC\uBB38 \uC6D0\uBCF8 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: context.url });
+      }
+      return { rows: filePartRows(answer.fileName || context.fileName, base642) };
+    }
+    if (answer?.pendingLogin === true || answer?.errorCode === "login_required") {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
+    }
+    if (answer?.errorCode === "provider_contract_changed") {
+      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
+    }
+    if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
+      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, message, {
+      status: null,
+      reason: answer?.errorCode === "network_failed" ? "network" : "page_error",
+      url: context.url
+    });
+  }
+
+  // extensions/src/sites/always/listings.ts
+  var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
+  var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
+  function createAlwaysListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "always",
+        displayName: "\uC62C\uC6E8\uC774\uC988",
+        startUrl: ALWAYS_LISTINGS_URL,
+        file: ALWAYS_LISTINGS_FILE,
+        call: "always.listings",
+        guard: ALWAYS_PAGE_GUARD
+      }, plan)
+    };
+  }
+
+  // extensions/src/sites/always/index.ts
+  var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
+  var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
+  var READ_TIMEOUT_MS2 = 12e4;
+  var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var ALWAYS_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
+    isLogin: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createAlwaysSite(tabs) {
+    return {
+      ...createAlwaysListings(tabs),
+      readOrders() {
+        return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "always.orders", {}, {
+            timeoutMs: READ_TIMEOUT_MS2,
+            guard: ALWAYS_PAGE_GUARD,
+            main: [ALWAYS_ORDERS_FILE],
+            displayName: "\uC62C\uC6E8\uC774\uC988"
+          });
+          return mallExcelRows(answer, { displayName: "\uC62C\uC6E8\uC774\uC988", url: ALWAYS_ORDER_URL, fileName: "\uC62C\uC6E8\uC774\uC988.xlsx" });
+        });
+      }
+    };
+  }
+  registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
+
+  // extensions/src/sites/always/availability.ts
+  var ORIGIN2 = "https://alwayzseller.ilevit.com";
+  var PAGE_URL2 = "https://alwayzseller.ilevit.com/items/management";
+  var BACKEND = "https://alwayz-seller-back.ilevit.com";
+  var TOKEN_KEY = "@alwayz@seller@token@";
+  var PACE_MS2 = 700;
+  var LABEL2 = "\uC62C\uC6E8\uC774\uC988";
+  var LOGGED_OUT2 = `${LABEL2} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isItemId = (code2) => /^[0-9a-f]{24}$/i.test(code2);
+  async function readItems(run, itemIds) {
+    const answer = await run("alwayzRequestOnPage", [`${BACKEND}/sellers/items/info-request`, { itemIds }, TOKEN_KEY]);
+    if (answer.loggedOut) return { loggedOut: true };
+    const items = Array.isArray(answer.json?.data) ? answer.json.data : null;
+    if (answer.status !== 200 || !items) return { error: `HTTP ${answer.status}` };
+    return { items };
+  }
+  async function send2(context, input) {
+    const { codes, resume } = input;
+    const warnings = [];
+    const ids = codes.filter(isItemId);
+    let failed9 = codes.length - ids.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL2} \uC0C1\uD488 \uACE0\uC720\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    const halted = await withSellerPage(context, ORIGIN2, PAGE_URL2, async (run) => {
+      if (ids.length === 0) return null;
+      const read15 = await readItems(run, ids);
+      if (read15.loggedOut) return { success: false, error: LOGGED_OUT2 };
+      if (!read15.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${read15.error}).` };
+      const byId = new Map(read15.items.map((item) => [String(item._id), item]));
+      const missing = ids.filter((id3) => !byId.has(id3));
+      if (missing.length > 0) {
+        failed9 += missing.length;
+        warnings.push(`${missing.length}\uAC74\uC740 ${LABEL2}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const targets = ids.filter((id3) => byId.has(id3) && Boolean(byId.get(id3).soldOut) === resume);
+      already += ids.filter((id3) => byId.has(id3)).length - targets.length;
+      if (targets.length === 0) return null;
+      const path = resume ? "/items/resume-many" : "/items/sold-out-many";
+      const answer = await run("alwayzRequestOnPage", [`${BACKEND}${path}`, { itemIdList: targets }, TOKEN_KEY]);
+      const ok = answer.status === 200 && (answer.json?.status === void 0 || Number(answer.json.status) === 200);
+      if (!ok) {
+        failed9 += targets.length;
+        warnings.push(`${LABEL2}\uC774 ${resume ? "\uD310\uB9E4\uC7AC\uAC1C" : "\uD488\uC808"}\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+        return null;
+      }
+      sent += targets.length;
+      await context.sleep(PACE_MS2);
+      const after = await readItems(run, targets);
+      if (after.items) confirmed += after.items.filter((item) => Boolean(item.soldOut) === !resume).length;
+      else warnings.push(`${LABEL2}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read2(context, codes) {
+    const ids = [...new Set(codes)].filter(isItemId).slice(0, READ_LIMIT);
+    if (ids.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL2} \uC0C1\uD488 \uACE0\uC720\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN2, PAGE_URL2, async (run) => {
+      const result = await readItems(run, ids);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT2 };
+      if (!result.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const byId = new Map(result.items.map((item) => [String(item._id), item]));
+      found = ids.filter((id3) => byId.has(id3)).map((id3) => ({ code: id3, options: [flagOption(id3, !byId.get(id3).soldOut, byId.get(id3).soldOut ? "\uD488\uC808" : null)] }));
+      missing = ids.filter((id3) => !byId.has(id3));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "always",
+    displayName: LABEL2,
+    guard: availabilityGuard(ALWAYS_PAGE_GUARD, LABEL2),
+    dialogHosts: ["alwayzseller.ilevit.com"],
+    send: send2,
+    read: read2
+  });
+
+  // extensions/src/sites/always/registration.ts
+  var ALWAYS_REGISTRATION_FORM = {
+    label: "\uC62C\uC6E8\uC774\uC988",
+    origin: "https://alwayzseller.ilevit.com",
+    pathPrefix: "/items/registrations",
+    /**
+     * 이 화면에는 `<form>` 이 없다. React 트리에 입력칸이 흩어져 있고 이름 있는
+     * 칸은 `keyword` 하나뿐이라 전부 선택자로 잡는다(라이브 실측 2026-09-10).
+     */
+    formSelector: "body",
+    imageSlots: [],
+    dynamic: null,
+    /**
+     * 분류는 검색해서 고른다.
+     *
+     * 목록을 미리 들고 있어 타이핑하면 화면에서 걸러진다 — 네트워크 요청이 없다.
+     * 결과는 `대분류 > 중분류 > 소분류` 글자를 가진 버튼이고, 누르면 입력칸이
+     * 그 전체 경로로 바뀐다. 코드가 아니라 이름이다.
+     */
+    categorySearch: {
+      inputSelector: "#category-search-input",
+      optionSelector: "button",
+      waitMs: 2200
+    },
+    selectorFields: [
+      { key: "productName", selector: "#register-productName", label: "\uC0C1\uD488\uBA85" },
+      { key: "optionName", selector: 'input[placeholder^="1\uBC88\uC9F8 \uC635\uC158\uBA85"]', label: "\uC635\uC158\uBA85" },
+      { key: "optionDetail", selector: 'input[placeholder^="1\uBC88\uC9F8 \uC138\uBD80\uC635\uC158"]', label: "\uC138\uBD80\uC635\uC158" },
+      { key: "individualPrice", selector: "#register-individualPrice", label: "\uAC1C\uBCC4\uAD6C\uB9E4\uAC00" },
+      { key: "teamPrice", selector: "#register-teamPrice", label: "\uD300\uAD6C\uB9E4\uAC00" },
+      { key: "keyword", selector: 'input[name="keyword"]', label: "\uD0A4\uC6CC\uB4DC" },
+      // 택배사는 **이름이 곧 값**이다. 수정 화면의 숫자 코드(`04`)와 다르다.
+      { key: "shippingCompany", selector: "#shipping_company_item", label: "\uD0DD\uBC30\uC0AC" }
+    ],
+    /**
+     * 이미지 칸 셋. 전부 숨어 있고 이름이 없어 화면 순서로 잡는다.
+     * 위지윅 에디터가 없다 — 상세설명도 이미지 파일이다.
+     */
+    imageFileInputs: [
+      { key: "representative", label: "\uB300\uD45C\uC774\uBBF8\uC9C0" },
+      { key: "additional", label: "\uCD94\uAC00\uC774\uBBF8\uC9C0" },
+      { key: "detail", label: "\uC0C1\uC138\uC774\uBBF8\uC9C0" }
+    ]
+  };
+  registerMallWriter({
+    mallKey: "always",
+    displayName: "\uC62C\uC6E8\uC774\uC988",
+    guard: registrationGuard(ALWAYS_PAGE_GUARD, "\uC62C\uC6E8\uC774\uC988"),
+    dialogHosts: ["alwayzseller.ilevit.com"],
+    form: ALWAYS_REGISTRATION_FORM
+  });
 
   // extensions/src/sites/art09/listings.ts
   var ART09_LISTINGS_URL = "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage";
@@ -9235,6 +12711,175 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/art09/registration.ts
+  var isArt09LoginPage = (url) => hostWithin(url, ["eclogin.cafe24.com"]) || hostWithin(url, ["cafe24.com"]) && /login/i.test(url.pathname);
+  var ART09_REGISTRATION_FORM = {
+    label: "\uC544\uD2B8\uACF5\uAD6C",
+    origin: "https://zzogzzog1.cafe24.com",
+    pathPrefix: "/disp/admin/shop1/product/ProductRegister",
+    formSelector: "#eProductRegisterForm",
+    /**
+     * 대표이미지는 **파일로 올린다.**
+     *
+     * 주소로 넣는 길(`이미지 URL등록`)도 있지만 그러면 Cafe24 서버가 그 주소를
+     * 가지러 와야 한다. 우리 산출물은 로컬 MinIO 라 못 읽고, 남의 호스팅을 거치면
+     * 핫링크 차단에 걸린다(라이브 실측 2026-09-10: 카카오 CDN 은 리퍼러가 있으면
+     * Cafe24 관리자에서 BLOCKED). 파일을 올리면 Cafe24 가 자기 서버에 네 크기를
+     * 만들어 준다 — 주소 문제가 통째로 사라진다.
+     *
+     * 이 칸은 폼 **밖에** 있어서 이름으로는 못 닿는다.
+     */
+    imageSlots: [],
+    imageFileInput: { selector: "#imageFiles", label: "\uB300\uD45C\uC774\uBBF8\uC9C0", waitMs: 4500 },
+    /**
+     * 상세설명도 Cafe24 가 자기 서버에 받아 준다.
+     *
+     * 편집기의 파일매니저 업로드에 올리면 `/web/upload/NNEditor/...` 주소가 나온다
+     * (라이브 확인 2026-09-10). 그 주소를 Froala 에 넣는다 — 남의 호스팅이 필요 없다.
+     *
+     * 주소는 화면이 알고 있으므로(`$Editor[이름].opts`) 업로드도 화면에서 한다.
+     * 서비스워커는 우리 이미지를 읽어 data URL 로 건네주기만 한다.
+     */
+    detailSelfUpload: {
+      editors: ["product_description", "product_description_mobile"],
+      /**
+       * 상세설명 칸은 탭 두 개다 — `에디봇 작성`(기본) / `직접 작성`.
+       * 기본 탭에서는 편집기가 숨어 있어 값을 넣어도 사람 눈에는 빈 칸으로 보인다.
+       * 넣기 전에 `직접 작성` 으로 넘긴다(라이브 확인 2026-09-10).
+       */
+      tabSelector: "a#nnedit"
+    },
+    dynamic: null,
+    categoryPicker: {
+      tableId: "selectCategoryTable",
+      itemSelector: "li.category-item",
+      applyText: "\uC801\uC6A9",
+      stepWaitMs: 1200,
+      applyWaitMs: 1500
+    }
+  };
+  registerMallWriter({
+    mallKey: "art09",
+    displayName: "\uC544\uD2B8\uACF5\uAD6C",
+    guard: registrationGuard(ART09_PAGE_GUARD, "\uC544\uD2B8\uACF5\uAD6C", isArt09LoginPage),
+    dialogHosts: ["zzogzzog1.cafe24.com", "eclogin.cafe24.com"],
+    login: { ...ART09_LOGIN, isLoginUrl: isArt09LoginPage },
+    form: ART09_REGISTRATION_FORM
+  });
+
+  // extensions/src/sites/art09/availability.ts
+  var ORIGIN3 = "https://zzogzzog1.cafe24.com";
+  var PAGE_URL3 = "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage";
+  var LIST_PATH2 = "/disp/admin/shop1/product/ProductManage";
+  var STATE_PATH = "/exec/admin/product/ProductManageState";
+  var PAGE_SIZE2 = 100;
+  var MAX_PAGES = 60;
+  var PACE_MS3 = 700;
+  var LABEL3 = "\uC544\uD2B8\uACF5\uAD6C";
+  var LOGGED_OUT3 = `${LABEL3} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  async function readRows2(run) {
+    const answer = await run("cafe24ListOnPage", [LIST_PATH2, PAGE_SIZE2, MAX_PAGES]);
+    if (answer?.loggedOut) return { loggedOut: true };
+    if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uD615\uC2DD\uC744 \uBAA8\uB985\uB2C8\uB2E4" };
+    return { rows: new Map(answer.rows.map((row) => [row.no, row])) };
+  }
+  async function send3(context, input) {
+    const { codes, resume } = input;
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{1,12}$/.test(code2));
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    const halted = await withSellerPage(context, ORIGIN3, PAGE_URL3, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows2(run);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT3 };
+      if (!before.rows) return { success: false, error: `${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      }
+      const sets = found.filter((no) => rows.get(no).set).length;
+      if (sets > 0) {
+        failed9 += sets;
+        warnings.push(`\uC138\uD2B8\uC0C1\uD488 ${sets}\uAC1C\uB294 ${LABEL3} \uD654\uBA74\uB3C4 \uD310\uB9E4\uC0C1\uD0DC\uB97C \uBC14\uAFB8\uC9C0 \uBABB\uD558\uAC8C \uB9C9\uC544 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      const readable = (no) => rows.get(no).selling !== null && rows.get(no).display !== null;
+      const unknown = found.filter((no) => !rows.get(no).set && !readable(no)).length;
+      if (unknown > 0) {
+        failed9 += unknown;
+        warnings.push(`${unknown}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uD310\uB9E4 \xB7 \uC9C4\uC5F4 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      const known = found.filter((no) => !rows.get(no).set && readable(no));
+      const targets = known.filter((no) => rows.get(no).selling !== resume);
+      already += known.length - targets.length;
+      const accepted = [];
+      for (let start = 0; start < targets.length; start += PAGE_SIZE2) {
+        const group = targets.slice(start, start + PAGE_SIZE2);
+        const body = new URLSearchParams();
+        for (const no of group) body.append("product_no[]", no);
+        body.append("change", "is_selling");
+        body.append("state", resume ? "T" : "F");
+        for (const no of group) {
+          const row = rows.get(no);
+          body.append(`market[${no}][is_display]`, row.display ? "T" : "F");
+          body.append(`market[${no}][is_selling]`, row.selling ? "T" : "F");
+        }
+        const answer = await run("requestOnPage", [STATE_PATH, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(), { "X-Requested-With": "XMLHttpRequest" }]);
+        if (answer.status < 200 || answer.status >= 300 || !answer.json || answer.json.passed === false) {
+          failed9 += group.length;
+          const reason = answer.json?.msg ? `: ${String(answer.json.msg).slice(0, 120)}` : "";
+          warnings.push(`${LABEL3}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason}.`);
+          continue;
+        }
+        sent += group.length;
+        accepted.push(...group);
+        await context.sleep(PACE_MS3);
+      }
+      if (sent === 0) return null;
+      const after = await readRows2(run);
+      if (after.rows) confirmed += accepted.filter((no) => after.rows.get(no)?.selling === resume).length;
+      else warnings.push(`${LABEL3}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read3(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL3} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN3, PAGE_URL3, async (run) => {
+      const result = await readRows2(run);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT3 };
+      if (!result.rows) return { success: false, error: `${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => {
+        const selling = rows.get(no).selling;
+        return { code: no, options: [selling === null ? { optionCode: no, stock: null, rocket: false } : flagOption(no, selling, selling ? "\uD310\uB9E4\uD568" : "\uD310\uB9E4\uC548\uD568")] };
+      });
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "art09",
+    displayName: LABEL3,
+    guard: availabilityGuard(ART09_PAGE_GUARD, LABEL3, isArt09LoginPage),
+    dialogHosts: ["zzogzzog1.cafe24.com", "eclogin.cafe24.com"],
+    login: { ...ART09_LOGIN, isLoginUrl: isArt09LoginPage },
+    send: send3,
+    read: read3
+  });
+
   // extensions/src/sites/gmarket/listings.ts
   var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
   var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";
@@ -9258,6 +12903,168 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "gmarket", create: (deps) => createEsmListings(deps.tabs, "gmarket", "\uC9C0\uB9C8\uCF13") });
+
+  // extensions/src/sites/gmarket/esm-availability.ts
+  var ORIGIN4 = "https://item.esmplus.com";
+  var PAGE_URL4 = "https://item.esmplus.com/goods/list";
+  var SEARCH_PATH = "/api/ea/goods/search";
+  var GOODS_PATH = "/api/ea/goods/";
+  var BATCH_SIZE2 = 100;
+  var PACE_MS4 = 700;
+  var ESM_PACE_MS = 300;
+  var RECHECK_MS2 = 2e3;
+  var RECHECK_TIMES2 = 3;
+  var ESM_WORDS = { 21: "\uD310\uB9E4\uC911\uC9C0", 22: "\uD310\uB9E4\uBD88\uAC00", 31: "SKU\uD488\uC808", "01": "\uB4F1\uB85D\uB300\uAE30" };
+  function registerEsmAvailability(mallKey, label, site) {
+    const loggedOut = `${label}(ESM) \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+    const siteNoOf = (code2) => {
+      const siteNo = String(code2 || "").split("_")[0];
+      const pattern = site === "gmkt" ? /^\d{6,12}$/ : /^[A-Z]\d{6,12}$/;
+      return pattern.test(siteNo) ? siteNo : null;
+    };
+    async function readItems2(context, run, siteNos) {
+      const items = /* @__PURE__ */ new Map();
+      for (let start = 0; start < siteNos.length; start += BATCH_SIZE2) {
+        if (start > 0) await context.sleep(PACE_MS4);
+        const answer = await run("esmSearchOnPage", [SEARCH_PATH, siteNos.slice(start, start + BATCH_SIZE2)]);
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.items)) return { error: answer?.error || "\uBAA9\uB85D \uAC80\uC0C9 \uC2E4\uD328" };
+        for (const item of answer.items) {
+          const siteNo = item?.siteGoodsNo?.[site];
+          if (siteNo) items.set(String(siteNo), item);
+        }
+      }
+      return { items };
+    }
+    async function send16(context, input) {
+      const { codes, resume } = input;
+      const wanted = resume ? "11" : "21";
+      const from = resume ? "21" : "11";
+      const warnings = [];
+      const bySite = /* @__PURE__ */ new Map();
+      for (const code2 of codes) {
+        const siteNo = siteNoOf(code2);
+        if (siteNo) bySite.set(siteNo, code2);
+      }
+      let failed9 = codes.length - bySite.size;
+      if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${label} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      let sent = 0;
+      let confirmed = 0;
+      let already = 0;
+      let halt = null;
+      let left = 0;
+      const halted = await withSellerPage(context, ORIGIN4, PAGE_URL4, async (run) => {
+        const siteNos = [...bySite.keys()];
+        if (siteNos.length === 0) return null;
+        const before = await readItems2(context, run, siteNos);
+        if (before.loggedOut) return { success: false, error: loggedOut };
+        if (!before.items) return { success: false, error: `${label} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+        const items = before.items;
+        const found = siteNos.filter((no) => items.has(no));
+        const missing = siteNos.length - found.length;
+        if (missing > 0) {
+          failed9 += missing;
+          warnings.push(`${missing}\uAC74\uC740 ${label}(ESM)\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+        }
+        const combined = found.filter((no) => items.get(no).siteGoodsNo.gmkt && items.get(no).siteGoodsNo.iac);
+        if (combined.length > 0) {
+          failed9 += combined.length;
+          warnings.push(`${combined.length}\uAC74\uC740 \uC9C0\uB9C8\uCF13 \xB7 \uC625\uC158 \uD1B5\uD569\uC0C1\uD488\uC774\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ESM \uC5D0\uC11C \uC0AC\uC774\uD2B8\uB97C \uACE8\uB77C \uBC14\uAFB8\uC138\uC694.`);
+        }
+        const single = found.filter((no) => !combined.includes(no));
+        const locked = single.filter((no) => ![from, wanted].includes(items.get(no).sellStatus[site])).length;
+        if (resume && locked > 0) {
+          failed9 += locked;
+          warnings.push(`${locked}\uAC74\uC740 \uD310\uB9E4\uBD88\uAC00 \xB7 SKU\uD488\uC808 \xB7 \uB4F1\uB85D\uB300\uAE30\uB77C ${label} \uD654\uBA74\uB3C4 \uD310\uB9E4\uAC00\uB2A5\uC73C\uB85C \uBABB \uBC14\uAFC9\uB2C8\uB2E4.`);
+        }
+        if (!resume) already += locked;
+        const targets = single.filter((no) => items.get(no).sellStatus[site] === from);
+        already += single.filter((no) => items.get(no).sellStatus[site] === wanted).length;
+        const accepted = [];
+        for (let index = 0; index < targets.length; index += 1) {
+          const no = targets[index];
+          const item = items.get(no);
+          const answer = await run("esmSellStatusOnPage", [
+            GOODS_PATH,
+            item.goodsNo,
+            { isSell: { [site]: resume } },
+            { gmkt: encodeURIComponent(item.siteSellerId.gmkt ?? ""), iac: encodeURIComponent(item.siteSellerId.iac ?? "") }
+          ]);
+          if (answer?.loggedOut) {
+            halt = loggedOut;
+            left = targets.length - index;
+            return null;
+          }
+          const siteResult = answer?.[site];
+          const ok = answer?.status === 200 && (answer.resultCode === 5300 || siteResult?.resultCode === 0 || siteResult?.resultCode === 5300);
+          if (ok) {
+            sent += 1;
+            accepted.push(no);
+          } else {
+            failed9 += 1;
+            const said = siteResult?.message || answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
+            warnings.push(`${label}\uC774 ${no} \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+          }
+          await context.sleep(ESM_PACE_MS);
+        }
+        if (accepted.length === 0) return null;
+        let seen = null;
+        for (let attempt = 0; attempt <= RECHECK_TIMES2; attempt += 1) {
+          if (attempt > 0) await context.sleep(RECHECK_MS2);
+          const after = await readItems2(context, run, accepted);
+          if (!after.items) continue;
+          seen = accepted.filter((no) => after.items.get(no)?.sellStatus?.[site] === wanted).length;
+          if (seen >= accepted.length) break;
+        }
+        if (seen === null) {
+          warnings.push(`${label}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. ESM \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        } else {
+          confirmed += seen;
+          if (seen < accepted.length) warnings.push(`${label} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 ESM \uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        }
+        return null;
+      });
+      if (halted) return halted;
+      if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+      return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    }
+    async function read15(context, codes) {
+      const valid = [...new Set(codes)].filter((code2) => Boolean(siteNoOf(code2))).slice(0, READ_LIMIT);
+      if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${label} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+      let found = [];
+      let missing = [];
+      const halted = await withSellerPage(context, ORIGIN4, PAGE_URL4, async (run) => {
+        const bySite = new Map(valid.map((code2) => [siteNoOf(code2), code2]));
+        const result = await readItems2(context, run, [...bySite.keys()]);
+        if (result.loggedOut) return { success: false, error: loggedOut };
+        if (!result.items) return { success: false, error: `${label} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+        const items = result.items;
+        const selling = new Map([...bySite].filter(([siteNo]) => items.has(siteNo)).map(([siteNo, code2]) => {
+          const stat = String(items.get(siteNo).sellStatus[site]);
+          return [code2, stat === "11" ? true : ESM_WORDS[stat] || "\uD310\uB9E4\uC911\uC9C0"];
+        }));
+        found = valid.filter((code2) => selling.has(code2)).map((code2) => {
+          const state = selling.get(code2);
+          return { code: code2, options: [flagOption(code2, state === true, state === true ? null : state)] };
+        });
+        missing = valid.filter((code2) => !selling.has(code2));
+        return null;
+      });
+      if (halted) return halted;
+      return { success: true, products: found, missing };
+    }
+    registerMallAvailability({
+      mallKey,
+      displayName: label,
+      guard: availabilityGuard(esmListingsGuard(label), label),
+      dialogHosts: ["item.esmplus.com"],
+      send: send16,
+      read: read15
+    });
+  }
+
+  // extensions/src/sites/auction/availability.ts
+  registerEsmAvailability("auction", "\uC625\uC158", "iac");
 
   // extensions/src/sites/auction/listings.ts
   registerSite({ name: "auction", create: (deps) => createEsmListings(deps.tabs, "auction", "\uC625\uC158") });
@@ -9307,8 +13114,58 @@ var KidItemRuntime = (() => {
     )
   });
 
+  // extensions/src/sites/boribori/registration.ts
+  var BORIBORI_REGISTRATION_FORM = {
+    label: "\uBCF4\uB9AC\uBCF4\uB9AC",
+    origin: "https://seller-club.co.kr",
+    pathPrefix: "/product/productRegister",
+    // 칸이 폼 밖에 있다. 라디오를 문서 전체에서 찾게 넓은 표식을 쓴다.
+    formSelector: "body",
+    // 화면이 그려졌는지는 이걸로 본다. 백오피스가 느려서 넉넉히 기다린다.
+    readySelector: '[name="siteCd"]',
+    formWaitMs: 2e4,
+    /**
+     * ⚠️ **순서가 곧 실행 순서다.** 사이트 → 분류 1·2·3단이 먼저다.
+     * 계단식이라 앞 단을 고르기 전에 뒤 단을 건드리면 목록이 비어 아무것도 안 들어간다.
+     */
+    selectorFields: [
+      { key: "site", selector: '[name="siteCd"]', label: "\uC0AC\uC774\uD2B8(\uBCF4\uB9AC\uBCF4\uB9AC)", waitMs: 2500 },
+      { key: "category1", selector: '[name="stdCtgrNo1"]', label: "\uBD84\uB958 1\uB2E8", waitMs: 2500 },
+      { key: "category2", selector: '[name="stdCtgrNo2"]', label: "\uBD84\uB958 2\uB2E8", waitMs: 2500 },
+      { key: "category3", selector: '[name="stdCtgrNo3"]', label: "\uBD84\uB958 3\uB2E8", waitMs: 1500 },
+      // 필수이고 **우리가 정하는 코드**다. 옆에 중복체크 버튼이 있다.
+      { key: "sellerCode", selector: '[name="prdCd"]', label: "\uC5C5\uCCB4\uC0C1\uD488\uCF54\uB4DC" },
+      // ⚠️ 신규 화면에서는 잠겨 있는 때가 있다. 그러면 경고가 남고 사람이 고른다.
+      { key: "md", selector: '[name="mdNo"]', label: "\uB2F4\uB2F9MD" },
+      { key: "name", selector: '[name="prdNm"]', label: "\uC0C1\uD488\uBA85" },
+      { key: "brandGroup", selector: '[name="prdGroupNm"]', label: "\uC0C1\uC138\uBE0C\uB79C\uB4DC" },
+      { key: "brand", selector: '[name="brandNm"]', label: "\uBE0C\uB79C\uB4DC" },
+      { key: "listPrice", selector: '[name="normPrc"]', label: "\uC815\uC0C1\uAC00" },
+      { key: "salePrice", selector: '[name="selPrc"]', label: "\uD310\uB9E4\uAC00" },
+      { key: "marginRate", selector: '[name="mrgnRt"]', label: "\uB9C8\uC9C4\uC728" },
+      { key: "optionName", selector: '[name="optItemNm1"]', label: "\uC635\uC158 \uC774\uB984" },
+      { key: "optionValue", selector: '[name="optItemVal1"]', label: "\uC635\uC158 \uAC12" },
+      { key: "decoWord", selector: '[name="decoWord"]', label: "\uC218\uC2DD\uC5B4" },
+      { key: "tags", selector: '[name="prdTag"]', label: "\uC0C1\uD488\uD0DC\uADF8" }
+    ],
+    imageFileInputs: [
+      { key: "representative", label: "\uB300\uD45C\uC774\uBBF8\uC9C0", selector: 'input[name="uploadImgMain"]' },
+      { key: "additional", label: "\uCD94\uAC00\uC774\uBBF8\uC9C0", selector: 'input[name="uploadImgAdd"]' }
+    ]
+    // ⚠️ `detailHost` 를 두지 않는다. 상세설명 칸은 저장 뒤에야 생겨서 이번 회차에
+    // 넣을 곳이 없다 — 남의 몰 호스팅에 미리 올려 둘 이유도 없다(ESM 에서 배운 것).
+  };
+  registerMallWriter({
+    mallKey: "boribori",
+    displayName: "\uBCF4\uB9AC\uBCF4\uB9AC",
+    guard: registrationGuard(BORIBORI_PAGE_GUARD, "\uBCF4\uB9AC\uBCF4\uB9AC"),
+    dialogHosts: ["seller-club.co.kr"],
+    login: BORIBORI_LOGIN,
+    form: BORIBORI_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/coupang-product/index.ts
-  var ORIGIN = "https://www.coupang.com";
+  var ORIGIN5 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS = 6e4;
   var ASK_TIMEOUT_MS = 2e4;
   var RENDER_WAIT_MS = 1200;
@@ -9317,7 +13174,7 @@ var KidItemRuntime = (() => {
   var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_PRODUCT_SITE = {
     name: "coupang-product",
-    origin: ORIGIN,
+    origin: ORIGIN5,
     caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321" }
   };
   var COUPANG_PRODUCT_PAGE_GUARD = {
@@ -9452,17 +13309,17 @@ var KidItemRuntime = (() => {
         providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
       }
     }
-    const text5 = autocomplete?.text.trim() ?? "";
-    if (text5 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text5))) {
+    const text8 = autocomplete?.text.trim() ?? "";
+    if (text8 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text8))) {
       try {
-        const parsed2 = JSON.parse(text5);
-        if (parsed2 && typeof parsed2 === "object") {
-          if (isErrorEnvelope(parsed2)) {
-            const message = errorEnvelopeMessage(parsed2);
+        const parsed3 = JSON.parse(text8);
+        if (parsed3 && typeof parsed3 === "object") {
+          if (isErrorEnvelope(parsed3)) {
+            const message = errorEnvelopeMessage(parsed3);
             providerError ??= { reason: "provider_denied", message };
           } else {
-            walk(parsed2);
-            structuredResponse = hasSuggestionCollection(parsed2);
+            walk(parsed3);
+            structuredResponse = hasSuggestionCollection(parsed3);
           }
         } else {
           warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
@@ -9470,15 +13327,15 @@ var KidItemRuntime = (() => {
       } catch {
         warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
       }
-    } else if (text5) {
+    } else if (text8) {
       warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
     }
     const beforeDom = candidates.length;
     for (const link of evidence.links) {
       add(link.text, "coupang-search-dom");
       try {
-        const parsed2 = new URL(link.href, origin);
-        add(parsed2.searchParams.get("q") || parsed2.searchParams.get("keyword") || "", "coupang-search-dom");
+        const parsed3 = new URL(link.href, origin);
+        add(parsed3.searchParams.get("q") || parsed3.searchParams.get("keyword") || "", "coupang-search-dom");
       } catch {
       }
     }
@@ -9514,19 +13371,19 @@ var KidItemRuntime = (() => {
   }
   function isErrorEnvelope(value) {
     if (Array.isArray(value)) return false;
-    const record2 = value;
-    if (record2.success === false || record2.ok === false) return true;
+    const record4 = value;
+    if (record4.success === false || record4.ok === false) return true;
     for (const key of ["error", "errors", "errorCode", "error_code"]) {
-      const nested = record2[key];
-      if (key in record2 && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+      const nested = record4[key];
+      if (key in record4 && nested !== null && nested !== void 0 && String(nested).trim()) return true;
     }
-    if (record2.code !== void 0 && record2.code !== null && record2.code !== 0 && record2.code !== "0" && String(record2.code).trim() !== "") return true;
-    return typeof record2.message === "string" && PROVIDER_ATTENTION.test(record2.message);
+    if (record4.code !== void 0 && record4.code !== null && record4.code !== 0 && record4.code !== "0" && String(record4.code).trim() !== "") return true;
+    return typeof record4.message === "string" && PROVIDER_ATTENTION.test(record4.message);
   }
   function errorEnvelopeMessage(value) {
-    const record2 = value;
+    const record4 = value;
     for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
-      const nested = record2[key];
+      const nested = record4[key];
       if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
     }
     return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
@@ -9547,11 +13404,11 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword2, count3]) => ({ keyword: keyword2, count: count3 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count5]) => ({ keyword: keyword2, count: count5 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
   }
 
   // extensions/src/sites/coupang-search/serp.ts
-  var ORIGIN2 = "https://www.coupang.com";
+  var ORIGIN6 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS2 = 6e4;
   var EXTRACTION_TIMEOUT_MS2 = 2e4;
   var RENDER_WAIT_MS2 = 1200;
@@ -9568,7 +13425,7 @@ var KidItemRuntime = (() => {
     loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
   };
   function buildCoupangSerpUrl(keyword2, page) {
-    return `${ORIGIN2}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+    return `${ORIGIN6}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
   }
   function isExpectedSerpUrl(actual, expected) {
     try {
@@ -9585,7 +13442,7 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     let keywordsRead = 0;
     const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
-    async function read(current, url) {
+    async function read15(current, url) {
       const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
       if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
       await deps.sleep(RENDER_WAIT_MS2);
@@ -9615,7 +13472,7 @@ var KidItemRuntime = (() => {
           await onAttention?.(attention);
         }
         const here = await current.currentUrl().catch(() => "");
-        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read(current, url).then((result) => result.read);
+        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read15(current, url).then((result) => result.read);
         if (again && again.ok && again.wall !== "captcha") {
           await onAttention?.(null);
           return again;
@@ -9640,7 +13497,7 @@ var KidItemRuntime = (() => {
         let pagesScanned = 0;
         for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
           const url = buildCoupangSerpUrl(keyword2, pageNumber);
-          const first = await read(current, url);
+          const first = await read15(current, url);
           let answer = first.read;
           if (answer === null) failIfLeftSite(first.landed, () => {
             keepOpen = true;
@@ -9688,7 +13545,7 @@ var KidItemRuntime = (() => {
     for (const candidate of raw) {
       if (!candidate || typeof candidate !== "object") continue;
       const row = candidate;
-      const productId2 = text2(row.productId, 40);
+      const productId2 = text4(row.productId, 40);
       if (!productId2) continue;
       const position = items.length + 1;
       items.push({
@@ -9697,38 +13554,38 @@ var KidItemRuntime = (() => {
         positionInPage: position,
         isAd: row.isAd === true,
         productId: productId2,
-        itemId: text2(row.itemId, 40),
-        vendorItemId: text2(row.vendorItemId, 40),
-        name: text2(row.name, 300),
-        priceKrw: count(row.priceKrw),
-        reviewCount: count(row.reviewCount),
+        itemId: text4(row.itemId, 40),
+        vendorItemId: text4(row.vendorItemId, 40),
+        name: text4(row.name, 300),
+        priceKrw: count3(row.priceKrw),
+        reviewCount: count3(row.reviewCount),
         ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
-        imageUrl: text2(row.imageUrl, 2e3),
-        link: text2(row.link, 2e3)
+        imageUrl: text4(row.imageUrl, 2e3),
+        link: text4(row.link, 2e3)
       });
     }
     return items;
   }
-  function text2(value, max) {
+  function text4(value, max) {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   }
-  function count(value) {
+  function count3(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN3 = "https://www.coupang.com";
+  var ORIGIN7 = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS3 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
-  var SETTLE_MS = 1500;
+  var SETTLE_MS2 = 1500;
   var CONTENT_FILE3 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN3,
-    caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
+    origin: ORIGIN7,
+    caller: { minIntervalMs: SETTLE_MS2, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
-    return `${ORIGIN3}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
+    return `${ORIGIN7}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -9748,7 +13605,7 @@ var KidItemRuntime = (() => {
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
-          await deps.sleep(SETTLE_MS);
+          await deps.sleep(SETTLE_MS2);
           const evidence = await page.ask(
             { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
             { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE3] } }
@@ -9756,15 +13613,15 @@ var KidItemRuntime = (() => {
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
-          if (!parsed2.ok) {
+          const parsed3 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
+          if (!parsed3.ok) {
             throw new RuntimeError(
-              parsed2.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed2.message,
-              { status: parsed2.reason === "rate_limited" ? 429 : null, url, reason: parsed2.reason, warnings: parsed2.warnings }
+              parsed3.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed3.message,
+              { status: parsed3.reason === "rate_limited" ? 429 : null, url, reason: parsed3.reason, warnings: parsed3.warnings }
             );
           }
-          return { items: parsed2.items, productNameTokens: parsed2.productNameTokens, warnings: parsed2.warnings };
+          return { items: parsed3.items, productNameTokens: parsed3.productNameTokens, warnings: parsed3.warnings };
         } finally {
           await page.close();
         }
@@ -9780,7 +13637,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/coupang-shop/index.ts
-  var ORIGIN4 = "https://shop.coupang.com";
+  var ORIGIN8 = "https://shop.coupang.com";
   var PAGE_TIMEOUT_MS4 = 6e4;
   var CATALOG_TIMEOUT_MS = 9e4;
   var SORT_TIMEOUT_MS = 2e4;
@@ -9789,7 +13646,7 @@ var KidItemRuntime = (() => {
   var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_SHOP_SITE = {
     name: "coupang-shop",
-    origin: ORIGIN4,
+    origin: ORIGIN8,
     caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
   };
   var COUPANG_SHOP_PAGE_GUARD = {
@@ -9862,10 +13719,10 @@ var KidItemRuntime = (() => {
     for (const raw of answer.products ?? []) {
       if (!raw || typeof raw !== "object") continue;
       const row = raw;
-      const productId2 = text3(row.productId, 200);
-      const itemId = text3(row.itemId, 200);
-      const vendorItemId = text3(row.vendorItemId, 200);
-      const name = text3(row.name, 500);
+      const productId2 = text5(row.productId, 200);
+      const itemId = text5(row.itemId, 200);
+      const vendorItemId = text5(row.vendorItemId, 200);
+      const name = text5(row.name, 500);
       if (!name || !productId2 && !itemId && !vendorItemId) continue;
       products.push({
         sourceRank: products.length + 1,
@@ -9873,19 +13730,19 @@ var KidItemRuntime = (() => {
         itemId,
         vendorItemId,
         name,
-        priceKrw: count2(row.priceKrw),
-        reviewCount: count2(row.reviewCount),
-        imageUrl: text3(row.imageUrl, 2e3),
-        link: text3(row.link, 2e3)
+        priceKrw: count4(row.priceKrw),
+        reviewCount: count4(row.reviewCount),
+        imageUrl: text5(row.imageUrl, 2e3),
+        link: text5(row.link, 2e3)
       });
       if (products.length >= productLimit) break;
     }
     if (products.length === 0) return null;
-    const totalProductCount = count2(answer.totalProductCount);
+    const totalProductCount = count4(answer.totalProductCount);
     return {
       keyword: target.keyword,
       sellerId: target.sellerId,
-      sellerName: text3(answer.sellerName, 300) ?? target.sellerName,
+      sellerName: text5(answer.sellerName, 300) ?? target.sellerName,
       sellerStoreUrl: target.sellerStoreUrl,
       totalProductCount,
       collectedProductCount: products.length,
@@ -9895,10 +13752,10 @@ var KidItemRuntime = (() => {
       products
     };
   }
-  function text3(value, max) {
+  function text5(value, max) {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   }
-  function count2(value) {
+  function count4(value) {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
   registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
@@ -9976,7 +13833,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS5 = 3e4;
+  var NAVIGATION_TIMEOUT_MS8 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -9988,7 +13845,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -10004,17 +13861,17 @@ var KidItemRuntime = (() => {
   }
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
-    const text5 = fetched.text;
-    const failed6 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const text8 = fetched.text;
+    const failed9 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text5.trim().charAt(0) === "<") throw failed6();
-    let parsed2;
+    if (fetched.status < 200 || fetched.status >= 300 || text8.trim().charAt(0) === "<") throw failed9();
+    let parsed3;
     try {
-      parsed2 = JSON.parse(text5);
+      parsed3 = JSON.parse(text8);
     } catch {
-      throw failed6();
+      throw failed9();
     }
-    const body = parsed2?.body;
+    const body = parsed3?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return { rows: body.body, lastPageNumber: body.lastPageNumber };
   }
@@ -10032,7 +13889,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS5 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -10097,7 +13954,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS6 = 3e4;
+  var NAVIGATION_TIMEOUT_MS9 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -10129,7 +13986,7 @@ var KidItemRuntime = (() => {
       shipmentPage ??= (async () => {
         const tab = shipmentTab ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
@@ -10142,8 +13999,8 @@ var KidItemRuntime = (() => {
       })();
       return poPage;
     }
-    const onShipments = (read) => remember(withLogin(() => shipments().then(read), shipmentLogin));
-    const onPurchaseOrders = (read) => remember(withLogin(() => purchaseOrders().then(read), poLogin));
+    const onShipments = (read15) => remember(withLogin(() => shipments().then(read15), shipmentLogin));
+    const onPurchaseOrders = (read15) => remember(withLogin(() => purchaseOrders().then(read15), poLogin));
     return {
       /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
       parcelPage(pageNumber) {
@@ -10219,21 +14076,21 @@ var KidItemRuntime = (() => {
     fields: ["loginId", "password"]
   };
   async function orderList(caller) {
-    const text5 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    const text8 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = text5.trim().startsWith("{") ? JSON.parse(text5) : null;
+      body = text8.trim().startsWith("{") ? JSON.parse(text8) : null;
     } catch {
       body = null;
     }
     if (!body || typeof body !== "object" || Array.isArray(body) || body.res === false) {
       throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: DOMEGGOOK_ORDER_LIST_API });
     }
-    const list = body.dat;
-    return Array.isArray(list) ? list : [];
+    const list2 = body.dat;
+    return Array.isArray(list2) ? list2 : [];
   }
-  function pickDomeggookCsvUrl(entries, afterReq) {
-    for (const entry of entries) {
+  function pickDomeggookCsvUrl(entries2, afterReq) {
+    for (const entry of entries2) {
       if (entry?.state !== "SUCCESS" || !/ORDER_ALL/.test(String(entry.dlBtn ?? ""))) continue;
       if (afterReq && !(String(entry.dateReq ?? "") > afterReq)) continue;
       const url = (String(entry.dlBtn).match(/href=['"]([^'"]+)['"]/) ?? [])[1];
@@ -10303,12 +14160,354 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/domeggook/availability.ts
+  var ORIGIN9 = "https://www.domeggook.com";
+  var LOOKUP_PATH = "/sc/item/lst";
+  var EDIT_PATH = "/sc/item/editOnList";
+  var MAX_CODES = 500;
+  var SHOWN = { hide: "\uC9C4\uC5F4\uC548\uD568", show: "\uC9C4\uC5F4\uD568" };
+  var PACE_MS5 = 700;
+  var LABEL4 = "\uB3C4\uB9E4\uAFB9";
+  async function lookupListRows(context, codes) {
+    const params = new URLSearchParams();
+    for (const [key, value] of [
+      ["ktype", "no"],
+      ["nos", codes.join(",")],
+      ["ttl", ""],
+      ["st", ""],
+      ["chn[]", "dome"],
+      ["chn[]", "supply"],
+      ["sec[]", "sell"],
+      ["sec[]", "shop"],
+      ["ca1", "00"],
+      ["ca2", "00"],
+      ["ca3", "00"],
+      ["ca4", "00"],
+      ["idx", ""],
+      ["qty", ""],
+      ["disp", ""],
+      ["rmp", ""],
+      ["format", "grid"],
+      ["pg", "1"],
+      ["sz", String(MAX_CODES)],
+      ["so", "rd"]
+    ]) params.append(key, value);
+    const response = await context.fetch(`${ORIGIN9}${LOOKUP_PATH}?${params.toString()}`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { accept: "application/json", "x-requested-with": "XMLHttpRequest" }
+    });
+    const { json, text: text8 } = await readJson(response);
+    if (!response.ok || !json || json.res !== true || !Array.isArray(json.dat)) {
+      const loggedOut = /로그인|login/i.test(`${json?.msg || ""} ${text8.slice(0, 300)}`);
+      throw new Error(loggedOut ? `${LABEL4}\uC5D0 \uB85C\uADF8\uC778\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.` : `${LABEL4} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    }
+    return json.dat;
+  }
+  async function send4(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? SHOWN.show : SHOWN.hide;
+    const warnings = [];
+    let sent = 0;
+    let failed9 = 0;
+    let confirmed = 0;
+    let already = 0;
+    const missing = [];
+    for (let start = 0; start < codes.length; start += MAX_CODES) {
+      const group = codes.slice(start, start + MAX_CODES);
+      const rows = new Map((await lookupListRows(context, group)).map((row) => [String(row.no), row]));
+      const found = group.filter((code2) => rows.has(code2));
+      missing.push(...group.filter((code2) => !rows.has(code2)));
+      const targets = found.filter((code2) => rows.get(code2).disp !== wanted);
+      already += found.length - targets.length;
+      if (targets.length > 0) {
+        const dat = targets.map((code2) => {
+          const row = rows.get(code2);
+          return { no: row.no, disp: resume, title: row.title, loq: String(row.loq ?? "").replace(",", ""), useOpt: row.useOpt !== "N" };
+        });
+        const response = await context.fetch(`${ORIGIN9}${EDIT_PATH}`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", accept: "application/json", "x-requested-with": "XMLHttpRequest" },
+          body: `dat=${encodeURIComponent(JSON.stringify(dat))}`
+        });
+        const { json } = await readJson(response);
+        if (!response.ok || !json || json.res !== true) {
+          failed9 += targets.length;
+          warnings.push(`${LABEL4}\uC774 \uC218\uC815\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${json?.msg ? `: ${String(json.msg).slice(0, 120)}` : ""}.`);
+        } else {
+          const counted = typeof json.success === "number" || typeof json.success === "string" && /^\d+$/.test(json.success) ? Number(json.success) : null;
+          const ok = counted === null ? targets.length : Math.min(counted, targets.length);
+          sent += ok;
+          failed9 += targets.length - ok;
+          if (ok < targets.length) warnings.push(`${LABEL4}\uC774 ${targets.length}\uAC74 \uC911 ${ok}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+        }
+        await context.sleep(PACE_MS5);
+      }
+      const after = found.length > 0 ? await lookupListRows(context, found).catch(() => null) : [];
+      if (after) confirmed += after.filter((row) => row.disp === wanted).length;
+      else warnings.push(`${LABEL4}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uBAA9\uB85D\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+    }
+    if (already > 0) warnings.push(`${already}\uAC74\uC740 \uC774\uBBF8 ${wanted}\uC774\uC5C8\uC2B5\uB2C8\uB2E4.`);
+    if (missing.length > 0) warnings.push(`${missing.length}\uAC74\uC740 ${LABEL4} \uC0C1\uD488\uBC88\uD638\uB85C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    return { success: true, sent: sent + already, failed: failed9 + missing.length, confirmed, requestOnly: false, warnings };
+  }
+  async function read4(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL4} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const rows = new Map((await lookupListRows(context, products)).map((row) => [String(row.no), row]));
+    return {
+      success: true,
+      products: products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [flagOption(no, rows.get(no).disp === SHOWN.show, rows.get(no).disp)] })),
+      missing: products.filter((no) => !rows.has(no))
+    };
+  }
+  registerMallAvailability({
+    mallKey: "domeggook",
+    displayName: LABEL4,
+    guard: availabilityGuard(DOMEGGOOK_PAGE_GUARD, LABEL4),
+    dialogHosts: ["domeggook.com"],
+    login: DOMEGGOOK_LOGIN,
+    send: send4,
+    read: read4
+  });
+
+  // extensions/src/sites/domeggook/registration.ts
+  var DOMEGGOOK_REGISTRATION_FORM = {
+    label: "\uB3C4\uB9E4\uAFB9",
+    origin: "https://www.domeggook.com",
+    pathPrefix: "/sc/item/regFrm",
+    formSelector: "#lFormRegItem",
+    // 대표이미지 칸. 전문가용업로드(`imageResize=0`)에서 보이는 것은 `image1~4`
+    // 이고 순서대로 760·330·150·75 픽셀 이상이다. `image0` 은 일반업로드 전용이라
+    // 그 방식에서는 숨는다(라이브 실측 2026-09-10).
+    imageSlots: ["image0", "image1", "image2", "image3", "image4"],
+    dynamic: { trigger: "infoDutyType", waitPrefix: "infoDuty[" },
+    // 키워드 10칸은 **이름이 없다**(class 만 `lKeywordTmp`). `form.elements[name]`
+    // 로는 닿지 않아서, 숨은 `itemKeyword` 만 채우면 화면은 빈 채로 남고 페이지가
+    // 그 칸들로 숨은 값을 다시 만들어 덮는다(라이브 확인 2026-09-10).
+    // 그러니 보이는 칸을 채워야 한다. 채우면 숨은 값이 저절로 따라온다.
+    groupInputs: [{ key: "keywords", selector: "input.lKeywordTmp" }],
+    // `이미지 사용허용`(도매매 판매시 필수옵션)도 `name` 이 없다. 누르면 숨은
+    // `imageArrow` 가 `1` 이 된다(라이브 확인 2026-09-10). 숨은 칸을 직접 쓰지 않고
+    // 사람처럼 누른다 — 키워드 칸에서 배운 것과 같다.
+    selectorChecks: [{ key: "imageAllow", selector: "#lImageAllow", label: "\uC774\uBBF8\uC9C0 \uC0AC\uC6A9\uD5C8\uC6A9" }],
+    /**
+     * 이름 없는 입력칸들. 폼으로는 못 닿아 선택자로 찾는다.
+     *
+     * 원산지 세 칸은 계단식이라 앞 칸을 고른 뒤 다음 목록이 채워지기를 기다려야
+     * 한다. 안전인증 칸은 상품군(`infoDutyType`)을 고르면 통째로 다시 그려지므로
+     * 그 뒤에 와야 한다(라이브 실측 2026-09-10).
+     *
+     * 이 칸들의 값은 화면에만 보이고, `itemCountry`·`itemSafetyCertCat[1]`·
+     * `itemCertNumber[1]` 은 도매꾹이 제출할 때 여기서 만든다.
+     */
+    selectorFields: [
+      { key: "originType", selector: "#lItemCountrySelect1", label: "\uC6D0\uC0B0\uC9C0 \uAD6C\uBD84", waitMs: 1300 },
+      { key: "originArea", selector: "#lItemCountrySelect2", label: "\uC6D0\uC0B0\uC9C0 \uB300\uB959", waitMs: 1300 },
+      { key: "originNation", selector: "#lItemCountrySelect3", label: "\uC6D0\uC0B0\uC9C0 \uAD6D\uAC00", waitMs: 600 },
+      { key: "certExempt", selector: ".lCertItem select.lKC", label: "\uBA74\uC81C\uB300\uC0C1\uC5EC\uBD80", waitMs: 600 },
+      { key: "certType", selector: ".lCertItem select.lCert", label: "\uC548\uC804\uC778\uC99D \uBD84\uB958", waitMs: 600 },
+      { key: "certNumber", selector: ".lCertItem input.lInputCertNo", label: "\uC548\uC804\uC778\uC99D\uBC88\uD638" }
+    ],
+    /**
+     * 저장된 주소 중 첫 번째를 고르는 칸.
+     *
+     * 값이 계정마다 다른 내부 번호라 적어두지 않는다. 사람이 화면에서 고르는 것도
+     * '내 출고지'뿐이다.
+     */
+    selectFirstOptions: ["deliShippingArea", "returnShippingArea"],
+    // 이미지를 넣으면 도매꾹이 '꾹AI:렌즈'로 유사 상품을 찾아 분류를 추천한다.
+    // 우리는 6단 코드를 지어낼 수 없으니 그 추천을 받는다 — 몰이 자기 분류 체계로
+    // 판단한 값이라 우리 추측보다 낫다.
+    //
+    // 고정 선택자가 없다(런타임에 만들어진다). 사람이 알아보는 방식 그대로
+    // 문구로 찾는다: '추천 카테고리'가 들어간 대화상자 안의 '변경하기' 버튼.
+    // 두 조건을 모두 요구해서 엉뚱한 버튼을 누르지 않게 한다.
+    acceptRecommendation: {
+      containerText: "\uCD94\uCC9C \uCE74\uD14C\uACE0\uB9AC",
+      acceptText: "\uBCC0\uACBD\uD558\uAE30",
+      timeoutMs: 4e4
+    },
+    // 상세내용은 사람이 하는 그대로 '상품상세내용 작성하기' 버튼을 눌러서 넣는다.
+    // 버튼이 팝업 에디터(`my_sellInfoFormEditor.php`)를 새 탭으로 열고, 거기서
+    // 등록을 누르면 에디터가 opener 콜백으로 `itemMemo[Item]` 을 채운다.
+    //
+    // 그 칸에 값을 직접 써넣을 수도 있지만 그러면 버튼이 '작성하기'로 남아 사람이
+    // "안 들어갔나" 하고 다시 열어 덮어쓴다. 에디터를 거치면 라벨('수정')과
+    // `data-mode="edit"` 를 페이지가 스스로 바꾼다(라이브 확인 2026-09-10).
+    //
+    // ⚠️ 이 에디터는 켜져 있는 항목이 비면 `alert()` 를 띄운다. 등록폼이 열어주는
+    //    기본값은 네 항목 전부 켜짐이고 상품정보 말고는 비어 있다. 네이티브
+    //    대화상자는 자동화에서 렌더러를 통째로 멈춰 아무것도 읽지 못하게 만든다
+    //    (라이브 확인 2026-09-10). 그래서 비어 있는 항목은 미리 끄고, alert 은
+    //    삼켜서 경고로 돌려준다 — 몰의 말을 버리지 않으면서 화면은 살려둔다.
+    detailEditor: {
+      buttonId: "lBtnWriteItemMemo",
+      urlPattern: "https://www.domeggook.com/main/mySell/register/my_sellInfoFormEditor.php*",
+      editorKey: "Item",
+      toggleSelector: "input.lBtnContentType",
+      framePrefix: "easyWebEditor_lTextarea",
+      frameSuffix: "_iframe",
+      submitId: "lBtnSubmit",
+      // `내 다른 판매상품 홍보`. 켜면 도매꾹이 내용을 요구하므로, 넣을 값이 있을
+      // 때만 켠 채로 채우고 없으면 끈다.
+      promoKey: "OtherItem",
+      openTimeoutMs: 2e4,
+      submitTimeoutMs: 2e4
+    },
+    // 상세설명 이미지는 **몰이 읽을 수 있는 주소**여야 한다. 우리 렌더 산출물은
+    // `http://localhost:9000/...`(로컬 MinIO)라 도매꾹도 구매자도 못 읽는다.
+    //
+    // 도매꾹 자체 호스팅(`my_sellImageCacheAjax.php`)은 못 쓴다. 파일을 보내면
+    // 서버가 `{"res":false,"dmsg":"API token 정보가 없습니다"}` 로 거절한다 —
+    // iwinv 유료 서비스 토큰이 있어야 열린다(라이브 확인 2026-09-10).
+    //
+    // 그래서 우리 상점 첨부 저장소에 올려서 공개 주소를 받는다. 탭을 열지 않고
+    // fetch 세 번으로 끝난다(`DETAIL_HOSTS` 참고). 예전엔 키즈노트 등록화면을
+    // 탭으로 열었는데, 도매꾹을 누른 사람에게 키즈노트가 열리는 건 설명되지 않는
+    // 동작이었다. 이제 아무 창도 열리지 않으므로 사람이 켜고 끌 이유도 없다.
+    detailHost: "kidsnote"
+  };
+  registerMallWriter({
+    mallKey: "domeggook",
+    displayName: "\uB3C4\uB9E4\uAFB9",
+    guard: registrationGuard(DOMEGGOOK_PAGE_GUARD, "\uB3C4\uB9E4\uAFB9"),
+    dialogHosts: ["domeggook.com"],
+    login: DOMEGGOOK_LOGIN,
+    form: DOMEGGOOK_REGISTRATION_FORM
+  });
+
+  // extensions/src/sites/gmarket/availability.ts
+  registerEsmAvailability("gmarket", "\uC9C0\uB9C8\uCF13", "gmkt");
+
+  // extensions/src/sites/gmarket/registration.ts
+  var GMARKET_REGISTRATION_FORM = {
+    label: "\uC9C0\uB9C8\uCF13\xB7\uC625\uC158",
+    origin: "https://item.esmplus.com",
+    pathPrefix: "/goods/new",
+    // `<form>` 이 없다. 화면이 그려졌는지만 보는 표식으로 쓴다.
+    formSelector: "main.box__wrap",
+    /**
+     * ⚠️ 이 화면은 `load` 뒤에도 **8~10초** 더 지나야 칸이 그려진다(라이브 실측).
+     * 껍데기(`main.box__wrap`)만 보고 진행하면 칸이 하나도 없어 전부 실패한다.
+     * 그래서 칸 하나가 실제로 생길 때까지 기다린다.
+     */
+    readySelector: "div.box__filter-item",
+    formWaitMs: 25e3,
+    sectionForm: {
+      itemSelector: "div.box__filter-item",
+      headSelector: ".box__filter-head",
+      contentSelector: ".box__filter-content",
+      inputSelector: "input.form__input, textarea",
+      dropdownSelector: "div.box__dropdown",
+      openerSelector: "button.button__opener",
+      // ⚠️ `li` 가 아니라 이 버튼을 눌러야 한다. li 클릭은 아무 일도 안 일어난다.
+      optionSelector: "button.button__option",
+      labelSelector: "label.form__label"
+    },
+    sectionCategory: {
+      section: "\uCE74\uD14C\uACE0\uB9AC",
+      queryInput: 'input.form__input[placeholder*="\uCE74\uD14C\uACE0\uB9AC"]',
+      searchButton: "button.button__search",
+      waitMs: 2500
+    },
+    /**
+     * 상세설명.
+     *
+     * ⭐ **ESM 자체 업로드가 주 경로다.** 예전엔 키즈노트(diskn)에 먼저 올려 주소를
+     * 받아 HTML 로 넣었는데, 키즈노트 로그인이 풀리면 ESM 등록이 통째로 막혔다
+     * (사장님 지적 2026-09-11: "esm 인데 왜 키즈노트를 쓰냐"). 남의 몰 세션이 우리
+     * 등록을 막는 구조라 버렸다.
+     *
+     * `이미지 업로드` 탭 안에 전용 파일 칸이 있다(라이브 실증: 넣으니 안내 문구가
+     * "등록된 이미지가 없습니다" → "등록된 이미지가 있습니다"로 바뀌었다).
+     * ⚠️ 파일 칸 이름이 상품이미지와 똑같은 `btnSelectFile` 이라 문서 전체에서 찾으면
+     * 대표이미지 칸을 집는다. 반드시 `div.box__board` 안에서 찾는다.
+     */
+    sectionDetail: {
+      tabSelector: "ul.list__tab-board button.button__tab",
+      /** 주 경로 — 파일을 직접 올린다. */
+      uploadTabLabel: "\uC774\uBBF8\uC9C0 \uC5C5\uB85C\uB4DC",
+      uploadBoardSelector: "div.box__board",
+      uploadFileSelector: "input.form__file",
+      uploadDoneText: "\uB4F1\uB85D\uB41C \uC774\uBBF8\uC9C0\uAC00 \uC788\uC2B5\uB2C8\uB2E4",
+      /** 대비 경로 — 이미 몰이 읽을 수 있는 주소일 때만 쓴다. */
+      tabLabel: "HTML \uC791\uC131",
+      textareaSelector: "textarea.box__board-textarea"
+    },
+    /** 상세 이미지를 File 로 받아 와야 몰에 올릴 수 있다. */
+    detailSelfUpload: { editorTab: null },
+    // 칸이 하나뿐인데 `multiple` 이다. 대표·추가를 한 번에 넣고 첫 장이 대표가 된다.
+    sectionImages: {
+      groupKey: "esmplus",
+      label: "\uC0C1\uD488\uC774\uBBF8\uC9C0",
+      fileInputSelector: "input.form__file",
+      max: 15
+    },
+    /**
+     * 화면을 덮는 안내 팝업을 닫는다(사장님 요청 2026-09-11).
+     *
+     * 실물 예: "[G kiditem / A kiditem] 이벤트에 참여중입니다 … [확인]".
+     * 덮여 있는 동안에는 우리 클릭이 전부 그 창으로 먹어서 폼이 안 채워진다.
+     *
+     * ⚠️ 판단은 **버튼 글자로만** 한다. 글자 있는 버튼이 하나뿐이고 그게 `확인`·`닫기`
+     * 일 때만 누른다 — 확인/취소가 같이 있는 '되묻는 창' 은 사람의 결정이라 건드리지
+     * 않는다. 이 안내창은 본문에 '등록' 이 들어 있어서(신규로 등록되는 상품은 …)
+     * 본문으로 거르면 오히려 못 닫는다.
+     */
+    dismissDialogs: {
+      label: "\uC548\uB0B4 \uD31D\uC5C5",
+      /** 이 글자를 누른다. */
+      closeLabels: ["\uD655\uC778", "\uB2EB\uAE30"],
+      /**
+       * 창 안에서 '고르라는 자리' 인지 판단할 낱말들.
+       *
+       * 여기 있는 낱말 중 닫기류가 아닌 것이 하나라도 창에 있으면 손대지 않는다 —
+       * `취소` 가 같이 있으면 되묻는 창이고, 그건 사람의 결정이다.
+       */
+      actionWords: [
+        "\uD655\uC778",
+        "\uB2EB\uAE30",
+        "\uCDE8\uC18C",
+        "\uB4F1\uB85D",
+        "\uC800\uC7A5",
+        "\uC0AD\uC81C",
+        "\uC804\uC1A1",
+        "\uC81C\uCD9C",
+        "\uACC4\uC18D",
+        "\uB2E4\uC74C",
+        "\uC774\uC804",
+        "\uC608",
+        "\uC544\uB2C8\uC624",
+        "\uB4F1\uB85D\uD558\uAE30",
+        "\uC800\uC7A5\uD558\uAE30"
+      ],
+      /** 묻는 말로 끝나는 창은 닫기류만 있어도 사람의 결정이다. */
+      questionPattern: "\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C|\uD558\uC2DC\uACA0\uC5B4\uC694|\uACC4\uC18D\uD560\uAE4C\uC694|\uC9C4\uD589\uD560\uAE4C\uC694",
+      /** 안내 문구가 이만큼은 있어야 '읽으라고 띄운 창' 이다. */
+      minMessageLength: 10,
+      retries: 4,
+      waitMs: 700
+    }
+    // ⚠️ `detailHost` 를 두지 않는다. 두면 키즈노트에 먼저 올리려다 그 몰 로그인이
+    // 풀렸을 때 ESM 등록까지 막힌다 — 실제로 그렇게 막혔다(라이브 2026-09-11).
+  };
+  registerMallWriter({
+    mallKey: "gmarket",
+    displayName: "\uC9C0\uB9C8\uCF13",
+    guard: registrationGuard(esmListingsGuard("\uC9C0\uB9C8\uCF13"), "\uC9C0\uB9C8\uCF13"),
+    dialogHosts: ["esmplus.com"],
+    form: GMARKET_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/gs-shop/index.ts
   var GS_SHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
   var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
   var READ_TIMEOUT_MS5 = 14e4;
   var WALL_TIMEOUT_MS = 1e4;
-  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var NAVIGATION_TIMEOUT_MS10 = 3e4;
   var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
   var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
@@ -10343,7 +14542,7 @@ var KidItemRuntime = (() => {
       main: [GS_SHOP_ORDERS_FILE],
       displayName: "GS\uC0F5"
     }).catch(() => null);
-    async function read(page, onAttention) {
+    async function read15(page, onAttention) {
       let waited = false;
       const stillWalled = async (value) => {
         let url;
@@ -10361,7 +14560,7 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
         }
         waited = true;
-        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
+        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
       };
       for (; ; ) {
         let answer;
@@ -10381,11 +14580,139 @@ var KidItemRuntime = (() => {
     }
     return {
       readOrders(input = {}) {
-        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read(page, input.onAttention), signIn ? { signIn } : {});
+        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read15(page, input.onAttention), signIn ? { signIn } : {});
       }
     };
   }
   registerSite({ name: "gs-shop", create: (deps, lease) => createGsShopSite(deps.tabs, createSiteSignIn(GS_SHOP_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/mall-write/raw.ts
+  var asRaw = (value) => typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
+  function requireRaw(value, message) {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) throw planInvalid(message);
+    return value;
+  }
+  function planInvalid(message) {
+    return new RuntimeError(RUNTIME_PLAN_INVALID17, message, { reason: "form_values" });
+  }
+  var text6 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
+  var digits2 = (entry) => /^\d+$/.test(String(entry ?? "")) ? String(entry) : "";
+  var code = (entry, pattern) => pattern.test(String(entry ?? "")) ? String(entry) : "";
+  var amount = (entry) => {
+    const parsed3 = Number(entry);
+    return Number.isFinite(parsed3) && parsed3 >= 0 ? Math.round(parsed3) : 0;
+  };
+  var entriesOf = (value) => Object.entries(asRaw(value));
+  function cutBytes(entry, maxBytes, measure) {
+    let out = "";
+    for (const char of entry) {
+      if (measure(out + char) > maxBytes) break;
+      out += char;
+    }
+    return out.trim();
+  }
+
+  // extensions/src/sites/gs-shop/registration.ts
+  var GS_SHOP_REGISTER_FILE = "content/page-call/gs-shop-register.js";
+  var gsBytes = (entry) => [...entry].reduce((sum, char) => sum + (/^[\x00-\x7f]$/.test(char) ? 1 : 2), 0);
+  function normalizeGsshopForm(value) {
+    const raw = requireRaw(value, "GS\uC0F5 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const trimmed = (entry, max = 1e3) => text6(entry).trim().slice(0, max);
+    const category = code(raw.category, /^[A-Z]\d{8}$/);
+    if (!category) throw planInvalid("GS\uC0F5 \uC0C1\uD488\uBD84\uB958 \uCF54\uB4DC(\uC608: B35012701)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const sectionId = digits2(raw.sectionId);
+    if (!sectionId) throw planInvalid("GS\uC0F5 \uC804\uC2DC \uCE74\uD14C\uACE0\uB9AC \uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const supplierProductCode = code(raw.supplierProductCode, /^[A-Za-z0-9\-_()]{1,20}$/);
+    if (!supplierProductCode) throw planInvalid("GS\uC0F5 \uD611\uB825\uC0AC \uC0C1\uD488\uCF54\uB4DC\uB294 \uC601\uBB38\xB7\uC22B\uC790\xB7-_() 20\uC790 \uC774\uB0B4\uC5EC\uC57C \uD569\uB2C8\uB2E4.");
+    const exposureName = cutBytes(trimmed(raw.exposureName, 400).replace(/["<>|\\?*]/g, "").replace(/\s+/g, " "), 160, gsBytes);
+    const invoiceName = cutBytes(trimmed(raw.invoiceName, 200).replace(/[:"<>|\\']/g, "").replace(/[?*]/g, " ").replace(/\s+/g, " "), 30, gsBytes);
+    if (!exposureName || !invoiceName) throw planInvalid("GS\uC0F5 \uB178\uCD9C\uC0C1\uD488\uBA85\xB7\uC1A1\uC7A5\uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("GS\uC0F5 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const marginRate = amount(raw.marginRate);
+    const brand = asRaw(raw.brand);
+    const brandCode = digits2(brand.code);
+    if (!brandCode) throw planInvalid("GS\uC0F5 \uBE0C\uB79C\uB4DC \uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const delivery = asRaw(raw.delivery);
+    const remote = asRaw(delivery.remote);
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [itemCode, entry] of entriesOf(notice.values)) {
+      if (digits2(itemCode) && entry !== null && entry !== void 0) noticeValues[itemCode] = trimmed(entry, 1e3);
+    }
+    const composition = asRaw(raw.composition);
+    return {
+      category,
+      sectionId,
+      supplierProductCode,
+      mdId: digits2(raw.mdId),
+      employeeNo: digits2(raw.employeeNo),
+      exposureName,
+      invoiceName,
+      brand: { code: brandCode, name: trimmed(brand.name, 60) },
+      modelName: cutBytes(trimmed(raw.modelName, 200), 60, gsBytes),
+      composition: {
+        content: trimmed(composition.content, 200),
+        packageCount: Math.max(1, amount(composition.packageCount)),
+        maker: trimmed(composition.maker, 60),
+        origin: trimmed(composition.origin, 40)
+      },
+      salePrice,
+      marginRate: marginRate > 0 && marginRate < 100 ? marginRate : 0,
+      delivery: {
+        courier: code(delivery.courier, /^[A-Z0-9]{2,4}$/),
+        convenienceReturn: delivery.convenienceReturn === "Y" ? "Y" : "N",
+        fee: amount(delivery.fee),
+        freeOver: amount(delivery.freeOver),
+        returnFee: amount(delivery.returnFee),
+        exchangeFee: amount(delivery.exchangeFee),
+        remote: { fee: amount(remote.fee), returnFee: amount(remote.returnFee), exchangeFee: amount(remote.exchangeFee) },
+        refundType: delivery.refundType === "20" ? "20" : "10",
+        shipAddress: code(delivery.shipAddress, /^\d{4}$/),
+        returnAddress: code(delivery.returnAddress, /^\d{4}$/),
+        bundle: code(delivery.bundle, /^[A-Z]\d{2}$/),
+        weight: code(delivery.weight, /^A\d{2}$/),
+        length: code(delivery.length, /^B\d{2}$/)
+      },
+      stock: amount(raw.stock),
+      safeStock: amount(raw.safeStock),
+      notice: { groupCode: digits2(notice.groupCode), values: noticeValues }
+    };
+  }
+  var GS_SHOP_REGISTRATION_FORM = {
+    label: "GS\uC0F5",
+    origin: "https://partners.gsshop.com",
+    pathPrefix: "/product/products/create",
+    // 같은 화면이 `/update/<번호>`·`/copy/<번호>`로도 열린다. 등록 주소와 정확히 같아야 받는다.
+    exactPath: true,
+    noQuery: true,
+    formSelector: "body",
+    imageSlots: [],
+    dedicated: {
+      file: GS_SHOP_REGISTER_FILE,
+      call: "gsshop.fill",
+      // 대표 1 + 추가 7.
+      imageGroupKey: "gsshop",
+      formKey: "gsshop",
+      normalize: normalizeGsshopForm,
+      options: {
+        maxImages: 8,
+        formWaitMs: 4e4,
+        // 처리 함수 하나(분류 연쇄·담당MD 수수료 조회 등)가 끝날 때까지 기다리는 시간.
+        stepWaitMs: 15e3
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 GS 편집기 업로드에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "gs-shop",
+    displayName: "GS\uC0F5",
+    guard: registrationGuard(GS_SHOP_PAGE_GUARD, "GS\uC0F5"),
+    dialogHosts: ["partners.gsshop.com"],
+    login: GS_SHOP_LOGIN,
+    form: GS_SHOP_REGISTRATION_FORM
+  });
 
   // extensions/src/sites/haebub-mall/index.ts
   var HAEBUB_MALL_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
@@ -10607,6 +14934,226 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/icecream-mall/availability.ts
+  var ORIGIN10 = "https://po.i-screammall.co.kr";
+  var PAGE_URL5 = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
+  var VIEW_PATH = "/goods/goodsMgmt.goodsMgmtView.do";
+  var LIST_PATH3 = "/goods/goodsMgmt.getGoodsList.do";
+  var SAVE_PATH2 = "/goods/goodsMgmtPopup.modifyGoodsSaleState.do";
+  var BATCH_SIZE3 = 100;
+  var PACE_MS6 = 700;
+  var RECHECK_MS3 = 2e3;
+  var RECHECK_TIMES3 = 3;
+  var LABEL5 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0";
+  var LOGGED_OUT4 = `${LABEL5} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var STATUS_WORDS = { 20: "\uD488\uC808", 40: "\uD310\uB9E4\uC885\uB8CC" };
+  async function readRows3(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < codes.length; start += BATCH_SIZE3) {
+      if (start > 0) await context.sleep(PACE_MS6);
+      const answer = await run("icecreamRowsOnPage", [VIEW_PATH, LIST_PATH3, codes.slice(start, start + BATCH_SIZE3)]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
+      for (const row of answer.rows) if (row?.goodsNo) rows.set(row.goodsNo, row);
+    }
+    return { rows };
+  }
+  async function send5(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "10" : "20";
+    const from = resume ? "20" : "10";
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{5,15}$/.test(code2));
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL5} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN10, PAGE_URL5, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows3(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT4 };
+      if (!before.rows) return { success: false, error: `${LABEL5} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL5}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const ended = found.filter((no) => !["10", "20"].includes(rows.get(no).saleStatCd)).length;
+      if (resume && ended > 0) {
+        failed9 += ended;
+        warnings.push(`${ended}\uAC74\uC740 ${LABEL5}\uC5D0\uC11C \uD310\uB9E4\uC885\uB8CC\uB41C \uC0C1\uD488\uC774\uB77C \uB418\uC0B4\uB9AC\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      if (!resume) already += ended;
+      const movable = found.filter((no) => rows.get(no).saleStatCd === from);
+      already += found.filter((no) => rows.get(no).saleStatCd === wanted).length;
+      const reserved = resume ? movable.filter((no) => rows.get(no).saleMethCd === "20") : [];
+      if (reserved.length > 0) {
+        failed9 += reserved.length;
+        warnings.push(`${reserved.length}\uAC74\uC740 \uC608\uC57D\uC0C1\uD488\uC774\uB77C ${LABEL5} \uD654\uBA74\uB3C4 \uD310\uB9E4\uC911\uC73C\uB85C \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD569\uB2C8\uB2E4.`);
+      }
+      const targets = movable.filter((no) => !reserved.includes(no));
+      const groups = /* @__PURE__ */ new Map();
+      for (const no of targets) {
+        const method = String(rows.get(no).saleMethCd ?? "");
+        if (!groups.has(method)) groups.set(method, []);
+        groups.get(method).push(no);
+      }
+      const accepted = [];
+      let processed = 0;
+      for (const group of groups.values()) {
+        for (let start = 0; start < group.length; start += BATCH_SIZE3) {
+          const slice = group.slice(start, start + BATCH_SIZE3);
+          const list2 = slice.map((no) => ({ goodsNo: no, saleStatCd: rows.get(no).saleStatCd, itmSaleStatCd: wanted, soutCausCd: "12", saleStatChgCausCd: null }));
+          const answer = await run("icecreamSaveOnPage", [SAVE_PATH2, list2]);
+          if (answer?.loggedOut) {
+            halt = LOGGED_OUT4;
+            left = targets.length - processed;
+            return null;
+          }
+          processed += slice.length;
+          if (answer?.status !== 200 || answer.succeeded !== true) {
+            failed9 += slice.length;
+            const reason = answer?.message ? `: ${answer.message}` : "";
+            warnings.push(`${LABEL5}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
+          } else {
+            sent += slice.length;
+            accepted.push(...slice);
+          }
+          await context.sleep(PACE_MS6);
+        }
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES3; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS3);
+        const after = await readRows3(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((no) => after.rows.get(no)?.saleStatCd === wanted).length;
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL5}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC815\uBCF4 \uAD00\uB9AC\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL5} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uC815\uBCF4 \uAD00\uB9AC\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read5(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{5,15}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL5} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN10, PAGE_URL5, async (run) => {
+      const result = await readRows3(context, run, products);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT4 };
+      if (!result.rows) return { success: false, error: `${LABEL5} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => ({
+        code: no,
+        options: [flagOption(no, rows.get(no).saleStatCd === "10", STATUS_WORDS[String(rows.get(no).saleStatCd)])]
+      }));
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "icecream-mall",
+    displayName: LABEL5,
+    guard: availabilityGuard(ICECREAM_PAGE_GUARD, LABEL5),
+    dialogHosts: ["po.i-screammall.co.kr"],
+    login: ICECREAM_LOGIN,
+    send: send5,
+    read: read5
+  });
+
+  // extensions/src/sites/icecream-mall/registration.ts
+  var ICECREAM_MALL_REGISTRATION_FORM = {
+    label: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+    origin: "https://po.i-screammall.co.kr",
+    pathPrefix: "/goods/temporaryGeneralGoods",
+    // 폼이 여럿이라 '이 화면이 맞나' 를 볼 대표 폼만 지정한다.
+    formSelector: "#goodsInfo",
+    multiForm: true,
+    categoryFields: { code: "stdCtgNo", path: "stdCtgHierarchy" },
+    noticeSection: {
+      owner: "announcementInfo",
+      open: "getAnnoucementItemInfo",
+      tableId: "announcementInfoTable"
+    },
+    // 대표 한 장. 추가 이미지 칸(`imgInfo[N][img]`)은 `+` 로 늘려야 해서 사람에게 넘긴다.
+    //
+    // ⚠️ `imageFileInput`(단수)은 `form.imageUrls` 를 보는데 이 몰 빌더는
+    // `imageGroups` 로 보낸다. 그래서 그룹 방식을 쓴다 — 단수로 뒀다가 이미지가
+    // 통째로 안 들어갔다(라이브 확인 2026-09-11).
+    imageFileInputs: [
+      { key: "representative", label: "\uB300\uD45C\uC774\uBBF8\uC9C0", selector: "input[name='baseImageFile']" }
+    ],
+    /**
+     * 추가 이미지. 칸이 처음엔 없고 `+` 를 눌러야 하나씩 생긴다.
+     *
+     * 한 번 누르면 `imgInfo[N][img]`(파일)과 `imgInfo[N][seq]`(전시 순서, 자동 1·2·3)
+     * 가 함께 생긴다. 몰 안내대로 아홉 장까지다(실측 2026-09-11).
+     */
+    imageRepeat: {
+      section: "imageInfo",
+      addLabel: "+",
+      namePattern: "imgInfo[{i}][img]",
+      groupKey: "additional",
+      max: 9,
+      label: "\uCD94\uAC00\uC774\uBBF8\uC9C0"
+    },
+    /**
+     * 상세설명이 네이버 SmartEditor 2 다.
+     *
+     * 뒷단 textarea 에만 쓰면 제출할 때 에디터 내용으로 덮인다. 편집면은
+     * `iframe(스킨) > iframe#se2_iframe` 이고 same-origin 이라 직접 쓸 수 있다.
+     *
+     * ⭐ 스킨 iframe 이 **두 개**다(본문·예스24 전용). 라이브 확인 2026-09-11 기준
+     * 본문이 **두 번째**라, 순서로 집으면 예스24 쪽에 들어간다. 반드시 상세설명
+     * 구역(`#detailInfo`) 안에서 찾는다.
+     */
+    detailSmartEditor: {
+      section: "detailInfo",
+      target: "detailHtmlEditor",
+      toSourceSelector: "button.se2_to_html",
+      sourceSelector: "textarea.se2_input_htmlsrc",
+      toEditorSelector: "button.se2_to_editor",
+      upload: { endpoint: "/common/file/uploadImgEditor.do", field: "UPLOAD_FILE", imgWidth: 900 }
+    },
+    // 상세 이미지를 File 로 받아 와야 몰에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null },
+    detailHtmlTarget: "detailHtmlEditor",
+    /**
+     * 상세설명 이미지를 올릴 곳.
+     *
+     * 우리 산출물은 로컬 MinIO 주소라 몰이 못 읽는다. 도매꾹·티처몰·11번가와 같은
+     * 저장소를 쓴다 — 실측 등록물도 `kiditem.diskn.com` 주소였다.
+     * ⚠️ 이걸 빼먹었더니 `detailHtml` 이 빈 채로 상세설명이 통째로 건너뛰어졌다
+     * (라이브 2026-09-11).
+     */
+    detailHost: "kidsnote"
+  };
+  registerMallWriter({
+    mallKey: "icecream-mall",
+    displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+    guard: registrationGuard(ICECREAM_PAGE_GUARD, "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0"),
+    dialogHosts: ["i-screammall.co.kr"],
+    login: ICECREAM_LOGIN,
+    form: ICECREAM_MALL_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/kakao/listings.ts
   var KAKAO_LISTINGS_URL = "https://shopping-seller.kakao.com/product/store-seller/list";
   var KAKAO_LISTINGS_FILE = "content/orders/kakao-listings.js";
@@ -10628,6 +15175,276 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "kakao", create: (deps) => createKakaoListings(deps.tabs) });
+
+  // extensions/src/sites/kakao/availability.ts
+  var ORIGIN11 = "https://shopping-seller.kakao.com";
+  var PAGE_URL6 = "https://shopping-seller.kakao.com/product/store-seller/list";
+  var LIST_PATH4 = "/api/tstore/products";
+  var GRID_PATH = "/api/tstore/products/grid/columns";
+  var RESUME_QUANTITY = 999;
+  var PACE_MS7 = 400;
+  var LABEL6 = "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4";
+  var LOGGED_OUT5 = `${LABEL6} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  async function readProduct(run, productId2) {
+    const answer = await run("requestOnPage", [`${LIST_PATH4}?productIds=${encodeURIComponent(productId2)}&size=1&page=0`, "GET", null, null]);
+    if (answer.status === 401 || answer.status === 403 || /login|xauth|accounts\.kakao/i.test(`${answer.url ?? ""} ${answer.preview ?? ""}`)) return { loggedOut: true };
+    if (answer.status !== 200 || !Array.isArray(answer.json?.contents)) return { error: `HTTP ${answer.status}` };
+    return { product: answer.json.contents.find((row) => String(row.id) === String(productId2)) || null };
+  }
+  var hasOptions = (product) => Boolean(product.optionSetting && product.optionSetting !== "\uBBF8\uC124\uC815");
+  async function send6(context, input) {
+    const { codes, resume } = input;
+    const quantity = resume ? RESUME_QUANTITY : 0;
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{1,15}$/.test(code2));
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let withOptions = 0;
+    const halted = await withSellerPage(context, ORIGIN11, PAGE_URL6, async (run) => {
+      const targets = [];
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(PACE_MS7);
+        const read15 = await readProduct(run, products[index]);
+        if (read15.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!read15.product) {
+          failed9 += 1;
+          warnings.push(`${products[index]}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read15.error ? `(${read15.error})` : ""}.`);
+          continue;
+        }
+        if (hasOptions(read15.product)) {
+          withOptions += 1;
+          failed9 += 1;
+          continue;
+        }
+        const stock = Number(read15.product.stockQuantity);
+        if (!(resume ? stock === 0 : stock !== 0)) {
+          already += 1;
+          continue;
+        }
+        targets.push(read15.product);
+      }
+      if (targets.length === 0) return null;
+      const edits = targets.map((product) => ({
+        name: product.name,
+        salePrice: product.salePrice,
+        storeManagementCode: product.storeManagementCode ?? "",
+        stockQuantity: quantity,
+        productId: product.id,
+        displayStatus: product.displayStatusType
+      }));
+      const answer = await run("requestOnPage", [GRID_PATH, "PUT", "application/json", JSON.stringify(edits)]);
+      if (answer.status < 200 || answer.status >= 300) {
+        failed9 += targets.length;
+        const reason = answer.json?.message || answer.json?.errorMessage || "";
+        warnings.push(`${LABEL6}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
+        return null;
+      }
+      const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
+      sent += counted ?? targets.length;
+      if (counted !== null && counted < targets.length) {
+        failed9 += targets.length - counted;
+        warnings.push(`${LABEL6}\uC774 ${targets.length}\uAC74 \uC911 ${counted}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      for (const product of targets) {
+        await context.sleep(PACE_MS7);
+        const after = await readProduct(run, String(product.id));
+        if (after.product && Number(after.product.stockQuantity) === quantity) confirmed += 1;
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC788\uB294 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL6}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function sendPrice(context, items) {
+    const warnings = [];
+    const valid = items.filter((item) => /^\d{1,15}$/.test(item.code));
+    let failed9 = items.length - valid.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let withOptions = 0;
+    let submissionAttempted = false;
+    const results = [];
+    const halted = await withSellerPage(context, ORIGIN11, PAGE_URL6, async (run, page) => {
+      const targets = [];
+      for (let index = 0; index < valid.length; index += 1) {
+        if (index > 0) await context.sleep(PACE_MS7);
+        const item = valid[index];
+        const read15 = await readProduct(run, item.code);
+        if (read15.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!read15.product) {
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read15.error ? `(${read15.error})` : ""}.`);
+          continue;
+        }
+        if (hasOptions(read15.product)) {
+          withOptions += 1;
+          failed9 += 1;
+          continue;
+        }
+        const current = priceNumber(read15.product.salePrice);
+        if (item.ifPrice !== null && current !== item.ifPrice) {
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL6} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${Number.isFinite(current) ? `${current.toLocaleString("ko-KR")}\uC6D0` : "\uBAA8\uB974\uB294 \uAC12"}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
+          continue;
+        }
+        targets.push({ product: read15.product, price: item.price });
+      }
+      if (targets.length === 0) return null;
+      const edits = targets.map(({ product, price: price2 }) => ({
+        name: product.name,
+        salePrice: typeof product.salePrice === "number" ? price2 : String(price2),
+        storeManagementCode: product.storeManagementCode ?? "",
+        stockQuantity: product.stockQuantity,
+        productId: product.id,
+        displayStatus: product.displayStatusType
+      }));
+      submissionAttempted = true;
+      const answer = await run("requestOnPage", [GRID_PATH, "PUT", "application/json", JSON.stringify(edits)]);
+      if (answer.status < 200 || answer.status >= 300) {
+        failed9 += targets.length;
+        const reason = answer.json?.message || answer.json?.errorMessage || "";
+        warnings.push(`${LABEL6}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
+        return null;
+      }
+      const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
+      sent += counted ?? targets.length;
+      if (counted !== null && counted < targets.length) {
+        failed9 += targets.length - counted;
+        warnings.push(`${LABEL6}\uC774 ${targets.length}\uAC74 \uC911 ${counted}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      for (const { product, price: price2 } of targets) {
+        await context.sleep(PACE_MS7);
+        const after = await readProduct(run, String(product.id));
+        const now = after.product ? priceNumber(after.product.salePrice) : null;
+        const before = priceNumber(product.salePrice);
+        const ok = now === price2;
+        if (ok) confirmed += 1;
+        const observedUrl = after.product && String(after.product.salePrice ?? "").trim() !== "" && Number.isFinite(now) ? await observedUrlOf(page, ORIGIN11) : null;
+        results.push({
+          code: String(product.id),
+          before: Number.isFinite(before) ? before : null,
+          after: now !== null && Number.isFinite(now) ? now : null,
+          confirmed: ok,
+          ...observedUrl ? { observedUrl } : {}
+        });
+      }
+      return null;
+    });
+    if (halted) return { ...halted, submissionAttempted };
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC788\uB294 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uAC00\uACA9\uC774\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL6}\uC5D0\uC11C \uC635\uC158 \uAC00\uACA9\uC744 \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    return { success: true, sent, failed: failed9, confirmed, results, warnings, submissionAttempted };
+  }
+  async function read6(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,15}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL6} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN11, PAGE_URL6, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(PACE_MS7);
+        const result = await readProduct(run, products[index]);
+        if (result.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!result.product) {
+          missing.push(products[index]);
+          continue;
+        }
+        found.push({ code: products[index], options: [{ optionCode: String(result.product.id), stock: Number(result.product.stockQuantity), rocket: false }] });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kakao",
+    displayName: LABEL6,
+    guard: availabilityGuard(KAKAO_LISTINGS_GUARD, LABEL6),
+    dialogHosts: ["shopping-seller.kakao.com"],
+    send: send6,
+    read: read6,
+    sendPrice
+  });
+
+  // extensions/src/sites/kakao/registration.ts
+  var KAKAO_REGISTER_FILE = "content/page-call/kakao-register.js";
+  function normalizeKakaoForm(value) {
+    const raw = requireRaw(value, "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const text8 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).replace(/\s+/g, " ").trim().slice(0, max);
+    const productName = [...text8(raw.productName, 400).replace(/[<>]/g, "")].slice(0, 70).join("").trim();
+    if (!productName) throw planInvalid("\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const categoryText = String(raw.categoryId ?? "").trim();
+    const categoryId = /^\d{9,15}$/.test(categoryText) && categoryText.length % 3 === 0 ? categoryText : "";
+    const stock = amount(raw.stock);
+    const originTypes = ["\uAD6D\uB0B4\uC0B0", "\uC218\uC785\uC0B0", "\uD63C\uD569", "\uAE30\uD0C0"];
+    const origin = asRaw(raw.origin);
+    const originType = originTypes.includes(text8(origin.type, 10)) ? text8(origin.type, 10) : "\uC218\uC785\uC0B0";
+    const cert = asRaw(raw.cert);
+    const certNumber = text8(cert.number, 60);
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [label, entry] of entriesOf(notice.values)) {
+      const key = text8(label, 60);
+      const noticeValue = text8(entry, 500);
+      if (key && noticeValue) noticeValues[key] = noticeValue;
+    }
+    return {
+      productName,
+      categoryId,
+      salePrice,
+      stock: stock >= 1 ? Math.min(stock, 99999) : 999,
+      origin: {
+        type: originType,
+        region: originType === "\uC218\uC785\uC0B0" ? text8(origin.region, 20) : "",
+        country: originType === "\uC218\uC785\uC0B0" ? text8(origin.country, 30) : ""
+      },
+      cert: /^[A-Za-z0-9-]{4,40}$/.test(certNumber) ? { type: text8(cert.type, 40) || "[\uC5B4\uB9B0\uC774\uC81C\uD488] \uC548\uC804\uD655\uC778", number: certNumber } : null,
+      notice: { group: text8(notice.group, 40) || "\uC5B4\uB9B0\uC774\uC81C\uD488", values: noticeValues },
+      deliveryTemplate: text8(raw.deliveryTemplate, 60),
+      brand: text8(raw.brand, 30),
+      manufacturer: text8(raw.manufacturer, 30),
+      sellerCode: text8(raw.sellerCode, 50),
+      affiliate: raw.affiliate === true
+    };
+  }
+  var KAKAO_REGISTRATION_FORM = {
+    label: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+    origin: "https://shopping-seller.kakao.com",
+    pathPrefix: "/product/store-seller/insert",
+    exactPath: true,
+    noQuery: true,
+    formSelector: "form",
+    imageSlots: [],
+    dedicated: {
+      file: KAKAO_REGISTER_FILE,
+      call: "kakao.fill",
+      // 대표 1 + 추가 5.
+      imageGroupKey: "kakao",
+      formKey: "kakao",
+      normalize: normalizeKakaoForm,
+      options: {
+        maxImages: 6,
+        formWaitMs: 4e4,
+        // 칸 하나(추천 카테고리·다음 목록·사진 업로드·KC 조회)가 반응할 때까지 기다리는 시간.
+        stepWaitMs: 12e3
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 편집기 업로드로 톡스토어에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "kakao",
+    displayName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+    guard: registrationGuard(KAKAO_LISTINGS_GUARD, "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4"),
+    dialogHosts: ["shopping-seller.kakao.com"],
+    form: KAKAO_REGISTRATION_FORM
+  });
 
   // extensions/src/sites/kidkids/listings.ts
   var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
@@ -10688,6 +15505,200 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kidkids/availability.ts
+  var ORIGIN12 = "https://partner.kidkids.net";
+  var PAGE_URL7 = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
+  var LIST_PATH5 = "/sales/goods_list_renewal.htm";
+  var SAVE_PATH3 = "/sales/proc_logis.htm";
+  var PACE_MS8 = 700;
+  var READ_PACE_MS = 200;
+  var RECHECK_MS4 = 2e3;
+  var RECHECK_TIMES4 = 3;
+  var LABEL7 = "\uD0A4\uB4DC\uD0A4\uC988";
+  var LOGGED_OUT6 = `${LABEL7} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isGoodsCode = (code2) => /^\d{3,10}$/.test(code2);
+  var readRow = async (run, code2) => await run("kidkidsRowOnPage", [LIST_PATH5, code2]);
+  async function send7(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "\uD310\uB9E4" : "\uD488\uC808";
+    const from = resume ? "\uD488\uC808" : "\uD310\uB9E4";
+    const warnings = [];
+    const products = [...new Set(codes)].filter(isGoodsCode);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uCF54\uB4DC \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    const notFound = [];
+    const other = [];
+    const noTax = [];
+    const accepted = [];
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        const code2 = products[index];
+        if (index > 0) await context.sleep(PACE_MS8);
+        const row = await readRow(run, code2);
+        if (row?.loggedOut) {
+          halt = LOGGED_OUT6;
+          left = products.length - index;
+          return null;
+        }
+        if (row?.error) {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL7} \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).`);
+          continue;
+        }
+        if (!row?.found) {
+          failed9 += 1;
+          notFound.push(code2);
+          continue;
+        }
+        if (row.word === wanted) {
+          already += 1;
+          continue;
+        }
+        if (row.word !== from) {
+          failed9 += 1;
+          other.push(`${code2}(${row.word || "?"})`);
+          continue;
+        }
+        if (!row.taxType) {
+          failed9 += 1;
+          noTax.push(code2);
+          continue;
+        }
+        const pairs = row.pairs.map(([name, value]) => {
+          if (name === "commitType") return [name, "change_use_flag"];
+          if (name === "use_flag") return [name, resume ? "Y" : "N"];
+          return [name, value];
+        });
+        const answer = await run("kidkidsSaveOnPage", [SAVE_PATH3, pairs]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT6;
+          left = products.length - index;
+          return null;
+        }
+        if (answer?.status !== 200) {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL7}\uC774 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(${answer?.error || `HTTP ${answer?.status ?? 0}`}).`);
+          continue;
+        }
+        sent += 1;
+        accepted.push(code2);
+        if (answer.alert && /실패|오류|권한|불가|없습니다/.test(answer.alert)) warnings.push(`${code2}: ${LABEL7} \uB2F5 "${answer.alert}"`);
+      }
+      let pending = [...accepted];
+      for (let attempt = 0; attempt <= RECHECK_TIMES4 && pending.length > 0; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS4);
+        const still = [];
+        for (const code2 of pending) {
+          const row = await readRow(run, code2);
+          if (row?.found && row.word === wanted) confirmed += 1;
+          else still.push(code2);
+        }
+        pending = still;
+      }
+      if (pending.length > 0) warnings.push(`${LABEL7} \uBAA9\uB85D\uC774 ${pending.length}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488\uAD00\uB9AC\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      return null;
+    });
+    if (halted) return halted;
+    if (notFound.length > 0) warnings.push(`${notFound.length}\uAC74\uC740 ${LABEL7}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    if (other.length > 0) warnings.push(`${other.length}\uAC74\uC740 ${LABEL7}\uC5D0\uC11C ${from}\uC774 \uC544\uB2C8\uB77C \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${other.slice(0, 5).join(", ")}`);
+    if (noTax.length > 0) warnings.push(`${noTax.length}\uAC74\uC740 ${LABEL7} \uC138\uAE08 \uAD6C\uBD84\uC774 \uBBF8\uB4F1\uB85D\uC774\uB77C \uD654\uBA74\uB3C4 \uBC14\uAFB8\uC9C0 \uBABB\uD569\uB2C8\uB2E4: ${noTax.slice(0, 5).join(", ")}`);
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read7(context, codes) {
+    const products = [...new Set(codes)].filter(isGoodsCode).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL7} \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(READ_PACE_MS);
+        const code2 = products[index];
+        const row = await readRow(run, code2);
+        if (row?.loggedOut) return { success: false, error: LOGGED_OUT6 };
+        if (row?.error) return { success: false, error: `${LABEL7} \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).` };
+        if (!row?.found) {
+          missing.push(code2);
+          continue;
+        }
+        const selling = row.word === "\uD310\uB9E4";
+        found.push({ code: code2, options: [flagOption(code2, selling, selling ? row.word : row.word || "\uD488\uC808")] });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kidkids",
+    displayName: LABEL7,
+    guard: availabilityGuard(KIDKIDS_PAGE_GUARD, LABEL7),
+    dialogHosts: ["partner.kidkids.net"],
+    login: KIDKIDS_LOGIN,
+    send: send7,
+    read: read7
+  });
+
+  // extensions/src/sites/kidkids/registration.ts
+  var KIDKIDS_REGISTRATION_FORM = {
+    label: "\uD0A4\uB4DC\uD0A4\uC988",
+    origin: "https://partner.kidkids.net",
+    pathPrefix: "/sales/goods_reg_renewal.htm",
+    formSelector: 'form[name="goods_form"]',
+    preRadios: ["kc_view"],
+    selectorFields: [
+      { key: "category1", selector: 'select[name="large_cat_id"]', label: "\uB300\uBD84\uB958", waitMs: 600, waitForOption: true },
+      { key: "category2", selector: 'select[name="middle_cat_id"]', label: "\uC911\uBD84\uB958", waitMs: 600, waitForOption: true },
+      { key: "category3", selector: 'select[name="small_cat_id"]', label: "\uC18C\uBD84\uB958", waitMs: 300, waitForOption: true },
+      // 목록은 화면이 열리자마자 AJAX 로 채운다(처음엔 `선택` 한 줄).
+      { key: "noticeGroup", selector: "#gs_id", label: "\uACF5\uC815\uC704 \uACE0\uC2DC \uBD84\uB958", waitMs: 300, waitForOption: true }
+    ],
+    infoRows: { itemSelector: "textarea.spec_contents", attr: "info", label: "\uACF5\uC815\uC704 \uACE0\uC2DC", timeoutMs: 1e4 },
+    fireKeyup: true,
+    // 목록 이미지 + 추가 이미지 4칸. 칸마다 한 장.
+    imageFileInputs: [
+      { key: "main", label: "\uB300\uD45C \uC774\uBBF8\uC9C0", selector: 'input[type="file"][name="goods_photo_new"]' },
+      { key: "img2", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 2", selector: 'input[type="file"][name="goods_img_2"]' },
+      { key: "img3", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 3", selector: 'input[type="file"][name="goods_img_3"]' },
+      { key: "img4", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 4", selector: 'input[type="file"][name="goods_img_4"]' },
+      { key: "img5", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0 5", selector: 'input[type="file"][name="goods_img_5"]' }
+    ],
+    /**
+     * TinyMCE 3 는 모르는 속성을 저장할 때 지운다. 몰 업로드가 실패해 이미 읽히는 남의
+     * 주소(카카오 CDN)로 넣게 되면 핫링크를 통과시키는 `referrerpolicy` 가 필요하므로 그
+     * 속성을 허용한다(라이브 확인: 허용 후 `triggerSave` 결과에 속성이 남는다).
+     */
+    detailRich: {
+      kind: "tinymce",
+      editorId: "goods_desc",
+      validElements: "img[src|alt|width|height|style|referrerpolicy]",
+      // 에디터 [...] 업로드 창의 폼 그대로다(`imgupload`: 파일 `upload` + `act=upload` + `fname`).
+      upload: {
+        endpoint: "/sales/js/tiny_mce/plugins/advimage/galery_ftp.htm?dirname=https://img.kidkids.net/upimage/",
+        field: "upload",
+        fields: { act: "upload", fname: "" },
+        // 응답에는 파일명 없는 기본 주소(`…/upimage/'`)와 `…/upimage//' + img.alt` 도 있다.
+        // 파일명과 확장자까지 붙은 것만 올린 결과다.
+        hostedPattern: `https://img\\.kidkids\\.net/upimage/[^'"\\s<>/]+\\.(?:jpe?g|png|gif)`
+      }
+    },
+    // 상세 이미지를 File 로 받아 와야 몰 업로드에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "kidkids",
+    displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+    guard: registrationGuard(KIDKIDS_PAGE_GUARD, "\uD0A4\uB4DC\uD0A4\uC988"),
+    dialogHosts: ["kidkids.net"],
+    login: KIDKIDS_LOGIN,
+    form: KIDKIDS_REGISTRATION_FORM
+  });
 
   // extensions/src/sites/kidsnote/listings.ts
   var KIDSNOTE_LISTINGS_URL = "https://shop.kidsnote.com/_manage/?body=2010";
@@ -10769,6 +15780,318 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidsnote/availability.ts
+  var ORIGIN13 = "https://shop.kidsnote.com";
+  var PAGE_URL8 = "https://shop.kidsnote.com/_manage/?body=2010";
+  var LIST_PATH6 = "/_manage/";
+  var SAVE_PATH4 = "/_manage/";
+  var PAGE_SIZE3 = 100;
+  var MAX_PAGES2 = 60;
+  var PAGE_PACE_MS = 200;
+  var PACE_MS9 = 700;
+  var RECHECK_MS5 = 2e3;
+  var RECHECK_TIMES5 = 2;
+  var LABEL8 = "\uD0A4\uC988\uB178\uD2B8";
+  var LOGGED_OUT7 = `${LABEL8} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var KIDSNOTE_PRICE_NOTE = "\uD0A4\uC988\uB178\uD2B8\uB294 \uAC00\uACA9\uC744 \uBC14\uAFB8\uBA74 \uBCF8\uC0AC \uC2B9\uC778 \uC804\uAE4C\uC9C0 \uADF8 \uC0C1\uD488 \uD310\uB9E4\uAC00 \uBA48\uCDA5\uB2C8\uB2E4.";
+  async function readRows4(context, run, codes, withForm, formId = "edt_layer_4") {
+    const wanted = new Set(codes);
+    const rows = /* @__PURE__ */ new Map();
+    let form = null;
+    for (let page = 1; page <= MAX_PAGES2; page += 1) {
+      if (page > 1) await context.sleep(PAGE_PACE_MS);
+      const answer = await run("kidsnoteListOnPage", [LIST_PATH6, page, PAGE_SIZE3, Boolean(withForm && page === 1), formId]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
+      if (withForm && page === 1) form = answer.form;
+      for (const row of answer.rows) if (wanted.has(row.pno)) rows.set(row.pno, row);
+      if (answer.rows.length < PAGE_SIZE3 || rows.size >= wanted.size) break;
+    }
+    return { rows, form };
+  }
+  async function send8(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "\uC815\uC0C1" : "\uD488\uC808";
+    const from = resume ? "\uD488\uC808" : "\uC815\uC0C1";
+    const value = resume ? "2" : "3";
+    const warnings = [];
+    const products = codes.filter((code2) => /^\d{1,10}$/.test(code2));
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL8} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows4(context, run, products, true);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT7 };
+      if (!before.rows) return { success: false, error: `${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const form = before.form ?? [];
+      const names = new Set(form.map(([name]) => name));
+      if (!["body", "nums", "exec", "where", "change_stat"].every((name) => names.has(name))) {
+        return { success: false, error: `${LABEL8} \uC0C1\uD0DC/\uB178\uCD9C\uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
+      }
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const hidden = found.filter((no) => ![from, wanted].includes(rows.get(no).stat)).length;
+      if (resume && hidden > 0) {
+        failed9 += hidden;
+        warnings.push(`${hidden}\uAC74\uC740 ${LABEL8}\uC5D0\uC11C \uC228\uAE40(\uB610\uB294 \uB2E4\uB978 \uC0C1\uD0DC)\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      if (!resume) already += hidden;
+      const targets = found.filter((no) => rows.get(no).stat === from);
+      already += found.filter((no) => rows.get(no).stat === wanted).length;
+      const accepted = [];
+      let answered = null;
+      for (let start = 0; start < targets.length; start += PAGE_SIZE3) {
+        const group = targets.slice(start, start + PAGE_SIZE3);
+        const pairs = form.map(([name, current]) => {
+          if (name === "nums") return [name, group.map((no) => `@${no}`).join("")];
+          if (name === "where") return [name, "1"];
+          if (name === "change_stat") return [name, value];
+          return [name, current];
+        });
+        const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH4, pairs]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT7;
+          left = targets.length - start;
+          return null;
+        }
+        if (answer?.alert) answered = answer.alert;
+        if (answer?.status !== 200) {
+          failed9 += group.length;
+          warnings.push(`${LABEL8}\uC774 \uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
+        } else {
+          sent += group.length;
+          accepted.push(...group);
+        }
+        await context.sleep(PACE_MS9);
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES5; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS5);
+        const after = await readRows4(context, run, accepted, false);
+        if (!after.rows) continue;
+        seen = accepted.filter((no) => after.rows.get(no)?.stat === wanted).length;
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL8}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD310\uB9E4 \uC0C1\uD488 \uB0B4\uC5ED\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) {
+          const said = answered ? ` \uBAB0 \uB2F5: "${answered}"` : "";
+          warnings.push(`${LABEL8} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4.${said}`);
+        }
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function sendPrice2(context, items) {
+    const warnings = [KIDSNOTE_PRICE_NOTE];
+    const valid = items.filter((item) => /^\d{1,10}$/.test(item.code));
+    let failed9 = items.length - valid.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL8} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let submissionAttempted = false;
+    const results = [];
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run, page) => {
+      if (valid.length === 0) return null;
+      const before = await readRows4(context, run, valid.map((item) => item.code), true, "edt_layer_2");
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT7 };
+      if (!before.rows) return { success: false, error: `${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const form = before.form ?? [];
+      const names = new Set(form.map(([name]) => name));
+      const exec = form.find(([name]) => name === "exec")?.[1];
+      if (!["body", "nums", "exec", "where", "prc_chg_type", "o3", "replace_prc"].every((name) => names.has(name)) || exec !== "sell_prc") {
+        return { success: false, error: `${LABEL8} \uAC00\uACA9 \uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
+      }
+      const byPrice = /* @__PURE__ */ new Map();
+      for (const item of valid) {
+        const row = rows.get(item.code);
+        if (!row) {
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+          continue;
+        }
+        if (item.ifPrice !== null && row.price !== item.ifPrice) {
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL8} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${row.price === null ? "\uBAA8\uB974\uB294 \uAC12" : `${row.price.toLocaleString("ko-KR")}\uC6D0`}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
+          continue;
+        }
+        byPrice.set(item.price, [...byPrice.get(item.price) || [], { code: item.code, before: row.price }]);
+      }
+      const accepted = [];
+      for (const [price2, group] of byPrice) {
+        for (let start = 0; start < group.length; start += PAGE_SIZE3) {
+          const chunk = group.slice(start, start + PAGE_SIZE3);
+          const pairs = form.map(([name, current]) => {
+            if (name === "nums") return [name, chunk.map((entry) => `@${entry.code}`).join("")];
+            if (name === "where") return [name, "1"];
+            if (name === "prc_chg_type") return [name, "2"];
+            if (name === "o3") return [name, "sell_prc"];
+            if (name === "replace_prc") return [name, String(price2)];
+            return [name, current];
+          });
+          submissionAttempted = true;
+          const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH4, pairs]);
+          if (answer?.loggedOut) return { success: false, error: LOGGED_OUT7 };
+          if (answer?.status !== 200) {
+            failed9 += chunk.length;
+            warnings.push(`${LABEL8}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
+          } else {
+            sent += chunk.length;
+            accepted.push(...chunk.map((entry) => ({ ...entry, price: price2 })));
+          }
+          await context.sleep(PACE_MS9);
+        }
+      }
+      if (accepted.length === 0) return null;
+      let after = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES5; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS5);
+        after = await readRows4(context, run, accepted.map((entry) => entry.code), false);
+        if (after.rows && accepted.every((entry) => after.rows.get(entry.code)?.price === entry.price)) break;
+      }
+      for (const entry of accepted) {
+        const now = after?.rows?.get(entry.code)?.price ?? null;
+        const ok = now === entry.price;
+        if (ok) confirmed += 1;
+        const observedUrl = typeof now === "number" && Number.isFinite(now) ? await observedUrlOf(page, ORIGIN13) : null;
+        results.push({ code: entry.code, before: entry.before, after: now, confirmed: ok, ...observedUrl ? { observedUrl } : {} });
+      }
+      return null;
+    });
+    if (halted) return { ...halted, submissionAttempted };
+    return { success: true, sent, failed: failed9, confirmed, results, warnings, submissionAttempted };
+  }
+  async function read8(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,10}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL8} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
+      const result = await readRows4(context, run, products, false);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT7 };
+      if (!result.rows) return { success: false, error: `${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [flagOption(no, rows.get(no).stat === "\uC815\uC0C1", rows.get(no).stat)] }));
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kidsnote",
+    displayName: LABEL8,
+    guard: availabilityGuard(KIDSNOTE_PAGE_GUARD, LABEL8),
+    dialogHosts: ["shop.kidsnote.com"],
+    login: KIDSNOTE_LOGIN,
+    send: send8,
+    read: read8,
+    sendPrice: sendPrice2
+  });
+
+  // extensions/src/sites/kidsnote/registration.ts
+  var KIDSNOTE_REGISTER_FILE = "content/page-call/kidsnote-register.js";
+  var REGISTER_ORIGIN = "https://shop.kidsnote.com";
+  var REGISTER_PATH = "/_manage/";
+  var REGISTER_BODY = "product@product_register";
+  var IMAGE_SLOTS = /* @__PURE__ */ new Set(["upfile1", "upfile2", "upfile3"]);
+  var FILL_TIMEOUT_MS2 = 12e4;
+  function isKidsnoteRegisterUrl(value) {
+    if (typeof value !== "string" || !value.trim()) return false;
+    let url;
+    try {
+      url = new URL(value.trim());
+    } catch {
+      return false;
+    }
+    return url.origin === REGISTER_ORIGIN && url.pathname === REGISTER_PATH && url.searchParams.get("body") === REGISTER_BODY;
+  }
+  function normalizeKidsnoteForm(value) {
+    const raw = requireRaw(value, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    if (!isKidsnoteRegisterUrl(raw.url)) throw planInvalid("\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+    if (raw.formId !== "prdFrm") throw planInvalid("\uC54C \uC218 \uC5C6\uB294 \uD3FC\uC785\uB2C8\uB2E4.");
+    const fields = {};
+    for (const [name, fieldValue] of Object.entries(asRaw(raw.fields))) {
+      if (name) fields[name] = fieldValue === null || fieldValue === void 0 ? "" : String(fieldValue);
+    }
+    const radios = {};
+    for (const [name, radioValue] of Object.entries(asRaw(raw.radios))) if (name) radios[name] = String(radioValue);
+    const list2 = (entry) => Array.isArray(entry) ? entry : [];
+    return {
+      url: String(raw.url).trim(),
+      fields,
+      checks: list2(raw.checks).filter((name) => typeof name === "string"),
+      radios,
+      fileUploads: list2(raw.fileUploads).map(asRaw).filter((entry) => IMAGE_SLOTS.has(String(entry.name)) && typeof entry.url === "string").map((entry) => ({ name: String(entry.name), url: String(entry.url) })),
+      // 상세설명 이미지는 몰 호스팅에 올린 뒤 그 주소로 HTML을 만든다.
+      detailUploads: list2(raw.detailUploads).map(asRaw).filter((entry) => typeof entry.url === "string").map((entry) => ({ url: String(entry.url) })),
+      detailHtmlTarget: typeof raw.detailHtmlTarget === "string" ? raw.detailHtmlTarget : "",
+      manualSteps: list2(raw.manualSteps).filter((step) => typeof step === "string")
+    };
+  }
+  async function fillKidsnote(context, page, input) {
+    const form = normalizeKidsnoteForm(input.form);
+    const loaded = await toDataUrls(context.fetch, form.fileUploads);
+    const detail = await toDataUrls(context.fetch, form.detailUploads.map((entry, index) => ({ name: `detail${index + 1}`, url: entry.url })));
+    const failures = [
+      ...loaded.filter((image) => image.error).map((image) => `\uC774\uBBF8\uC9C0 \uB2E4\uC6B4\uB85C\uB4DC \uC2E4\uD328 \u2014 ${image.name}: ${image.error}`),
+      ...detail.filter((image) => image.error).map((image) => `\uC0C1\uC138 \uC774\uBBF8\uC9C0 \uB2E4\uC6B4\uB85C\uB4DC \uC2E4\uD328 \u2014 ${image.name}: ${image.error}`)
+    ];
+    const outcome = await callPage(page, "kidsnote.fill", {
+      ...form,
+      images: loaded.filter((image) => image.dataUrl),
+      detailImages: detail.filter((image) => image.dataUrl)
+    }, {
+      timeoutMs: FILL_TIMEOUT_MS2,
+      guard: context.guard,
+      main: [DIALOG_GUARD_FILE, FORM_FILL_FILE, KIDSNOTE_REGISTER_FILE],
+      displayName: context.displayName
+    });
+    if (outcome?.ok !== true) {
+      if (outcome?.noForm) throw new RuntimeError(SITE_LOGIN_REQUIRED, context.guard.loginMessage, { url: form.url, reason: "no_form" });
+      throw new RuntimeError(REGISTRATION_FILL_FAILED, outcome?.error ?? "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uD3FC\uC744 \uCC44\uC6B0\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", steps: outcome?.steps ?? [] });
+    }
+    return {
+      fill: { steps: outcome.steps ?? [], warnings: [...failures, ...outcome.warnings ?? []], manualSteps: form.manualSteps, dialogs: outcome.dialogs ?? [] },
+      providerAccountId: null
+    };
+  }
+  registerMallWriter({
+    mallKey: "kidsnote",
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    guard: registrationGuard(KIDSNOTE_PAGE_GUARD, "\uD0A4\uC988\uB178\uD2B8"),
+    dialogHosts: ["shop.kidsnote.com"],
+    login: KIDSNOTE_LOGIN,
+    custom: {
+      url: (input) => {
+        if (input.executionKind !== "register") {
+          throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8\uB294 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", executionKind: input.executionKind });
+        }
+        const raw = asRaw(input.form);
+        if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
+        return String(raw.url).trim();
+      },
+      fill: fillKidsnote
+    }
+  });
+
   // extensions/src/sites/kkomangse/listings.ts
   var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
   var KKOMANGSE_LISTINGS_FILE = "content/orders/kkomangse-listings.js";
@@ -10820,8 +16143,198 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kkomangse/availability.ts
+  var ORIGIN14 = "https://nstore.edupre.co.kr";
+  var PAGE_URL9 = "https://nstore.edupre.co.kr/subAdmin/_product_mass.view.php";
+  var VIEW_PATH2 = "/subAdmin/_product_mass.view.php";
+  var CHANGE_PATH = "/subAdmin/_product_mass.pro.php";
+  var RESUME_STOCK = 999;
+  var PACE_MS10 = 700;
+  var READ_PACE_MS2 = 400;
+  var LABEL9 = "\uAF2C\uB9DD\uC138";
+  var LOGGED_OUT8 = `${LABEL9} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isZero = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
+  var stockOption = (code2, stock) => String(stock ?? "").trim() === "" ? { optionCode: code2, stock: null, rocket: false } : flagOption(code2, !isZero(stock), isZero(stock) ? "\uD488\uC808" : null);
+  async function send9(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? String(RESUME_STOCK) : "0";
+    const warnings = [];
+    let sent = 0;
+    let failed9 = 0;
+    let confirmed = 0;
+    let already = 0;
+    let missing = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
+      for (let index = 0; index < codes.length; index += 1) {
+        const code2 = codes[index];
+        if (index > 0) await context.sleep(PACE_MS10);
+        const row = await run("kkomangseRowOnPage", [VIEW_PATH2, code2]);
+        if (row?.loggedOut) {
+          halt = LOGGED_OUT8;
+          left = codes.length - index;
+          return null;
+        }
+        if (!row?.found) {
+          if (row?.error) {
+            failed9 += 1;
+            warnings.push(`${code2}: ${LABEL9} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).`);
+          } else {
+            missing += 1;
+          }
+          continue;
+        }
+        const soldOut = isZero(row.stock);
+        if (resume ? !soldOut : soldOut) {
+          already += 1;
+          continue;
+        }
+        if (!["Y", "N"].includes(row.view) || !["Y", "N"].includes(row.stockControl)) {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL9} \uC124\uC815 \uD654\uBA74\uC5D0\uC11C \uB178\uCD9C \xB7 \uC7AC\uACE0\uAD00\uB9AC \uAC12\uC744 \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+          continue;
+        }
+        const body = new URLSearchParams([
+          ["_mode", "view_direct_change"],
+          ["pcode", code2],
+          ["_view", row.view],
+          ["_stock", wanted],
+          ["_stock_control", row.stockControl],
+          ["_kc_yn", row.kcYn],
+          ["_kc_num", row.kcNum],
+          ["_kc_date", row.kcDate]
+        ]);
+        const answer = await run("requestOnPage", [CHANGE_PATH, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(), { "X-Requested-With": "XMLHttpRequest" }]);
+        if (answer.status < 200 || answer.status >= 300 || answer.json?.res !== "success") {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL9}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          continue;
+        }
+        sent += 1;
+        const after = await run("kkomangseRowOnPage", [VIEW_PATH2, code2]);
+        if (after?.found && String(Number(after.stock)) === wanted) confirmed += 1;
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (missing > 0) {
+      failed9 += missing;
+      warnings.push(`${missing}\uAC74\uC740 ${LABEL9}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    }
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read9(context, codes) {
+    const products = [...new Set(codes)].slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL9} \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(READ_PACE_MS2);
+        const row = await run("kkomangseRowOnPage", [VIEW_PATH2, products[index]]);
+        if (row?.loggedOut) return { success: false, error: LOGGED_OUT8 };
+        if (row?.error) return { success: false, error: `${LABEL9} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).` };
+        if (!row?.found) {
+          missing.push(products[index]);
+          continue;
+        }
+        found.push({ code: products[index], options: [stockOption(products[index], row.stock)] });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kkomangse",
+    displayName: LABEL9,
+    guard: availabilityGuard(KKOMANGSE_PAGE_GUARD, LABEL9),
+    dialogHosts: ["nstore.edupre.co.kr"],
+    login: KKOMANGSE_LOGIN,
+    send: send9,
+    read: read9
+  });
+
+  // extensions/src/sites/kkomangse/registration.ts
+  var KKOMANGSE_REGISTRATION_FORM = {
+    label: "\uAF2C\uB9DD\uC138\uBAB0",
+    origin: "https://nstore.edupre.co.kr",
+    pathPrefix: "/subAdmin/_product.form.php",
+    formSelector: 'form[name="frm"]',
+    preRadios: ["_kc_yn"],
+    /**
+     * 계단식이라 **다음 단 목록이 올 때까지** 기다린다. 고정 시간으로 자르면 AJAX 가
+     * 늦는 날 `목록에 없습니다` 로 끝난다.
+     */
+    selectorFields: [
+      { key: "category1", selector: 'select[name="pass_cate01"]', label: "\uBD84\uB958 1\uB2E8", waitMs: 600, waitForOption: true },
+      { key: "category2", selector: 'select[name="pass_cate02"]', label: "\uBD84\uB958 2\uB2E8", waitMs: 600, waitForOption: true },
+      { key: "category3", selector: 'select[name="pass_cate03"]', label: "\uBD84\uB958 3\uB2E8", waitMs: 600, waitForOption: true }
+    ],
+    /**
+     * 고르기만 하면 붙지 않는다. 누르면 목록에 `삭제` 줄(`category_delete(…)`)이 생긴다 —
+     * 그게 반영의 증거다. 세 단이 다 골라진 때만 누른다(반쯤 고른 분류를 붙이지 않는다).
+     */
+    afterSelectorClicks: [
+      {
+        text: "\uC120\uD0DD \uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
+        label: "\uC120\uD0DD \uCE74\uD14C\uACE0\uB9AC \uCD94\uAC00",
+        waitMs: 1200,
+        expectSelector: '[onclick*="category_delete"]',
+        requireFilled: true
+      }
+    ],
+    // 칸 이름이 텍스트 칸(외부 주소용)과 파일 칸이 같다. 반드시 파일 칸을 집는다.
+    imageFileInputs: [
+      { key: "square", label: "\uBAA9\uB85D \uAE30\uBCF8 \uC774\uBBF8\uC9C0", selector: 'input[type="file"][name="_img_list_square"]' },
+      { key: "over", label: "\uC624\uBC84 \uC774\uBBF8\uC9C0", selector: 'input[type="file"][name="_img_list_over"]' },
+      { key: "swipe", label: "\uC0C1\uC138 \uC774\uBBF8\uC9C0 1", selector: 'input[type="file"][name="_img_b1"]' }
+    ],
+    /**
+     * 상세 이미지 2~5. 처음엔 1번 칸 하나뿐이고 `추가`(`a.js_addimg_btn`)를 누를 때마다
+     * 한 줄씩 붙는다. 붙을 때마다 화면이 `rename_img()` 로 파일 칸 이름을 순서대로
+     * `_img_b1~5` 로 다시 매긴다(실측). 다섯 칸을 넘기려 하면 alert 가 뜨므로 넷까지다.
+     */
+    imageRepeat: {
+      anchorSelector: 'input[type="file"][name="_img_b1"]',
+      sectionClosest: ".in_option_list",
+      addSelector: "a.js_addimg_btn",
+      slotSelector: 'input[type="file"].realFile',
+      namePattern: "_img_b{n}",
+      firstIndex: 2,
+      groupKey: "gallery",
+      max: 4,
+      label: "\uC0C1\uC138 \uC774\uBBF8\uC9C0 2~5"
+    },
+    detailSmartEditor: {
+      // 구역 id 가 없다. textarea 자체의 id(`ir1`)에서 칸(부모 td)을 찾는다.
+      // 같은 화면에 이용안내용 에디터가 하나 더 있어 문서 전체에서 찾으면 안 된다.
+      anchorId: "ir1",
+      target: "_content",
+      toSourceSelector: "button.se2_to_html",
+      sourceSelector: "textarea.se2_input_htmlsrc",
+      toEditorSelector: "button.se2_to_editor",
+      upload: {
+        endpoint: "/include/smarteditor2/plugin/photo_uploader/file_uploader_html5.php",
+        mode: "html5"
+      }
+    },
+    // 상세 이미지를 File 로 받아 와야 몰 업로더에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "kkomangse",
+    displayName: "\uAF2C\uB9DD\uC138",
+    guard: registrationGuard(KKOMANGSE_PAGE_GUARD, "\uAF2C\uB9DD\uC138"),
+    dialogHosts: ["edupre.co.kr"],
+    login: KKOMANGSE_LOGIN,
+    form: KKOMANGSE_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS8 = 35e3;
+  var NAVIGATION_TIMEOUT_MS11 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -10861,14 +16374,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -10971,6 +16484,268 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/lotte-on/availability.ts
+  var ORIGIN15 = "https://store.lotteon.com";
+  var PAGE_URL10 = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var API = "https://soapi.lotteon.com";
+  var LIST_PATH7 = "/soapi/v1/product/information/selectProductList";
+  var UPDATE_PATH = "/soapi/v1/product/registration/updateProductBatch";
+  var BATCH_SIZE4 = 100;
+  var PACE_MS11 = 700;
+  var RECHECK_MS6 = 3e3;
+  var RECHECK_TIMES6 = 8;
+  var SETTLE_TIMES = 4;
+  var LABEL10 = "\uB86F\uB370ON";
+  var LOGGED_OUT9 = `${LABEL10} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var STATUS_WORDS2 = { SOUT: "\uD488\uC808", STP: "\uD310\uB9E4\uC911\uC9C0", END: "\uD310\uB9E4\uC885\uB8CC" };
+  var isProductNo2 = (code2) => /^LO\d{4,20}$/.test(code2);
+  async function readRows5(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < codes.length; start += BATCH_SIZE4) {
+      if (start > 0) await context.sleep(PACE_MS11);
+      const group = codes.slice(start, start + BATCH_SIZE4);
+      const answer = await run("lotteonPostOnPage", [`${API}${LIST_PATH7}`, { spdNo: group.join("\n"), pageNo: 1, rowsPerPage: BATCH_SIZE4 }, true], "main");
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (answer?.status !== 200 || answer.returnCode !== "SUCCESS" || !Array.isArray(answer.rows)) {
+        return { error: `HTTP ${answer?.status ?? 0}${answer?.returnCode ? ` ${answer.returnCode}` : ""}` };
+      }
+      for (const row of answer.rows) if (row?.spdNo) rows.set(String(row.spdNo), row);
+    }
+    return { rows };
+  }
+  function batchCounts(json) {
+    const data = Array.isArray(json?.data) ? json.data : null;
+    if (!data || data.length === 0) return null;
+    try {
+      const last = typeof data[data.length - 1] === "string" ? JSON.parse(data[data.length - 1]) : data[data.length - 1];
+      const successCnt = Number(last?.successCnt);
+      const failCnt = Number(last?.failCnt);
+      return Number.isFinite(successCnt) || Number.isFinite(failCnt) ? { successCnt: Number.isFinite(successCnt) ? successCnt : null, failCnt: Number.isFinite(failCnt) ? failCnt : 0 } : null;
+    } catch {
+      return null;
+    }
+  }
+  async function send10(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "SALE" : "SOUT";
+    const from = resume ? "SOUT" : "SALE";
+    const warnings = [];
+    const products = codes.filter(isProductNo2);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL10} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN15, PAGE_URL10, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows5(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT9 };
+      if (!before.rows) return { success: false, error: `${LABEL10} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((no) => rows.has(no));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL10}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const locked = found.filter((no) => !["SALE", "SOUT"].includes(rows.get(no).slStatCd));
+      if (resume && locked.length > 0) {
+        failed9 += locked.length;
+        warnings.push(`${locked.length}\uAC74\uC740 ${LABEL10}\uC774 \uD310\uB9E4\uC911\uC9C0 \xB7 \uD310\uB9E4\uC885\uB8CC\uD55C \uC0C1\uD488\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      }
+      if (!resume) already += locked.length;
+      let targets = found.filter((no) => rows.get(no).slStatCd === from);
+      let settled = found.filter((no) => rows.get(no).slStatCd === wanted);
+      for (let attempt = 0; attempt < SETTLE_TIMES && settled.length > 0; attempt += 1) {
+        await context.sleep(RECHECK_MS6);
+        const again = await readRows5(context, run, settled);
+        if (!again.rows) break;
+        const flipped = settled.filter((no) => again.rows.get(no)?.slStatCd === from);
+        targets = [...targets, ...flipped];
+        settled = settled.filter((no) => !flipped.includes(no));
+      }
+      already += settled.length;
+      for (let start = 0; start < targets.length; start += BATCH_SIZE4) {
+        const group = targets.slice(start, start + BATCH_SIZE4);
+        const params = group.map((no) => {
+          const row = rows.get(no);
+          return {
+            spdNo: no,
+            trNo: row.trNo,
+            lrtrNo: row.lrtrNo,
+            trGrpCd: row.trGrpCd,
+            dvPdTypCd: row.dvPdTypCd,
+            code: "07",
+            ctrtTypCd: "all",
+            dvProcTypCd: "all",
+            dmstOvsDvDvsCd: "all",
+            reqTxt: "spdSlStatCd",
+            spdSlStatCd: wanted
+          };
+        });
+        const answer = await run("lotteonPostOnPage", [`${API}${UPDATE_PATH}`, params, false], "main");
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT9;
+          left = targets.length - start;
+          return null;
+        }
+        if (answer?.status !== 200 || answer.json?.returnCode && answer.json.returnCode !== "SUCCESS") {
+          failed9 += group.length;
+          const reason = answer?.json?.message ? `: ${String(answer.json.message).slice(0, 120)}` : "";
+          warnings.push(`${LABEL10}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
+          continue;
+        }
+        const counts = batchCounts(answer.json);
+        const ok = Math.max(0, Math.min(counts?.successCnt ?? group.length - (counts?.failCnt ?? 0), group.length));
+        sent += ok;
+        if (ok < group.length) {
+          failed9 += group.length - ok;
+          warnings.push(`${LABEL10}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+        }
+        await context.sleep(PACE_MS11);
+      }
+      if (sent === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES6; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS6);
+        const after = await readRows5(context, run, targets);
+        if (!after.rows) continue;
+        seen = targets.filter((no) => after.rows.get(no)?.slStatCd === wanted).length;
+        if (seen >= sent) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL10}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += Math.min(seen, sent);
+        if (seen < sent) warnings.push(`${LABEL10} \uC0C1\uD488 \uC870\uD68C\uAC00 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB97C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read10(context, codes) {
+    const products = [...new Set(codes)].filter(isProductNo2).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL10} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN15, PAGE_URL10, async (run) => {
+      const result = await readRows5(context, run, products);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT9 };
+      if (!result.rows) return { success: false, error: `${LABEL10} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = products.filter((no) => rows.has(no)).map((no) => {
+        const status = String(rows.get(no).slStatCd);
+        return { code: no, options: [flagOption(no, status === "SALE", STATUS_WORDS2[status])] };
+      });
+      missing = products.filter((no) => !rows.has(no));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "lotte-on",
+    displayName: LABEL10,
+    guard: availabilityGuard(LOTTE_ON_PAGE_GUARD, LABEL10),
+    dialogHosts: ["store.lotteon.com"],
+    login: LOTTE_ON_LOGIN,
+    send: send10,
+    read: read10
+  });
+
+  // extensions/src/sites/lotte-on/registration.ts
+  var LOTTE_ON_REGISTER_FILE = "content/page-call/lotte-on-register.js";
+  var encoder2 = new TextEncoder();
+  var utf8Bytes = (entry) => encoder2.encode(entry).length;
+  function normalizeLotteonForm(value) {
+    const raw = requireRaw(value, "\uB86F\uB370ON \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const trimmed = (entry, max = 1e3) => text6(entry).trim().slice(0, max);
+    const category = code(String(raw.category ?? "").trim().toUpperCase(), /^BC\d{8}$/);
+    if (!category) throw planInvalid("\uB86F\uB370ON \uD45C\uC900\uCE74\uD14C\uACE0\uB9AC \uCF54\uB4DC(\uC608: BC55031100)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const productName = cutBytes(trimmed(raw.productName, 400).replace(/[<>]/g, "").replace(/\s+/g, " "), 150, utf8Bytes);
+    if (!productName) throw planInvalid("\uB86F\uB370ON \uD310\uB9E4\uC790\uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uB86F\uB370ON \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const origin = asRaw(raw.origin);
+    const domestic = origin.typeCode === "DMST";
+    const delivery = asRaw(raw.delivery);
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [itemCode, entry] of entriesOf(notice.values)) {
+      if (/^\d{4}$/.test(itemCode) && entry !== null && entry !== void 0) noticeValues[itemCode] = trimmed(entry, 1e3);
+    }
+    const purchase = asRaw(raw.purchase);
+    const maxQty = amount(purchase.maxQty);
+    const periodDays = amount(purchase.periodDays);
+    return {
+      category,
+      productName,
+      salePrice,
+      stockManaged: raw.stockManaged === true,
+      stock: amount(raw.stock),
+      modelNo: code(String(raw.modelNo ?? "").replace(/\s/g, ""), /^[A-Za-z0-9\-_+/.]{1,40}$/),
+      maker: trimmed(raw.maker, 30),
+      origin: domestic ? { typeCode: "DMST", code: "KR" } : { typeCode: "OVS", code: code(String(origin.code ?? "").toUpperCase(), /^[A-Z]{2}$/) || "CN" },
+      notice: { groupCode: code(notice.groupCode, /^\d{1,3}$/), values: noticeValues },
+      delivery: {
+        costPolicy: digits2(delivery.costPolicy),
+        extraCostPolicy: digits2(delivery.extraCostPolicy),
+        shipPlace: code(delivery.shipPlace, /^[A-Z0-9]{3,20}$/),
+        returnPlace: code(delivery.returnPlace, /^[A-Z0-9]{3,20}$/),
+        courier: code(delivery.courier, /^\d{4}$/),
+        returnCourier: code(delivery.returnCourier, /^\d{4}$/),
+        sameDay: delivery.sameDay === true,
+        closeTime: code(delivery.closeTime, /^([01]\d|2[0-3])[0-5]\d$/),
+        saturday: delivery.saturday === "Y" ? "Y" : "N",
+        retrieveType: code(delivery.retrieveType, /^[A-Z]+_RTRV$/)
+      },
+      purchase: {
+        maxQty: maxQty >= 1 ? Math.min(maxQty, 99999) : 0,
+        periodDays: periodDays >= 1 && periodDays <= 31 ? periodDays : 1
+      },
+      asText: trimmed(raw.asText, 1e3),
+      sellerCode: cutBytes(trimmed(raw.sellerCode, 60), 30, utf8Bytes)
+    };
+  }
+  var LOTTE_ON_REGISTRATION_FORM = {
+    label: "\uB86F\uB370ON",
+    origin: "https://store.lotteon.com",
+    pathPrefix: "/cm/main/index_SO.wsp",
+    exactPath: true,
+    noQuery: true,
+    formSelector: "body",
+    imageSlots: [],
+    dedicated: {
+      file: LOTTE_ON_REGISTER_FILE,
+      call: "lotteon.fill",
+      // 단품 이미지 창이 받는 최대 장수.
+      imageGroupKey: "lotteon",
+      formKey: "lotteon",
+      normalize: normalizeLotteonForm,
+      options: {
+        maxImages: 10,
+        // 로그인 확인 → 탭 열기 → 화면 초기화(공통코드 1.5초 대기 포함)까지.
+        formWaitMs: 6e4,
+        // 섹션 하나(분류 연관정보·고시 항목·배송비 정책 조회 등)가 끝날 때까지 기다리는 시간.
+        stepWaitMs: 2e4
+      }
+    },
+    // 상세 이미지는 사람이 편집기에 끌어다 놓는 것과 같은 편집기 업로드로 넣는다. File로 받아 와야 한다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "lotte-on",
+    displayName: "\uB86F\uB370ON",
+    guard: registrationGuard(LOTTE_ON_PAGE_GUARD, "\uB86F\uB370ON"),
+    dialogHosts: ["store.lotteon.com"],
+    login: LOTTE_ON_LOGIN,
+    form: LOTTE_ON_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/mall-admin-listings/index.ts
   var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
   registerSite({
@@ -10988,6 +16763,40 @@ var KidItemRuntime = (() => {
     opensOwnTabs: true,
     create: (deps, lease) => ({
       reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+    })
+  });
+
+  // extensions/src/sites/mall-write/index.ts
+  var MALL_WRITE_SITE = "mall-write";
+  registerSite({
+    name: MALL_WRITE_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      writer(mallKey) {
+        const definition = mallWriterFor(mallKey);
+        const availability = mallAvailabilityFor(mallKey);
+        if (!definition && !availability) return null;
+        const handle = {};
+        if (definition) {
+          const context = mallWriteContext(definition, deps, lease);
+          handle.fill = (input) => fillRegistration(definition, context, input);
+          const thumbnail = mallThumbnailFor(mallKey);
+          if (thumbnail) handle.thumbnail = (input) => thumbnail(context, input);
+        }
+        if (availability) {
+          const context = availabilityContext(availability, deps, lease);
+          handle.availability = (input) => runAvailability(availability, context, input);
+          if (availability.sendPrice) handle.price = (input) => sendPriceOrThrow(availability, context, input);
+        }
+        return handle;
+      },
+      /** 판매 상태 읽기(`channels.mall_availability_read`) — 읽기가 있는 몰만. */
+      reader(mallKey) {
+        const availability = mallAvailabilityFor(mallKey);
+        if (!availability?.read) return null;
+        const context = availabilityContext(availability, deps, lease);
+        return { read: (codes) => readAvailabilityOrThrow(availability, context, codes) };
+      }
     })
   });
 
@@ -11051,6 +16860,123 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "onch", create: (deps, lease) => createOnchSite(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/onch/availability.ts
+  var ORIGIN16 = "https://www.onch3.co.kr";
+  var PATH = "/access/product_access.php?ubr=option_state_modi";
+  var LABEL11 = "\uC628\uCC44\uB110";
+  async function send11(context, input) {
+    const body = input.resume ? { prd_code_str: input.codes.join("/"), sec: "1", comment: "\uC7AC\uC785\uACE0" } : { prd_code_str: input.codes.join("/"), sec: "4", comment: "\uC7AC\uACE0 \uC18C\uC9C4" };
+    const answer = await postForm(context.fetch, ORIGIN16, PATH, Object.entries(body));
+    if (answer.loggedOut) return { success: false, error: `${LABEL11} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
+    return {
+      success: true,
+      sent: answer.accepted ? input.codes.length : 0,
+      failed: answer.accepted ? 0 : input.codes.length,
+      requestOnly: true,
+      warnings: [`${LABEL11}\uC740 \uAD00\uB9AC\uC790 \uC2B9\uC778\uC744 \uAC70\uCE69\uB2C8\uB2E4 \u2014 \uBCF4\uB0B8 \uAC83\uC774 \uACE7 \uBC18\uC601\uC740 \uC544\uB2D9\uB2C8\uB2E4.`]
+    };
+  }
+  registerMallAvailability({
+    mallKey: "onch",
+    displayName: LABEL11,
+    guard: availabilityGuard(ONCH_PAGE_GUARD, LABEL11),
+    dialogHosts: ["onch3.co.kr"],
+    login: ONCH_LOGIN,
+    send: send11
+  });
+
+  // extensions/src/sites/onch/registration.ts
+  var ONCH_REGISTRATION_FORM = {
+    label: "\uC628\uCC44\uB110",
+    origin: "https://www.onch3.co.kr",
+    pathPrefix: "/regist_pending_products.php",
+    formSelector: "#registProductForm",
+    // 대표이미지 한 칸. 550·300·130 은 온채널이 알아서 만든다.
+    imageSlots: ["product_img"],
+    /**
+     * 같은 이름을 쓰는 여러 칸. 키워드 10칸과 배송안내 3칸이 그렇다.
+     *
+     * 이름이 `product_subject[]` 하나라서 `product_subject[0]` 같은 번호 이름으로는
+     * 한 칸도 못 찾는다(라이브 실측 2026-09-10: 번호 이름 0개 / 배열 이름 10개).
+     * 순서대로 나눠 넣어야 한다.
+     */
+    groupInputs: [
+      { key: "keywords", selector: '[name="product_subject[]"]' },
+      { key: "transInfo", selector: '[name="product_trans_info[]"]' }
+    ],
+    /**
+     * 상품정보고시 분류가 방아쇠다. 고르면 고시 17칸이 생긴다.
+     *
+     * 도매꾹처럼 이름에 공통 접두어가 없어서 생겨야 할 칸을 직접 센다.
+     * 고를 때 안내 `alert` 이 뜨는데, 그건 채움 함수가 삼킨다.
+     */
+    dynamic: {
+      trigger: "notification_cate_num",
+      waitNames: [
+        "prd_model",
+        "make_ymd",
+        "note_bene",
+        "warr_prov",
+        "as_phone",
+        "deliver_time",
+        "kc_type",
+        "kc_gov",
+        "kc_sec",
+        "kc_name",
+        "size_weight",
+        "prd_color",
+        "prd_quality",
+        "use_age",
+        "same_model",
+        "make_import",
+        "make_con"
+      ]
+    },
+    /**
+     * 분류 네 칸은 계단식이다. 값은 코드가 아니라 이름 그대로(`생활/건강`)이고,
+     * 앞 칸을 고른 뒤 다음 목록이 채워지기를 기다려야 한다(라이브 실측 2026-09-10).
+     * 한꺼번에 넣으면 뒤 세 칸이 빈 채로 남는다.
+     */
+    selectorFields: [
+      { key: "categoryFirst", selector: '#registProductForm [name="category_cate_first"]', label: "\uBD84\uB958 1\uB2E8", waitMs: 1600 },
+      { key: "categorySecond", selector: '#registProductForm [name="category_cate_second"]', label: "\uBD84\uB958 2\uB2E8", waitMs: 1600 },
+      { key: "categoryThird", selector: '#registProductForm [name="category_cate_third"]', label: "\uBD84\uB958 3\uB2E8", waitMs: 1600 },
+      { key: "categoryFourth", selector: '#registProductForm [name="category_cate_fourth"]', label: "\uBD84\uB958 4\uB2E8", waitMs: 600 }
+    ],
+    /**
+     * 등록 화면이 세 단계(약관동의 → 기본 정보 → 가격/옵션)로 나뉘어 있다.
+     *
+     * 칸 자체는 처음부터 문서에 있어서 값은 어느 단계에서든 들어가지만, 사람이
+     * 열었을 때 첫 화면이 약관동의면 "아무것도 안 채워졌다"로 보인다. 그래서
+     * 동의까지 하고 기본 정보 화면으로 넘겨 둔다.
+     */
+    wizardSteps: [{
+      text: "\uC0C1\uD488 \uAE30\uBCF8 \uC815\uBCF4 \uC785\uB825",
+      label: "\uC57D\uAD00\uB3D9\uC758 \uD1B5\uACFC",
+      waitMs: 1500,
+      needs: ["product_supp_sec", "product_prd_channel"],
+      needsChecks: ["agree_terms"]
+    }],
+    /** 상세설명은 온채널 자기 서버에 올린다. 남의 호스팅이 필요 없다. */
+    detailHost: "onch",
+    /** 실제 등록물이 `<center><p><img ...></p></center>` 를 들고 있다. */
+    detailParagraph: true,
+    /**
+     * 상품상세정보는 CKEditor 다. `product_contents` 는 그 뒤에 숨은 textarea 라
+     * 값을 써도 제출할 때 에디터 내용으로 덮인다 — 상세페이지가 통째로 빈다
+     * (라이브 확인 2026-09-10). 에디터에 넣으면 textarea 는 저절로 따라온다.
+     */
+    detailRich: { selector: ".ck-editor__editable" }
+  };
+  registerMallWriter({
+    mallKey: "onch",
+    displayName: "\uC628\uCC44\uB110",
+    guard: registrationGuard(ONCH_PAGE_GUARD, "\uC628\uCC44\uB110"),
+    dialogHosts: ["onch3.co.kr"],
+    login: ONCH_LOGIN,
+    form: ONCH_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/product-page/description.ts
   function parseDescriptionHtml(html) {
     const content = offerDetailsContent(html) ?? html;
@@ -11064,10 +16990,10 @@ var KidItemRuntime = (() => {
     const blocks = [];
     const seen = /* @__PURE__ */ new Set();
     for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text5 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text5.length < 5 || text5.length > 2e3 || seen.has(text5)) continue;
-      seen.add(text5);
-      blocks.push(text5);
+      const text8 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text8.length < 5 || text8.length > 2e3 || seen.has(text8)) continue;
+      seen.add(text8);
+      blocks.push(text8);
     }
     if (images.length === 0 && blocks.length === 0) return null;
     return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
@@ -11100,8 +17026,8 @@ var KidItemRuntime = (() => {
         depth -= 1;
         if (depth === 0) {
           try {
-            const parsed2 = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed2.content === "string" ? parsed2.content : null;
+            const parsed3 = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed3.content === "string" ? parsed3.content : null;
           } catch {
             return null;
           }
@@ -11112,13 +17038,13 @@ var KidItemRuntime = (() => {
   }
   function allowedSupplierUrl(value) {
     try {
-      const parsed2 = new URL(String(value ?? "").trim());
-      const host = parsed2.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed2.protocol !== "https:" || parsed2.username || parsed2.password || parsed2.port && parsed2.port !== "443") return null;
+      const parsed3 = new URL(String(value ?? "").trim());
+      const host = parsed3.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed3.protocol !== "https:" || parsed3.username || parsed3.password || parsed3.port && parsed3.port !== "443") return null;
       if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed2.hostname = host;
-      parsed2.hash = "";
-      return parsed2.toString();
+      parsed3.hostname = host;
+      parsed3.hash = "";
+      return parsed3.toString();
     } catch {
       return null;
     }
@@ -11218,9 +17144,9 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/sabangnet/index.ts
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
-  var PAGE_URL = `${SABANGNET_ORIGIN}/`;
+  var PAGE_URL11 = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS9 = 45e3;
+  var NAVIGATION_TIMEOUT_MS12 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
   var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
@@ -11239,12 +17165,12 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
+        await next.navigate(PAGE_URL11, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
         return next;
       })();
       return tab;
     }
-    async function read(query, currentPage) {
+    async function read15(query, currentPage) {
       if (pagesRead > 0) await sleep(SABANGNET_PAGE_DELAY_MS);
       pagesRead += 1;
       const answer = await callPage(await page(), "sabangnet.mallListingPage", { ...query, currentPage }, {
@@ -11257,27 +17183,27 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL11 });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
-            url: PAGE_URL,
+            url: PAGE_URL11,
             reason: "http",
             bodyHead: null
           });
         case "contract_drift":
           throw new RuntimeError(MALL_CONTRACT_CHANGED5, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
         case "timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL11, reason: "timeout", bodyHead: null });
         default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "network", bodyHead: null });
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL11, reason: "network", bodyHead: null });
       }
     }
     return {
       /** "쇼핑몰상품수정" 목록 한 쪽(1부터). 실패 이력 줄은 뺀다. `total`은 사방넷이 알린 전체 송신 기록 수. */
       async mallListingPage(query, currentPage) {
         try {
-          return await read(query, currentPage);
+          return await read15(query, currentPage);
         } catch (error) {
           if (leftForOperator(error)) keepOpen = true;
           throw error;
@@ -11346,13 +17272,13 @@ var KidItemRuntime = (() => {
   var REQUEST_TIMEOUT_MS2 = 45e3;
   var MAX_ROWS = 2e4;
   var MAX_BYTES = 10 * 1024 * 1024;
-  var CALL_TIMEOUT_MS2 = REQUEST_TIMEOUT_MS2 + 1e3;
+  var CALL_TIMEOUT_MS4 = REQUEST_TIMEOUT_MS2 + 1e3;
   function createSellpiaInventory(tabs) {
     return {
       inventory() {
         return withFreshTab(tabs, SELLPIA_INVENTORY_URL, async (page) => {
           const answer = await callPage(page, "sellpia.inventory", { timeoutMs: REQUEST_TIMEOUT_MS2, maxRows: MAX_ROWS, maxBytes: MAX_BYTES }, {
-            timeoutMs: CALL_TIMEOUT_MS2,
+            timeoutMs: CALL_TIMEOUT_MS4,
             guard: SELLPIA_PAGE_GUARD,
             main: [SELLPIA_INVENTORY_FILE],
             displayName: "\uC140\uD53C\uC544"
@@ -11363,21 +17289,21 @@ var KidItemRuntime = (() => {
             case "login_required":
               throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_INVENTORY_URL });
             case "http_error":
-              throw failed(`\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+              throw failed3(`\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
             case "timeout":
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC81C\uB54C \uB05D\uB098\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { status: null, reason: "timeout" });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC81C\uB54C \uB05D\uB098\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { status: null, reason: "timeout" });
             case "network_error":
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "network" });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "network" });
             case "unexpected_response":
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
             default:
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
           }
         });
       }
     };
   }
-  function failed(message, details) {
+  function failed3(message, details) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_INVENTORY_URL, bodyHead: null, ...details });
   }
 
@@ -11389,13 +17315,13 @@ var KidItemRuntime = (() => {
     return {
       productProfit(input, onProgress) {
         return withFreshTab(tabs, SELLPIA_PROFIT_URL, async (page) => {
-          const baseline = await readRows(page, { start: input.start, end: input.end, purchaseStart: input.start, purchaseEnd: input.end });
+          const baseline = await readRows6(page, { start: input.start, end: input.end, purchaseStart: input.start, purchaseEnd: input.end });
           const periods = [];
           for (const period of input.periods) {
             input.signal?.throwIfAborted();
             periods.push({
               yearMonth: period.yearMonth,
-              rows: await readRows(page, { start: input.start, end: input.end, purchaseStart: period.from, purchaseEnd: period.to })
+              rows: await readRows6(page, { start: input.start, end: input.end, purchaseStart: period.from, purchaseEnd: period.to })
             });
             await onProgress?.(periods.length, input.periods.length);
           }
@@ -11404,7 +17330,7 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  async function readRows(page, args) {
+  async function readRows6(page, args) {
     const answer = await callPage(page, "sellpia.profitRows", args, {
       timeoutMs: QUERY_TIMEOUT_MS2,
       guard: SELLPIA_PAGE_GUARD,
@@ -11417,14 +17343,14 @@ var KidItemRuntime = (() => {
       case "login_required":
         throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_PROFIT_URL });
       case "http_error":
-        throw failed2(`\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+        throw failed4(`\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
       case "unexpected_response":
-        throw failed2("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+        throw failed4("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
       default:
-        throw failed2("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+        throw failed4("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
     }
   }
-  function failed2(message, details) {
+  function failed4(message, details) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_PROFIT_URL, bodyHead: null, ...details });
   }
 
@@ -11448,24 +17374,24 @@ var KidItemRuntime = (() => {
             case "login_required":
               throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_SALES_URL });
             case "http_error":
-              throw failed3(`\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+              throw failed5(`\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
             case "unexpected_response":
-              throw failed3("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+              throw failed5("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
             default:
-              throw failed3("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+              throw failed5("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
           }
         });
       }
     };
   }
-  function failed3(message, details) {
+  function failed5(message, details) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_SALES_URL, bodyHead: null, ...details });
   }
 
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS10 = 45e3;
+  var NAVIGATION_TIMEOUT_MS13 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
   var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
@@ -11478,7 +17404,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS13 });
         return next;
       })();
       return tab;
@@ -11578,6 +17504,395 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
 
+  // extensions/src/sites/smartstore/availability.ts
+  var ORIGIN17 = "https://sell.smartstore.naver.com";
+  var PAGE_URL12 = "https://sell.smartstore.naver.com/#/products/origin-list";
+  var SEARCH_PATH2 = "/api/products/list/search";
+  var UPDATE_PATH2 = "/api/products/bulk-update?_action=updateProductStatusType";
+  var PROGRESS_PATH = "/api/products/bulk-update?_action=getBulkUpdateProgressResult";
+  var BATCH_SIZE5 = 50;
+  var PACE_MS12 = 700;
+  var RECHECK_MS7 = 2e3;
+  var RECHECK_TIMES7 = 3;
+  var PROGRESS_WAITS_MS = [1e3, 1e3, 1e3, 3e3, 3e3, 3e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3];
+  var LABEL12 = "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4";
+  var LOGGED_OUT10 = `${LABEL12}\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var NAVER_WORDS = { OUTOFSTOCK: "\uD488\uC808", SUSPENSION: "\uD310\uB9E4\uC911\uC9C0", WAIT: "\uD310\uB9E4\uB300\uAE30", CLOSE: "\uD310\uB9E4\uC885\uB8CC", PROHIBITION: "\uD310\uB9E4\uAE08\uC9C0" };
+  async function readRows7(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (const keywordType of ["CHANNEL_PRODUCT_NO", "PRODUCT_NO"]) {
+      const left = codes.filter((code2) => !rows.has(code2));
+      for (let start = 0; start < left.length; start += BATCH_SIZE5) {
+        const group = left.slice(start, start + BATCH_SIZE5);
+        const answer = await run("smartstoreApiOnPage", ["search", SEARCH_PATH2, {
+          searchKeywordType: keywordType,
+          searchKeyword: group.join(","),
+          searchOrderType: "REG_DATE",
+          page: 0,
+          size: Math.max(20, group.length)
+        }], "main");
+        if (answer?.loggedOut) return { loggedOut: true };
+        if (!Array.isArray(answer?.rows)) return { error: answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}` };
+        for (const row of answer.rows) {
+          for (const code2 of group) if (row.id === code2 || row.channelProductNos.includes(code2)) rows.set(code2, row);
+        }
+        await context.sleep(PACE_MS12);
+      }
+    }
+    return { rows };
+  }
+  async function send12(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "SALE" : "SUSPENSION";
+    const warnings = [];
+    const products = [...new Set(codes)].filter((code2) => /^\d{6,15}$/.test(code2));
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL12} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows7(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT10 };
+      if (!before.rows) return { success: false, error: `${LABEL12} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((code2) => rows.has(code2));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL12}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const stat = (code2) => rows.get(code2).productStatusType;
+      let targets;
+      if (resume) {
+        targets = found.filter((code2) => stat(code2) === "SUSPENSION");
+        already += found.filter((code2) => stat(code2) === "SALE").length;
+        const other = found.filter((code2) => !["SALE", "SUSPENSION"].includes(stat(code2))).length;
+        if (other > 0) {
+          failed9 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL12}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uD310\uB9E4\uB300\uAE30 \xB7 \uD310\uB9E4\uC885\uB8CC \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+      } else {
+        targets = found.filter((code2) => stat(code2) === "SALE");
+        already += found.length - targets.length;
+      }
+      const origin = /* @__PURE__ */ new Map();
+      for (const code2 of targets) origin.set(rows.get(code2).id, code2);
+      const originNos = [...origin.keys()];
+      const accepted = [];
+      for (let start = 0; start < originNos.length; start += BATCH_SIZE5) {
+        const group = originNos.slice(start, start + BATCH_SIZE5);
+        const answer = await run("smartstoreApiOnPage", ["status", UPDATE_PATH2, {
+          productNos: group.map((no) => /^\d{1,15}$/.test(no) ? Number(no) : no),
+          productStatusType: wanted,
+          productBulkUpdateType: wanted
+        }], "main");
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT10;
+          left = originNos.length - start;
+          return null;
+        }
+        if (answer?.state !== "STARTED") {
+          failed9 += group.length;
+          const said = answer?.state === "ALREADY_PROGRESS" ? "\uC774\uBBF8 \uC218\uC815\uC911\uC778 \uC0C1\uD488\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694." : answer?.state === "BUSY" ? "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4\uC5D0 \uC9C4\uD589\uC911 \uC791\uC5C5\uC774 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694." : answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
+          warnings.push(`${LABEL12}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+          continue;
+        }
+        let result = null;
+        for (const waitMs of PROGRESS_WAITS_MS) {
+          await context.sleep(waitMs);
+          const progress4 = await run("smartstoreApiOnPage", ["progress", PROGRESS_PATH, null], "main");
+          if (progress4?.loggedOut) {
+            sent += group.length;
+            accepted.push(...group.map((no) => origin.get(no)));
+            halt = LOGGED_OUT10;
+            left = originNos.length - start - group.length;
+            return null;
+          }
+          if (progress4?.completed === true) {
+            result = progress4;
+            break;
+          }
+          if (progress4?.completed === null || progress4?.state === "ALREADY_PROGRESS") break;
+        }
+        if (!result) {
+          warnings.push(`${LABEL12} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uB97C \uB05D\uAE4C\uC9C0 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+          accepted.push(...group.map((no) => origin.get(no)));
+          sent += group.length;
+          continue;
+        }
+        if (result.errorMessage) {
+          failed9 += group.length;
+          warnings.push(`${LABEL12}: ${result.errorMessage}`);
+          continue;
+        }
+        const successIds = Array.isArray(result.successIds) ? result.successIds.map(String) : null;
+        if (successIds && !group.some((no) => successIds.includes(String(no)))) {
+          warnings.push(`${LABEL12} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uAC00 \uC774 \uBB36\uC74C\uACFC \uB9DE\uC9C0 \uC54A\uC544 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+          accepted.push(...group.map((no) => origin.get(no)));
+          sent += group.length;
+          continue;
+        }
+        const ok = successIds ? group.filter((no) => successIds.includes(String(no))) : group;
+        sent += ok.length;
+        accepted.push(...ok.map((no) => origin.get(no)));
+        if (ok.length < group.length) {
+          failed9 += group.length - ok.length;
+          const said = result.failures?.length ? ` \u2014 ${result.failures.join(" / ")}` : "";
+          warnings.push(`${LABEL12}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok.length}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${said}.`);
+        }
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES7; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS7);
+        const after = await readRows7(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((code2) => after.rows.get(code2)?.productStatusType === wanted).length;
+        if (resume) {
+          const outOfStock = accepted.filter((code2) => after.rows.get(code2)?.productStatusType === "OUTOFSTOCK").length;
+          if (outOfStock > 0 && attempt === RECHECK_TIMES7) warnings.push(`${outOfStock}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 ${LABEL12}\uC774 \uD310\uB9E4\uC911 \uB300\uC2E0 \uD488\uC808\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.`);
+        }
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL12}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL12} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read11(context, codes) {
+    const valid = [...new Set(codes)].filter((code2) => /^\d{6,15}$/.test(code2)).slice(0, READ_LIMIT);
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL12} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
+      const result = await readRows7(context, run, valid);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT10 };
+      if (!result.rows) return { success: false, error: `${LABEL12} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = valid.filter((code2) => rows.has(code2)).map((code2) => {
+        const stat = String(rows.get(code2).productStatusType);
+        return { code: code2, options: [flagOption(code2, stat === "SALE", stat === "SALE" ? null : NAVER_WORDS[stat] || "\uD310\uB9E4\uC911\uC9C0")] };
+      });
+      missing = valid.filter((code2) => !rows.has(code2));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "smartstore",
+    displayName: LABEL12,
+    guard: availabilityGuard(SMARTSTORE_LISTINGS_GUARD, LABEL12),
+    dialogHosts: ["sell.smartstore.naver.com"],
+    send: send12,
+    read: read11
+  });
+
+  // extensions/src/sites/smartstore/registration.ts
+  var SMARTSTORE_REGISTER_FILE = "content/page-call/smartstore-register.js";
+  function normalizeSmartstoreForm(value) {
+    const raw = requireRaw(value, "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const code2 = (entry) => /^[A-Z_]+$/.test(String(entry ?? "")) ? String(entry) : "";
+    const clean2 = (entry, max) => text6(entry, 1e3).trim().replace(/[\\*?"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+    const utf8Length = (entry) => new TextEncoder().encode(entry).length;
+    const category = asRaw(raw.category);
+    const categoryId = digits2(category.id);
+    const categoryKeyword = text6(category.keyword, 60).trim();
+    if (!categoryId || !categoryKeyword) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uCE74\uD14C\uACE0\uB9AC(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const productName = clean2(raw.productName, 100);
+    if (!productName) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const discountWon = amount(raw.discountWon);
+    const cert = asRaw(raw.childCert);
+    const childCert = digits2(cert.certId) && clean2(cert.number, 60) ? { certId: digits2(cert.certId), number: clean2(cert.number, 60), companyName: text6(cert.companyName, 60).trim() } : null;
+    const rawOrigin = asRaw(raw.origin);
+    const origin = code2(rawOrigin.exposureType) ? { exposureType: code2(rawOrigin.exposureType), firstSub: digits2(rawOrigin.firstSub), secondSub: digits2(rawOrigin.secondSub), importer: text6(rawOrigin.importer, 60).trim() } : null;
+    const tags = [];
+    for (const entry of Array.isArray(raw.tags) ? raw.tags : []) {
+      const tag = clean2(entry, 30).replace(/\s+/g, "");
+      if (!tag || tags.includes(tag) || utf8Length(tag) > 30) continue;
+      tags.push(tag);
+      if (tags.length >= 10) break;
+    }
+    const notice = asRaw(raw.notice);
+    return {
+      category: { id: categoryId, keyword: categoryKeyword },
+      productName,
+      salePrice,
+      // 즉시할인은 판매가보다 작아야 한다. 아니면 할인 없이 넣는다.
+      discountWon: discountWon > 0 && discountWon < salePrice ? discountWon : 0,
+      stock: amount(raw.stock),
+      modelName: clean2(raw.modelName, 100),
+      brandName: clean2(raw.brandName, 50),
+      manufacturerName: clean2(raw.manufacturerName, 50),
+      origin,
+      childCert,
+      notice: {
+        type: code2(notice.type) || "ETC",
+        itemName: text6(notice.itemName, 200).trim(),
+        modelName: text6(notice.modelName, 200).trim(),
+        certificateDetails: text6(notice.certificateDetails, 500).trim(),
+        manufacturer: text6(notice.manufacturer, 100).trim(),
+        afterServiceDirector: text6(notice.afterServiceDirector, 100).trim()
+      },
+      tags
+    };
+  }
+  var SMARTSTORE_REGISTRATION_FORM = {
+    label: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+    origin: "https://sell.smartstore.naver.com",
+    pathPrefix: "/",
+    // 등록과 수정이 같은 문서의 해시만 다르다. 해시까지 똑같아야 받는다.
+    hash: "#/products/create",
+    noQuery: true,
+    formSelector: 'form[name="vm.productForm"]',
+    imageSlots: [],
+    dedicated: {
+      file: SMARTSTORE_REGISTER_FILE,
+      call: "smartstore.fill",
+      // 첫 장이 대표이미지, 나머지가 추가이미지(최대 9장)다.
+      imageGroupKey: "smartstore",
+      formKey: "smartstore",
+      normalize: normalizeSmartstoreForm,
+      options: {
+        maxExtraImages: 9,
+        formWaitMs: 4e4,
+        // 칸 하나가 반응(검색 목록·다음 selectize·창 열림)할 때까지 기다리는 시간.
+        stepWaitMs: 1e4,
+        // 사진을 넣은 뒤 화면이 네이버 사진 서버에 다 올리고 창을 닫을 때까지.
+        imageWaitMs: 6e4
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 네이버 사진 서버에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "smartstore",
+    displayName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+    guard: registrationGuard(SMARTSTORE_LISTINGS_GUARD, "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4"),
+    dialogHosts: ["sell.smartstore.naver.com"],
+    form: SMARTSTORE_REGISTRATION_FORM
+  });
+
+  // extensions/src/sites/ssg/index.ts
+  var SSG_ENTRY_URL = "https://po.ssgadm.com/";
+  var HOSTS4 = ["po.ssgadm.com"];
+  var isSsgLogin = (url) => hostWithin(url, HOSTS4) && /authentication\/login|\/login(?:[/?#.]|$)/i.test(url.pathname);
+  var SSG_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS4),
+    isLogin: isSsgLogin,
+    loginMessage: "\uC2E0\uC138\uACC4 \uD30C\uD2B8\uB108\uC624\uD53C\uC2A4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC2E0\uC138\uACC4 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."
+  };
+  var SSG_LOGIN = {
+    displayName: "\uC2E0\uC138\uACC4",
+    loginUrl: SSG_ENTRY_URL,
+    hosts: HOSTS4,
+    isLoginUrl: isSsgLogin,
+    fields: ["loginId", "password"]
+  };
+
+  // extensions/src/sites/ssg/registration.ts
+  var SSG_REGISTER_FILE = "content/page-call/ssg-register.js";
+  function normalizeSsgForm(value) {
+    const raw = requireRaw(value, "\uC2E0\uC138\uACC4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const category = (entry, label) => {
+      const box = asRaw(entry);
+      const id3 = digits2(box.id);
+      const keyword2 = text6(box.keyword, 60).trim();
+      if (!id3 || !keyword2) throw planInvalid(`\uC2E0\uC138\uACC4 ${label}(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      return { id: id3, keyword: keyword2 };
+    };
+    const notice = asRaw(raw.notice);
+    const noticeValues = {};
+    for (const [propId, entry] of entriesOf(notice.values)) {
+      if (digits2(propId) && entry !== null && entry !== void 0) noticeValues[propId] = text6(entry, 1e3);
+    }
+    const itemName = text6(raw.itemName, 300).trim();
+    if (!itemName) throw planInvalid("\uC2E0\uC138\uACC4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const salePrice = amount(raw.salePrice);
+    if (salePrice <= 0) throw planInvalid("\uC2E0\uC138\uACC4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    const shipping = asRaw(raw.shipping);
+    return {
+      itemName,
+      brandName: text6(raw.brandName, 60).trim(),
+      siteNo: digits2(raw.siteNo),
+      displayCategory: category(raw.displayCategory, "\uC804\uC2DC\uCE74\uD14C\uACE0\uB9AC"),
+      standardCategory: category(raw.standardCategory, "\uD45C\uC900\uBD84\uB958"),
+      salePrice,
+      marginRate: amount(raw.marginRate),
+      stock: amount(raw.stock),
+      modelName: text6(raw.modelName, 100).trim(),
+      searchKeywords: text6(raw.searchKeywords, 500).trim(),
+      adultTypeCode: digits2(raw.adultTypeCode) || "90",
+      returnExchangeButton: raw.returnExchangeButton === "N" ? "N" : "Y",
+      notice: {
+        classId: digits2(notice.classId),
+        values: noticeValues,
+        importPropId: digits2(notice.importPropId),
+        importYn: notice.importYn === "N" ? "N" : "Y"
+      },
+      manufacturer: text6(raw.manufacturer, 100).trim(),
+      originCountry: text6(raw.originCountry, 40).trim(),
+      shipping: {
+        leadDays: amount(shipping.leadDays),
+        outboundAddrId: digits2(shipping.outboundAddrId),
+        returnAddrId: digits2(shipping.returnAddrId),
+        fees: (Array.isArray(shipping.fees) ? shipping.fees : []).map((entry) => {
+          const fee = asRaw(entry);
+          return { divCd: digits2(fee.divCd), typeCd: digits2(fee.typeCd), prepayCd: digits2(fee.prepayCd), unitCd: digits2(fee.unitCd), feeId: digits2(fee.feeId) };
+        }).filter((fee) => fee.feeId)
+      }
+    };
+  }
+  var SSG_REGISTRATION_FORM = {
+    label: "\uC2E0\uC138\uACC4",
+    origin: "https://po.ssgadm.com",
+    pathPrefix: "/cp/item/item/itemNew.ssg",
+    // ⚠️ 같은 주소에 `?srcItemId=`·`?itemId=`가 붙으면 기존 상품 수정 화면이다 — 쿼리는 받지 않는다.
+    noQuery: true,
+    formSelector: "#content",
+    imageSlots: [],
+    dedicated: {
+      file: SSG_REGISTER_FILE,
+      call: "ssg.fill",
+      imageGroupKey: "ssg",
+      formKey: "ssg",
+      normalize: normalizeSsgForm,
+      options: {
+        maxImages: 10,
+        // 채운 시각 + 이만큼 뒤 정각을 전시 시작으로 넣는다. 사람이 그 전에 저장해야 한다.
+        displayStartDelayHours: 3,
+        formWaitMs: 3e4,
+        // 칸 하나가 화면에 반응(서제스트 목록·다음 셀렉트·업로드)할 때까지 기다리는 시간.
+        stepWaitMs: 8e3,
+        // 에디터 이미지 업로드. 응답 `{uploadPath}`가 이미지 주소다(Synap 규약).
+        detailUpload: { endpoint: "/upload/0/synapEditorUpload.ssg", field: "file" }
+      }
+    },
+    // 상세 이미지를 File로 받아 와야 몰 업로드에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "ssg",
+    displayName: "\uC2E0\uC138\uACC4",
+    guard: registrationGuard(SSG_PAGE_GUARD, "\uC2E0\uC138\uACC4"),
+    dialogHosts: ["po.ssgadm.com"],
+    login: SSG_LOGIN,
+    form: SSG_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/teacher-mall/listings.ts
   var TEACHER_LISTINGS_URL = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
   var TEACHER_LISTINGS_FILE = "content/orders/teacher-mall-listings.js";
@@ -11636,6 +17951,230 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/teacher-mall/availability.ts
+  var ORIGIN18 = "https://shop.teacherville.co.kr";
+  var PAGE_URL13 = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
+  var BATCH_PATH = "/selleradmin/goods/batch_modify";
+  var SAVE_PATH5 = "/selleradmin/goods_process/batch_goods_modify";
+  var CATALOG_PATH = "/selleradmin/goods/catalog";
+  var RESUME_STOCK2 = 999;
+  var PACE_MS13 = 700;
+  var READ_PACE_MS3 = 400;
+  var LABEL13 = "\uD2F0\uCCD0\uBAB0";
+  var LOGGED_OUT11 = `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isZero2 = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
+  var stockOption2 = (code2, stock) => String(stock ?? "").trim() === "" ? { optionCode: code2, stock: null, rocket: false } : flagOption(code2, !isZero2(stock), isZero2(stock) ? "\uD488\uC808" : null);
+  async function send13(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? String(RESUME_STOCK2) : "0";
+    const expectedState = resume ? "\uC815\uC0C1" : "\uD488\uC808";
+    const warnings = [];
+    let sent = 0;
+    let failed9 = 0;
+    let confirmed = 0;
+    let already = 0;
+    let missing = 0;
+    let withOptions = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN18, PAGE_URL13, async (run) => {
+      for (let index = 0; index < codes.length; index += 1) {
+        const code2 = codes[index];
+        if (index > 0) await context.sleep(PACE_MS13);
+        const form = await run("teacherBatchFormOnPage", [BATCH_PATH, code2]);
+        if (form?.loggedOut) {
+          halt = LOGGED_OUT11;
+          left = codes.length - index;
+          return null;
+        }
+        if (!form?.found) {
+          if (form?.error) {
+            failed9 += 1;
+            warnings.push(`${code2}: ${LABEL13} \uC77C\uAD04 \uC5C5\uB370\uC774\uD2B8 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).`);
+          } else {
+            missing += 1;
+          }
+          continue;
+        }
+        if (form.stocks.length !== 1) {
+          withOptions += 1;
+          failed9 += 1;
+          continue;
+        }
+        const [[option, stock]] = form.stocks;
+        const soldOut = isZero2(stock);
+        if (resume ? !soldOut : soldOut) {
+          already += 1;
+          continue;
+        }
+        const pairs = form.pairs.map(([name, value]) => [name, name === `stock[${option}]` ? wanted : value]);
+        for (const pair of form.search) pairs.push(pair);
+        const answer = await run("requestOnPage", [SAVE_PATH5, "POST", "application/x-www-form-urlencoded; charset=UTF-8", new URLSearchParams(pairs).toString()]);
+        if (answer.status < 200 || answer.status >= 400 || /login|로그인/i.test(`${answer.url || ""}`)) {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL13}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          continue;
+        }
+        sent += 1;
+        const after = await run("teacherBatchFormOnPage", [BATCH_PATH, code2]);
+        const status = await run("teacherCatalogStatusOnPage", [CATALOG_PATH, code2]);
+        const stockChanged = after?.found && after.stocks.length === 1 && String(Number(after.stocks[0][1])) === wanted;
+        if (status?.approval === "\uBBF8\uC2B9\uC778") {
+          warnings.push(`${code2}: ${LABEL13} \uC2B9\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4(\uBBF8\uC2B9\uC778) \u2014 \uD2F0\uCCD0\uBAB0\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        } else if (stockChanged) {
+          confirmed += 1;
+          if (status?.found && status.state && status.state !== expectedState) {
+            warnings.push(`${code2}: \uC7AC\uACE0\uB294 \uBC14\uB00C\uC5C8\uB294\uB370 ${LABEL13} \uC0C1\uD488\uBAA9\uB85D \uC0C1\uD0DC\uAC00 \uC544\uC9C1 '${status.approval || ""}${status.state}'\uC785\uB2C8\uB2E4.`);
+          }
+        }
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (missing > 0) {
+      failed9 += missing;
+      warnings.push(`${missing}\uAC74\uC740 ${LABEL13}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    }
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC5EC\uB7FF\uC778 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL13}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read12(context, codes) {
+    const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL13} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN18, PAGE_URL13, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(READ_PACE_MS3);
+        const form = await run("teacherBatchFormOnPage", [BATCH_PATH, products[index]]);
+        if (form?.loggedOut) return { success: false, error: LOGGED_OUT11 };
+        if (form?.error) return { success: false, error: `${LABEL13} \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).` };
+        if (!form?.found || form.stocks.length === 0) {
+          missing.push(products[index]);
+          continue;
+        }
+        found.push({
+          code: products[index],
+          options: form.stocks.map(([option, stock]) => stockOption2(option, stock))
+        });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "teacher-mall",
+    displayName: LABEL13,
+    guard: availabilityGuard(TEACHER_MALL_PAGE_GUARD, LABEL13),
+    dialogHosts: ["shop.teacherville.co.kr"],
+    login: TEACHER_MALL_LOGIN,
+    send: send13,
+    read: read12
+  });
+
+  // extensions/src/sites/teacher-mall/registration.ts
+  var TEACHER_MALL_REGISTRATION_FORM = {
+    label: "\uD2F0\uCC98\uBAB0",
+    origin: "https://shop.teacherville.co.kr",
+    pathPrefix: "/selleradmin/goods/regist",
+    formSelector: "#goodsRegist",
+    /**
+     * 사진 칸에 이름이 없다. 몰 서버에 먼저 올리고 그 주소를 표에 넣는다.
+     *
+     * 화면의 두 버튼이 서로 다르게 동작한다(`admin-goodsReady.js` 실측 2026-09-10):
+     *  · 줄별 `일괄등록`(`.batchImageRegist`)은 상품번호를 요구한다 —
+     *    `if (gl_goods_seq == null) alert('이미지를 삭제 후 재 등록 …')`.
+     *    ⚠️ 네이티브 alert 이라 뜨는 순간 렌더러가 통째로 멈춘다. 누르지 않는다.
+     *  · `여러 컷 일괄등록`(`.batchImageMultiRegist`)은 **상품번호 없이 열린다.**
+     *    팝업이 `uploadImg[]` 를 모아 두었다가 저장할 때 `done()` 으로 등록화면
+     *    표에 채운다("이미지가 임시저장 되었습니다").
+     *
+     * 팝업을 열지 않는다. 확장이 여는 `window.open` 은 팝업 차단에 걸리고
+     * (라이브 확인: 클릭해도 핸들이 null), 팝업이 하는 일은 결국 셋뿐이다 —
+     * 파일 올리기, 줄 추가, 숨은 칸 채우기. 그 셋을 여기서 직접 한다.
+     *
+     * 올리는 곳은 팝업이 쓰는 그 엔드포인트다. 한 번 올리면 서버가 일곱 크기를
+     * 다 만들어 둔다(라이브 확인: `…large/view/list1/list2/thumbView/thumbCart/
+     * thumbScroll.jpg` 전부 200). 크기 이름은 칸 이름(`largeGoodsImage[]`)에서
+     * 그대로 읽으므로 목록을 적어두지 않는다.
+     */
+    imageSlots: [],
+    imageUpload: {
+      endpoint: "/selleradmin/goods_process/upload_file_multi",
+      field: "Filedata",
+      groupKey: "photos",
+      label: "\uC0C1\uD488 \uC0AC\uC9C4",
+      tableId: "goodsImageTable",
+      addButtonId: "goodsImageAdd",
+      emptyRowSelector: "tr.no_goods_image",
+      slotSuffix: "GoodsImage[]"
+    },
+    /**
+     * 상품정보고시 품목이 방아쇠다. 고르면 그 품목의 칸이 생긴다.
+     *
+     * 실측 등록물 둘 다 `(40)기타 재화` 였는데, 그 품목이 만들어 주는 줄은
+     * 다섯뿐이고 등록물은 서른아홉 줄을 들고 있다. 나머지는 아래 `grow` 가
+     * '+' 를 눌러 만든다 — 제목 칸도 자유 입력이라 우리가 이름을 써넣는다.
+     */
+    dynamic: { trigger: "goodsSubInfo", waitPrefix: "subInfoTitle[" },
+    groupInputs: [
+      {
+        key: "noticeTitles",
+        selector: '[name="subInfoTitle[]"]',
+        grow: { buttonId: "goodsSubInfoAdd", maxClicks: 60 }
+      },
+      { key: "noticeDescs", selector: '[name="subInfoDesc[]"]' }
+    ],
+    /**
+     * 분류는 레이어를 열어 7단 목록에서 고르고 '카테고리 연결'을 누른다.
+     *
+     * 값이 코드(`00010003`)라 보이는 이름으로 찾는다. 코드에 상위 코드가 그대로
+     * 들어 있어서, 마지막 단 하나만 골라도 몰이 상위까지 함께 연결한다
+     * (라이브 확인 2026-09-10: 학급운영만 골랐는데 `0001` 과 `00010003` 둘이 붙었다).
+     * 실측 등록물 둘 다 이 두 줄이었다.
+     */
+    categoryConnect: {
+      openButtonId: "categoryConnectPopup",
+      formName: "categoryConnectFrm",
+      levelPrefix: "category",
+      levels: 7,
+      connectButtonId: "categoryConnect",
+      stepWaitMs: 1400,
+      connectWaitMs: 2500
+    },
+    /**
+     * 상세설명은 위지윅을 거치지 않아도 된다.
+     *
+     * `등록` 버튼이 다음 에디터 팝업을 열지만, 제출할 때 값을 옮기는
+     * `readyEditorForm()` 은 **폼 안의 `.daumeditor` 만** 찾는다. 등록화면에는
+     * 그런 요소가 없다(라이브 확인 2026-09-10: 문서 전체에 0개). 그래서 숨은
+     * `contents` 를 직접 쓰면 그대로 제출된다.
+     *
+     * 다만 화면에 보이는 것은 옆의 미리보기 칸이라 그것도 같이 맞춰 준다.
+     * 안 그러면 값은 들어갔는데 비어 보여 사람이 에디터를 열어 덮어쓴다.
+     */
+    detailPreviewSelector: "#goodscontents_view",
+    /**
+     * 상세설명 이미지를 올릴 곳.
+     *
+     * 우리 렌더 산출물은 `localhost:9000`(로컬 MinIO)이라 몰도 구매자도 못 읽는다.
+     * 이걸 빼면 넣을 주소가 없어 상세설명 단계가 통째로 건너뛰어지고, 상품 설명이
+     * 빈 채로 남는다. 실측 등록물 둘 다 `kiditem.diskn.com` 주소를 쓰고 있어서
+     * 도매꾹과 같은 저장소를 그대로 쓴다 — 탭을 열지 않고 fetch 로 끝난다.
+     */
+    detailHost: "kidsnote"
+  };
+  registerMallWriter({
+    mallKey: "teacher-mall",
+    displayName: "\uD2F0\uCC98\uBAB0",
+    guard: registrationGuard(TEACHER_MALL_PAGE_GUARD, "\uD2F0\uCC98\uBAB0"),
+    dialogHosts: ["teacherville.co.kr"],
+    login: TEACHER_MALL_LOGIN,
+    form: TEACHER_MALL_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/thirtymall/listings.ts
   var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";
   var THIRTYMALL_LISTINGS_FILE = "content/orders/thirtymall-listings.js";
@@ -11658,8 +18197,214 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
+  // extensions/src/sites/thirtymall/availability.ts
+  var ORIGIN19 = "https://partner.shopby.co.kr";
+  var API2 = {
+    pageUrl: "https://partner.shopby.co.kr/product/list",
+    apiOrigin: "https://admin-api.e-ncp.com",
+    searchPath: "/products/search-by-key",
+    updatePath: "/products/sale-status",
+    clientLocation: "https://partner-remote.shopby.co.kr/product/management/list",
+    tokenCookie: "SHOPBY_PARTNER_SESSAT",
+    mallNo: 78859,
+    batchSize: 50
+  };
+  var ESM_PACE_MS2 = 300;
+  var RECHECK_MS8 = 2e3;
+  var RECHECK_TIMES8 = 3;
+  var LABEL14 = "\uB5A0\uB9AC\uBAB0";
+  var LOGGED_OUT12 = `${LABEL14} \uD30C\uD2B8\uB108 \uC5B4\uB4DC\uBBFC \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isProductNo3 = (code2) => /^\d{6,12}$/.test(code2);
+  async function readRows8(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < codes.length; start += API2.batchSize) {
+      const group = codes.slice(start, start + API2.batchSize);
+      const answer = await run("shopbyApiOnPage", [API2, "search", { mallNos: [API2.mallNo], mallProductNos: group }]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}` };
+      for (const row of answer.rows) if (row.mallNo === API2.mallNo && group.includes(row.no)) rows.set(row.no, row);
+      if (start + API2.batchSize < codes.length) await context.sleep(ESM_PACE_MS2);
+    }
+    return { rows };
+  }
+  function shopbyWord(row) {
+    const apply = String(row.applyStatusType ?? "");
+    if (/REJECTION$/.test(apply)) return "\uC2B9\uC778\uAC70\uBD80";
+    if (/READY$/.test(apply)) return "\uC2B9\uC778\uB300\uAE30";
+    if (row.saleSettingStatusType === "PROHIBITION_SALE") return "\uD310\uB9E4\uAE08\uC9C0";
+    if (row.saleSettingStatusType === "STOP_SELLING") return "\uD310\uB9E4\uC911\uC9C0";
+    if (row.saleStatusType === "END_SALE") return "\uD310\uB9E4\uC885\uB8CC";
+    if (row.saleStatusType === "WAITING_SALE") return "\uD310\uB9E4\uB300\uAE30";
+    if (row.isSoldOut) return "\uD488\uC808";
+    if (row.saleSettingStatusType === "AVAILABLE_FOR_SALE" && ["ON_SALE", "ON_PRE_SALE"].includes(row.saleStatusType)) return true;
+    return "\uD655\uC778\uD544\uC694";
+  }
+  async function send14(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "AVAILABLE_FOR_SALE" : "STOP_SELLING";
+    const warnings = [];
+    const products = [...new Set(codes)].filter(isProductNo3);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL14} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN19, API2.pageUrl, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows8(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT12 };
+      if (!before.rows) return { success: false, error: `${LABEL14} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((code2) => rows.has(code2));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL14}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const row = (code2) => rows.get(code2);
+      let targets;
+      if (resume) {
+        targets = found.filter((code2) => row(code2).saleSettingStatusType === "STOP_SELLING");
+        const selling = found.filter((code2) => shopbyWord(row(code2)) === true);
+        already += selling.length;
+        const prohibited = found.filter((code2) => row(code2).saleSettingStatusType === "PROHIBITION_SALE").length;
+        const stockOut = found.filter((code2) => row(code2).saleSettingStatusType === "AVAILABLE_FOR_SALE" && shopbyWord(row(code2)) === "\uD488\uC808").length;
+        const other = found.length - targets.length - selling.length - prohibited - stockOut;
+        if (prohibited > 0) {
+          failed9 += prohibited;
+          warnings.push(`${prohibited}\uAC74\uC740 ${LABEL14}\uC774 \uD310\uB9E4\uAE08\uC9C0\uD55C \uC0C1\uD488\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 \uD30C\uD2B8\uB108 \uC5B4\uB4DC\uBBFC\uC5D0\uC11C \uAE4C\uB2ED\uC744 \uD655\uC778\uD558\uC138\uC694.`);
+        }
+        if (stockOut > 0) {
+          failed9 += stockOut;
+          warnings.push(`${stockOut}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 \uD488\uC808\uC785\uB2C8\uB2E4 \u2014 \uD310\uB9E4 \uC7AC\uAC1C\uB85C \uD480\uB9AC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+        }
+        if (other > 0) {
+          failed9 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL14}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD310\uB9E4\uC885\uB8CC \xB7 \uC2B9\uC778 \uC804 \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+      } else {
+        targets = found.filter((code2) => shopbyWord(row(code2)) === true);
+        already += found.length - targets.length;
+      }
+      const accepted = [];
+      for (let start = 0; start < targets.length; start += API2.batchSize) {
+        const group = targets.slice(start, start + API2.batchSize);
+        const answer = await run("shopbyApiOnPage", [API2, "status", { productNos: group.map((code2) => Number(code2)), saleSettingStatusType: wanted }]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT12;
+          left = targets.length - start;
+          return null;
+        }
+        if (!Array.isArray(answer?.failures)) {
+          failed9 += group.length;
+          warnings.push(`${LABEL14}\uC774 \uD310\uB9E4\uC124\uC815 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`}`);
+          continue;
+        }
+        const failures = answer.failures;
+        const refused = new Set(failures.map((entry) => entry.no).filter(Boolean));
+        const ok = group.filter((code2) => !refused.has(code2));
+        sent += ok.length;
+        accepted.push(...ok);
+        const said = failures.map((entry) => entry.message).filter(Boolean).slice(0, 2).join(" / ");
+        if (ok.length < group.length) {
+          failed9 += group.length - ok.length;
+          warnings.push(`${LABEL14}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok.length}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${said ? ` \u2014 ${said}` : ""}.`);
+        }
+        const unnamed = failures.filter((entry) => !entry.no).length;
+        if (unnamed > 0) warnings.push(`${LABEL14}\uC774 ${unnamed}\uAC74 \uC2E4\uD328\uB97C \uC54C\uB838\uC2B5\uB2C8\uB2E4${said ? ` \u2014 ${said}` : ""}. \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+        if (start + API2.batchSize < targets.length) await context.sleep(ESM_PACE_MS2);
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES8; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS8);
+        const after = await readRows8(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((code2) => after.rows.get(code2)?.saleSettingStatusType === wanted).length;
+        if (resume && (seen >= accepted.length || attempt === RECHECK_TIMES8)) {
+          const stockOut = accepted.filter((code2) => after.rows.get(code2)?.isSoldOut === true).length;
+          if (stockOut > 0) warnings.push(`${stockOut}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 \uD310\uB9E4 \uC7AC\uAC1C \uB4A4\uC5D0\uB3C4 ${LABEL14}\uC5D0 \uD488\uC808\uB85C \uBCF4\uC785\uB2C8\uB2E4.`);
+        }
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL14}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488\uC815\uBCF4 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL14} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488\uC815\uBCF4 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read13(context, codes) {
+    const valid = [...new Set(codes)].filter(isProductNo3).slice(0, READ_LIMIT);
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL14} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN19, API2.pageUrl, async (run) => {
+      const result = await readRows8(context, run, valid);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT12 };
+      if (!result.rows) return { success: false, error: `${LABEL14} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = valid.filter((code2) => rows.has(code2)).map((code2) => {
+        const word = shopbyWord(rows.get(code2));
+        return { code: code2, options: [flagOption(code2, word === true, word === true ? null : word)] };
+      });
+      missing = valid.filter((code2) => !rows.has(code2));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "thirtymall",
+    displayName: LABEL14,
+    guard: availabilityGuard(THIRTYMALL_LISTINGS_GUARD, LABEL14),
+    dialogHosts: ["partner.shopby.co.kr"],
+    send: send14,
+    read: read13
+  });
+
+  // extensions/src/sites/thirtymall/registration.ts
+  var THIRTYMALL_REGISTRATION_FORM = {
+    label: "\uB5A0\uB9AC\uBAB0",
+    origin: "https://partner.shopby.co.kr",
+    pathPrefix: "/product/add",
+    allFrames: true,
+    frameUrlIncludes: "/product/management/single/add",
+    frameWaitMs: 3e4,
+    formSelector: "body",
+    // 칸이 생겨야 준비된 것이다. 이 앱은 로딩이 끝나고도 몇 초 뒤에 칸을 그린다.
+    readySelector: 'input[data-cy="productName"]',
+    formWaitMs: 3e4,
+    tableForm: {
+      pickWaitMs: 6e3,
+      images: [
+        { key: "main", row: "\uB300\uD45C\uC774\uBBF8\uC9C0" },
+        // 칸이 처음엔 없다. `이미지 추가` 를 누를 때마다 파일 칸이 하나씩 생긴다(실측).
+        { key: "additional", row: "\uCD94\uAC00\uC774\uBBF8\uC9C0", addLabel: "\uC774\uBBF8\uC9C0 \uCD94\uAC00", max: 9 },
+        { key: "list", row: "\uB9AC\uC2A4\uD2B8 \uC774\uBBF8\uC9C0" }
+      ],
+      summernote: { row: "\uC0C1\uD488 \uC0C1\uC138", radio: "USE_CONFIG_VALUE", uploadWaitMs: 15e3 }
+    },
+    // 상세 이미지를 File 로 받아 와야 편집기에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "thirtymall",
+    displayName: "\uB5A0\uB9AC\uBAB0",
+    guard: registrationGuard(THIRTYMALL_LISTINGS_GUARD, "\uB5A0\uB9AC\uBAB0"),
+    dialogHosts: ["shopby.co.kr"],
+    form: THIRTYMALL_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS11 = 35e3;
+  var NAVIGATION_TIMEOUT_MS14 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -11730,14 +18475,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS14, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS14, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -11766,9 +18511,9 @@ var KidItemRuntime = (() => {
   var MAX_PRODUCT_BYTES = 512 * 1024;
   var WING_CATALOG_PAGE_SIZE = 500;
   var WingPayloadError = class extends Error {
-    constructor(message, code = "WING_CATALOG_PAYLOAD_INVALID") {
+    constructor(message, code2 = "WING_CATALOG_PAYLOAD_INVALID") {
       super(message);
-      this.code = code;
+      this.code = code2;
       this.name = "WingPayloadError";
     }
     code;
@@ -11778,9 +18523,9 @@ var KidItemRuntime = (() => {
     if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
     return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`).join(",")}}`;
   }
-  var encoder2 = new TextEncoder();
+  var encoder3 = new TextEncoder();
   function jsonByteLength(value) {
-    return encoder2.encode(stableStringify(value)).byteLength;
+    return encoder3.encode(stableStringify(value)).byteLength;
   }
   function assertJsonBytes(value, maxBytes, message) {
     const bytes = jsonByteLength(value);
@@ -11871,7 +18616,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText5(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText6(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -11881,7 +18626,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText5(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText6(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -12007,8 +18752,8 @@ var KidItemRuntime = (() => {
         documentIds.push(document.id);
       }
       for (const image of Array.isArray(item.images) ? item.images : []) {
-        const record2 = isRecord2(image) ? image : {};
-        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record2.cdnPath || record2.vendorPath), externalOptionId);
+        const record4 = isRecord2(image) ? image : {};
+        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record4.cdnPath || record4.vendorPath), externalOptionId);
       }
       for (const sourceUrl of extractDetailImageUrls(item.contents)) {
         addDetailMedia(mediaByKey, "detail", sourceUrl, externalOptionId);
@@ -12034,11 +18779,11 @@ var KidItemRuntime = (() => {
     const mediaCountByOption = /* @__PURE__ */ new Map();
     for (const entry of media) {
       for (const owner of entry.externalOptionIds) {
-        const count3 = (mediaCountByOption.get(owner) ?? 0) + 1;
-        if (count3 > MAX_MEDIA_PER_OWNER) {
+        const count5 = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count5 > MAX_MEDIA_PER_OWNER) {
           throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
         }
-        mediaCountByOption.set(owner, count3);
+        mediaCountByOption.set(owner, count5);
       }
     }
     if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
@@ -12077,10 +18822,10 @@ var KidItemRuntime = (() => {
   }
   function normalizeDetailAttributes(attributes) {
     return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
-      const record2 = isRecord2(attribute) ? attribute : {};
+      const record4 = isRecord2(attribute) ? attribute : {};
       return {
-        type: nullableText(record2.attributeTypeName || record2.attributeTypeId),
-        value: nullableText(record2.attributeValueName)
+        type: nullableText(record4.attributeTypeName || record4.attributeTypeId),
+        value: nullableText(record4.attributeValueName)
       };
     }).filter((attribute) => Boolean(attribute.type && attribute.value)).slice(0, MAX_ATTRIBUTES_PER_OPTION);
   }
@@ -12111,10 +18856,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text5 = `${field}\0${stableStringify(value)}`;
+    const text8 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text5.length; index += 1) {
-      hash ^= text5.charCodeAt(index);
+    for (let index = 0; index < text8.length; index += 1) {
+      hash ^= text8.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -12137,19 +18882,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text5 = typeof value === "string" ? value.trim() : "";
-    if (!text5) return null;
-    if (text5.startsWith("//")) return `https:${text5}`;
-    if (/^https?:\/\//i.test(text5)) return text5;
-    return `https://image1.coupangcdn.com/image/${text5.replace(/^\/+/, "")}`;
+    const text8 = typeof value === "string" ? value.trim() : "";
+    if (!text8) return null;
+    if (text8.startsWith("//")) return `https:${text8}`;
+    if (/^https?:\/\//i.test(text8)) return text8;
+    return `https://image1.coupangcdn.com/image/${text8.replace(/^\/+/, "")}`;
   }
   function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text5 = String(value).trim();
-    return text5 || null;
+    const text8 = String(value).trim();
+    return text8 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -12162,9 +18907,9 @@ var KidItemRuntime = (() => {
     throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
   }
   function strictRequiredId(value, name) {
-    const id = strictOptionalId(value, name);
-    if (!id) throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return id;
+    const id3 = strictOptionalId(value, name);
+    if (!id3) throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return id3;
   }
   function strictNullableBoolean(value, name) {
     if (value === null || value === void 0) return null;
@@ -12184,13 +18929,13 @@ var KidItemRuntime = (() => {
   }
   function nullableInteger(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number2 = Number(value);
-    return Number.isInteger(number2) && number2 >= 0 ? number2 : null;
+    const number3 = Number(value);
+    return Number.isInteger(number3) && number3 >= 0 ? number3 : null;
   }
-  function requiredText5(value, name) {
-    const text5 = typeof value === "string" ? value.trim() : "";
-    if (!text5) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text5;
+  function requiredText6(value, name) {
+    const text8 = typeof value === "string" ? value.trim() : "";
+    if (!text8) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text8;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -12201,31 +18946,11 @@ var KidItemRuntime = (() => {
     return value;
   }
 
-  // extensions/src/sites/wing/login.ts
-  var WING_LOGIN = {
-    displayName: "\uCFE0\uD321 \uC719",
-    loginUrl: "https://wing.coupang.com/",
-    hosts: ["wing.coupang.com", "xauth.coupang.com"],
-    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname),
-    fields: ["loginId", "password"]
-  };
-  function wingCallerWithLogin(caller, deps, lease) {
-    const credentials = lease.credentials;
-    const withLogin = createSiteLoginGate(credentials);
-    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
-    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
-    return {
-      json: (url, init) => gate(() => caller.json(url, init)),
-      text: (url, init) => gate(() => caller.text(url, init)),
-      bytes: (url, init) => gate(() => caller.bytes(url, init))
-    };
-  }
-
   // extensions/src/sites/wing/index.ts
-  var ORIGIN5 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN5}/tenants/seller-web/excel/request/download`;
+  var ORIGIN20 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN20}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN20}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN20}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -12247,24 +18972,24 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN5,
+    origin: ORIGIN20,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN5, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN20, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
-    async function readJson(url, init, notFoundIsAnswer = false) {
+    async function readJson2(url, init, notFoundIsAnswer = false) {
       for (let attempt = 0; ; attempt += 1) {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed6 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed6 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed9 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed9 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed6) throw error;
+          if (!failed9) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
@@ -12276,7 +19001,7 @@ var KidItemRuntime = (() => {
       body: JSON.stringify(body),
       requireXsrf
     });
-    const searchJson = (body) => readJson(SEARCH_URL, {
+    const searchJson = (body) => readJson2(SEARCH_URL, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(body)
@@ -12302,7 +19027,7 @@ var KidItemRuntime = (() => {
        * (details `status`·`reason`·`bodyHead`)를 넘긴다 — 건너뛸지는 수집기가 정한다.
        */
       async productDetail(externalProductId) {
-        const body = await readJson(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, void 0, true);
+        const body = await readJson2(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, void 0, true);
         if (body === NOT_FOUND) return null;
         let product;
         try {
@@ -12324,10 +19049,10 @@ var KidItemRuntime = (() => {
       async probeDeleted(externalProductIds) {
         const found = await productIdsOf(externalProductIds, true);
         const deleted = new Map([...found].filter(([, status]) => status === WING_DELETED_STATUS));
-        const liveFromDeletedSearch = new Set([...found.keys()].filter((id) => !deleted.has(id)));
-        const rest = externalProductIds.filter((id) => !found.has(id));
+        const liveFromDeletedSearch = new Set([...found.keys()].filter((id3) => !deleted.has(id3)));
+        const rest = externalProductIds.filter((id3) => !found.has(id3));
         const present = rest.length > 0 ? await productIdsOf(rest, false) : /* @__PURE__ */ new Map();
-        for (const id of liveFromDeletedSearch) present.set(id, null);
+        for (const id3 of liveFromDeletedSearch) present.set(id3, null);
         return externalProductIds.map((externalProductId) => {
           if (deleted.has(externalProductId)) return { externalProductId, outcome: "deleted", productStatus: deleted.get(externalProductId) ?? null };
           if (present.has(externalProductId)) return { externalProductId, outcome: "present", productStatus: null };
@@ -12348,9 +19073,9 @@ var KidItemRuntime = (() => {
           requestType: EXCEL_REQUEST_TYPE,
           selectedTypes: [...CATALOGUE_TYPES]
         }, true);
-        const record2 = asRecord(response);
-        if (record2?.success !== true) {
-          const message = typeof record2?.message === "string" && record2.message ? `: ${record2.message}` : "";
+        const record4 = asRecord(response);
+        if (record4?.success !== true) {
+          const message = typeof record4?.message === "string" && record4.message ? `: ${record4.message}` : "";
           throw new RuntimeError(CATALOG_EXCEL_FAILED2, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uAC70\uC808\uD588\uC2B5\uB2C8\uB2E4${message}`);
         }
       },
@@ -12370,9 +19095,9 @@ var KidItemRuntime = (() => {
           totalCount: Number(row.totalCount) || 0
         };
       },
-      downloadCatalogExcel(id) {
+      downloadCatalogExcel(id3) {
         return caller.bytes(
-          `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`,
+          `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id3)}&sellerRequestDownloadExcelFileId=`,
           { requireXsrf: true }
         );
       },
@@ -12402,9 +19127,9 @@ var KidItemRuntime = (() => {
   }
   function productRows(response) {
     const data = asRecord(asRecord(response)?.data);
-    const list = data?.productList;
-    if (!Array.isArray(list)) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC0C1\uD488 \uAC80\uC0C9 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
-    return list.map((row) => asRecord(row) ?? {});
+    const list2 = data?.productList;
+    if (!Array.isArray(list2)) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC0C1\uD488 \uAC80\uC0C9 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return list2.map((row) => asRecord(row) ?? {});
   }
   function totalCountOf(response) {
     const total = asRecord(asRecord(asRecord(response)?.data)?.pagination)?.totalCount;
@@ -12420,6 +19145,440 @@ var KidItemRuntime = (() => {
     create: (deps, lease) => createWingSite(wingCallerWithLogin(createSiteCaller(WING_SITE.caller, deps), deps, lease), { sleep: deps.sleep })
   });
 
+  // extensions/src/sites/wing/registration.ts
+  var WING_FORM_URL = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
+  var WING_REGISTER_FILE = "content/page-call/wing-register.js";
+  var WING_COMPAT_FILE = "content/page-call/wing-form-compat.js";
+  var WING_IDENTITY_FILE = "shared/wing-account-identity.js";
+  var FILL_TIMEOUT_MS3 = 5 * 6e4;
+  var SUBMIT_TIMEOUT_MS = 9e4;
+  var COMPAT_TIMEOUT_MS = 15e3;
+  var VENDOR_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+  var STORAGE_ORIGINS = ["http://localhost:9000", "http://kiditem-office:9000"];
+  var WING_WRITE_GUARD = {
+    allows: (url) => hostWithin(url, ["wing.coupang.com"]),
+    isLogin: (url) => WING_LOGIN.isLoginUrl(url),
+    loginMessage: "\uCFE0\uD321 \uC719 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uB4F1\uB85D\uD574 \uC8FC\uC138\uC694."
+  };
+  function storageImageUrls(product) {
+    const urls = /* @__PURE__ */ new Set();
+    const add = (value) => {
+      if (typeof value !== "string") return;
+      try {
+        if (STORAGE_ORIGINS.includes(new URL(value).origin)) urls.add(value);
+      } catch {
+      }
+    };
+    for (const key of ["additionalImageUrls", "detailImageUrls"]) for (const url of Array.isArray(product[key]) ? product[key] : []) add(url);
+    for (const variant of Array.isArray(product.variants) ? product.variants : []) add(asRaw(variant).representativeImageUrl);
+    return [...urls];
+  }
+  function wingFormUrl(input) {
+    if (input.executionKind === "register") return WING_FORM_URL;
+    const id3 = input.externalListingId?.trim() ?? "";
+    if (!/^\d{6,}$/.test(id3)) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC218\uC815\uD560 \uCFE0\uD321 \uC719 \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC5B4 \uC218\uC815 \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", executionKind: input.executionKind });
+    }
+    return `${WING_FORM_URL}?vendorInventoryId=${id3}`;
+  }
+  function wingProductOf(form) {
+    const wrapped = asRaw(form.product);
+    return Object.keys(wrapped).length > 0 && !("categoryCell" in form) ? wrapped : form;
+  }
+  function fillFailure(error) {
+    if (error && /account identity|identity helper/i.test(error)) {
+      return new RuntimeError("REGISTRATION_ACCOUNT_MISMATCH", "\uCFE0\uD321 \uC719\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uAC70\uB098 \uB4F1\uB85D\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: "coupang" });
+    }
+    return new RuntimeError(REGISTRATION_FILL_FAILED, error ?? "\uCFE0\uD321 \uC719 \uC0C1\uD488\uB4F1\uB85D \uD3FC\uC744 \uCC44\uC6B0\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC9C1\uC811 \uC785\uB825\uD574 \uC8FC\uC138\uC694.", { mallKey: "coupang" });
+  }
+  async function fillWing(context, page, input) {
+    const product = wingProductOf(input.form);
+    const expected = input.expectedProviderAccountId?.trim() ?? "";
+    if (!VENDOR_ID.test(expected)) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC2B9\uC778\uB41C \uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC5B4 \uCC44\uC6B0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+    }
+    const compat = await callPage(page, "wing.compat", {}, {
+      timeoutMs: COMPAT_TIMEOUT_MS,
+      guard: context.guard,
+      main: [WING_COMPAT_FILE],
+      displayName: context.displayName
+    });
+    if (compat?.ok !== true) {
+      throw new RuntimeError(REGISTRATION_FILL_FAILED, `\uCFE0\uD321 \uC719 \uC0C1\uD488\uB4F1\uB85D \uD654\uBA74\uC744 \uC900\uBE44\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. ${compat?.error ?? ""}`.trim(), { mallKey: "coupang", stage: "compat" });
+    }
+    const loaded = await toDataUrls(context.fetch, storageImageUrls(product).map((url) => ({ name: url, url })));
+    const imageData = Object.fromEntries(loaded.filter((image) => image.dataUrl).map((image) => [image.name, image.dataUrl]));
+    const outcome = await callPage(page, "wing.fill", { product, expectedVendorId: expected, imageData }, {
+      timeoutMs: FILL_TIMEOUT_MS3,
+      guard: context.guard,
+      isolated: [WING_IDENTITY_FILE, WING_REGISTER_FILE],
+      displayName: context.displayName
+    });
+    if (outcome?.ok !== true) throw fillFailure(outcome?.error);
+    const warnings = loaded.filter((image) => image.error).map((image) => `\uC0AC\uC9C4\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${image.error}`);
+    return {
+      fill: { steps: outcome.steps ?? [], warnings, manualSteps: [], dialogs: [] },
+      providerAccountId: outcome.evidence?.wingVendorId ?? null
+    };
+  }
+  async function submitWing(context, page) {
+    const answer = await callPage(page, "wing.submit", {}, {
+      timeoutMs: SUBMIT_TIMEOUT_MS,
+      guard: context.guard,
+      isolated: [WING_IDENTITY_FILE, WING_REGISTER_FILE],
+      displayName: context.displayName
+    });
+    const observed = await page.currentUrl().catch(() => null);
+    return {
+      pressed: answer?.clicked === true,
+      // 완료 안내를 봤으면 받았다, 못 봤으면 모른다 — 추측으로 성공을 보고하지 않는다.
+      accepted: answer?.status === "registered" ? true : null,
+      externalListingId: answer?.externalListingId ?? null,
+      observedUrl: observed ? observed.split(/[?#]/)[0] : null,
+      mallMessage: answer?.error ?? null
+    };
+  }
+  registerMallWriter({
+    mallKey: "coupang",
+    displayName: "\uCFE0\uD321 \uC719",
+    guard: WING_WRITE_GUARD,
+    dialogHosts: ["wing.coupang.com"],
+    login: WING_LOGIN,
+    custom: {
+      url: wingFormUrl,
+      bootstrapFile: WING_COMPAT_FILE,
+      fill: fillWing,
+      submit: submitWing
+    }
+  });
+
+  // extensions/src/sites/wing/availability.ts
+  var ORIGIN21 = "https://wing.coupang.com";
+  var LABEL15 = "\uCFE0\uD321 \uC719";
+  var ITEMS_PATH = "/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/";
+  var ITEMS_QUERY = "hasProgressiveDiscountRule=true&queryNonVariationJustificationProof=true&queryMpnProof=true";
+  var CHANGE_PATH2 = "/tenants/seller-web/vendorinventory/stock-manager/remain-change/request";
+  var RESUME_QUANTITY2 = 999;
+  var PRODUCT_PACE_MS = 400;
+  var PACE_MS14 = 700;
+  var RATE_LIMIT_WAITS_MS = [5e3, 15e3, 3e4];
+  var RECHECK_MS9 = 1500;
+  function wingListUrl(keyword2 = "") {
+    return `${ORIGIN21}/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=${encodeURIComponent(keyword2)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1`;
+  }
+  function wingTools(context, run) {
+    const inPage = async (path, method, contentType, body) => {
+      for (let attempt = 0; ; attempt += 1) {
+        const answer = await run("requestOnPage", [path, method, contentType, body]);
+        if (answer.status !== 429 || attempt >= RATE_LIMIT_WAITS_MS.length) return answer;
+        await context.sleep(RATE_LIMIT_WAITS_MS[attempt]);
+      }
+    };
+    const readItems2 = async (product) => {
+      const answer = await inPage(`${ITEMS_PATH}${product}?${ITEMS_QUERY}`, "GET", null, null);
+      if (answer.status === 200 && answer.json?.success === true && Array.isArray(answer.json.data)) return { items: answer.json.data };
+      return {
+        status: answer.status,
+        rateLimited: answer.status === 429,
+        loggedOut: answer.status !== 429 && /login|로그인|xauth/i.test(`${answer.url ?? ""} ${answer.preview ?? ""}`)
+      };
+    };
+    const readIdentity = async (expected) => await run("wingIdentityOnPage", [expected]) ?? { ok: false };
+    return { inPage, readItems: readItems2, readIdentity };
+  }
+  function withWingPage(context, work) {
+    return withSellerPage(context, ORIGIN21, wingListUrl(), (run) => work(run), { isolated: [WING_IDENTITY_FILE] });
+  }
+  var isOptionId = (code2) => /^\d{1,15}$/.test(code2);
+  var stockOf = (value) => {
+    if (value === null || value === void 0 || typeof value === "string" && value.trim() === "") return null;
+    const stock = Number(value);
+    return Number.isSafeInteger(stock) && stock >= 0 ? stock : null;
+  };
+  function observedNormalOptions(items, selected) {
+    return items.filter((item) => selected.has(String(item.vendorItemId)) && item.registrationType === "NORMAL" && (typeof item.stockQuantity === "number" || typeof item.stockQuantity === "string" && /^\d+$/.test(item.stockQuantity)) && Number.isSafeInteger(Number(item.stockQuantity)) && Number(item.stockQuantity) >= 0).map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: false }));
+  }
+  async function send15(context, input) {
+    const { codes, options, resume, expectedProviderAccountId } = input;
+    if (expectedProviderAccountId !== null && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedProviderAccountId)) {
+      return { success: false, error: "Wing \uC2E4\uD589\uC758 \uACC4\uC815 \uC2DD\uBCC4\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
+    }
+    const quantity = resume ? RESUME_QUANTITY2 : 0;
+    const warnings = [];
+    const observed = [];
+    let providerAccountId = null;
+    const products = codes.filter(isOptionId);
+    const invalid2 = codes.length - products.length;
+    if (invalid2 > 0) warnings.push(`${invalid2}\uAC74\uC740 ${LABEL15} \uB4F1\uB85D\uC0C1\uD488ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let failed9 = invalid2;
+    let confirmed = 0;
+    let already = 0;
+    let rocket = 0;
+    let stoppedAt = null;
+    let blockedOnSend = 0;
+    let loggedOutAt = null;
+    const wantedOf = (product) => {
+      const list2 = options?.[product];
+      if (!Array.isArray(list2) || list2.length === 0) return null;
+      return new Set(list2.map(String).filter(isOptionId));
+    };
+    const badOptionsOf = (product) => Array.isArray(options?.[product]) ? options[product].map(String).filter((code2) => !isOptionId(code2)).length : 0;
+    const isTarget = (item) => resume ? Number(item.stockQuantity) === 0 : Number(item.stockQuantity) !== 0;
+    const halted = await withWingPage(context, async (run) => {
+      const { inPage, readItems: readItems2, readIdentity } = wingTools(context, run);
+      for (let index = 0; index < products.length; index += 1) {
+        const product = products[index];
+        if (index > 0) await context.sleep(PRODUCT_PACE_MS);
+        const wanted = wantedOf(product);
+        const badOptions = badOptionsOf(product);
+        if (badOptions > 0) {
+          failed9 += badOptions;
+          warnings.push(`${product}: \uC635\uC158\uCF54\uB4DC ${badOptions}\uAC1C\uAC00 ${LABEL15} \uC635\uC158ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+        }
+        if (wanted && wanted.size === 0) continue;
+        const identity2 = expectedProviderAccountId ? await readIdentity(expectedProviderAccountId) : null;
+        if (expectedProviderAccountId && (!identity2?.ok || identity2.vendorId !== expectedProviderAccountId)) {
+          if (sent === 0) return { success: false, error: "Wing \uACC4\uC815\uC774 \uC2E4\uD589\uC5D0 \uC9C0\uC815\uB41C \uACC4\uC815\uACFC \uB2E4\uB974\uAC70\uB098 \uD655\uC778\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." };
+          failed9 += products.length - index;
+          warnings.push("Wing \uACC4\uC815\uC774 \uBC14\uB00C\uC5B4 \uB0A8\uC740 \uC804\uC1A1\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
+          break;
+        }
+        const read15 = await readItems2(product);
+        if (!read15.items) {
+          if (read15.loggedOut) {
+            if (sent === 0) return { success: false, error: `${LABEL15} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.` };
+            loggedOutAt = index;
+            break;
+          }
+          if (read15.rateLimited) {
+            stoppedAt = index;
+            break;
+          }
+          failed9 += wanted ? wanted.size : 1;
+          warnings.push(`${product}: ${LABEL15} \uC635\uC158 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${read15.status}).`);
+          continue;
+        }
+        const items = read15.items.filter((item) => !wanted || wanted.has(String(item.vendorItemId)));
+        if (!wanted && read15.items.length === 0) {
+          failed9 += 1;
+          warnings.push(`${product}: ${LABEL15} \uC635\uC158 \uBAA9\uB85D\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`);
+          continue;
+        }
+        if (wanted) {
+          const missing = [...wanted].filter((code2) => !read15.items.some((item) => String(item.vendorItemId) === code2));
+          if (missing.length > 0) {
+            failed9 += missing.length;
+            warnings.push(`${product}: \uC635\uC158 ${missing.length}\uAC1C\uAC00 ${LABEL15}\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+          }
+        }
+        const editable = items.filter((item) => item.registrationType !== "RFM");
+        rocket += items.length - editable.length;
+        const targets = editable.filter(isTarget);
+        already += editable.length - targets.length;
+        const selected = new Set(items.map((item) => String(item.vendorItemId)));
+        const recordEvidence = async (reread) => {
+          if (!identity2?.ok || !reread) return;
+          const after2 = await readIdentity(expectedProviderAccountId);
+          if (!after2?.ok || after2.vendorId !== identity2.vendorId) return;
+          providerAccountId = after2.vendorId ?? null;
+          observed.push({ code: product, options: observedNormalOptions(reread, selected) });
+        };
+        if (targets.length === 0) {
+          await recordEvidence(read15.items);
+          continue;
+        }
+        const dtos = targets.map((item) => ({ vendorInventoryItemId: item.vendorInventoryItemId, vendorItemId: item.vendorItemId, inventoryQuantity: quantity }));
+        const answer = await inPage(CHANGE_PATH2, "POST", "application/x-www-form-urlencoded; charset=UTF-8", `stockManageItems=${encodeURIComponent(JSON.stringify({ dtos }))}`);
+        if (answer.status === 429) {
+          failed9 += targets.length;
+          blockedOnSend = 1;
+          stoppedAt = index + 1;
+          break;
+        }
+        const results = Array.isArray(answer.json) ? answer.json : null;
+        if (answer.status < 200 || answer.status >= 300 || !results) {
+          failed9 += targets.length;
+          warnings.push(`${product}: ${LABEL15}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          continue;
+        }
+        const ok = new Set(results.filter((entry) => entry && entry.success === true).map((entry) => String(entry.vendorItemId)));
+        const okCount = targets.filter((item) => ok.has(String(item.vendorItemId))).length;
+        sent += okCount;
+        failed9 += targets.length - okCount;
+        if (okCount < targets.length) {
+          const reasons = [...new Set(results.filter((entry) => entry && entry.success !== true).map((entry) => String(entry.message || "").trim()).filter(Boolean))].slice(0, 2);
+          warnings.push(`${product}: ${targets.length - okCount}\uAC1C \uC635\uC158\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${reasons.length ? ` \u2014 ${reasons.join(" / ").slice(0, 160)}` : ""}.`);
+        }
+        const countChanged = (list2) => {
+          const changed = new Set(list2.filter((item) => Number(item.stockQuantity) === quantity).map((item) => String(item.vendorItemId)));
+          return targets.filter((item) => changed.has(String(item.vendorItemId))).length;
+        };
+        let after = await readItems2(product);
+        let seen = after.items ? countChanged(after.items) : 0;
+        if (after.items && seen < okCount) {
+          await context.sleep(RECHECK_MS9);
+          after = await readItems2(product);
+          if (after.items) seen = Math.max(seen, countChanged(after.items));
+        }
+        confirmed += seen;
+        await recordEvidence(after.items);
+        await context.sleep(PACE_MS14);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (stoppedAt !== null) {
+      const rest = products.slice(stoppedAt);
+      failed9 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+      warnings.push(`${LABEL15}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uC0C1\uD488 ${rest.length + blockedOnSend}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+    }
+    if (loggedOutAt !== null) {
+      const rest = products.slice(loggedOutAt);
+      failed9 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+      warnings.push(`${LABEL15} \uB85C\uADF8\uC778\uC774 \uD480\uB824 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 ${rest.length}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+    }
+    return {
+      success: true,
+      // 이미 원하는 재고인 옵션은 보낼 것이 없었을 뿐 끝난 일이다.
+      sent: sent + already,
+      failed: failed9,
+      confirmed: confirmed + already,
+      already,
+      rocket,
+      requestOnly: false,
+      warnings,
+      observed,
+      providerAccountId,
+      observedUrl: null,
+      ...stoppedAt !== null ? { stopped: "rate_limited" } : loggedOutAt !== null ? { stopped: "logged_out" } : {}
+    };
+  }
+  async function read14(context, codes) {
+    const products = [...new Set(codes)].filter(isOptionId).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL15} \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withWingPage(context, async (run) => {
+      const { readItems: readItems2 } = wingTools(context, run);
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(PRODUCT_PACE_MS);
+        const product = products[index];
+        const result = await readItems2(product);
+        if (!result.items) {
+          if (result.loggedOut) return { success: false, error: `${LABEL15} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
+          if (result.rateLimited) return { success: false, error: `${LABEL15}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.` };
+          missing.push(product);
+          continue;
+        }
+        if (result.items.length === 0) {
+          missing.push(product);
+          continue;
+        }
+        found.push({
+          code: product,
+          options: result.items.map((item) => ({ optionCode: String(item.vendorItemId), stock: stockOf(item.stockQuantity), rocket: item.registrationType === "RFM" }))
+        });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "coupang",
+    displayName: LABEL15,
+    guard: { ...WING_WRITE_GUARD, loginMessage: "\uCFE0\uD321 \uC719 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694." },
+    dialogHosts: ["wing.coupang.com"],
+    login: WING_LOGIN,
+    send: send15,
+    read: read14
+  });
+
+  // extensions/src/sites/wing/thumbnail.ts
+  var WING_ORIGIN = "https://wing.coupang.com";
+  var WING_FORM_URL2 = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
+  var WING_THUMBNAIL_FILE = "content/page-call/wing-thumbnail.js";
+  var FIND_TIMEOUT_MS = 6e4;
+  var UPLOAD_TIMEOUT_MS = 3 * 6e4;
+  var IDENTITY_TIMEOUT_MS = 15e3;
+  var VENDOR_ID2 = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+  function wingProductSearchUrl(productName) {
+    return `${WING_ORIGIN}/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
+  }
+  function failed6(message, stage) {
+    return new RuntimeError(REGISTRATION_FILL_FAILED, message, { mallKey: "coupang", stage });
+  }
+  async function editUrlOf(context, input) {
+    const id3 = input.externalListingId?.trim() ?? "";
+    if (/^\d{6,}$/.test(id3)) return `${WING_FORM_URL2}?vendorInventoryId=${id3}`;
+    if (!input.productName.trim()) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFC0 \uCFE0\uD321 \uC719 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC774\uB984\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+    const list2 = await openWriteTab(context, wingProductSearchUrl(input.productName), { signIn: context.signIn, dialogHosts: ["wing.coupang.com"] });
+    let found = null;
+    try {
+      found = await list2.run((page) => callPage(page, "wingThumb.findEdit", { productName: input.productName }, {
+        timeoutMs: FIND_TIMEOUT_MS,
+        guard: context.guard,
+        isolated: [WING_THUMBNAIL_FILE],
+        displayName: context.displayName
+      }));
+      if (found?.ok !== true || !found.editUrl) throw failed6(found?.error ?? "\uCFE0\uD321 \uC719 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", "find_edit");
+      const url = new URL(found.editUrl, WING_ORIGIN);
+      if (url.origin !== WING_ORIGIN) throw failed6("\uCFE0\uD321 \uC719 \uBC16\uC758 \uC218\uC815 \uD654\uBA74 \uC8FC\uC18C\uB77C \uC5F4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", "find_edit");
+      return url.href;
+    } finally {
+      if (found?.ok === true) await list2.page.close().catch(() => void 0);
+      await list2.done();
+    }
+  }
+  async function updateWingThumbnail(context, input) {
+    if (!input.image.dataUrl.startsWith("data:image/")) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uB300\uD45C\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+    }
+    const expected = input.expectedProviderAccountId?.trim() ?? "";
+    if (expected && !VENDOR_ID2.test(expected)) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+    }
+    const url = await editUrlOf(context, input);
+    const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: ["wing.coupang.com"], bootstrapFile: WING_COMPAT_FILE });
+    try {
+      const uploaded = await tab.run(async (page) => {
+        let providerAccountId = null;
+        if (expected) {
+          const identity2 = await callPage(page, "availability.wingIdentityOnPage", [expected], {
+            timeoutMs: IDENTITY_TIMEOUT_MS,
+            guard: context.guard,
+            isolated: [WING_IDENTITY_FILE, AVAILABILITY_FILE],
+            displayName: context.displayName
+          });
+          if (identity2?.ok !== true || identity2.vendorId !== expected) {
+            throw new RuntimeError("REGISTRATION_ACCOUNT_MISMATCH", "\uCFE0\uD321 \uC719\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uAC70\uB098 \uC2E4\uD589\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: "coupang" });
+          }
+          providerAccountId = identity2.vendorId;
+        }
+        const answer = await callPage(page, "wingThumb.upload", { productName: input.productName, image: input.image }, {
+          timeoutMs: UPLOAD_TIMEOUT_MS,
+          guard: context.guard,
+          isolated: [WING_THUMBNAIL_FILE],
+          displayName: context.displayName
+        });
+        if (answer?.ok !== true) throw failed6(answer?.error ?? "\uCFE0\uD321 \uC719 \uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC62C\uB9AC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", "upload");
+        return { steps: answer.steps ?? [], providerAccountId };
+      });
+      const observed = await tab.page.currentUrl().catch(() => null);
+      return {
+        fill: { steps: uploaded.steps, warnings: [], manualSteps: ["\uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uC218\uC815 \uD654\uBA74\uC5D0\uC11C [\uC800\uC7A5]\uC744 \uB20C\uB7EC \uC8FC\uC138\uC694."], dialogs: [] },
+        providerAccountId: uploaded.providerAccountId,
+        observedUrl: observed ? observed.split(/[?#]/)[0] : null,
+        done: () => tab.done()
+      };
+    } catch (error) {
+      await tab.done();
+      throw error;
+    }
+  }
+  registerMallThumbnail("coupang", updateWingThumbnail);
+
   // extensions/src/sites/wing/vendor-identity.ts
   var WING_VENDOR_IDENTITY_UNAVAILABLE = "WING_VENDOR_IDENTITY_UNAVAILABLE";
   var WING_VENDOR_IDENTITY_AMBIGUOUS = "WING_VENDOR_IDENTITY_AMBIGUOUS";
@@ -12433,8 +19592,8 @@ var KidItemRuntime = (() => {
     for (const script of html.matchAll(INLINE_SCRIPT)) {
       for (const match of (script[1] ?? "").matchAll(SCRIPT_VENDOR_ID)) found.add(match[1]);
     }
-    const text5 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
-    for (const match of text5.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
+    const text8 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+    for (const match of text8.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
     for (const match of html.matchAll(DATA_VENDOR_ID)) found.add(match[1]);
     return [...found];
   }
@@ -12451,16 +19610,16 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/itemwinner.ts
-  var WING_ORIGIN = "https://wing.coupang.com";
-  var WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
-  var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN}/tenants/seller-price-management`;
-  var PAGE_SIZE2 = 1e3;
+  var WING_ORIGIN2 = "https://wing.coupang.com";
+  var WING_ITEMWINNER_URL = `${WING_ORIGIN2}/tenants/seller-price-management/getProductList`;
+  var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN2}/tenants/seller-price-management`;
+  var PAGE_SIZE4 = 1e3;
   var EMPTY_PAGE_SIZE = 10;
   var WING_ITEMWINNER_CALLER = {
     minIntervalMs: 1e3,
     timeoutMs: 3e4,
     displayName: "\uCFE0\uD321 \uC719",
-    xsrf: { cookieUrl: WING_ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    xsrf: { cookieUrl: WING_ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
   };
   var WING_ITEMWINNER_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
   function requestBody() {
@@ -12477,7 +19636,7 @@ var KidItemRuntime = (() => {
       vendorItemStatus: "ON_SALE",
       itemWinnerStatus: "ALL",
       rodBadge: "ALL",
-      pageSize: PAGE_SIZE2,
+      pageSize: PAGE_SIZE4,
       page: 0,
       searchPresets: null,
       isTopGMV: null
@@ -12490,38 +19649,38 @@ var KidItemRuntime = (() => {
       headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
       body: JSON.stringify(requestBody())
     });
-    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed4("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed7("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     const totalSize = integer(body.totalSize);
     const pageIndex = integer(body.page);
     const pageSize = integer(body.pageSize);
     const totalPages = integer(body.totalPages);
     if (totalSize === null || pageIndex !== 0 || pageSize === null || totalPages === null || totalSize < 0 || totalPages < 0) {
-      throw failed4("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      throw failed7("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
     if (totalSize > WING_ITEMWINNER_MAX_ITEMS) {
       throw new RuntimeError(WING_ITEMWINNER_PAGE_LIMIT_REACHED, `\uD310\uB9E4\uC911 \uC0C1\uD488\uC774 ${WING_ITEMWINNER_MAX_ITEMS}\uAC1C\uB97C \uB118\uC5B4 \uC544\uC774\uD15C\uC704\uB108\uB97C \uD55C \uBC88\uC5D0 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { totalSize });
     }
     const rows = body.result;
-    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE2 && totalPages === 1 && rows.length === totalSize;
-    if (!complete) throw failed4("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
+    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE4 && totalPages === 1 && rows.length === totalSize;
+    if (!complete) throw failed7("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
     const normalized = rows.map(normalizeRow);
     if (new Set(normalized.map((row) => row.vendorItemId)).size !== normalized.length) {
-      throw failed4("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
+      throw failed7("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
     }
     return { rows: normalized, totalSize };
   }
   function normalizeRow(value) {
-    if (!isRecord3(value) || typeof value.winnerStatus !== "boolean" || typeof value.suppressed !== "boolean") throw rowInvalid("winnerStatus");
+    if (!isRecord3(value) || typeof value.winnerStatus !== "boolean" || typeof value.suppressed !== "boolean") throw rowInvalid2("winnerStatus");
     const vendorItemId = positiveId(value.vendorItemId);
-    if (!vendorItemId) throw rowInvalid("vendorItemId");
+    if (!vendorItemId) throw rowInvalid2("vendorItemId");
     const productName = typeof value.productName === "string" ? value.productName.trim() : "";
-    if (!productName) throw rowInvalid("productName");
+    if (!productName) throw rowInvalid2("productName");
     const myPrice = integer(value.currentPrice);
     const winnerPrice = integer(value.winnerPrice);
     const salesQty = value.myViSales === "" ? 0 : integer(value.myViSales);
-    if (myPrice === null) throw rowInvalid("currentPrice");
-    if (winnerPrice === null) throw rowInvalid("winnerPrice");
-    if (salesQty === null || salesQty < 0) throw rowInvalid("myViSales");
+    if (myPrice === null) throw rowInvalid2("currentPrice");
+    if (winnerPrice === null) throw rowInvalid2("winnerPrice");
+    if (salesQty === null || salesQty < 0) throw rowInvalid2("myViSales");
     return {
       vendorItemId,
       productName: productName.slice(0, 80),
@@ -12534,20 +19693,20 @@ var KidItemRuntime = (() => {
     };
   }
   function positiveId(value) {
-    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^\d+$/.test(text5) && BigInt(text5) > 0n ? text5 : null;
+    const text8 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^\d+$/.test(text8) && BigInt(text8) > 0n ? text8 : null;
   }
   function integer(value) {
-    const number2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isSafeInteger(number2) ? number2 : null;
+    const number3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(number3) ? number3 : null;
   }
   function isRecord3(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
   }
-  function rowInvalid(field) {
-    return failed4("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  function rowInvalid2(field) {
+    return failed7("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
   }
-  function failed4(reason, message, details = {}) {
+  function failed7(reason, message, details = {}) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, url: WING_ITEMWINNER_URL, ...details });
   }
   function createWingItemwinnerSite(caller) {
@@ -12558,23 +19717,23 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-itemwinner",
-    origin: WING_ORIGIN,
+    origin: WING_ORIGIN2,
     create: (deps) => createWingItemwinnerSite(createSiteCaller(WING_ITEMWINNER_CALLER, deps))
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN6 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN6}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN22 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN22}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS3 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN6,
+    origin: ORIGIN22,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN6, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN22, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {
@@ -12616,13 +19775,13 @@ var KidItemRuntime = (() => {
     };
   }
   function parseWingSearchPage(body) {
-    const record2 = asRecord2(body);
-    if (!record2 || !Array.isArray(record2.result)) {
+    const record4 = asRecord2(body);
+    if (!record4 || !Array.isArray(record4.result)) {
       throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
-    const next = record2.nextSearchPage;
+    const next = record4.nextSearchPage;
     return {
-      rows: record2.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      rows: record4.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
       nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
     };
   }
@@ -12699,8 +19858,8 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/reviews.ts
-  var WING_ORIGIN2 = "https://wing.coupang.com";
-  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN2}/tenants/cs/product/review/search`;
+  var WING_ORIGIN3 = "https://wing.coupang.com";
+  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN3}/tenants/cs/product/review/search`;
   var WING_REVIEW_PAGE_SIZE = 50;
   var WING_REVIEW_CALLER = { minIntervalMs: 350 };
   var WING_REVIEW_TIMEOUT_MS = 2e4;
@@ -12746,11 +19905,11 @@ var KidItemRuntime = (() => {
       externalReviewId: String(raw.reviewId),
       externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
       externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
-      itemName: text4(raw.itemName),
+      itemName: text7(raw.itemName),
       rating: Math.round(rating),
-      title: text4(raw.reviewTitle),
-      content: text4(raw.reviewContent),
-      reviewerName: text4(raw.memberName),
+      title: text7(raw.reviewTitle),
+      content: text7(raw.reviewContent),
+      reviewerName: text7(raw.memberName),
       reviewedAt: Math.trunc(reviewedAt),
       imageCount: attachment.images,
       videoCount: attachment.videos,
@@ -12761,16 +19920,16 @@ var KidItemRuntime = (() => {
   function attachmentCounts(value) {
     if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
     try {
-      const parsed2 = JSON.parse(value);
+      const parsed3 = JSON.parse(value);
       return {
-        images: Array.isArray(parsed2?.imageAttachments) ? parsed2.imageAttachments.length : 0,
-        videos: Array.isArray(parsed2?.videoAttachments) ? parsed2.videoAttachments.length : 0
+        images: Array.isArray(parsed3?.imageAttachments) ? parsed3.imageAttachments.length : 0,
+        videos: Array.isArray(parsed3?.videoAttachments) ? parsed3.videoAttachments.length : 0
       };
     } catch {
       return { images: 0, videos: 0 };
     }
   }
-  function text4(value) {
+  function text7(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed || null;
@@ -12780,48 +19939,48 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-reviews",
-    origin: WING_ORIGIN2,
+    origin: WING_ORIGIN3,
     create: (deps, lease) => createWingReviewsSite(wingCallerWithLogin(createSiteCaller(WING_REVIEW_CALLER, deps), deps, lease))
   });
 
   // extensions/src/sites/wing/traffic.ts
-  var WING_ORIGIN3 = "https://wing.coupang.com";
-  var WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vi-detail-search`;
-  var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vendor-summary`;
-  var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/metadata/business-insights`;
+  var WING_ORIGIN4 = "https://wing.coupang.com";
+  var WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN4}/tenants/rfm-ss/api/business-insight/vi-detail-search`;
+  var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN4}/tenants/rfm-ss/api/business-insight/vendor-summary`;
+  var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN4}/tenants/rfm-ss/api/metadata/business-insights`;
   var WING_TRAFFIC_PAGE_SIZE = 100;
-  var WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN3}/tenants/business-insight/sales-analysis`;
+  var WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN4}/tenants/business-insight/sales-analysis`;
   var REGISTRATION_TYPES = ["NORMAL", "RFM"];
   var WING_TRAFFIC_CALLER = {
     minIntervalMs: 300,
     timeoutMs: 3e4,
     displayName: "\uCFE0\uD321 \uC719",
-    xsrf: { cookieUrl: WING_ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    xsrf: { cookieUrl: WING_ORIGIN4, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
   };
-  var JSON_HEADERS = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
+  var JSON_HEADERS2 = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
   async function readWingTrafficFreshness(caller, now) {
     const body = await caller.json(`${WING_TRAFFIC_METADATA_URL}?platform=WING&date=${encodeURIComponent(now.toISOString())}`, {
       requireXsrf: true,
       headers: { Accept: "application/json, text/plain, */*" }
     });
-    const metrics = record(record(record(body)?.dataFreshness)?.metrics);
-    const viewable = record(record(record(body)?.viewablePeriods)?.sa);
+    const metrics2 = record3(record3(record3(body)?.dataFreshness)?.metrics);
+    const viewable = record3(record3(record3(body)?.viewablePeriods)?.sa);
     const freshness = {
-      salesLatest: koreaDate(record(metrics?.SALES_DAILY)?.latestDataDate),
-      trafficLatest: koreaDate(record(metrics?.TRAFFIC_DAILY)?.latestDataDate),
+      salesLatest: koreaDate(record3(metrics2?.SALES_DAILY)?.latestDataDate),
+      trafficLatest: koreaDate(record3(metrics2?.TRAFFIC_DAILY)?.latestDataDate),
       viewableStart: koreaDate(viewable?.startDate),
       viewableEnd: koreaDate(viewable?.endDate)
     };
     if (!freshness.salesLatest || !freshness.trafficLatest || !freshness.viewableStart || !freshness.viewableEnd) {
-      throw failed5("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      throw failed8("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
     return freshness;
   }
   async function readWingTrafficDetailPage(caller, input) {
-    const body = record(await caller.json(WING_TRAFFIC_DETAIL_URL, {
+    const body = record3(await caller.json(WING_TRAFFIC_DETAIL_URL, {
       method: "POST",
       requireXsrf: true,
-      headers: JSON_HEADERS,
+      headers: JSON_HEADERS2,
       body: JSON.stringify({
         startDate: input.businessDate,
         endDate: input.businessDate,
@@ -12833,63 +19992,63 @@ var KidItemRuntime = (() => {
         includeSoldVICount: true
       })
     }));
-    const pagination = record(body?.paginationDetails);
+    const pagination = record3(body?.paginationDetails);
     const items = body?.vendorItems;
     const totalResults = integer2(pagination?.totalResults);
     const totalPages = integer2(pagination?.totalPages);
     const pageSize = integer2(pagination?.pageSize);
     const pageNumber = integer2(pagination?.pageNumber);
     if (!Array.isArray(items) || totalResults === null || totalPages === null || pageSize === null || pageNumber === null) {
-      throw failed5("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
+      throw failed8("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
     }
     return { rows: items.map((item) => normalizeRow2(item, input.vendorId)), totalResults, totalPages, pageSize, pageNumber };
   }
   async function readWingTrafficSummary(caller, input) {
-    const body = record(await caller.json(WING_TRAFFIC_SUMMARY_URL, {
+    const body = record3(await caller.json(WING_TRAFFIC_SUMMARY_URL, {
       method: "POST",
       requireXsrf: true,
-      headers: JSON_HEADERS,
+      headers: JSON_HEADERS2,
       body: JSON.stringify({ startDate: input.startDate, endDate: input.endDate, registrationTypes: [...REGISTRATION_TYPES], searchIds: [] })
     }));
-    const metrics = record(body?.summaryMetrics);
+    const metrics2 = record3(body?.summaryMetrics);
     const summary = {
-      visitors: integer2(metrics?.totalUniqueVisitor),
-      views: integer2(metrics?.totalPageViews),
-      cartAdds: integer2(metrics?.totalAddToCart),
-      orders: integer2(metrics?.totalOrders),
-      salesQty: integer2(metrics?.totalUnitsSold),
-      revenue: integer2(metrics?.totalGmv)
+      visitors: integer2(metrics2?.totalUniqueVisitor),
+      views: integer2(metrics2?.totalPageViews),
+      cartAdds: integer2(metrics2?.totalAddToCart),
+      orders: integer2(metrics2?.totalOrders),
+      salesQty: integer2(metrics2?.totalUnitsSold),
+      revenue: integer2(metrics2?.totalGmv)
     };
     if (Object.values(summary).some((value) => value === null)) {
-      throw failed5("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+      throw failed8("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
     }
-    const ratio = metrics?.pvToOrder;
-    const providerConversionRate = ratio === null || ratio === void 0 ? null : number(ratio);
+    const ratio = metrics2?.pvToOrder;
+    const providerConversionRate = ratio === null || ratio === void 0 ? null : number2(ratio);
     if (ratio !== null && ratio !== void 0 && providerConversionRate === null) {
-      throw failed5("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+      throw failed8("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
     }
     return { ...summary, providerConversionRate: providerConversionRate === null ? null : providerConversionRate * 100 };
   }
   function normalizeRow2(value, vendorId2) {
-    const row = record(value);
-    const details = record(row?.vendorItemDetails);
-    const metrics = record(row?.businessInsightsMetricsResponse);
+    const row = record3(value);
+    const details = record3(row?.vendorItemDetails);
+    const metrics2 = record3(row?.businessInsightsMetricsResponse);
     const vendorItemId = positiveId2(details?.vendorItemId);
     const productId2 = positiveId2(details?.inventoryId);
-    if (!details || !metrics || !vendorItemId || !productId2) throw rowInvalid2("vendorItemDetails");
+    if (!details || !metrics2 || !vendorItemId || !productId2) throw rowInvalid3("vendorItemDetails");
     const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
     if (rowVendorId !== vendorId2) {
-      throw failed5("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
+      throw failed8("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
     }
     const values = {
-      visitors: integer2(metrics.totalUniqueVisitor),
-      views: integer2(metrics.totalPageViews),
-      cartAdds: integer2(metrics.totalAddToCart),
-      orders: integer2(metrics.totalOrders),
-      salesQty: integer2(metrics.totalUnitsSold),
-      revenue: integer2(metrics.totalGmv)
+      visitors: integer2(metrics2.totalUniqueVisitor),
+      views: integer2(metrics2.totalPageViews),
+      cartAdds: integer2(metrics2.totalAddToCart),
+      orders: integer2(metrics2.totalOrders),
+      salesQty: integer2(metrics2.totalUnitsSold),
+      revenue: integer2(metrics2.totalGmv)
     };
-    for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid2(field);
+    for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid3(field);
     return { vendorItemId, productId: productId2, ...values };
   }
   function koreaDate(value) {
@@ -12898,24 +20057,24 @@ var KidItemRuntime = (() => {
     return new Date(timestamp + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   function positiveId2(value) {
-    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^[1-9]\d*$/.test(text5) ? text5 : null;
+    const text8 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text8) ? text8 : null;
   }
-  function number(value) {
-    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isFinite(parsed2) ? parsed2 : null;
+  function number2(value) {
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed3) ? parsed3 : null;
   }
   function integer2(value) {
-    const parsed2 = number(value);
-    return parsed2 !== null && Number.isSafeInteger(parsed2) ? parsed2 : null;
+    const parsed3 = number2(value);
+    return parsed3 !== null && Number.isSafeInteger(parsed3) ? parsed3 : null;
   }
-  function record(value) {
+  function record3(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   }
-  function rowInvalid2(field) {
-    return failed5("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  function rowInvalid3(field) {
+    return failed8("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
   }
-  function failed5(reason, message, details = {}) {
+  function failed8(reason, message, details = {}) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
   }
   function createWingTrafficSite(caller) {
@@ -12928,7 +20087,7 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-traffic",
-    origin: WING_ORIGIN3,
+    origin: WING_ORIGIN4,
     create: (deps) => createWingTrafficSite(createSiteCaller(WING_TRAFFIC_CALLER, deps))
   });
 
@@ -13021,12 +20180,12 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/core/operation-client.ts
-  function stopFor(code, details) {
-    if (code === "OPERATION_IN_PROGRESS") {
+  function stopFor(code2, details) {
+    if (code2 === "OPERATION_IN_PROGRESS") {
       const existing = OperationInProgressDetailsSchema.safeParse(details);
       return { kind: "already_running", existing: existing.success ? existing.data : null };
     }
-    if (code === "OPERATION_FENCE_LOST" || code === "OPERATION_NOT_FOUND") {
+    if (code2 === "OPERATION_FENCE_LOST" || code2 === "OPERATION_NOT_FOUND") {
       const reason = details?.reason;
       return { kind: "fence_lost", reason: typeof reason === "string" ? reason : null };
     }
@@ -13064,10 +20223,10 @@ var KidItemRuntime = (() => {
         ...request.body !== void 0 ? { body: JSON.stringify(request.body) } : {}
       });
     } catch (error) {
-      const code = error?.code;
-      if (typeof code === "string" && code.trim()) {
+      const code2 = error?.code;
+      if (typeof code2 === "string" && code2.trim()) {
         const message = error instanceof Error && error.message ? error.message : "KidItem \uC11C\uBC84 \uC694\uCCAD\uC774 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4.";
-        throw new RuntimeError(code.trim().slice(0, 100), message, { path }, error);
+        throw new RuntimeError(code2.trim().slice(0, 100), message, { path }, error);
       }
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path }, error);
     }
@@ -13079,14 +20238,14 @@ var KidItemRuntime = (() => {
       }
       throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
     }
-    const parsed2 = schema.safeParse(body);
-    if (!parsed2.success) {
+    const parsed3 = schema.safeParse(body);
+    if (!parsed3.success) {
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
     }
-    return parsed2.data;
+    return parsed3.data;
   }
-  async function sha256Hex(text5) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text5));
+  async function sha256Hex(text8) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text8));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
@@ -13096,7 +20255,7 @@ var KidItemRuntime = (() => {
   var RUNTIME_CHUNK_TOO_LARGE = "RUNTIME_CHUNK_TOO_LARGE";
   var HEARTBEAT_CHUNK_KIND = "heartbeat";
   var HEARTBEAT_INTERVAL_MS = OPERATION_LEASE_MS / 3;
-  var encoder3 = new TextEncoder();
+  var encoder4 = new TextEncoder();
   function createRunner(deps, collectorFor2) {
     return {
       /**
@@ -13154,8 +20313,8 @@ var KidItemRuntime = (() => {
     if (input.signal.aborted) local.abort(input.signal.reason);
     else input.signal.addEventListener("abort", onAbort, { once: true });
     let writes = Promise.resolve();
-    const write = (send) => {
-      const next = writes.then(send);
+    const write = (send16) => {
+      const next = writes.then(send16);
       writes = next.catch(() => void 0);
       return next;
     };
@@ -13212,41 +20371,57 @@ var KidItemRuntime = (() => {
         );
         scheduleHeartbeat();
       };
-      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
-        if (local.signal.aborted) break;
-        if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
-          throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
+      const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })[Symbol.asyncIterator]();
+      let returned = void 0;
+      try {
+        for (; ; ) {
+          const step = await stream.next();
+          if (step.done) {
+            returned = step.value;
+            break;
+          }
+          const chunk = step.value;
+          if (local.signal.aborted) {
+            await stream.return?.(void 0);
+            break;
+          }
+          if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
+            throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
+          }
+          const empty = chunk.payload.length === 0;
+          if (!empty) assertChunkFits(chunk, chunks);
+          const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
+          const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
+          if (!empty) sequences.set(chunk.chunkKind, sequence);
+          await write(
+            () => deps.client.putChunk({
+              operationId,
+              token,
+              chunkKind: chunk.chunkKind,
+              sequence,
+              payload: chunk.payload,
+              ...chunk.progress ? { progress: chunk.progress } : {}
+            })
+          );
+          if (!empty) {
+            chunks += 1;
+            items += chunk.payload.length;
+          }
+          if (chunk.progress) lastProgress = chunk.progress;
+          scheduleHeartbeat();
         }
-        const empty = chunk.payload.length === 0;
-        if (!empty) assertChunkFits(chunk, chunks);
-        const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
-        const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
-        if (!empty) sequences.set(chunk.chunkKind, sequence);
-        await write(
-          () => deps.client.putChunk({
-            operationId,
-            token,
-            chunkKind: chunk.chunkKind,
-            sequence,
-            payload: chunk.payload,
-            ...chunk.progress ? { progress: chunk.progress } : {}
-          })
-        );
-        if (!empty) {
-          chunks += 1;
-          items += chunk.payload.length;
-        }
-        if (chunk.progress) lastProgress = chunk.progress;
-        scheduleHeartbeat();
+      } catch (error) {
+        await stream.return?.(void 0).catch(() => void 0);
+        throw error;
       }
       collectionDone = true;
       stopHeartbeat();
       await writes;
       if (heartbeatStop) throw heartbeatStop;
       if (input.signal.aborted) return cancelled(operationId);
-      const summary = collector.summarize?.({ chunks, items }) ?? {};
+      const summary = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
       const request = {
-        outcome: "succeeded",
+        outcome: summary.outcome ?? "succeeded",
         ...summary.result ? { result: summary.result } : {},
         ...summary.window ? { window: summary.window } : {}
       };
@@ -13293,7 +20468,7 @@ var KidItemRuntime = (() => {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
   }
   function assertChunkFits(chunk, sentChunks) {
-    const bytes = encoder3.encode(JSON.stringify(chunk.payload)).byteLength;
+    const bytes = encoder4.encode(JSON.stringify(chunk.payload)).byteLength;
     if (bytes > OPERATION_CHUNK_MAX_BYTES) {
       throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C \uD558\uB098\uAC00 ${OPERATION_CHUNK_MAX_BYTES}\uBC14\uC774\uD2B8\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, bytes });
     }
@@ -13309,8 +20484,8 @@ var KidItemRuntime = (() => {
   function nextOperationFrom(result) {
     const next = result?.next;
     if (next === void 0 || next === null) return null;
-    const parsed2 = OperationNextSchema.safeParse(next);
-    return parsed2.success ? parsed2.data : null;
+    const parsed3 = OperationNextSchema.safeParse(next);
+    return parsed3.success ? parsed3.data : null;
   }
 
   // extensions/src/entry/actions.ts
@@ -13380,7 +20555,7 @@ var KidItemRuntime = (() => {
             }
           });
           const done = run.finally(() => {
-            for (const id of owned) running.delete(id);
+            for (const id3 of owned) running.delete(id3);
           });
           deps.keepAlive?.(done);
           return Promise.race([
@@ -13433,15 +20608,15 @@ var KidItemRuntime = (() => {
     return { success: false, errorCode: "RUNTIME_API_UNREACHABLE", error: error instanceof Error ? error.message : String(error) };
   }
   function validateWith(schema, message) {
-    const parsed2 = schema.safeParse(message);
-    if (parsed2.success) return { ok: true, message: parsed2.data };
+    const parsed3 = schema.safeParse(message);
+    if (parsed3.success) return { ok: true, message: parsed3.data };
     return {
       ok: false,
       response: {
         success: false,
         errorCode: "VALIDATION_FAILED",
         error: LOCAL_TEXT.VALIDATION_FAILED,
-        details: { errors: parsed2.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
+        details: { errors: parsed3.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
       }
     };
   }
@@ -13452,11 +20627,11 @@ var KidItemRuntime = (() => {
   function productExtensionScope(url) {
     if (!url) return null;
     try {
-      const parsed2 = new URL(url);
-      if (parsed2.protocol !== "https:") return null;
-      const host = parsed2.hostname.toLowerCase();
-      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed2.toString() };
-      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed2.toString() };
+      const parsed3 = new URL(url);
+      if (parsed3.protocol !== "https:") return null;
+      const host = parsed3.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed3.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed3.toString() };
       return null;
     } catch {
       return null;
@@ -13483,10 +20658,10 @@ var KidItemRuntime = (() => {
   }
   function installProductCollect(chromeApi, deps) {
     chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      const record2 = message && typeof message === "object" ? message : null;
-      if (record2?.type !== COLLECT_CURRENT) return;
-      const tabId = record2.tabId;
-      const environmentId = record2.environmentId;
+      const record4 = message && typeof message === "object" ? message : null;
+      if (record4?.type !== COLLECT_CURRENT) return;
+      const tabId = record4.tabId;
+      const environmentId = record4.environmentId;
       if (typeof tabId !== "number" || typeof environmentId !== "string" || !environmentId) {
         sendResponse({ ok: false, error: "\uC218\uC9D1\uD560 \uD0ED\uACFC KidItem \uD658\uACBD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." });
         return;
@@ -13511,6 +20686,12 @@ var KidItemRuntime = (() => {
     }
     return capabilities;
   }
+  function mallWriteSiteCapability(mallKey) {
+    return `mallWriteSite.${mallKey}`;
+  }
+  function mallWriteCapabilities(writers2 = [...registeredMallWriters(), ...registeredMallAvailability()]) {
+    return Object.fromEntries(writers2.map((writer) => [mallWriteSiteCapability(writer.mallKey), true]));
+  }
 
   // extensions/src/entry/index.ts
   function installEntry() {
@@ -13526,6 +20707,7 @@ var KidItemRuntime = (() => {
     };
     void sweepDialogGuards(chrome);
     if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
+    if (chrome.runtime?.onMessage) installTrustedInputAnswer(chrome, site.tabs);
     const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
@@ -13549,7 +20731,12 @@ var KidItemRuntime = (() => {
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
         [SELLPIA_OPERATION_CAPABILITY]: true,
-        ...mallSiteCapabilities()
+        [ADVERTISING_AD_REPORT_OPERATION_CAPABILITY]: true,
+        // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
+        // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
+        [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
+        ...mallSiteCapabilities(),
+        ...mallWriteCapabilities()
       }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

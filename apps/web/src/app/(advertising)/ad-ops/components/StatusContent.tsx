@@ -10,6 +10,7 @@ import AdSidePanel from "./AdSidePanel";
 import AdCollectionDailyChart from "./AdCollectionDailyChart";
 import AdvertisingProfitabilityRefresh from "./AdvertisingProfitabilityRefresh";
 import { WingItemwinnerCollection } from "./WingItemwinnerCollection";
+import { AdReportCollection } from "./AdReportCollection";
 import type { AdCollectionPeriod } from "./AdCollectionDailyChart";
 import type { AdWeeklyPlan, AdTrendsData, AdCampaignSnapshot, AdExtensionStatus, AdStrategyAction } from "@kiditem/shared/advertising";
 import type { CampaignSelection } from "./CampaignTable";
@@ -155,6 +156,17 @@ export default function StatusContent({
       </div>
 
       <AdvertisingProfitabilityRefresh />
+
+      {/* 광고 보고서(advertising.ad_report, KID-371): 광고 원장 5표를 채우는 수집. 화면 숫자는 KID-372까지 옛 경로. */}
+      <div className="rounded-2xl p-5" style={{ background: "var(--card-bg)", boxShadow: "var(--shadow-md)", border: "1px solid var(--border-subtle)" }}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>광고 보고서</h2>
+            <span className="text-xs" style={{ color: "var(--text-tertiary)" }}>광고센터 상품·키워드 보고서와 정산을 한 번에 받습니다</span>
+          </div>
+          <AdReportCollection />
+        </div>
+      </div>
 
       {/* 아이템위너 · 노출 현황 (현재 상태). The card stays before any KPI exists:
           it is where the itemwinner collection starts and stops. */}

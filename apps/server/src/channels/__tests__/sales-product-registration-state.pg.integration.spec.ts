@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import type { Prisma, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import type { RegistrationExecutionKind } from '@kiditem/shared/channels-operations';
+import { seedRegistrationOperation } from './registration-operation-seeds';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RegistrationStateRepositoryAdapter } from '../adapter/out/persistence/registration-state.repository.adapter';
 import { realRegistrationStates } from '../../test-helpers/registration-state';
@@ -96,23 +98,22 @@ describe('registration state facts (PostgreSQL)', () => {
     payload?: Record<string, unknown>;
   }) {
     sequence += 1;
-    return prisma.productRegistrationExecution.create({
-      data: {
-        organizationId: ORG,
-        registrationTargetId: input.registrationTargetId,
-        channelAccountId: input.channelAccountId,
-        channelListingId: input.channelListingId ?? null,
-        executionKind: input.kind,
-        idempotencyKey: randomUUID(),
-        requestHash: 'a'.repeat(64),
-        status: input.status,
-        providerOutcome: input.providerOutcome ?? (input.status === 'succeeded' ? 'succeeded' : 'not_attempted'),
-        ...(input.payload ? { submissionPayloadJson: input.payload as Prisma.InputJsonValue } : {}),
-        createdAt: new Date(Date.UTC(2026, 8, 24, 0, 0, sequence)),
-        ...(['succeeded', 'failed', 'cancelled'].includes(input.status)
-          ? { completedAt: new Date(Date.UTC(2026, 8, 24, 0, 0, sequence)) }
-          : {}),
-      },
+    const at = new Date(Date.UTC(2026, 8, 24, 0, 0, sequence));
+    const availability = input.kind === 'sold_out' || input.kind === 'resume';
+    const payload = availability
+      ? { action: input.kind, listings: [{ channelListingId: input.channelListingId, externalListingId: 'ext', options: [] }] }
+      : input.kind === 'thumbnail_update' ? {} : { snapshot: input.payload ?? null, form: input.payload ? null : {} };
+    return seedRegistrationOperation(prisma, {
+      organizationId: ORG,
+      executionKind: input.kind as RegistrationExecutionKind,
+      channelAccountId: input.channelAccountId,
+      registrationTargetId: availability ? null : input.registrationTargetId,
+      channelListingId: availability ? null : input.channelListingId ?? null,
+      payload,
+      status: input.status as Parameters<typeof seedRegistrationOperation>[1]['status'],
+      result: input.providerOutcome ? { providerOutcome: input.providerOutcome } : null,
+      startedAt: at,
+      finishedAt: at,
     });
   }
 

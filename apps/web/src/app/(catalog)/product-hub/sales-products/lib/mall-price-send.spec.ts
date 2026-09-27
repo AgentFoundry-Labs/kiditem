@@ -1,52 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { canSendMallPrice, sendMallPrice } from './mall-price-send';
+import { describe, expect, it } from 'vitest';
+import { canSendMallPrice, MALL_PRICE_SEND_NOTE, mallPriceResendAllowed } from './mall-price-send';
 
-const bridge = vi.hoisted(() => ({
-  detectOrderCollectionExtensionId: vi.fn(),
-  detectOrderCollectionExtensionRuntime: vi.fn(),
-  sendToExtension: vi.fn(),
-}));
-vi.mock('@/lib/extension-bridge', () => bridge);
-
-
-describe('sendMallPrice', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
-    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'ready' });
+describe('몰 가격 보내기의 몰별 사실', () => {
+  it('가격 sender가 있는 몰만 버튼을 세운다', () => {
+    expect(canSendMallPrice('kakao')).toBe(true);
+    expect(canSendMallPrice('kidsnote')).toBe(true);
+    expect(canSendMallPrice('art09')).toBe(false);
   });
 
-  it('sends only price-capable malls through the extension and returns what the mall confirmed', async () => {
-    bridge.sendToExtension.mockResolvedValue({
-      success: true, sent: 1, failed: 0, confirmed: 1, warnings: [],
-      results: [{ code: '779522307', before: 2220, after: 2500, confirmed: true }],
-    });
-    const result = await sendMallPrice('kakao', [{ code: '779522307', price: 2500 }]);
-    expect(bridge.sendToExtension).toHaveBeenCalledWith(
-      'ext',
-      { action: 'sendMallPrice', mallKey: 'kakao', items: [{ code: '779522307', price: 2500, ifPrice: null }] },
-      expect.any(Number),
-    );
-    expect(result.results[0]).toMatchObject({ after: 2500, confirmed: true });
-    expect(canSendMallPrice('domeggook')).toBe(false);
-    await expect(sendMallPrice('domeggook', [{ code: '1', price: 1000 }])).rejects.toThrow('아직 가격을 보낼 수 없습니다');
-  });
-
-  it.each([
-    [false, false], [true, true], [undefined, true],
-  ])('preserves explicit no-submission evidence on bridge failure (%s)', async (submissionAttempted, expected) => {
-    bridge.sendToExtension.mockResolvedValue({ success: false, error: 'session expired', submissionAttempted });
-    await expect(sendMallPrice('kakao', [{ code: '1', price: 1000 }])).rejects.toMatchObject({ dispatchAttempted: expected });
-  });
-
-  it('returns explicit preflight no-submission evidence without inferring it from counts', async () => {
-    bridge.sendToExtension.mockResolvedValue({ success: true, sent: 0, failed: 1, submissionAttempted: false });
-    expect(await sendMallPrice('kakao', [{ code: '1', price: 1000 }])).toMatchObject({ submissionAttempted: false, sent: 0 });
-  });
-
-  it('refuses an extension that does not know price sends', async () => {
-    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'incompatible', version: '1.2.23' });
-    await expect(sendMallPrice('kakao', [{ code: '1', price: 1000 }])).rejects.toThrow('1.2.23');
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  it('보내는 것만으로 판매가 멈추는 몰(키즈노트)은 같은 가격을 다시 보내지 않고, 보내기 전에 그 말을 보인다', () => {
+    expect(mallPriceResendAllowed('kidsnote')).toBe(false);
+    expect(MALL_PRICE_SEND_NOTE.kidsnote).toContain('본사 승인');
+    expect(mallPriceResendAllowed('kakao')).toBe(true);
   });
 });

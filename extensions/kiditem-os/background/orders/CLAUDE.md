@@ -48,14 +48,11 @@ summary, Rocket PO and directship are operation kinds collected by
   false` — not a wrong password. The web decides what to do with that and
   limits how often the same mall is tried. The account screen's login test uses
   `testMallLogin`, which runs outside a collection attempt and sends nothing to
-  KidItem. Registration form fill logs in only when the form is absent (`noForm`);
-  a form that fails to fill is never a login prompt.
-- Registration presses a mall's own register button only when the web asks
-  `submit: true`, that mall's form spec declares a verified `submit`, and the
-  fill left no warnings or manual steps
-  ([ADR-0019](../../../../docs/adr/0019-mall-registrations-submit-all-the-way.md)).
-  Report pressed, accepted, and refused separately; publication is a later
-  re-read. Never press delete, sale-ban, or other irreversible controls.
+  KidItem.
+- Mall registration, sold-out/resume, price, and thumbnail writes are runtime
+  kinds in `extensions/src/sites/<mall>/` (KID-256), not this worker. Only the
+  two web helper actions stay here, in `mall-utility-actions.js`
+  (`listMallCategories`, `hostPublicImages`).
 ## Collection Contract
 
 - Success with zero rows requires authenticated evidence. Missing/unloaded

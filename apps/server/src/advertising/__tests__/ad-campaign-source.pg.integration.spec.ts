@@ -656,7 +656,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     });
     expect((await finish(a, 201)).body).toMatchObject({
       state: 'FAILED',
-      errorCode: 'ADVERTISER_IDENTITY_MISMATCH',
+      errorCode: 'ADVERTISING_IDENTITY_MISMATCH',
     });
     expect((await get('/source')).body.latestComplete).toBeNull();
     expect(

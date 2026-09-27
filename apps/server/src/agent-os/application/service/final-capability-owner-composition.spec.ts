@@ -11,7 +11,6 @@ import {
   registerFinalCapabilityCatalog,
 } from './final-capability-catalog-registrar.service';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/application/port/in/dashboard/analytics-overview-capability.port';
-import type { ChannelsRepresentativeImageCapabilityPort } from '../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/capability/listing-generation.port';
 import type {
   SourcingFinalCapabilityPort,
@@ -58,15 +57,6 @@ function ownerCompositions() {
       inventory: { outOfStockSkus: 3, mappingAttentionSkus: 4 },
       freshness: { lastSync: '2026-08-25T00:00:00.000Z' },
     })),
-  };
-  const wing: ChannelsRepresentativeImageCapabilityPort = {
-    submitRepresentativeImage: vi.fn(async () => ({ success: true as const, status: 'succeeded' as const, screenshotPath: null })),
-  };
-  const executions = {
-    prepareTargetExecution: vi.fn(),
-    getTargetExecution: vi.fn(),
-    startTargetExecution: vi.fn(),
-    reportTargetExecution: vi.fn(),
   };
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: vi.fn(async () => ({
@@ -118,10 +108,10 @@ function ownerCompositions() {
   };
 
   return {
-    ports: { analytics, wing, products, sourcing, supply },
+    ports: { analytics, products, sourcing, supply },
     providers: [
       new AnalyticsCapabilityCompositionAdapter(analytics),
-      new ChannelsCapabilityCompositionAdapter(wing, executions as never),
+      new ChannelsCapabilityCompositionAdapter(),
       new ProductsCapabilityCompositionAdapter(products),
       new SourcingCapabilityCompositionAdapter(sourcing),
       new SupplyCapabilityCompositionAdapter(supply),
@@ -152,14 +142,14 @@ describe('owner capability composition', () => {
     }
   });
 
-  it('registers the exact 16 owner-local units and invokes their actual typed owner ports', async () => {
+  it('registers the exact 11 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
     expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(16);
+    ).toHaveLength(11);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
@@ -170,10 +160,7 @@ describe('owner capability composition', () => {
       context,
       input: { period: 'today' },
     });
-    await registry.resolveImplementation('channels.submit_representative_image')!.invoke({
-      context: mutationContext({ salesProductId: identifiers.candidateId }),
-      input: { salesProductId: identifiers.candidateId },
-    });
+    expect(registry.resolveImplementation('channels.submit_representative_image')).toBeFalsy();
     await registry
       .resolveImplementation('products.create_listing_generation_package')!
       .invoke({
@@ -207,15 +194,6 @@ describe('owner capability composition', () => {
       organizationId: identifiers.organizationId,
       period: 'today',
     });
-    expect(ports.wing.submitRepresentativeImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: identifiers.organizationId,
-        triggeredByUserId: identifiers.userId,
-        ownerIdempotencyKey: context.ownerIdempotencyKey,
-        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
-        salesProductId: identifiers.candidateId,
-      }),
-    );
     expect(ports.products.createListingGenerationPackage).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: identifiers.organizationId,

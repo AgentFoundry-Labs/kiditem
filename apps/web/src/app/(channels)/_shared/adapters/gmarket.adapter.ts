@@ -1,5 +1,5 @@
 import { prepareRegistration } from '../sales-product-registration';
-import { fillMallRegistrationForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
+import { checkedMallForm } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
 import {
   ESMPLUS_NOTICE_GROUP,
   ESMPLUS_RETURN_FEE,
@@ -8,13 +8,13 @@ import {
   esmplusFormFromDraft,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/esmplus-registration-form';
 import { formatNumber } from '@/lib/utils';
-import { listPriceProblem, mallFormExecutionOptions, registrationOutcome } from '../mall-publish-adapter';
+import { listPriceProblem } from '../mall-publish-adapter';
 import type {
   MallFieldSpec,
   MallPreviewRow,
   MallPublishAdapter,
-  MallSendInput,
-  MallSendOutcome,
+  MallFormInput,
+  MallRegistrationForm,
 } from '../mall-publish-adapter';
 
 /**
@@ -164,11 +164,7 @@ export const gmarketAdapter: MallPublishAdapter = {
     return problems;
   },
 
-  async send({ items, values }: MallSendInput): Promise<MallSendOutcome> {
-    const item = items[0];
-    if (!item) {
-      return { ok: false, confirmed: false, manualSteps: [], warnings: [], error: '보낼 상품이 없습니다.' };
-    }
+  async buildForm({ item, values }: MallFormInput): Promise<MallRegistrationForm> {
     const { draft } = await prepareRegistration(item, 'gmarket');
     // 공통 안전인증번호 칸은 초안 고시로 넘긴다 — 폼 빌더는 초안만 본다.
     const certNumber = values.certNumber?.trim();
@@ -182,7 +178,6 @@ export const gmarketAdapter: MallPublishAdapter = {
       ...(values.sellerCode?.trim() ? { sellerCode: values.sellerCode.trim() } : {}),
       ...(certNumber ? { certNumber } : {}),
     });
-    const result = await fillMallRegistrationForm('gmarket', withCert, form, mallFormExecutionOptions(item));
-    return registrationOutcome(result);
+    return checkedMallForm(withCert, form);
   },
 };

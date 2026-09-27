@@ -1,7 +1,7 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
 import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
-import { WING_ITEMWINNER_KIND, WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
+import { AD_REPORT_KIND, WING_ITEMWINNER_KIND, WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
 import { MALL_ADMIN_LISTINGS_KIND } from '@kiditem/shared/channels-operations';
 import {
   COUPANG_DIRECTSHIP_KIND,
@@ -49,6 +49,7 @@ const MALL_SOURCE_TYPES = new Map<string, string | null>([
   [COUPANG_DIRECTSHIP_KIND, 'coupang-direct'],
   [WING_TRAFFIC_KIND, 'coupang'],
   [WING_ITEMWINNER_KIND, 'coupang'],
+  [AD_REPORT_KIND, 'coupang'],
 ]);
 
 const CHANNEL_ACCOUNT_TARGET = 'channel_account';

@@ -203,6 +203,44 @@ describe('content/page-call/dialog-guard.js — 운영자 탭이면 진짜 창�
   });
 });
 
+describe('content/page-call/dialog-guard.js — 몰 쓰기 탭은 confirm을 거절한다(KID-256)', () => {
+  it('"쓰기 탭" 표시가 오면 alert·confirm 문장을 모으고 confirm은 거절한다 — 채우는 동안 몰이 묻는 저장·이동을 받지 않는다', () => {
+    const shown: string[] = [];
+    const page = guardedWindow({ confirm: (message) => { shown.push(message); return true; } });
+    // 채우는 처리기는 같은 문서에서 곧바로(동기) 쓰기 탭으로 돌린다 — postMessage는 늦게 닿아 그 사이 confirm이 확인될 수 있다.
+    (page.window.__kiditemWriteTab as () => void)();
+    expect(page.confirm('임시저장 하시겠습니까?')).toBe(false);
+    page.alert('필수 항목을 입력하세요.');
+    expect(shown).toEqual([]);
+    expect(page.window.__kiditemDialogs).toEqual(['임시저장 하시겠습니까?', '필수 항목을 입력하세요.']);
+  });
+
+  it('쓰기 처리기는 몰 말을 나오는 즉시 듣는다(sink) — 모은 문장 상한(20)과 상관없이, 떼면 더 듣지 않는다', () => {
+    const page = guardedWindow();
+    (page.window.__kiditemWriteTab as () => void)();
+    const heard: string[] = [];
+    const release = (page.window.__kiditemDialogSink as (sink: (message: string) => void) => () => void)((message) => heard.push(message));
+    for (let i = 0; i < 25; i += 1) page.alert(`안내 ${i}`);
+    expect(page.confirm('저장할까요?')).toBe(false);
+    release();
+    page.alert('뗀 뒤');
+    expect(heard).toHaveLength(26);
+    expect(heard.at(-1)).toBe('저장할까요?');
+    expect(page.window.__kiditemDialogs).toHaveLength(20);
+  });
+
+  it('수집 탭 표시가 뒤늦게 와도 쓰기 탭은 그대로이고, 운영자에게 넘기면(operator-tab) 진짜 창으로 돌아간다', () => {
+    const shown: string[] = [];
+    const page = guardedWindow({ confirm: (message) => { shown.push(message); return true; } });
+    page.post({ kiditemDialogGuard: 'write-tab' });
+    page.post({ kiditemDialogGuard: 'run-tab' });
+    expect(page.confirm('저장할까요?')).toBe(false);
+    page.post({ kiditemDialogGuard: 'operator-tab' });
+    expect(page.confirm('사람이 누른 저장')).toBe(true);
+    expect(shown).toEqual(['사람이 누른 저장']);
+  });
+});
+
 describe('content/page-call/dialog-guard.js — 화면이 넘어가도 몰의 말을 잃지 않는다(실기기 R5)', () => {
   it('모은 문장을 그 출처의 sessionStorage에 두고, 다음 문서의 가드가 이어받아 로그인 알림 창 받기가 돌려준다', () => {
     const store = new Map<string, string>();

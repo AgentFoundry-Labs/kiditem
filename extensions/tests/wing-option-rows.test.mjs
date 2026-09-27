@@ -8,7 +8,7 @@ import vm from 'node:vm';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const fillPath = path.join(
   repoRoot,
-  'extensions/kiditem-os/content/coupang/wing-registration-fill.js',
+  'extensions/kiditem-os/content/page-call/wing-register.js',
 );
 
 /**

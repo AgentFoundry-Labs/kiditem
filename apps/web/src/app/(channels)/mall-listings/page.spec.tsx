@@ -10,16 +10,14 @@ import MallListingsPage from './page';
  * 붙일 때 이 파일도 페이지도 고칠 필요가 없다는 뜻이다.
  */
 
-const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWingExcelMock } =
+const { prepareKidsnoteMock, generateWingExcelMock, downloadWingExcelMock } =
   vi.hoisted(() => ({
-    fillKidsnoteMock: vi.fn(),
     prepareKidsnoteMock: vi.fn(),
     generateWingExcelMock: vi.fn(),
     downloadWingExcelMock: vi.fn(),
   }));
-const { resolveTargetMock, targetHistoryMock, executeTargetMock } = vi.hoisted(() => ({
+const { resolveTargetMock, executeTargetMock } = vi.hoisted(() => ({
   resolveTargetMock: vi.fn(),
-  targetHistoryMock: vi.fn(),
   executeTargetMock: vi.fn(),
 }));
 
@@ -33,6 +31,10 @@ vi.mock('../_shared/mall-availability-send', async (importOriginal) => ({
 vi.mock('@tanstack/react-query', () => ({
   keepPreviousData: undefined,
   useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+  // 확인 필요 실행의 확인 카드(KID-218)가 쓴다. 이 표의 관심사는 카드가 서는지뿐이다.
+  useMutation: () => ({ mutate: vi.fn(), isPending: false }),
+  // 3단계의 저장된 몰별 값 읽기 — 이 표의 관심사가 아니라 비워 둔다.
+  useQueries: ({ queries }: { queries: unknown[] }) => queries.map(() => ({ data: undefined })),
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => {
     if (queryKey.includes('targets')) {
       return { data: publishTargets, isLoading: false, isSuccess: true, isError: false, error: null };
@@ -130,25 +132,22 @@ vi.mock('@tanstack/react-query', () => ({
 }));
 
 vi.mock('@/lib/registration-target-api', () => ({
-  registrationTargetApi: { resolve: resolveTargetMock },
+  registrationTargetApi: { resolve: resolveTargetMock, list: vi.fn() },
+  registrationTargetKeys: { list: (id: string) => ['registration-targets', 'list', id] },
 }));
 
-vi.mock('../_shared/registration-execution-api', () => ({
-  listRegistrationTargetExecutions: targetHistoryMock,
-}));
-
-vi.mock('../_shared/target-registration-execution', () => ({
+vi.mock('../_shared/target-registration-execution', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../_shared/target-registration-execution')>()),
   executeTargetRegistration: executeTargetMock,
-  isActiveTargetExecution: (execution: { status: string }) => ['prepared', 'executing', 'reconciling'].includes(execution.status),
 }));
 
 vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api', () => ({
   productsApi: { list: vi.fn() },
 }));
 
-vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registration-api', () => ({
-  prepareKidsnoteRegistration: prepareKidsnoteMock,
-  fillKidsnoteRegistrationForm: fillKidsnoteMock,
+vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api')>()),
+  prepareMallRegistration: prepareKidsnoteMock,
 }));
 
 vi.mock('../_shared/adapters/coupang-wing/wing-excel-export', () => ({
@@ -230,17 +229,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   matrixData = { columns: [], rows: [], total: 0, page: 1, limit: 25 };
   prepareKidsnoteMock.mockResolvedValue({ draft: { displayName: '초안' }, detailImageUrl: 'x' });
-  fillKidsnoteMock.mockResolvedValue({
-    ok: true,
-    submitted: false,
-    steps: [],
-    warnings: [],
-    manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
-  });
   resolveTargetMock.mockResolvedValue({ id: 'target-id', version: 1 });
-  targetHistoryMock.mockResolvedValue([]);
   executeTargetMock.mockResolvedValue({
-    execution: { executionId: 'execution-id', status: 'reconciling', providerOutcome: 'uncertain' },
+    operation: { state: 'needs_confirmation', label: '확인 필요', operation: { id: 'operation-id' }, result: null, message: null },
     outcome: {
       ok: false,
       confirmed: false,
@@ -248,7 +239,7 @@ beforeEach(() => {
       manualSteps: ['화면에서 등록 신청 버튼을 누르세요.'],
       warnings: ['몰 결과를 확인해야 합니다.'],
     },
-    adapterCalled: true,
+    started: true,
   });
   generateWingExcelMock.mockResolvedValue({ bytes: new Uint8Array([1]), productCount: 2 });
   // 기본은 읽는 중 그대로 둔다 — 창의 버튼을 세는 테스트가 읽기 결과에 흔들리지 않게.
@@ -373,6 +364,8 @@ describe('상품 등록 (N × M)', () => {
     await waitFor(() => {
       expect(screen.getByText('결과 확인 필요')).toBeInTheDocument();
     });
+    // 몰에 제출됐지만 ID를 못 읽은 실행은 그 자리에서 등록상품ID로 확인한다.
+    expect(screen.getByLabelText('등록상품ID')).toBeInTheDocument();
     expect(screen.queryByText('끝남')).not.toBeInTheDocument();
     expect(screen.queryByText('끝났습니다. 몰에 올라간 것은 몰 상품을 다시 가져와 확인합니다.')).not.toBeInTheDocument();
     expect(screen.getByText('화면에서 등록 신청 버튼을 누르세요.')).toBeInTheDocument();
@@ -726,6 +719,8 @@ describe('액션 UI (화면만, 실행 없음)', () => {
         cells: [{
           mallKey: 'coupang', state: 'published', rawStatus: '승인완료',
           externalId: '16290876620', warning: null, updatedAt: null,
+          // 판매 상품에 이어진 칸 — 품절·재개 실행이 짚을 리스팅 행을 안다.
+          registration: { channelListingId: '99999999-9999-4999-8999-999999999999', state: 'registered' },
         }],
       }],
     };
@@ -765,7 +760,10 @@ describe('액션 UI (화면만, 실행 없음)', () => {
     const pill = await screen.findByText('품절');
     // 품절은 꽉 찬 빨강에 흰 글씨(쇼핑몰 현황 스위치처럼, 사장님 2026-09-19).
     expect(pill).toHaveClass('bg-rose-600', 'text-white');
-    expect(readMallAvailabilityManyMock).toHaveBeenCalledWith('coupang', ['16290876620']);
+    expect(readMallAvailabilityManyMock).toHaveBeenCalledWith(
+      { mallKey: 'coupang', channelAccountId: 'acc-1', codes: ['16290876620'], automatic: true },
+      { signal: expect.any(AbortSignal) },
+    );
     fireEvent.click(screen.getByRole('button', { name: /쿠팡\(마켓플레이스\) 작업/ }));
     const panel = screen.getByRole('dialog');
     expect(within(panel).getByText('지금 품절 · 재고 0')).toBeInTheDocument();

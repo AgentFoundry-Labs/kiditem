@@ -1,4 +1,7 @@
 import { z } from 'zod';
+import { ProviderOutcomeSchema } from '../operation-lifecycle.js';
+import { TARGET_EXECUTION_KINDS } from '../registration-execution.js';
+import { THUMBNAIL_UPDATE_EXECUTION_KIND } from '../thumbnail-execution.js';
 import { resourceLockKey, type OperationLockKey } from './operation.js';
 
 /**
@@ -59,3 +62,240 @@ export const MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
 
 /** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭)를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 웹이 시작 전에 본다. */
 export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
+
+// M — 몰 등록 실행 kind(KID-364 · 몰 쓰기 모듈 KID-256, wave5). `product_registration_executions`를 대신한다.
+// executionKind(register·update·sold_out·resume·composition_change·thumbnail_update)는 kind가 아니라 plan 안 필드다.
+
+export const REGISTRATION_KIND = 'channels.registration' as const;
+/** 읽기·품절·재개 묶음 한 실행의 리스팅 상한. */
+export const MALL_AVAILABILITY_READ_MAX_LISTINGS = 500;
+/** 이 kind를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 몰별 쓰기 사이트는 `mallWriteSite.<key>`로 따로 싣는다. */
+export const CHANNELS_REGISTRATION_OPERATION_CAPABILITY = 'channelsRegistrationOperationKindV1' as const;
+export const REGISTRATION_EXECUTION_KINDS = [...TARGET_EXECUTION_KINDS, THUMBNAIL_UPDATE_EXECUTION_KIND] as const;
+export const RegistrationExecutionKindSchema = z.enum(REGISTRATION_EXECUTION_KINDS);
+export type RegistrationExecutionKind = z.infer<typeof RegistrationExecutionKindSchema>;
+
+/**
+ * 잠금 키 셋(2026-09-24 23:15·23:25 결정): 지금 `product_registration_executions`의 partial unique 셋을 대신한다.
+ * 같은 등록 대상·같은 리스팅·같은 외부 리스팅으로는 실행 하나만 산다(prepared·executing·reconciling).
+ */
+export function registrationTargetLockKey(registrationTargetId: string): OperationLockKey {
+  return resourceLockKey('registration-target', registrationTargetId);
+}
+export function channelListingLockKey(channelListingId: string): OperationLockKey {
+  return resourceLockKey('channel-listing', channelListingId);
+}
+export function externalListingLockKey(channelAccountId: string, externalListingId: string): OperationLockKey {
+  return resourceLockKey('external-listing', `${channelAccountId}:${externalListingId}`);
+}
+
+/**
+ * 시작(웹 → `POST /api/operations`): 옛 `PrepareTargetExecutionInputSchema`·썸네일 prepare와 같은 입력.
+ * `submit`은 ADR-0019 관문의 첫 조건일 뿐이다 — spec에 검증된 `submit`이 있고 채우기에 경고·수동 단계가 없어야 [등록]을 누른다.
+ */
+export const RegistrationScopeSchema = z.object({
+  executionKind: RegistrationExecutionKindSchema,
+  /** register·update·composition_change·sold_out·resume: 등록 대상. thumbnail_update: 판매 상품(`salesProductId`). */
+  registrationTargetId: z.string().uuid().optional(),
+  salesProductId: z.string().uuid().optional(),
+  channelListingId: z.string().uuid().optional(),
+  expectedVersion: z.number().int().positive().optional(),
+  idempotencyKey: z.string().trim().min(1).max(200),
+  submit: z.boolean().default(false),
+  updateFields: z.array(z.literal('salePrice')).length(1).optional(),
+  adapterDefaults: z.record(z.string(), z.string()).optional(),
+  adapterValues: z.record(z.string(), z.string()).optional(),
+  applyCompositionTemplate: z.boolean().optional(),
+  optionTransitions: z.array(z.object({
+    channelListingOptionId: z.string().uuid(),
+    salesProductOptionId: z.string().uuid(),
+  }).strict()).max(1000).optional(),
+  /** thumbnail_update만: 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
+  assetId: z.string().uuid().optional(),
+  /**
+   * 몰별 폼 지시(웹 `*-registration-form.ts` 빌더 18개가 draft·values로 만든 것 — url·카테고리 경로·공급가·수량·상세 호스팅·
+   * manualSteps). 서버 plan이 `payload.form`에 얼려 `payloadHash`에 넣는다(2026-09-27 리더 결정 A: 빌더는 이 파동에서 웹에
+   * 남기고, 서버 채널 어댑터 freeze로 옮기는 일은 KID-364 파생). 서버는 모양만 검사한다.
+   */
+  form: z.record(z.string(), z.unknown()).optional(),
+  /** 빠른 등록(등록 대상 없이 수집 상품 → 폼만 채우기)의 출처. 그때 `registrationTargetId`는 없고 `submit`은 false여야 한다. */
+  sourceProductId: z.string().uuid().optional(),
+  /**
+   * sold_out·resume만: 몰 계정 하나의 리스팅 묶음(옛 일괄 품절과 같이 실행 하나 = 계정 묶음 하나, 2026-09-27 리더 결정).
+   * 항목은 리스팅 id나 옵션 id로 가리키고(후보 화면은 옵션 id만 안다) 서버 plan이 외부 id·옵션으로 푼다. 잠금 = `account:<id>` + 리스팅마다 하나.
+   */
+  channelAccountId: z.string().uuid().optional(),
+  items: z.array(z.object({
+    channelListingId: z.string().uuid().optional(),
+    channelListingOptionIds: z.array(z.string().uuid()).min(1).max(200).optional(),
+  }).strict().refine((item) => item.channelListingId !== undefined || item.channelListingOptionIds !== undefined, {
+    message: '리스팅 id나 옵션 id가 필요합니다',
+  })).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS).optional(),
+}).strict().refine(
+  (scope) => {
+    if (scope.executionKind === 'thumbnail_update') return scope.salesProductId !== undefined;
+    if (scope.executionKind === 'sold_out' || scope.executionKind === 'resume') {
+      return scope.channelAccountId !== undefined && scope.items !== undefined;
+    }
+    if (scope.registrationTargetId !== undefined) return true;
+    return scope.executionKind === 'register' && scope.submit === false && scope.form !== undefined;
+  },
+  { message: '등록 대상이 필요합니다(썸네일은 판매 상품, 품절·재개는 계정 + 리스팅 묶음, 빠른 등록은 폼만 채우기 + submit false)', path: ['registrationTargetId'] },
+);
+export type RegistrationScope = z.infer<typeof RegistrationScopeSchema>;
+
+/**
+ * owner plan(확장 몰 쓰기 모듈이 받는 것). `payload`는 준비 순간 얼린 문서(`payloadHash`로 잠금): register·update·
+ * composition_change는 `{ snapshot: TargetExecutionSnapshot | null, form: Record | null }`(빠른 등록은 snapshot null·
+ * registrationTargetId null·submit false, 잠금은 `account:<id>`만), sold_out·resume는 `{ action, listings: [{ channelListingId,
+ * externalListingId, options: [{ salesProductOptionId|null, channelListingOptionId, externalOptionId, sellerSku }] }] }`(계정 묶음),
+ * thumbnail_update는 사진 하나. 묶음 실행의 `channelListingId`·`externalListingId`는 null이고 항목은 payload 안에 있다.
+ * executionKind별 payload 스키마는 `registration-plan-payloads.ts`에 둔다. 자격증명은 plan에 없고 lease로만 온다.
+ */
+export const RegistrationPlanSchema = z.object({
+  executionKind: RegistrationExecutionKindSchema,
+  mallKey: z.string().min(1).max(64),
+  channelAccountId: z.string().uuid(),
+  registrationTargetId: z.string().uuid().nullable(),
+  salesProductId: z.string().uuid().nullable(),
+  channelListingId: z.string().uuid().nullable(),
+  externalListingId: z.string().min(1).nullable(),
+  /** 몰 세션의 판매자 식별자와 대조한다(Wing `vendorId`, 몰 `providerAccountId`). 없으면 대조 생략. */
+  expectedProviderAccountId: z.string().min(1).nullable(),
+  submit: z.boolean(),
+  payloadHash: z.string().min(1),
+  payload: z.record(z.string(), z.unknown()),
+  startedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type RegistrationPlan = z.infer<typeof RegistrationPlanSchema>;
+
+/** 청크 종류. 채우기 진행(steps·warnings·manualSteps)과 몰이 보인 증거를 나눠 보낸다. */
+export const REGISTRATION_FILL_CHUNK_KIND = 'registration_fill' as const;
+export const REGISTRATION_EVIDENCE_CHUNK_KIND = 'registration_evidence' as const;
+
+export const RegistrationFillSchema = z.object({
+  steps: z.array(z.string()),
+  warnings: z.array(z.string()),
+  manualSteps: z.array(z.string()),
+  /** 몰이 띄운 대화상자 문장(가드가 기록한 것). */
+  dialogs: z.array(z.string()),
+}).strict();
+export type RegistrationFill = z.infer<typeof RegistrationFillSchema>;
+
+/** 옛 `ReportTargetExecutionInputSchema.evidence`와 같은 모양. `options`는 몰이 준 옵션 id ↔ 판매 옵션. */
+export const RegistrationEvidenceSchema = z.object({
+  /**
+   * 이 증거가 가리키는 얼린 문서(plan `payloadHash`). 다르면 이 실행의 증거가 아니다(`OPERATION`이 아니라 등록 fence의 거절,
+   * `CHANNELS_EXECUTION_FENCE_LOST{PAYLOAD_HASH_MISMATCH}`). KID-364 M1 추가.
+   */
+  payloadHash: z.string().min(1),
+  channelAccountId: z.string().uuid(),
+  externalListingId: z.string().trim().min(1).nullable(),
+  observedUrl: z.string().url().nullable(),
+  providerAccountId: z.string().nullable(),
+  observedStatus: z.string().nullable(),
+  message: z.string().nullable(),
+  options: z.array(z.object({
+    salesProductOptionId: z.string().uuid(),
+    externalOptionId: z.string().trim().min(1),
+    sellerSku: z.string().nullable(),
+  }).strict()),
+  /**
+   * 품절 · 재개만(KID-364 M1 추가, 리더 결정): 보낸 뒤 몰에서 다시 읽은 옵션 상태. 옵션 단위 몰은 얼린 옵션마다 한 줄이 있어야
+   * 확인이다(sold_out은 재고 0 또는 판매중지, resume은 판매중). 리스팅 단위 몰은 `observedStatus`로 확인한다. 묶음 실행은 리스팅마다
+   * 증거 청크 하나를 보낸다.
+   */
+  observedOptions: z.array(z.object({
+    externalOptionId: z.string().trim().min(1),
+    stock: z.number().int().nonnegative().nullable(),
+    status: z.string().nullable(),
+  }).strict()).max(1000).optional(),
+}).strict();
+export type RegistrationEvidence = z.infer<typeof RegistrationEvidenceSchema>;
+
+/**
+ * 실행 `result`. `providerOutcome`(옛 전용 칸)은 여기 산다. 확장은 finish에 `submitted`·`mallOutcome`을 싣고,
+ * owner finalize가 `providerOutcome`을 정한다: not_submitted → definitive_failure(failed) · submitted/uncertain →
+ * uncertain(reconciling) · confirmed → succeeded. `submitSkipped`는 ADR-0019 관문이 [등록]을 거른 이유.
+ */
+export const REGISTRATION_MALL_OUTCOMES = ['not_submitted', 'uncertain', 'submitted', 'awaiting_approval', 'confirmed'] as const;
+export const RegistrationMallOutcomeSchema = z.enum(REGISTRATION_MALL_OUTCOMES);
+export type RegistrationMallOutcome = z.infer<typeof RegistrationMallOutcomeSchema>;
+
+export const RegistrationResultSchema = z.object({
+  providerOutcome: ProviderOutcomeSchema,
+  mallOutcome: RegistrationMallOutcomeSchema,
+  submitted: z.boolean(),
+  submitSkipped: z.string().nullable(),
+  externalListingId: z.string().nullable(),
+  mallMessage: z.string().nullable(),
+  fill: RegistrationFillSchema,
+  evidence: RegistrationEvidenceSchema.nullable(),
+  /** owner finalize가 연결 · 생성한 리스팅(확인된 등록만). 확장은 보내지 않는다. KID-364 M1 추가. */
+  channelListingId: z.string().uuid().nullable().optional(),
+}).strict();
+export type RegistrationResult = z.infer<typeof RegistrationResultSchema>;
+
+/**
+ * 등록 실행이 `reconciling`(몰에 제출됐지만 외부 결과를 못 읽음)일 때 운영자가 몰에서 읽은 등록상품ID로 닫는 요청
+ * (`POST /api/channels/registration-operations/:id/confirm`, KID-218). 같은 조직의 운영자면 누구나 닫을 수 있다
+ * (리더 가정 = KID-329 (a), 사장님 확인 대기). 등록되지 않았다고 닫을 때는 `close`.
+ */
+export const RegistrationConfirmRequestSchema = z.object({
+  externalListingId: z.string().trim().min(1).max(64),
+  observedUrl: z.string().url().optional(),
+  options: z.array(z.object({
+    salesProductOptionId: z.string().uuid(),
+    externalOptionId: z.string().trim().min(1),
+    sellerSku: z.string().nullable().optional(),
+  }).strict()).max(1000).optional(),
+}).strict();
+export type RegistrationConfirmRequest = z.infer<typeof RegistrationConfirmRequestSchema>;
+
+export const RegistrationCloseRequestSchema = z.object({
+  /** 운영자가 몰에서 확인한 사실: 등록되지 않았다(failed). */
+  reason: z.string().trim().min(1).max(500),
+}).strict();
+export type RegistrationCloseRequest = z.infer<typeof RegistrationCloseRequestSchema>;
+
+// M — 몰 판매 상태 읽기 kind(옛 `readMallAvailability`, 품절 후보 미리보기·자동 실시간 확인). 쓰기가 아니라 읽기라 등록
+// kind와 나눈다. finalize는 원장을 쓰지 않고 `result`에 행만 남긴다(KID-369가 일별 스냅샷 칸을 정리하기 전까지).
+
+export const MALL_AVAILABILITY_READ_KIND = 'channels.mall_availability_read' as const;
+
+export const MallAvailabilityReadScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  mallKey: z.string().min(1).max(64),
+  externalListingIds: z.array(z.string().trim().min(1).max(64)).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS),
+}).strict();
+export type MallAvailabilityReadScope = z.infer<typeof MallAvailabilityReadScopeSchema>;
+
+export const MallAvailabilityReadPlanSchema = MallAvailabilityReadScopeSchema.extend({
+  expectedProviderAccountId: z.string().min(1).nullable(),
+  startedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type MallAvailabilityReadPlan = z.infer<typeof MallAvailabilityReadPlanSchema>;
+
+export const MALL_AVAILABILITY_ROWS_CHUNK_KIND = 'availability_rows' as const;
+
+export const MallAvailabilityRowSchema = z.object({
+  externalListingId: z.string().min(1),
+  externalOptionId: z.string().min(1).nullable(),
+  /** 몰이 지금 팔고 있다고 보이는가(품절·판매중지는 false). */
+  available: z.boolean(),
+  stock: z.number().int().nonnegative().nullable(),
+  /** 쿠팡 로켓그로스 옵션인가(다른 몰은 false). 웹 품절 후보 화면이 구별해 보여 준다. */
+  rocket: z.boolean(),
+  /** 몰 화면의 상태 원문. */
+  observedStatus: z.string().nullable(),
+  observedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type MallAvailabilityRow = z.infer<typeof MallAvailabilityRowSchema>;
+
+export const MallAvailabilityReadResultSchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  /** 요청했지만 몰에서 못 찾은 리스팅. */
+  missingExternalListingIds: z.array(z.string()),
+  rows: z.array(MallAvailabilityRowSchema),
+}).strict();
+export type MallAvailabilityReadResult = z.infer<typeof MallAvailabilityReadResultSchema>;

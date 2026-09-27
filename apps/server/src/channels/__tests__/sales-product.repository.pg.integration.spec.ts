@@ -254,6 +254,15 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     });
   });
 
+  it('makes the imported mall setting on a configured mall account too (KID-330, KID-364 D1)', async () => {
+    const onch = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'onch', name: '온채널', externalAccountId: `onch-${randomUUID()}`, status: 'configured',
+    } });
+    await expect(repository.importSabangnet(TEST_ORGANIZATION_ID, [importWrite(onch.id, { sourceOptionCodes: ['SOURCE-A'], stockPercent: 40 })]))
+      .resolves.toMatchObject({ created: 1, overridesSaved: 1 });
+    await expect(prisma.registrationTarget.count({ where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: onch.id } })).resolves.toBe(1);
+  });
+
   it('leaves an existing registration target alone during reimport', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const first = importWrite(accountId, { stockPercent: 40 });

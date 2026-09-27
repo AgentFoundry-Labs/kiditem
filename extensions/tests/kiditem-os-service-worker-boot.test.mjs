@@ -1832,7 +1832,8 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'collectionStartV1',
     'profitabilityAdvertisingSourceOwnerV1',
     'coupangCatalogSnapshot',
-    'wingFormPortV1',
+    // 몰 쓰기 실행 kind(등록·품절·재개·가격·대표이미지, KID-256)
+    'channelsRegistrationOperationKindV1',
     // 새 런타임(소싱 실행 kind KID-360, 광고 키워드·경쟁사 kind KID-362)
     'operationRuntime',
     'sourcingOperationKindsV1',
@@ -1942,19 +1943,18 @@ test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인�
   assert.equal(fake.connectExternalListeners.length, 1);
   const [dispatch] = fake.connectExternalListeners;
 
-  // 셀피아 수동매칭 포트(kiditem-sellpia-manual-match-v1)는 실행 계약 kind로 옮겨 없다(KID-363).
+  // 셀피아 수동매칭 포트(kiditem-sellpia-manual-match-v1)는 실행 계약 kind로 옮겨 없다(KID-363). 윙 상품등록 포트
+  // (kiditem-wing-form-v1)도 실행 kind `channels.registration`으로 옮겨 없다(KID-256) — 소유 도메인이 없으면 끊는다.
   for (const name of ['kiditem-wing-form-v1']) {
-    const messageListeners = [];
     let disconnected = 0;
     dispatch({
       name,
       sender: { url: 'http://kiditem-office/product-hub/matching' },
-      onMessage: { addListener: (listener) => messageListeners.push(listener) },
+      onMessage: { addListener: () => assert.fail(`${name} must not be owned`) },
       postMessage() {},
       disconnect() { disconnected += 1; },
     });
-    assert.equal(messageListeners.length, 1, name);
-    assert.equal(disconnected, 0, name);
+    assert.equal(disconnected, 1, name);
   }
 
   let unknownDisconnected = 0;

@@ -519,7 +519,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     const failed = (await put(attempt, 'roster', invalid).expect(200)).body;
     expect(failed).toMatchObject({
       state: 'FAILED',
-      errorCode: 'ADVERTISER_IDENTITY_MISMATCH',
+      errorCode: 'ADVERTISING_IDENTITY_MISMATCH',
     });
     expect((await put(attempt, 'roster', invalid).expect(200)).body).toEqual(failed);
     await put(attempt, 'roster', roster()).expect(409);
@@ -830,7 +830,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
     });
     expect((await finish(attempt)).body).toMatchObject({
       state: 'FAILED',
-      errorCode: 'ADVERTISER_IDENTITY_MISMATCH',
+      errorCode: 'ADVERTISING_IDENTITY_MISMATCH',
     });
     expect((await owner.readComplete(ORG, { channelAccountId: accountId })).rows).toEqual([]);
   });
