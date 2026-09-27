@@ -801,7 +801,6 @@ function contributionAnalytics(): ProductAbcContributionAnalytics {
       cutoffDate: '2026-08-31',
       sourceCutoffDate: '2026-08-31',
       sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
-      advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
     },
     totals: {
       revenue: 1_000_000,
