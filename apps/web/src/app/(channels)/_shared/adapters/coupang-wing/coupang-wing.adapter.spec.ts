@@ -65,13 +65,20 @@ describe('coupangWingAdapter', () => {
 
     expect(salesProductApi.get).toHaveBeenCalledWith(PRODUCT_ID);
     expect(renderRegistrationDetailImage).toHaveBeenCalledWith({ salesProductId: PRODUCT_ID, detailPageRevisionId: REVISION_ID });
+    // 리더 결정: WING 폼은 평평하다 — 서버 freezeForm이 categoryCell·variants를 최상위에서 읽는다(`product` 래퍼 없음).
+    expect(form).not.toHaveProperty('product');
     expect(form).toMatchObject({
-      product: {
-        categoryCell: KEYRING,
-        productName: '고친 이름',
-        sellerProductName: '관리명',
-        detailImageUrls: ['https://cdn.example.com/detail-780.jpg'],
-      },
+      categoryCell: KEYRING,
+      productName: '고친 이름',
+      sellerProductName: '관리명',
+      detailImageUrls: ['https://cdn.example.com/detail-780.jpg'],
+      variants: [expect.objectContaining({
+        purchaseOptions: [{ type: '색상', value: '단일' }, { type: '수량', value: '1' }],
+        stock: 10,
+        salePrice: 3000,
+        vendorItemCode: 'KID-1-01',
+        representativeImageUrl: 'https://img.example/rep.jpg',
+      })],
     });
     // 판매자 ID 대조·업체상품코드·기존 리스팅 차단은 서버 plan 몫이다 — 폼 지시에 싣지 않는다.
     expect(form).not.toHaveProperty('expectedVendorId');

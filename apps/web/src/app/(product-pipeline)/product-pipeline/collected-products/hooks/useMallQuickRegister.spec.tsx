@@ -110,7 +110,7 @@ describe('useMallQuickRegister', () => {
 
   it('확인 창에서 정한 값과 계정으로 폼만 채우고 그 줄에 결과를 남긴다', async () => {
     serveDraft(3500);
-    const build = vi.spyOn(coupangWingAdapter, 'buildForm').mockResolvedValue({ product: { productName: '이름' } });
+    const build = vi.spyOn(coupangWingAdapter, 'buildForm').mockResolvedValue({ productName: '이름' });
     operation.start.mockResolvedValue({ operationId: 'op-1', reused: false });
     operation.wait.mockResolvedValue({
       operation: { id: 'op-1' }, state: 'confirmed', label: '확인 완료', message: null,

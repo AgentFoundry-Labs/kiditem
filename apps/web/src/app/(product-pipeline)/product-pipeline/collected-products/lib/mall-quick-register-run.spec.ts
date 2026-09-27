@@ -145,7 +145,7 @@ describe('확인 창을 거친 몰 하나 실행', () => {
   const account = { id: '88888888-8888-4888-8888-888888888888', channel: 'coupang', name: '본점', externalAccountId: null, vendorId: 'A00012345', sellerId: null, isPrimary: true };
 
   it('확인 창의 값과 계정으로 폼만 채운다 — 등록 대상 없이, 확인 창의 계정으로', async () => {
-    const build = vi.spyOn(coupangWingAdapter, 'buildForm').mockResolvedValue({ product: { productName: '고친 이름' } });
+    const build = vi.spyOn(coupangWingAdapter, 'buildForm').mockResolvedValue({ productName: '고친 이름' });
     const outcome = await runOneMallRegistration('coupang', item, filled(), null, {
       values: { wingCategoryKey: '64687', productName: '고친 이름' },
       channelAccount: account,

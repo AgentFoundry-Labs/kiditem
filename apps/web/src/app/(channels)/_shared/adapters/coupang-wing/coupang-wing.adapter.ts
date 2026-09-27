@@ -25,7 +25,7 @@ import { WING_PRODUCT_DRAFT_DEFAULTS } from './wing-registration-excel';
 
 /**
  * 쿠팡 WING 어댑터(KID-321). 쿠팡도 몰 하나다 — 등록은 다른 폼 몰과 같은 등록 실행(`channels.registration`)이고,
- * 이 어댑터는 폼 지시(`{ product }`)만 만든다. 여기에는 WING 만의 사실만 있다:
+ * 이 어댑터는 폼 지시(WingProduct 필드를 최상위에 둔 평평한 모양)만 만든다. 여기에는 WING 만의 사실만 있다:
  *
  *  - 몰에 닿는 방식은 레지스트리 `delivery: form` — 확장 몰 쓰기 모듈이 WING formV2 를 채운다. [상품등록]은 확장의
  *    관문 한 곳이 정한다(ADR-0019). 판매자 ID 대조는 서버 plan의 `expectedProviderAccountId` 한 규칙이다.
@@ -150,7 +150,8 @@ async function buildForm({ item, values }: MallFormInput): Promise<MallRegistrat
     const reason = rendered.status === 'missing' ? rendered.message : '상세페이지 이미지 생성이 끝나지 않았습니다.';
     throw new Error(`${reason} ${DETAIL_PAGE_REQUIRED}`);
   }
-  return { product: { ...wing, detailImageUrls: [rendered.imageUrl] } };
+  // 평평한 모양(리더 결정): 서버 freezeForm이 categoryCell·variants를 최상위에서 읽고 얼린 WING 값을 덮는다.
+  return { ...wing, detailImageUrls: [rendered.imageUrl] };
 }
 
 export const coupangWingAdapter: MallPublishAdapter = {
