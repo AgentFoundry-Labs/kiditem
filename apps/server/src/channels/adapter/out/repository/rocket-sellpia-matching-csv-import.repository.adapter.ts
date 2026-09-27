@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { Injectable } from '@nestjs/common';
 import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
@@ -18,7 +19,7 @@ export class RocketSellpiaMatchingCsvImportRepositoryAdapter implements RocketSe
 
   async assertRocketAccount(scope: { organizationId: string; channelAccountId: string }): Promise<void> {
     const account = await this.prisma.channelAccount.findFirst({
-      where: { id: scope.channelAccountId, organizationId: scope.organizationId, status: 'active' },
+      where: { id: scope.channelAccountId, organizationId: scope.organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
       select: { channel: true },
     });
     if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');

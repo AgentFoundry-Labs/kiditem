@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingSaleStatusFact, ListingStateFact } from '../../../domain/listing/observation-facts';
 export type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingSaleStatusFact, ListingStateFact } from '../../../domain/listing/observation-facts';
 import { Prisma } from '@prisma/client';
@@ -31,7 +32,7 @@ export async function readListingTrafficWindowFacts(
         is: {
           organizationId: input.organizationId,
           channel: 'coupang',
-          status: 'active',
+          status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] },
         },
       },
       ...(input.listingIds ? { id: { in: [...input.listingIds] } } : {}),
@@ -70,7 +71,7 @@ export async function readListingTrafficWindowFacts(
               is: {
                 organizationId: input.organizationId,
                 channel: 'coupang',
-                status: 'active',
+                status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] },
               },
             },
           },
@@ -115,7 +116,7 @@ export async function readListingTrafficWindowFacts(
         where: {
           organizationId: input.organizationId,
           channel: 'coupang',
-          status: 'active',
+          status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] },
         },
         select: { id: true },
         orderBy: { id: 'asc' },

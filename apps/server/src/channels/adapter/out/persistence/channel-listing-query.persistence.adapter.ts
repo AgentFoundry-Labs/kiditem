@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { resolveMallListingState } from '../../../domain/listing/mall-listing-state';
 import { readListingRawSections, readOptionRawSections } from '../../../domain/collection/channel-listing-raw-sections';
 import { normalizeStoredAttributes } from '../../../domain/collection/channel-listing-attributes';
@@ -111,7 +112,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
         ...(input.activeOnly ? { isActive: true } : {}),
         channelAccount: { organizationId: input.organizationId,
           ...(input.channels ? { channel: { in: [...input.channels] } } : {}),
-          ...(input.activeAccountsOnly ? { status: 'active' } : {}) } },
+          ...(input.activeAccountsOnly ? { status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } } : {}) } },
       select: { id: true, channelAccountId: true, externalId: true, channelName: true, displayName: true,
         category: true, imageUrl: true, status: true, exposureStatus: true, isActive: true, rawJson: true,
         salesProductId: true, salesProduct: { select: { sourceRecordId: true } }, createdAt: true, updatedAt: true,
@@ -168,7 +169,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
         listing: { organizationId: input.organizationId,
           ...(input.activeOnly ? { isActive: true } : {}),
           ...(input.channel ? { channelAccount: { organizationId: input.organizationId, channel: input.channel,
-            ...(input.activeOnly ? { status: 'active' } : {}) } } : {}) } },
+            ...(input.activeOnly ? { status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } } : {}) } } : {}) } },
       select: { id: true, listingId: true, externalOptionId: true, itemName: true,
         listing: { select: { externalId: true, channelAccountId: true, channelName: true, displayName: true } } },
     });

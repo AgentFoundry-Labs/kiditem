@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { LIVE_OPERATION_STATUSES, readRegistrationOperations } from '../repository/registration-operation-facts';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -369,11 +370,11 @@ async function validateReferences(
   }
 
   const account = await tx.channelAccount.findFirst({
-    where: { id: channelAccountId, organizationId, status: 'active' },
+    where: { id: channelAccountId, organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
     select: { id: true },
   });
   if (!account) {
-    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '활성 채널 계정이 이 조직에 속하지 않습니다.' });
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '사용할 수 있는 채널 계정이 이 조직에 없습니다.' });
   }
   return { name: product.name, status: product.status, sourceRecordId: product.sourceRecordId };
 }

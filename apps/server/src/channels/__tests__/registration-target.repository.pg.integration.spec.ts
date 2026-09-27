@@ -115,6 +115,19 @@ describe('registration target repository (PostgreSQL)', () => {
     })).resolves.toBe(replacementTargetId);
   });
 
+  it('resolves a target on a mall account the mall account screen configured, and refuses a paused one (KID-330, KID-364 D1)', async () => {
+    const { productId } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const onch = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'onch', name: '온채널', externalAccountId: `onch-${randomUUID()}`, status: 'configured',
+    } });
+    await expect(repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: onch.id })).resolves.toEqual(expect.any(String));
+    const paused = await prisma.channelAccount.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channel: 'kidkids', name: '멈춘 몰', externalAccountId: `kk-${randomUUID()}`, status: 'paused',
+    } });
+    await expect(repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: paused.id }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
   it('serializes concurrent resolves so one product-account pair creates one default target', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
