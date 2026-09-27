@@ -1178,7 +1178,7 @@
 
   /**
    * ─────────────────────────────────────────────────────────────────────────
-   * 제출(상품등록) — 옵트인 전용. 이 아래 코드는 autoSubmit === true 일 때만 실행된다.
+   * 제출(상품등록) — `wing.submit` 페이지 호출로만 부른다(관문이 누르라고 할 때만, ADR-0019).
    * ─────────────────────────────────────────────────────────────────────────
    */
 
@@ -1416,7 +1416,7 @@
     };
   }
 
-  async function fillWingForm(product, autoSubmit = false, expectedVendorId) {
+  async function fillWingForm(product, expectedVendorId) {
     const steps = [];
     const log = (s) => steps.push(s);
     let detailUploadError = null;
@@ -1712,18 +1712,13 @@
 
     // 상세페이지가 요청됐는데 최종 HTML 타입으로 적용되지 않았다면 전체 성공으로 보고하지 않는다.
     // 폼은 열린 채로 남겨 사용자가 보정할 수 있고, 웹에는 실패 이유와 steps 가 전달된다.
-    // ⚠️ 이 경우 autoSubmit 이 켜져 있어도 제출하지 않는다. 반쯤 채워진 폼을 쿠팡에 올리면 안 된다.
+    // 실패로 돌려주면 런타임 관문이 [상품등록]을 누르지 않는다 — 반쯤 채워진 폼을 쿠팡에 올리면 안 된다.
     if (detailUploadError) {
       return { ok: false, error: detailUploadError, steps, evidence };
     }
 
-    // 9) 제출 — **옵트인일 때만**. autoSubmit 이 아니면 제출 버튼을 찾지도 않는다.
-    if (autoSubmit === true) {
-      const submission = await submitWingForm(log);
-      return { ok: true, steps, submission, evidence };
-    }
-
-    return { ok: true, steps, submission: { attempted: false }, evidence };
+    // 채우기만 한다. [상품등록]은 관문이 누르라고 할 때 런타임이 `wing.submit`으로 따로 부른다.
+    return { ok: true, steps, evidence };
   }
 
   const isolatedCalls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
@@ -1734,7 +1729,7 @@
     for (const [url, dataUrl] of Object.entries((args && args.imageData) || {})) {
       if (typeof dataUrl === 'string' && dataUrl.startsWith('data:image/')) preloaded.set(url, dataUrl);
     }
-    return fillWingForm((args && args.product) || {}, false, args && args.expectedVendorId);
+    return fillWingForm((args && args.product) || {}, args && args.expectedVendorId);
   };
 
   /** [상품등록] → 확인 모달 [상품등록]. 성공을 확증하지 못하면 status 'unknown'이다(추측하지 않는다). */

@@ -1421,6 +1421,7 @@ function createSubmitHarness({
   listener = oldFillApi(context);
 
   return {
+    calls: context.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => Promise<any>>,
     async fill(message: any) {
       return new Promise<any>((resolve) => {
         const isAsync = listener?.(
@@ -1437,20 +1438,14 @@ function createSubmitHarness({
   };
 }
 
-it('never touches a submit or confirm-modal button unless autoSubmit is explicitly true', async () => {
-  // 미지정 / false / truthy 하지만 true 가 아닌 값 — 전부 제출하지 않는다.
-  // 폼 버튼도, 확인 모달 버튼도 누르지 않는다(모달은 애초에 열리지도 않는다).
-  for (const message of [{}, { autoSubmit: false }, { autoSubmit: 'yes' }, { autoSubmit: 1 }]) {
-    const harness = createSubmitHarness();
-    const result = await harness.fill(message);
+it('`wing.fill`은 채우기만 한다 — 상품등록 버튼도 확인 모달도 찾지도 누르지도 않고, 제출 결과를 싣지 않는다(누르기는 `wing.submit`만)', async () => {
+  const harness = createSubmitHarness();
+  const result = await harness.calls['wing.fill']({ product: { categoryCell: '', detailImageUrls: [] }, expectedVendorId: 'A00012345' });
 
-    assert.equal(result.ok, true);
-    assert.deepEqual(harness.getClicks(), [], `autoSubmit=${JSON.stringify(message)} clicked a button`);
-    assert.ok(!result.steps.some((step: any) => step.startsWith('submit:confirmModal')));
-    assert.equal(result.submission.attempted, false);
-    assert.equal(result.submission.clicked, undefined);
-    assert.ok(!result.steps.some((step: any) => step.startsWith('submit:')));
-  }
+  assert.equal(result.ok, true);
+  assert.deepEqual(harness.getClicks(), []);
+  assert.ok(!result.steps.some((step: any) => step.startsWith('submit:')));
+  assert.equal('submission' in result, false);
 });
 
 it('submits and reports the registered product id when autoSubmit is on', async () => {
