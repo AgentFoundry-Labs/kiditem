@@ -34,10 +34,9 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedAd,
-  seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
+import { clearAdReportLedger, seedAdReportWindow, seedListingAdDay, seedUnmeasuredListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import {
   addDays,
   businessDateKey,
@@ -183,10 +182,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
   let sweepGeneration = 0;
   async function seedConfirmedZeroMonth(): Promise<void> {
     const month = anchorMonth();
-    await seedCompletedAdSweepRun(prisma, {
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: ++sweepGeneration,
-      window: { startDate: `${month}-01`, endDate: kstMonthEnd(month) },
+      start: `${month}-01`, end: kstMonthEnd(month),
     });
   }
 
@@ -244,10 +242,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // This case owns its coverage. It replaces the helper's calendar-month
     // sweep with what real collections reach: the sweep and the Orders
     // collection both stop at the 19th.
-    await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
-    await prisma.sourceImportRun.deleteMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' },
-    });
+    await clearAdReportLedger(prisma, TEST_ORGANIZATION_ID);
     await seedOrderWithLineItems(prisma, {
       orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
@@ -256,10 +251,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       shippingPrice: 10_000,
       lineItems: [{ quantity: 1, totalPrice: 100_000, optionId, listingOptionId }],
     });
-    await seedCompletedAdSweepRun(prisma, {
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: ++sweepGeneration,
-      window: { startDate: '2026-09-01', endDate: '2026-09-19' },
+      start: '2026-09-01', end: '2026-09-19',
     });
     await seedCompletedOrderCoverageRun(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -487,23 +481,20 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
   });
 
-  it('keeps an unobserved conversion count null in the Coupang ad totals', async () => {
-    const { listingId } = await seedTestListing('UNOBSERVED-CONVERSIONS');
-    const runId = await seedCompletedAdSweepRun(prisma, {
+  it('counts report orders as conversions in the Coupang ad totals, a measured zero included', async () => {
+    const { listingId } = await seedTestListing('REPORT-CONVERSIONS');
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: 100,
-      window: { startDate: '2026-07-10', endDate: '2026-07-11' },
+      start: '2026-07-10', end: '2026-07-11',
     });
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId, runId, date: '2026-07-10',
-      spend: 1_000, revenue: 5_000, clicks: 40, conversions: 2, orders: 3,
-      conversionsObserved: true,
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-07-10',
+      spend: 1_000, billedSpend: 900, revenue: 5_000, clicks: 40, orders: 3,
     });
-    // The campaign dashboard grid carries no conversion columns: stored 0, unobserved.
-    await seedAd(prisma, {
-      organizationId: TEST_ORGANIZATION_ID, listingId, runId, date: '2026-07-11',
-      spend: 2_000, revenue: 0, clicks: 10, conversions: 0, orders: 0,
-      conversionsObserved: false,
+    // A measured day with no order: the report's 0 is a count, not an absence.
+    await seedListingAdDay(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-07-11',
+      spend: 2_000, revenue: 0, clicks: 10, orders: 0,
     });
     const since = new Date('2026-07-09T15:00:00.000Z');
     const until = new Date('2026-07-11T15:00:00.000Z');
@@ -515,12 +506,13 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         sourceClass: 'closed_day_clipped',
       }),
     );
+    // Performance totals: delivered spend, not billed (KID-368).
     expect(totals).toMatchObject({
       spend: 3_000,
       clicks: 50,
-      conversions: null,
-      orders: null,
-      conversionRate: null,
+      conversions: 3,
+      orders: 3,
+      conversionRate: 6,
       isCollected: true,
       hasData: true,
     });
@@ -613,15 +605,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const listing = await seedTestListing('AD-RATE');
     // This adapter-level case owns its coverage fixture. Remove the helper's
     // current-month explicit-zero sweep so D2 remains deliberately unmeasured.
-    await prisma.channelAdTargetDailySnapshot.deleteMany({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-    });
-    await prisma.sourceImportRun.deleteMany({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_ad_campaign',
-      },
-    });
+    await clearAdReportLedger(prisma, TEST_ORGANIZATION_ID);
     await seedOrderWithLineItems(prisma, {
       orderChannel: 'rocket',
       organizationId: TEST_ORGANIZATION_ID,
@@ -653,26 +637,23 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       startDate: '2026-09-01',
       endDate: '2026-09-01',
     });
-    const adRunId = await seedCompletedAdSweepRun(prisma, {
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: ++sweepGeneration,
-      window: { startDate: '2026-09-01', endDate: '2026-09-01' },
+      start: '2026-09-01', end: '2026-09-01',
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.listingId,
       date: '2026-09-01',
       spend: 10,
-      runId: adRunId,
     });
-    await seedAd(prisma, {
+    await seedUnmeasuredListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.listingId,
       date: '2026-09-02',
       spend: 20,
-      // Preserved legacy evidence without a terminal owner declaration must
-      // not expand the measured intersection.
-      runId: null,
+      // A row from a failed ad report run is not a measured day and must not
+      // expand the measured intersection.
     });
 
     const result = await wingTraffic.readAdRateFacts(
@@ -828,8 +809,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     // This fixture is about Wing revenue without settlement data: the ad
     // account exists but the sweep has reported nothing for the month, so ad
     // cost stays unavailable rather than becoming a collected zero.
-    await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
-    await prisma.sourceImportRun.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' } });
+    await clearAdReportLedger(prisma, TEST_ORGANIZATION_ID);
 
     const ctx = buildDashboardContext();
     const result = await service.getSummary(ctx, TEST_ORGANIZATION_ID);
@@ -1185,7 +1165,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     function buildAdapter(): ProfitCalculationRepositoryAdapter {
       return new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
         prisma as unknown as PrismaService,
-        new ProductTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(prisma as unknown as PrismaService),
       );
     }
 
@@ -1199,19 +1179,17 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     async function publishedRows(...businessDates: string[]): Promise<void> {
       if (!coverageListingId) {
         const { listingId } = await seedTestListing('COV-LEDGER');
-        await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
-        await prisma.sourceImportRun.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' } });
+        await clearAdReportLedger(prisma, TEST_ORGANIZATION_ID);
         coverageListingId = listingId;
       }
       for (const date of businessDates) {
-        await seedAd(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: coverageListingId, date, spend: 0 });
+        await seedListingAdDay(prisma, { organizationId: TEST_ORGANIZATION_ID, listingId: coverageListingId, date, spend: 0 });
       }
     }
 
     /** An organization with no advertising account at all: its only account is not a Coupang one. */
     async function notApplied(): Promise<void> {
-      await prisma.channelAdTargetDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
-      await prisma.sourceImportRun.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'coupang_ad_campaign' } });
+      await clearAdReportLedger(prisma, TEST_ORGANIZATION_ID);
       await prisma.channelAccount.updateMany({
         where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
         data: { channel: 'naver' },
@@ -1345,28 +1323,16 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
 
     it('separates a failed ad read from an ad source with no published rows', async () => {
-      let broken: PrismaClient;
-      broken = new Proxy(prisma, {
-        get(target, prop, receiver) {
-          if (prop === '$transaction') {
-            return async (callback: (tx: PrismaClient) => unknown) => callback(broken);
-          }
-          if (prop === '$queryRaw') {
-            return async (...args: unknown[]) => {
-              const sql = args[0] as { strings?: readonly string[] } | undefined;
-              if ((sql?.strings ?? []).join('').includes('channel_ad_target_daily_snapshots')) {
-                throw new Error('ledger unavailable');
-              }
-              return (target.$queryRaw as (...queryArgs: unknown[]) => unknown)(...args);
-            };
-          }
-          return Reflect.get(target, prop, receiver);
-        },
+      // Advertising's ledger capability fails; the dashboard reads the rest of
+      // the window from PostgreSQL as usual.
+      const reader = advertisingLedgerTestReader(prisma as unknown as PrismaService);
+      const failingAds = Object.assign(Object.create(reader) as typeof reader, {
+        readAdWindowFacts: async () => { throw new Error('ledger unavailable'); },
       });
       await publishedRows();
-      const failed = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(broken as unknown as PrismaService).accounts, channelFactTestPorts(broken as unknown as PrismaService).recipes,
-        broken as unknown as PrismaService,
-        new ProductTransactionalReadRepositoryAdapter(),
+      const failed = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
+        prisma as unknown as PrismaService,
+        new ProductTransactionalReadRepositoryAdapter(), failingAds,
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
       const emptyPublication = await buildAdapter().calculateForRange(
@@ -1522,7 +1488,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const client = prisma as unknown as PrismaService;
       const card = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).recipes,
         client,
-        new ProductTransactionalReadRepositoryAdapter(),
+        new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(client),
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
       const topProducts = await new DashboardSalesRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).listings, channelFactTestPorts(client).recipes,
@@ -1582,14 +1548,14 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
           { startDate: '2026-03-16', endDate: '2026-03-31' },
         ];
       const runIds: string[] = [];
-      for (const [index, window] of windows.entries()) {
-        runIds.push(await seedCompletedAdSweepRun(prisma, {
-          organizationId: TEST_ORGANIZATION_ID, generation: index + 1, window,
+      for (const window of windows) {
+        runIds.push(await seedAdReportWindow(prisma, {
+          organizationId: TEST_ORGANIZATION_ID, start: window.startDate, end: window.endDate,
         }));
       }
       // The option's own measured spend, on a day the first sweep declared.
-      await seedAd(prisma, {
-        organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-03-10', spend: 500, runId: runIds[0],
+      await seedListingAdDay(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, listingId, date: '2026-03-10', spend: 500,
       });
     }
 
@@ -1599,9 +1565,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       });
       await advertiseMarch(listingId, { declaresMarch15: true });
 
-      // 10,000 revenue − 5,000 purchase cost − 1,000 order shipping − 500 measured ad spend.
+      // 10,000 revenue − 5,000 purchase cost − 1,000 order shipping − 550 ad cost (500 billed × 1.1).
       await expect(profitEverywhere()).resolves.toEqual({
-        card: 3_500, topProducts: [3_500], profitLossTotal: 3_500, profitLossRows: [3_500],
+        card: 3_450, topProducts: [3_450], profitLossTotal: 3_450, profitLossRows: [3_450],
       });
     });
 

@@ -5,7 +5,8 @@ import type { ListingTrafficDailyFact, ListingTrafficWindowFacts } from '../../.
 import { Inject,  Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { readAdWindowFacts, readLatestAdDate } from '../../../../../advertising/adapter/out/persistence/read/ad-target-facts';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { adConversions, performanceAdSpend } from '../../../../../advertising/domain/ad-spend-rule';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
@@ -20,6 +21,7 @@ import {
   type ResolvedDashboardPeriod,
 } from '../../../../domain/dashboard/period/dashboard-period';
 import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising-operations';
+import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import type {
   TrafficCoverage,
   TrafficMetricReconciliation,
@@ -60,6 +62,7 @@ export class WingTrafficAggregationRepositoryAdapter
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async aggregateTraffic(
@@ -141,9 +144,9 @@ export class WingTrafficAggregationRepositoryAdapter
     // days the ad-centre scrape happened to run. Reading the numbers from the
     // account summary is what made a fully covered month read `0/31일`.
     const { days: rows, observedAt: lastObservedAt } = await this.prisma.$transaction(
-      (tx) => readAdWindowFacts(
-        tx,
-        { organizationId, from: dayStart(range.from), to: dayAfter(range.to) }, this.channelAccounts
+      (tx) => this.adLedger.readAdWindowFacts(
+        ownerTransaction(tx),
+        { organizationId, from: range.from, to: shiftBusinessDateKey(range.to, 1) },
       ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -154,25 +157,22 @@ export class WingTrafficAggregationRepositoryAdapter
     let revenue = 0;
     let impressions = 0;
     let clicks = 0;
-    let conversions = 0;
     let orders = 0;
-    let conversionsObserved = true;
 
     for (const row of rows) {
-      spend += row.spend;
+      // 성과 지표: 집행 광고비 그대로, 전환 = 주문수(KID-368).
+      spend += performanceAdSpend(row.spend);
       revenue += row.revenue;
       impressions += row.impressions;
       clicks += row.clicks;
-      conversions += row.conversions;
-      orders += row.orders;
-      if (!row.conversionsObserved) conversionsObserved = false;
+      orders += adConversions(row);
     }
 
     // A measured date always returns a day row, so no row means nothing was
-    // measured and no total is published. A conversion count is a measurement
-    // only when every summed day observed the conversion columns.
+    // measured and no total is published. Every row of a measured day carries
+    // the report's order count, so the count is measured whenever a day is.
     const measured = rows.length > 0;
-    const conversionCountsMeasured = measured && conversionsObserved;
+    const conversionCountsMeasured = measured;
     const hasData = coverage.targetDays > 0
       && coverage.completedDays === coverage.targetDays;
     const conversionRate = conversionCountsMeasured && clicks > 0
@@ -187,7 +187,7 @@ export class WingTrafficAggregationRepositoryAdapter
       revenue: measured ? revenue : null,
       impressions: measured ? impressions : null,
       clicks: measured ? clicks : null,
-      conversions: conversionCountsMeasured ? conversions : null,
+      conversions: conversionCountsMeasured ? orders : null,
       orders: conversionCountsMeasured ? orders : null,
       conversionRate,
       providerConversionRate,
@@ -263,7 +263,11 @@ export class WingTrafficAggregationRepositoryAdapter
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
         };
         const [ads, orderWindow, dailyOrders, traffic] = await Promise.all([
-          readAdWindowFacts(tx, ownerDateInput, this.channelAccounts),
+          this.adLedger.readAdWindowFacts(ownerTransaction(tx), {
+            organizationId,
+            from: range.from,
+            to: shiftBusinessDateKey(range.to, 1),
+          }),
           readOrderLineWindowFacts(tx, orderInput, this.channelAccounts),
           readDailyOrderFacts(tx, orderInput),
           this.channelListings.readTrafficWindow(ownerTransaction(tx), ownerDateInput),
@@ -288,7 +292,8 @@ export class WingTrafficAggregationRepositoryAdapter
     const [wing, ads] = await this.prisma.$transaction(
       async (tx) => {
         const traffic = await this.channelListings.readTrafficWindow(ownerTransaction(tx), { organizationId });
-        const adDate = await readLatestAdDate(tx, organizationId, this.channelAccounts);
+        const coverage = await this.adLedger.readAdCoverage(ownerTransaction(tx), { organizationId });
+        const adDate = coverage.latestMeasuredDate ? dayStart(coverage.latestMeasuredDate) : null;
         return [traffic, adDate] as const;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -358,17 +363,17 @@ export class WingTrafficAggregationRepositoryAdapter
       : { from: businessDateText(since) };
     if (!range) return [];
     const { days } = await this.prisma.$transaction(
-      (tx) => readAdWindowFacts(tx, {
+      (tx) => this.adLedger.readAdWindowFacts(ownerTransaction(tx), {
         organizationId,
-        from: dayStart(range.from),
-        ...('to' in range ? { to: dayAfter(range.to) } : {}),
-      }, this.channelAccounts),
+        from: range.from,
+        ...('to' in range && range.to ? { to: shiftBusinessDateKey(range.to, 1) } : {}),
+      }),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
 
     return days.map((row) => ({
       date: row.businessDate,
-      ad_cost: row.spend,
+      ad_cost: performanceAdSpend(row.spend),
     } satisfies CoupangAdsDailyRow));
   }
 

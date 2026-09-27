@@ -25,9 +25,9 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedAd,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import type { PrismaClient } from '@prisma/client';
 import { buildDashboardContext } from '../../domain/dashboard/context';
 
@@ -167,7 +167,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     }
 
     if (opts.adSpend !== undefined) {
-      await seedAd(prisma, {
+      await seedListingAdDay(prisma, {
         organizationId: TEST_ORGANIZATION_ID, listingId,
         date: yesterday.toISOString().slice(0, 10), spend: opts.adSpend,
       });
@@ -192,7 +192,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, listingId: oL.listingId,
       date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
     });
@@ -252,7 +252,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     });
     // The sweep visited yesterday and found no advertising: a measured zero.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId,
       date: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -365,7 +365,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       }
       return trafficPublication;
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId,
       date: dateKey,
@@ -373,7 +373,6 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       revenue: 90_000,
       impressions: 1000,
       clicks: 50,
-      conversions: 3,
       orders: 3,
     });
 

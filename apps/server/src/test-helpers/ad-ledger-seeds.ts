@@ -216,3 +216,65 @@ export async function ensureAdReportDay(
   });
   return run.id;
 }
+
+/**
+ * 조직의 쿠팡 계정(지정이 없으면 대표·가장 오래된 계정) 하나에 확정 창 `[start, end]`의 성공 실행을 심는다. 창 안의 날은
+ * 이 계정에 대해 측정한 날이 되고, 뒤이은 `seedListingAdDay`가 같은 실행에 행을 붙인다.
+ */
+export async function seedAdReportWindow(
+  prisma: PrismaClient,
+  input: { organizationId: string; channelAccountId?: string; start: string; end: string; status?: string },
+): Promise<string> {
+  const account = await prisma.channelAccount.findFirstOrThrow({
+    where: {
+      organizationId: input.organizationId,
+      channel: 'coupang',
+      ...(input.channelAccountId ? { id: input.channelAccountId } : {}),
+    },
+    orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+    select: { id: true },
+  });
+  const run = await seedAdReportRun(prisma, {
+    organizationId: input.organizationId,
+    channelAccountId: account.id,
+    start: input.start,
+    end: input.end,
+    status: input.status,
+  });
+  return run.id;
+}
+
+/**
+ * 측정 근거가 없는 리스팅 하루 행: 실패한 실행에 붙은 상품 사실 행이다. 행은 있어도 그 날은 측정한 날이 아니다(KID-45) —
+ * 옛 원장의 "완료 선언 없는 행"(`runId: null`)에 해당한다.
+ */
+export async function seedUnmeasuredListingAdDay(
+  prisma: PrismaClient,
+  input: Omit<AdProductDaySeed, 'channelAccountId' | 'operationId' | 'listingId'> & { listingId: string },
+): Promise<void> {
+  const listing = await prisma.channelListing.findFirstOrThrow({
+    where: { id: input.listingId, organizationId: input.organizationId },
+    select: { channelAccountId: true, externalId: true },
+  });
+  const failed = await seedAdReportRun(prisma, {
+    organizationId: input.organizationId,
+    channelAccountId: listing.channelAccountId,
+    start: input.date,
+    end: input.date,
+    status: 'failed',
+  });
+  await seedAdProductDays(prisma, [{
+    ...input,
+    channelAccountId: listing.channelAccountId,
+    operationId: failed.id,
+    vendorItemId: input.vendorItemId ?? `VI-${listing.externalId}`,
+  }]);
+}
+
+/** 조직의 새 광고 원장과 광고 보고서 실행을 모두 지운다 — 스펙이 공용 픽스처의 측정을 걷어낼 때. */
+export async function clearAdReportLedger(prisma: PrismaClient, organizationId: string): Promise<void> {
+  await prisma.channelAdProductDailySnapshot.deleteMany({ where: { organizationId } });
+  await prisma.channelAdKeywordDailySnapshot.deleteMany({ where: { organizationId } });
+  await prisma.channelAdDailyBilling.deleteMany({ where: { organizationId } });
+  await prisma.operation.deleteMany({ where: { organizationId, kind: AD_REPORT_KIND } });
+}
