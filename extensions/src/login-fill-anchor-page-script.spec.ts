@@ -51,25 +51,28 @@ describe('login-fill.js — javascript: 앵커 로그인 버튼(KID-380 D9)', ()
     expect(lastEvent!.defaultPrevented).toBe(true);
   });
 
-  it('폼 안의 javascript: 앵커는 누르지 않고 폼을 제출한다', () => {
+  it('폼 안의 javascript: 앵커도 폼을 제출하지 않고 눌러 화면의 로그인 처리기를 돌리며 주소 이동만 막는다(리뷰 MUST 1)', () => {
     let submitted = 0;
     let clicked = 0;
+    let lastEvent: { defaultPrevented: boolean } | null = null;
     dom.document.body.innerHTML = `<form id="f">${INPUTS}<a href="javascript:goLogin()" id="go">로그인</a></form>`;
     dom.document.querySelector('#f')!.addEventListener('submit', (event) => {
       submitted += 1;
       event.preventDefault();
     });
-    dom.document.querySelector('#go')!.addEventListener('click', () => {
+    dom.document.querySelector('#go')!.addEventListener('click', (event) => {
       clicked += 1;
+      lastEvent = event;
     });
     const isolated: Record<string, unknown> = {};
     new Function('source', 'document', 'window', 'globalThis', 'Event', 'Node', 'KeyboardEvent', 'return eval(source)')(
       fillSource, dom.document, dom.window, isolated, dom.Event, dom.Node, dom.KeyboardEvent,
     );
     const calls = isolated.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => Record<string, unknown>>;
-    expect(calls['login.fill']!({ values: { loginId: 'fake-id', password: 'fake-password' } })).toMatchObject({ state: 'submitted', method: 'form-request-submit' });
-    expect(submitted).toBe(1);
-    expect(clicked).toBe(0);
+    expect(calls['login.fill']!({ values: { loginId: 'fake-id', password: 'fake-password' } })).toMatchObject({ state: 'submitted', method: 'exact-text' });
+    expect(clicked).toBe(1);
+    expect(lastEvent!.defaultPrevented).toBe(true);
+    expect(submitted).toBe(0);
   });
 
   it('진짜 버튼은 그대로 누른다', () => {

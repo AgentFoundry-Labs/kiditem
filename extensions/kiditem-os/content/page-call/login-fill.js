@@ -139,17 +139,13 @@
   }
 
   // `<a href="javascript:…">`(롯데ON `mf_btn_login`)를 그냥 누르면 이 world에서 `javascript:` 주소로 가려다 CSP 오류가 난다
-  // (KID-380 D9). 폼 안이면 누르지 않고 폼을 제출하고, 폼이 없으면(WebSquare) 화면의 클릭 처리기는 돌게 두고 주소 이동만 막는다.
+  // (KID-380 D9). 폼 안이든 밖이든 화면의 클릭 처리기(onclick·jQuery 로그인)는 돌게 두고 주소 이동만 막는다 — 폼을 대신
+  // 제출하면 그 처리기가 건너뛰어져 폼이 남고, 거절된 자격으로 오판해 몰이 막힌다(리뷰 MUST 1).
   function activate(control, method) {
     const href = control.tagName === "A" ? String(control.getAttribute("href") || "") : "";
     if (!/^\s*javascript:/i.test(href)) {
       control.click();
       return method;
-    }
-    const form = control.closest("form");
-    if (form && form.requestSubmit) {
-      form.requestSubmit();
-      return "form-request-submit";
     }
     const stopNavigation = (event) => {
       if (event.target === control || control.contains(event.target)) event.preventDefault();
