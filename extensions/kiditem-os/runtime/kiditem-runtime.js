@@ -20416,7 +20416,6 @@ var KidItemRuntime = (() => {
       if (input.signal.aborted) return cancelled(operationId);
       const summary = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
       const request = {
-        // `reconciling`은 등록 kind가 계약에 더한 outcome이다(KID-364 M1 — 합류 전 계약 타입에는 아직 없다).
         outcome: summary.outcome ?? "succeeded",
         ...summary.result ? { result: summary.result } : {},
         ...summary.window ? { window: summary.window } : {}
