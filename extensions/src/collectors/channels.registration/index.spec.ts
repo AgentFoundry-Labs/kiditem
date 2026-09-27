@@ -224,11 +224,12 @@ describe('channels.registration — 품절·재개 묶음(KID-256)', () => {
     }, log));
 
     expect(log).toEqual([{ resume: false, byOption: false, expectedProviderAccountId: null, listings: [{ externalListingId: '100', externalOptionIds: ['100-1'] }, { externalListingId: '200', externalOptionIds: ['200-1'] }] }]);
-    expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['registration_fill', 'registration_evidence']);
+    // 리스팅마다 증거 청크 하나(M1 최종 규칙).
+    expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['registration_fill', 'registration_evidence', 'registration_evidence']);
     expect(chunks[0]!.payload).toEqual([{ steps: ['몰에 2건을 보냈습니다.', '다시 읽어 2건이 바뀐 것을 확인했습니다.'], warnings: ['1건은 이미 진열안함이었습니다.'], manualSteps: [], dialogs: [] }]);
-    expect(chunks[1]!.payload).toEqual([
-      { payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '100', observedUrl: null, providerAccountId: null, observedStatus: '진열안함', message: null, options: [] },
-      { payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '200', observedUrl: null, providerAccountId: null, observedStatus: '진열안함', message: null, options: [] },
+    expect(chunks.slice(1).map((chunk) => chunk.payload)).toEqual([
+      [{ payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '100', observedUrl: null, providerAccountId: null, observedStatus: '진열안함', message: null, options: [] }],
+      [{ payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '200', observedUrl: null, providerAccountId: null, observedStatus: '진열안함', message: null, options: [] }],
     ]);
     expect(finish).toMatchObject({ result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, submitSkipped: null } });
     expect(finish).not.toHaveProperty('outcome');
@@ -246,7 +247,7 @@ describe('channels.registration — 품절·재개 묶음(KID-256)', () => {
     }, log));
 
     expect(log[0]).toMatchObject({ byOption: true, expectedProviderAccountId: 'A00012345' });
-    expect(chunks[1]!.payload).toEqual([
+    expect(chunks.slice(1).flatMap((chunk) => chunk.payload)).toEqual([
       {
         payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '100', observedUrl: 'https://wing.coupang.com/vendor-inventory/list',
         providerAccountId: 'A00012345', observedStatus: null, message: null, options: [],
@@ -266,7 +267,7 @@ describe('channels.registration — 품절·재개 묶음(KID-256)', () => {
       answer: { sent: 2, failed: 0, confirmed: 1, warnings: [], requestOnly: false },
       observed: [soldOut('100', '100'), { externalListingId: '200', status: '진열함', options: [{ externalOptionId: '200', stock: null, status: '진열함' }] }],
     }));
-    expect(chunks[1]!.payload).toHaveLength(2);
+    expect(chunks.filter((chunk) => chunk.chunkKind === 'registration_evidence').map((chunk) => chunk.payload.length)).toEqual([1, 1]);
     expect(finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'uncertain', submitted: true } });
   });
 

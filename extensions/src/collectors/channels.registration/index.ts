@@ -327,7 +327,10 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
           } : {}),
         }];
       });
-      if (evidence.length > 0) yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: evidence, progress: { ...progress, stage: 'reread' } };
+      // 리스팅마다 증거 청크 하나(M1 최종 규칙 — 같은 리스팅이 두 번이면 서버가 거절한다).
+      for (const row of evidence) {
+        yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [row], progress: { ...progress, stage: 'reread', externalListingId: row.externalListingId } };
+      }
       const outcome: RegistrationMallOutcome = confirmed.length === listings.length ? 'confirmed' : run.answer.requestOnly ? 'awaiting_approval' : 'uncertain';
       return {
         ...(outcome === 'confirmed' ? {} : { outcome: 'reconciling' as const }),
