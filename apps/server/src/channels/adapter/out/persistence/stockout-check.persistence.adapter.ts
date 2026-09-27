@@ -71,6 +71,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
         { channelListingId },
         { payload: { listings: [{ channelListingId }] } },
       ]),
+      plan: { payloadKeys: ['listings', 'action'] },
     });
     const importIds = [...new Set(listings.flatMap(listing => [listing.lastImportRunId, ...listing.options.map(option => option.lastImportRunId)]).filter((id): id is string => id !== null))];
     const imports = importIds.length === 0 ? [] : await tx.sourceImportRun.findMany({

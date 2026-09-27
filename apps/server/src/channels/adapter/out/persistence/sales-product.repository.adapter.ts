@@ -1203,6 +1203,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         organizationId,
         planContainsAny: [{ salesProductId }],
         statuses: LIVE_OPERATION_STATUSES,
+        plan: { payloadKeys: [] },
       }).then((operations) => operations.length),
     ]);
     return {

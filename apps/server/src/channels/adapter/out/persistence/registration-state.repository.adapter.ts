@@ -7,7 +7,7 @@ import {
   type FrozenRegistrationFacts,
 } from '../../../domain/registration/registration-account-state';
 import { OPERATION_EXPIRED_ERROR_CODE, OPERATION_EXPIRED_ERROR_MESSAGE } from '../../../../common/operation/domain/operation-fence';
-import { frozenSnapshot, isFillOnly, readRegistrationOperations, type RegistrationOperationFact } from '../repository/registration-operation-facts';
+import { frozenSnapshot, readRegistrationOperations, type RegistrationOperationFact } from '../repository/registration-operation-facts';
 import type {
   RegistrationStateAccountFacts,
   RegistrationStateExecutionFact,
@@ -152,8 +152,11 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
       organizationId,
       planContainsAny: targetIds.flatMap((registrationTargetId) =>
         LISTING_SHAPING_EXECUTION_KINDS.map((executionKind) => ({ registrationTargetId, executionKind }))),
+      excludeFillOnly: true,
+      latestPer: 'registrationTargetId',
+      plan: { payloadKeys: [] },
     });
-    return latestPer(operations.filter((operation) => !isFillOnly(operation)), (operation) => operation.plan.registrationTargetId).map((operation) => ({
+    return operations.map((operation) => ({
       id: operation.id,
       registration_target_id: operation.plan.registrationTargetId!,
       execution_kind: operation.plan.executionKind,
@@ -173,8 +176,10 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
       planContainsAny: targetIds.flatMap((registrationTargetId) =>
         DOCUMENT_BASELINE_EXECUTION_KINDS.map((executionKind) => ({ registrationTargetId, executionKind }))),
       statuses: ['succeeded'],
+      excludeFillOnly: true,
+      latestPer: 'registrationTargetId',
     });
-    return latestPer(operations.filter((operation) => !isFillOnly(operation)), (operation) => operation.plan.registrationTargetId).map((operation) => {
+    return operations.map((operation) => {
       const snapshot = frozenSnapshot(operation.plan) ?? {};
       return {
         registration_target_id: operation.plan.registrationTargetId!,
@@ -192,12 +197,14 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
     const operations = await readRegistrationOperations(this.prisma, {
       organizationId,
       planContainsAny: listingIds.map((channelListingId) => ({ payload: { listings: [{ channelListingId }] } })),
+      excludeFillOnly: true,
+      plan: { payloadKeys: ['listings'] },
     });
     const wanted = new Set(listingIds);
     const rows: AvailabilityRow[] = [];
     const seen = new Set<string>();
     for (const operation of operations) {
-      if (!(AVAILABILITY_EXECUTION_KINDS as readonly string[]).includes(operation.plan.executionKind) || isFillOnly(operation)) continue;
+      if (!(AVAILABILITY_EXECUTION_KINDS as readonly string[]).includes(operation.plan.executionKind)) continue;
       const listings = field(operation.plan.payload, 'listings');
       if (!Array.isArray(listings)) continue;
       for (const listing of listings) {
@@ -216,16 +223,6 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
     }
     return rows;
   }
-}
-
-/** 시작 역순으로 읽은 실행에서 열쇠마다 가장 최근 것 하나. */
-function latestPer(operations: readonly RegistrationOperationFact[], key: (operation: RegistrationOperationFact) => string | null): RegistrationOperationFact[] {
-  const latest = new Map<string, RegistrationOperationFact>();
-  for (const operation of operations) {
-    const id = key(operation);
-    if (id && !latest.has(id)) latest.set(id, operation);
-  }
-  return [...latest.values()];
 }
 
 /** `submit` 이 허락된 문서 실행이 결과 보고 없이 임대 만료로 끝났다(계약의 만료 코드 · 문장). */

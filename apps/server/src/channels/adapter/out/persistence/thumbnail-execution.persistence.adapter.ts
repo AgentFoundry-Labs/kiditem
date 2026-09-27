@@ -119,18 +119,21 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       organizationId: input.organizationId,
       kinds: [REGISTRATION_KIND],
       planContainsAny: input.salesProductIds.map((salesProductId) => ({ executionKind: THUMBNAIL_UPDATE_EXECUTION_KIND, salesProductId })),
+      latestPer: 'salesProductId',
+      plan: { payloadKeys: ['assetId'] },
     });
     const latest = new Map<string, ThumbnailExecutionStatus>();
     for (const row of rows) {
       const plan = RegistrationPlanSchema.safeParse(row.plan);
       if (!plan.success || !plan.data.salesProductId || latest.has(plan.data.salesProductId)) continue;
-      const payload = RegistrationThumbnailPayloadSchema.safeParse(plan.data.payload);
-      if (!payload.success) continue;
+      // 읽은 plan 의 payload 는 자산 id 만 싣는다(사진 dataUrl 은 크다).
+      const assetId = RegistrationThumbnailPayloadSchema.shape.assetId.safeParse(plan.data.payload.assetId);
+      if (!assetId.success) continue;
       const result = jsonRecord(row.result);
       const status = OperationStatusSchema.parse(row.status);
       latest.set(plan.data.salesProductId, {
         salesProductId: plan.data.salesProductId,
-        assetId: payload.data.assetId,
+        assetId: assetId.data,
         executionId: row.id,
         status,
         providerOutcome: providerOutcomeOf(status, result.providerOutcome),

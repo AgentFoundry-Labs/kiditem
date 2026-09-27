@@ -36,16 +36,22 @@ export interface RegistrationOperationFact {
 /** 등록 실행 중 plan 이 조건 하나를 품은 것(시작 역순). plan 이 등록 실행 모양이 아니면 무결성 오류다. */
 export async function readRegistrationOperations(
   client: Prisma.TransactionClient,
-  input: { organizationId: string; planContainsAny: readonly Record<string, unknown>[]; statuses?: readonly string[] },
+  input: Omit<Parameters<typeof readOperationsByPlan>[1], 'kinds' | 'excludeSucceededResult'> & {
+    /** 폼만 채운 성공 실행(`isFillOnly`)을 SQL 에서 뺀다. */
+    excludeFillOnly?: boolean;
+  },
 ): Promise<RegistrationOperationFact[]> {
+  const { excludeFillOnly, ...query } = input;
   const rows = await readOperationsByPlan(client, {
-    organizationId: input.organizationId,
+    ...query,
     kinds: [REGISTRATION_KIND],
-    planContainsAny: input.planContainsAny,
-    ...(input.statuses ? { statuses: input.statuses } : {}),
+    ...(excludeFillOnly ? { excludeSucceededResult: FILL_ONLY_RESULT } : {}),
   });
   return rows.map(toFact);
 }
+
+/** 폼만 채운 실행의 result 표시(`isFillOnly` 와 같은 규칙). */
+const FILL_ONLY_RESULT = { mallOutcome: 'not_submitted' } as const;
 
 function toFact(row: OperationByPlanRow): RegistrationOperationFact {
   const plan = RegistrationPlanSchema.safeParse(row.plan);
@@ -67,7 +73,7 @@ function toFact(row: OperationByPlanRow): RegistrationOperationFact {
  * 등록 상태 · 중복 차단 · 재전송 기준에 들어가지 않는다.
  */
 export function isFillOnly(operation: Pick<RegistrationOperationFact, 'status' | 'result'>): boolean {
-  return operation.status === 'succeeded' && operation.result.mallOutcome === 'not_submitted';
+  return operation.status === 'succeeded' && operation.result.mallOutcome === FILL_ONLY_RESULT.mallOutcome;
 }
 
 /** 등록 대상 문서 실행이 얼린 스냅샷(빠른 등록 · 품절 · 대표이미지는 null). */
@@ -123,16 +129,16 @@ export async function readPreparedRegistrationRecipes(
   input: { organizationId: string; channelListingIds: readonly string[] },
 ): Promise<Array<{ channelListingId: string; snapshot: Record<string, unknown> }>> {
   if (input.channelListingIds.length === 0) return [];
-  const wanted = new Set(input.channelListingIds);
   const operations = await readRegistrationOperations(tx, {
     organizationId: input.organizationId,
     planContainsAny: [{ executionKind: 'register' }],
+    resultContainsAny: input.channelListingIds.map((channelListingId) => ({ channelListingId })),
     statuses: ['succeeded'],
   });
   return operations.flatMap((operation) => {
     const channelListingId = typeof operation.result.channelListingId === 'string' ? operation.result.channelListingId : null;
     const snapshot = frozenSnapshot(operation.plan);
-    if (!channelListingId || !wanted.has(channelListingId) || !snapshot) return [];
+    if (!channelListingId || !snapshot) return [];
     if (hashRegistrationSubmissionPayload(operation.plan.payload, channelIntegrity.sha256) !== operation.plan.payloadHash) {
       throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'REGISTERED_RECIPE_HASH_MISMATCH' } });
     }
@@ -149,6 +155,7 @@ export async function readRegistrationFailureCounts(
     organizationId: input.organizationId,
     planContainsAny: [{}],
     statuses: ['failed'],
+    plan: { payloadKeys: [] },
   })).filter((operation) => operation.plan.executionKind !== THUMBNAIL_UPDATE_EXECUTION_KIND);
   const counts = new Map<string, { channel: string; mallName: string; count: number }>();
   for (const operation of failed) {

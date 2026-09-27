@@ -383,6 +383,8 @@ async function assertAccountNotRegistered(
     kinds: [REGISTRATION_KIND],
     planContainsAny: LISTING_SHAPING_EXECUTION_KINDS.map((executionKind) => ({ executionKind, salesProductId, channelAccountId })),
     statuses: ['succeeded'],
+    excludeSucceededResult: { mallOutcome: 'not_submitted' },
+    plan: { payloadKeys: [] },
   });
   if (succeeded.length === 0) return;
   const inactive = await tx.channelListing.findMany({
@@ -392,7 +394,7 @@ async function assertAccountNotRegistered(
   for (const operation of succeeded) {
     // 빠른 등록(대상 없음)이나 관문이 [등록]을 거른 실행은 폼만 채웠다 — 몰에 올린 증거가 아니다.
     const result = jsonRecord(operation.result);
-    if (jsonRecord(operation.plan).registrationTargetId == null || result.mallOutcome === 'not_submitted') continue;
+    if (jsonRecord(operation.plan).registrationTargetId == null) continue;
     const listingId = typeof result.channelListingId === 'string' ? result.channelListingId : null;
     const externalListingId = typeof result.externalListingId === 'string' ? result.externalListingId : null;
     const takenDown = inactive.some((row) => row.id === listingId || (externalListingId !== null && row.externalId === externalListingId));

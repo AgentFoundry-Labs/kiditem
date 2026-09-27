@@ -224,6 +224,7 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         organizationId,
         planContainsAny: [{ registrationTargetId: targetId }],
         statuses: LIVE_OPERATION_STATUSES,
+        plan: { payloadKeys: [] },
       });
       if (live.length > 0) {
         throw new KiditemConflictError('CHANNELS_LISTING_EXECUTION_ACTIVE', { details: { reason: 'TARGET_HAS_LIVE_EXECUTION' } });
