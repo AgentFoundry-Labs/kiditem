@@ -12,7 +12,7 @@ import {
 import { RuntimeError } from '../../core/errors';
 import type { CollectedChunk, CollectFinish, Collector } from '../collector';
 import { registerCollector } from '../index';
-import { RegistrationFormPayloadSchema } from './payload';
+import { RegistrationDocumentPayloadSchema } from './payload';
 
 /** 관문(`sites/mall-write/submit-gate.ts`)이 정한 것. 누르지 않으면 까닭(없으면 부탁받지 않았다). */
 export type RegistrationSubmitDecision = { press: true } | { press: false; skipped: string | null };
@@ -45,6 +45,12 @@ export interface RegistrationSite {
 }
 
 const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
+
+/**
+ * 몰 증거 한 줄. `payloadHash`는 이 증거가 가리키는 얼린 문서(plan 값)다 — owner finalize가 대조한다(M1 `RegistrationEvidenceSchema`
+ * 추가 칸, 합류 전 계약 타입에는 아직 없다).
+ */
+export type RegistrationEvidenceRow = RegistrationEvidence & { payloadHash: string };
 export const REGISTRATION_ACCOUNT_MISMATCH = 'REGISTRATION_ACCOUNT_MISMATCH' as const;
 
 function invalid(message: string, details: Record<string, unknown>): RuntimeError {
@@ -70,8 +76,9 @@ function providerOutcomeOf(outcome: RegistrationMallOutcome): RegistrationResult
  * `channels.registration`(KID-364 · 몰 쓰기 모듈 KID-256): plan의 executionKind로 몰 쓰기 모듈을 부른다. 등록 폼(register·
  * update·composition_change)은 쓰기 탭을 열어(로그인 입구가 있으면 그 탭에서 로그인) 폼을 채우고 `registration_fill`을 낸 뒤,
  * 관문(ADR-0019)이 누르라고 할 때만 [등록]을 눌러 `registration_evidence`를 낸다. 누른 것·몰이 받은 것·몰에 올라간 것은
- * 다른 사실이다 — finish는 `succeeded`에 `mallOutcome`을 싣고, reconciling·실패로 가르는 것은 owner finalize다. 채우기
- * 실패·로그인은 실패로 끝난다. 탭은 성공해도 남긴다(운영자가 본다).
+ * 다른 사실이다. finish: 몰이 새 상품번호와 판매자 계정을 보였으면 `succeeded`(confirmed), 눌렀는데 못 읽었거나 몰이 거절했으면
+ * `reconciling`(providerOutcome uncertain), 폼만 채웠으면 `succeeded`(not_submitted·not_attempted — 웹이 "폼만 채움"으로 본다).
+ * 채우기 실패·로그인은 실패로 끝난다. 탭은 성공해도 남긴다(운영자가 본다).
  */
 export const registrationCollector: Collector<RegistrationPlan, RegistrationResult & Record<string, unknown>, RegistrationSite> = {
   kind: REGISTRATION_KIND,
@@ -85,7 +92,7 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
     const progress = { mallKey: plan.mallKey, executionKind: plan.executionKind };
 
     if (plan.executionKind === 'register' || plan.executionKind === 'update' || plan.executionKind === 'composition_change') {
-      const payload = RegistrationFormPayloadSchema.safeParse(plan.payload);
+      const payload = RegistrationDocumentPayloadSchema.safeParse(plan.payload);
       if (!payload.success || !payload.data.form || !writer.fill) {
         throw invalid('등록 계획에 몰 폼 지시가 없습니다.', { mallKey: plan.mallKey, executionKind: plan.executionKind });
       }
@@ -100,9 +107,10 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
         yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress, stage: 'filled' } };
         const submission = session.decision.press ? await session.submit() : null;
         const { outcome, observed } = mallOutcomeOf(submission, session.providerAccountId);
-        let evidence: RegistrationEvidence | null = null;
+        let evidence: RegistrationEvidenceRow | null = null;
         if (submission) {
           evidence = {
+            payloadHash: plan.payloadHash,
             channelAccountId: plan.channelAccountId,
             externalListingId: submission.externalListingId,
             observedUrl: submission.observedUrl ?? session.observedUrl,
@@ -114,6 +122,8 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
           yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress, stage: 'submitted' } };
         }
         return {
+          // 몰에 제출했지만 새 상품번호를 못 읽었다(또는 몰이 거절했다) — 운영자가 몰에서 읽은 등록상품ID로 닫는다(KID-218).
+          ...(outcome === 'submitted' || outcome === 'uncertain' || outcome === 'awaiting_approval' ? { outcome: 'reconciling' as const } : {}),
           result: {
             providerOutcome: providerOutcomeOf(outcome),
             mallOutcome: outcome,

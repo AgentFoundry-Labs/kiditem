@@ -160,6 +160,21 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(h.finishes).toEqual([{ outcome: 'succeeded', result: { mallOutcome: 'not_submitted' } }]);
   });
 
+  it('수집기가 끝 값으로 reconciling을 고르면 그 outcome으로 finish한다 — 몰에 제출했지만 결과를 못 읽은 등록(KID-364)', async () => {
+    const h = harness();
+    const c: RunnableCollector = {
+      site: null,
+      collect: () => (async function* () {
+        yield echoChunk(1);
+        return { outcome: 'reconciling' as const, result: { mallOutcome: 'submitted' } };
+      })(),
+    };
+
+    await runWith(h, c);
+
+    expect(h.finishes).toEqual([{ outcome: 'reconciling', result: { mallOutcome: 'submitted' } }]);
+  });
+
   it('begin이 성공하면 수집 전에 onBegun으로 operationId·reused를 알린다', async () => {
     const h = harness();
     const seen: Array<{ operationId: string; reused: boolean; stepsSoFar: string[] }> = [];

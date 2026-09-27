@@ -107,8 +107,12 @@ export interface RunnableCollectContext {
   report(progress: Record<string, unknown>): Promise<void>;
 }
 
-/** 수집기가 청크를 다 낸 뒤 돌려주는 finish 값(생성기 반환값). 실행마다 다른 결과(등록 결과 등)를 싣는다. */
+/**
+ * 수집기가 청크를 다 낸 뒤 돌려주는 finish 값(생성기 반환값). 실행마다 다른 결과(등록 결과 등)를 싣는다. `outcome`
+ * `reconciling`은 몰에 제출했지만 외부 결과를 그 자리에서 읽지 못한 등록 실행이다(KID-364 — 계약은 `result`를 요구한다).
+ */
 export interface RunnableFinish {
+  outcome?: 'succeeded' | 'reconciling';
   window?: OperationWindow;
   result?: Record<string, unknown>;
 }
@@ -314,9 +318,10 @@ async function execute(
     if (heartbeatStop) throw heartbeatStop;
     if (input.signal.aborted) return cancelled(operationId);
 
-    const summary = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
+    const summary: RunnableFinish = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
     const request: OperationFinishRequest = {
-      outcome: 'succeeded',
+      // `reconciling`은 등록 kind가 계약에 더한 outcome이다(KID-364 M1 — 합류 전 계약 타입에는 아직 없다).
+      outcome: (summary.outcome ?? 'succeeded') as OperationFinishRequest['outcome'],
       ...(summary.result ? { result: summary.result } : {}),
       ...(summary.window ? { window: summary.window } : {}),
     };

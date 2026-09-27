@@ -6393,30 +6393,36 @@ var KidItemRuntime = (() => {
   registerCollector(mallAdminListingsCollector);
 
   // extensions/src/collectors/channels.registration/payload.ts
-  var RegistrationFormPayloadSchema = external_exports.object({
+  var RegistrationDocumentPayloadSchema = external_exports.object({
     snapshot: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
     form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
   }).passthrough();
-  var AvailabilityPayloadSchema = external_exports.object({
+  var RegistrationAvailabilityOptionSchema = external_exports.object({
+    /** 판매 옵션에 연결되지 않은 몰 옵션(수집으로만 들어온 것)은 null. */
+    salesProductOptionId: external_exports.string().uuid().nullable(),
+    channelListingOptionId: external_exports.string().uuid(),
+    externalOptionId: external_exports.string().min(1),
+    sellerSku: external_exports.string().nullable()
+  }).passthrough();
+  var RegistrationAvailabilityPayloadSchema = external_exports.object({
     action: external_exports.enum(["sold_out", "resume"]),
     listings: external_exports.array(external_exports.object({
-      channelListingId: external_exports.string().uuid().nullable().optional(),
+      channelListingId: external_exports.string().uuid(),
       externalListingId: external_exports.string().min(1),
-      options: external_exports.array(external_exports.object({
-        salesProductOptionId: external_exports.string().uuid().nullable().optional(),
-        channelListingOptionId: external_exports.string().uuid().nullable().optional(),
-        externalOptionId: external_exports.string().min(1).nullable().optional(),
-        sellerSku: external_exports.string().nullable().optional()
-      }).passthrough()).default([])
+      /** 바꿀 옵션. 리스팅 단위로 받는 몰은 그 리스팅의 살아 있는 옵션 전부다. */
+      options: external_exports.array(RegistrationAvailabilityOptionSchema).max(1e3)
     }).passthrough()).min(1)
   }).passthrough();
-  var ThumbnailPayloadSchema = external_exports.object({
-    image: external_exports.object({
-      dataUrl: external_exports.string().min(1),
-      filename: external_exports.string().min(1),
-      mimeType: external_exports.string().min(1)
-    }).passthrough(),
-    productName: external_exports.string().min(1).optional()
+  var RegistrationThumbnailPayloadSchema = external_exports.object({
+    dataUrl: external_exports.string().min(1),
+    filename: external_exports.string().min(1),
+    mimeType: external_exports.string().min(1),
+    salesProductId: external_exports.string().uuid(),
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().min(1).nullable(),
+    assetId: external_exports.string().uuid(),
+    /** 몰 관리자에서 상품을 찾는 이름. */
+    productName: external_exports.string().min(1)
   }).passthrough();
 
   // extensions/src/collectors/channels.registration/index.ts
@@ -6447,7 +6453,7 @@ var KidItemRuntime = (() => {
       if (!writer) throw invalid(`\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uC4F0\uAE30 \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { mallKey: plan.mallKey });
       const progress4 = { mallKey: plan.mallKey, executionKind: plan.executionKind };
       if (plan.executionKind === "register" || plan.executionKind === "update" || plan.executionKind === "composition_change") {
-        const payload = RegistrationFormPayloadSchema.safeParse(plan.payload);
+        const payload = RegistrationDocumentPayloadSchema.safeParse(plan.payload);
         if (!payload.success || !payload.data.form || !writer.fill) {
           throw invalid("\uB4F1\uB85D \uACC4\uD68D\uC5D0 \uBAB0 \uD3FC \uC9C0\uC2DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
         }
@@ -6464,6 +6470,7 @@ var KidItemRuntime = (() => {
           let evidence = null;
           if (submission) {
             evidence = {
+              payloadHash: plan.payloadHash,
               channelAccountId: plan.channelAccountId,
               externalListingId: submission.externalListingId,
               observedUrl: submission.observedUrl ?? session.observedUrl,
@@ -6475,6 +6482,8 @@ var KidItemRuntime = (() => {
             yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "submitted" } };
           }
           return {
+            // 몰에 제출했지만 새 상품번호를 못 읽었다(또는 몰이 거절했다) — 운영자가 몰에서 읽은 등록상품ID로 닫는다(KID-218).
+            ...outcome === "submitted" || outcome === "uncertain" || outcome === "awaiting_approval" ? { outcome: "reconciling" } : {},
             result: {
               providerOutcome: providerOutcomeOf(outcome),
               mallOutcome: outcome,
@@ -16409,7 +16418,8 @@ var KidItemRuntime = (() => {
       if (input.signal.aborted) return cancelled(operationId);
       const summary = (returned && (returned.result || returned.window) ? returned : collector.summarize?.({ chunks, items })) ?? {};
       const request = {
-        outcome: "succeeded",
+        // `reconciling`은 등록 kind가 계약에 더한 outcome이다(KID-364 M1 — 합류 전 계약 타입에는 아직 없다).
+        outcome: summary.outcome ?? "succeeded",
         ...summary.result ? { result: summary.result } : {},
         ...summary.window ? { window: summary.window } : {}
       };

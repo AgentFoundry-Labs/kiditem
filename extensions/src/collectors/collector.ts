@@ -18,6 +18,8 @@ export interface CollectContext {
 
 /** 수집기가 청크를 다 낸 뒤 finish에 실을 값(생성기 반환값). */
 export interface CollectFinish<TResult extends Record<string, unknown> = Record<string, unknown>> {
+  /** `reconciling`: 몰에 제출했지만 외부 결과를 못 읽은 등록(KID-364). 없으면 succeeded. */
+  outcome?: 'succeeded' | 'reconciling';
   window?: OperationWindow;
   result?: TResult;
 }

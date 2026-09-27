@@ -53,7 +53,7 @@ function site(session: Partial<RegistrationFillSession>, log: string[] = []): Re
 
 async function run(collectorPlan: RegistrationPlan, registrationSite: RegistrationSite) {
   const chunks: Array<{ chunkKind: string; payload: unknown[] }> = [];
-  const stream = registrationCollector.collect(collectorPlan, registrationSite, { signal: new AbortController().signal, tabId: null }) as AsyncGenerator<{ chunkKind: string; payload: unknown[] }, { result?: Record<string, unknown> } | void>;
+  const stream = registrationCollector.collect(collectorPlan, registrationSite, { signal: new AbortController().signal, tabId: null }) as AsyncGenerator<{ chunkKind: string; payload: unknown[] }, { outcome?: string; result?: Record<string, unknown> } | void>;
   for (;;) {
     const step = await stream.next();
     if (step.done) return { chunks, finish: step.value ?? {} };
@@ -99,6 +99,8 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
     expect(log).toEqual(['fill submit=true', 'submit', 'done']);
     expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['registration_fill', 'registration_evidence']);
     expect(chunks[1]!.payload).toEqual([{
+      // 이 증거가 가리키는 얼린 문서(M1 finalize가 대조한다).
+      payloadHash: 'hash',
       channelAccountId: ACCOUNT,
       externalListingId: '15321',
       observedUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list',
@@ -107,17 +109,18 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
       message: null,
       options: [],
     }]);
-    expect(finish.result).toMatchObject({ providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, submitSkipped: null, externalListingId: '15321' });
+    expect(finish).toMatchObject({ result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitted: true, submitSkipped: null, externalListingId: '15321' } });
+    expect((finish as { outcome?: string }).outcome).toBeUndefined();
   });
 
-  it('눌렀는데 결과를 못 읽으면 submitted(uncertain) — 서버가 reconciling으로 둔다; 몰이 거절하면 uncertain(submission_rejected)', async () => {
+  it('눌렀는데 결과를 못 읽으면 reconciling(submitted) — 운영자가 등록상품ID로 닫는다; 몰이 거절하면 reconciling(uncertain, submission_rejected)', async () => {
     const unknown = await run(plan({ mallKey: 'wing' }), site({
       decision: { press: true },
       async submit() {
         return { accepted: null, externalListingId: null, observedUrl: null, mallMessage: '확인 모달이 남았습니다' };
       },
     }));
-    expect(unknown.finish.result).toMatchObject({ providerOutcome: 'uncertain', mallOutcome: 'submitted', submitted: true, mallMessage: '확인 모달이 남았습니다' });
+    expect(unknown.finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'submitted', submitted: true, mallMessage: '확인 모달이 남았습니다' } });
 
     const rejected = await run(plan({ mallKey: 'wing' }), site({
       decision: { press: true },
@@ -125,7 +128,7 @@ describe('channels.registration — 몰 쓰기 수집기(KID-256)', () => {
         return { accepted: false, externalListingId: null, observedUrl: null, mallMessage: '필수 항목 누락' };
       },
     }));
-    expect(rejected.finish.result).toMatchObject({ providerOutcome: 'uncertain', mallOutcome: 'uncertain', submitted: true });
+    expect(rejected.finish).toMatchObject({ outcome: 'reconciling', result: { providerOutcome: 'uncertain', mallOutcome: 'uncertain', submitted: true } });
     expect(rejected.chunks[1]!.payload[0]).toMatchObject({ observedStatus: 'submission_rejected', message: '필수 항목 누락' });
   });
 
