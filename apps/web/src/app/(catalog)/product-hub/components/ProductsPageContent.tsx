@@ -39,6 +39,15 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
     : data?.items[0]?.metricsFreshness.traffic.basis;
   const partialTrafficDays = trafficBasis ? partialPeriodDaysText(trafficBasis) : null;
   const partialTrafficCaption = partialTrafficDays ? `조회·장바구니 ${partialTrafficDays}` : null;
+  // Advertising freshness is read once per list query as well: the ad window
+  // ends at Advertising's evidence cutoff. It speaks only when the ad report
+  // measured a day of it (`capturedAt`), and says so when it missed some.
+  const adFreshness = state.isPlaceholderData || state.errorMessage
+    ? undefined
+    : data?.items[0]?.metricsFreshness.advertising;
+  const adFreshnessCaption = adFreshness?.capturedAt && adFreshness.coverageEndDate
+    ? `광고 보고서 ${adFreshness.ready ? '' : '일부 '}~${adFreshness.coverageEndDate.slice(5)}`
+    : null;
   const monthlyYearMonth = state.isPlaceholderData || state.errorMessage
     ? currentKstYearMonth()
     : data?.items
@@ -115,9 +124,12 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
               </button>
             ))}
             {/* Out of flow, so the caption appearing never moves the period controls. */}
-            {partialTrafficCaption ? (
-              <p className="pointer-events-none absolute right-0 top-full mt-1 whitespace-nowrap text-[11px] font-semibold leading-none text-amber-700">
-                {partialTrafficCaption}
+            {partialTrafficCaption || adFreshnessCaption ? (
+              <p className="pointer-events-none absolute right-0 top-full mt-1 flex gap-2 whitespace-nowrap text-[11px] font-semibold leading-none">
+                {partialTrafficCaption ? <span className="text-amber-700">{partialTrafficCaption}</span> : null}
+                {adFreshnessCaption ? (
+                  <span className={adFreshness?.ready ? 'text-[var(--text-tertiary)]' : 'text-amber-700'}>{adFreshnessCaption}</span>
+                ) : null}
               </p>
             ) : null}
             </div>
