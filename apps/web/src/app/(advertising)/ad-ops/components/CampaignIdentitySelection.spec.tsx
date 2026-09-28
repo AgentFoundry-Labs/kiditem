@@ -32,6 +32,9 @@ function campaign(channelAccountId: string, campaignIdentity: string): AdCampaig
     metricsAvailable: true,
     status: 'ON',
     onOff: 'ON',
+    isActive: true,
+    budget: null,
+    roasTarget: null,
     metrics,
   } as AdCampaignSnapshot;
 }
@@ -85,6 +88,35 @@ describe('campaign account + identity selection', () => {
     expect(cells[cells.length - 2]).toHaveTextContent('4');
   });
 
+  it("shows the campaign's current daily budget and ROAS target, and - when the ad center reported none", () => {
+    const budgeted = {
+      ...campaign('11111111-1111-4111-8111-111111111111', 'campaign:budgeted'),
+      campaignName: '예산 캠페인',
+      budget: 50_000,
+      roasTarget: 350,
+    } satisfies AdCampaignSnapshot;
+    const unset = { ...campaign('11111111-1111-4111-8111-111111111111', 'campaign:unset'), campaignName: '목표 없는 캠페인' };
+
+    render(wrapper(
+      <CampaignTable
+        campaigns={[budgeted, unset]}
+        sortBy="revenue"
+        onSortChange={vi.fn()}
+        selectedCampaign={null}
+        onSelectCampaign={vi.fn()}
+      />,
+    ));
+
+    const headers = screen.getAllByRole('columnheader').map((header) => header.textContent);
+    expect(headers.slice(0, 3)).toEqual(['캠페인명', '일 예산', 'ROAS 목표']);
+    const budgetedCells = within(screen.getByRole('row', { name: /예산 캠페인/ })).getAllByRole('cell');
+    expect(budgetedCells[1]).toHaveTextContent('50,000');
+    expect(budgetedCells[2]).toHaveTextContent('350%');
+    const unsetCells = within(screen.getByRole('row', { name: /목표 없는 캠페인/ })).getAllByRole('cell');
+    expect(unsetCells[1]).toHaveTextContent(/^-$/);
+    expect(unsetCells[2]).toHaveTextContent(/^-$/);
+  });
+
   it('renders metadata-only OFF campaigns without fabricated zero metrics or drill-down', () => {
     const metadataOnly = {
       ...campaign('11111111-1111-4111-8111-111111111111', 'campaign:off'),
@@ -108,7 +140,8 @@ describe('campaign account + identity selection', () => {
     const row = screen.getByRole('row', { name: /중단 캠페인/ });
     expect(within(row).getByText('OFF')).toBeInTheDocument();
     expect(within(row).getByText('성과 미수집')).toBeInTheDocument();
-    expect(within(row).getAllByText('-')).toHaveLength(8);
+    // 성과 8칸과 비어 있는 일 예산·ROAS 목표 2칸.
+    expect(within(row).getAllByText('-')).toHaveLength(10);
 
     fireEvent.click(row);
     expect(onSelect).not.toHaveBeenCalled();
@@ -152,14 +185,15 @@ describe('campaign account + identity selection', () => {
 
     const unknownRow = screen.getByRole('row', { name: /비율 미수집 캠페인/ });
     expect(within(unknownRow).getAllByText('0')).toHaveLength(5);
-    expect(within(unknownRow).getAllByText('-')).toHaveLength(3);
-    const unknownRoas = within(unknownRow).getAllByRole('cell')[3]!;
+    // 비율 3칸과 비어 있는 일 예산·ROAS 목표 2칸.
+    expect(within(unknownRow).getAllByText('-')).toHaveLength(5);
+    const unknownRoas = within(unknownRow).getAllByRole('cell')[5]!;
     expect(unknownRoas.className).not.toMatch(/text-(emerald|green|orange|red)-\d+/);
 
     const zeroRow = screen.getByRole('row', { name: /0 비율 캠페인/ });
     expect(within(zeroRow).getByText('0%')).toBeInTheDocument();
     expect(within(zeroRow).getAllByText('0.00%')).toHaveLength(2);
-    expect(within(zeroRow).getAllByRole('cell')[3]).toHaveClass('text-red-600');
+    expect(within(zeroRow).getAllByRole('cell')[5]).toHaveClass('text-red-600');
   });
 
   it('requests drill-down by account and stable identity without campaignName', async () => {
