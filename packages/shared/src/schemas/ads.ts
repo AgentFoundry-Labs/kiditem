@@ -250,7 +250,7 @@ export type AdKeywordProductSummary = z.infer<
 
 export const AdKeywordsDataSchema = z.object({
   period: z.string(),
-  /** Measured days of the chosen period. */
+  /** 측정일 수: 고른 기간 안에서 광고 보고서가 측정한 날 수(달력 일수가 아니다 — 월 기간이어도 측정한 날만 센다). */
   windowDays: z.number().int().nonnegative(),
   collectedAt: z.string().nullable(),
   products: z.array(AdKeywordProductSummarySchema),

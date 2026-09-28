@@ -165,11 +165,11 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     expect(result.monthly.source).toBe('coupang_ads');
     expect(result.dailyAd).toContainEqual({
       date: latestClosedBusinessDate(),
-      adCost: 500,
+      adSpend: 500,
       source: 'coupang_ads',
     });
     for (const row of result.dailyAd ?? []) {
-      expect(row.adCost).not.toBe(IDOR_SENTINEL);
+      expect(row.adSpend).not.toBe(IDOR_SENTINEL);
     }
   });
 
@@ -182,11 +182,11 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     expect(result.monthly.source).toBe('coupang_ads');
     expect(result.dailyAd).toContainEqual({
       date: latestClosedBusinessDate(),
-      adCost: IDOR_SENTINEL,
+      adSpend: IDOR_SENTINEL,
       source: 'coupang_ads',
     });
     for (const row of result.dailyAd ?? []) {
-      expect(row.adCost).not.toBe(500);
+      expect(row.adSpend).not.toBe(500);
     }
   });
 

@@ -321,7 +321,7 @@ export class DashboardAdService {
     for (const r of coupangRows) {
       byDate.set(r.date, {
         date: r.date,
-        adCost: Number(r.ad_cost),
+        adSpend: Number(r.ad_cost),
         source: 'coupang_ads',
       });
     }
