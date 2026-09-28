@@ -8,7 +8,10 @@ status: superseded by ADR-0009
 > ownership of ABC publication and its evidence. Display words are derived from
 > facts through shared functions, as established by ADR-0006 and ADR-0009; the
 > historical instruction below to publish a status for consumers is not the
-> current contract. Retained for decision history.
+> current contract. `AD_SOURCE_STALE` no longer exists: ABC v3 counts no
+> advertising and the old advertising ledger it read was deleted (KID-373,
+> wave6), so the status list below is historical too. Retained for decision
+> history.
 
 `productAbcDisplayStatus` is a pure function in the Products domain that turns
 evidence readiness into one of `READY`, `NEW`, `SOURCE_UNMAPPED`,
