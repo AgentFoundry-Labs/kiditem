@@ -127,7 +127,7 @@ describe('error registry (ADR-0023)', () => {
 
   it('resolves registered codes, extension aliases and loose spellings, and refuses the rest', () => {
     expect(resolveErrorCode('ATTEMPT_EXPIRED')).toBe('ATTEMPT_EXPIRED');
-    expect(resolveErrorCode('collection_window_owner_conflict')).toBe('COLLECTION_WINDOW_OWNER_CONFLICT');
+    expect(resolveErrorCode('sellpia_manual_match_timeout')).toBe('SELLPIA_MANUAL_MATCH_TIMEOUT');
     expect(resolveErrorCode('attempt-expired')).toBe('ATTEMPT_EXPIRED');
     expect(resolveErrorCode('sellpia_totally_unknown')).toBeNull();
     expect(resolveErrorCode('')).toBeNull();

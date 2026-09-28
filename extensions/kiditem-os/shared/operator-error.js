@@ -190,13 +190,6 @@
       "text": "수집이 중단됐습니다.",
       "retryable": false
     },
-    "COLLECTION_WINDOW_OWNER_CONFLICT": {
-      "owner": "extension",
-      "kind": "in_progress",
-      "httpStatus": 409,
-      "text": "다른 수집이 브라우저 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.",
-      "retryable": false
-    },
     "SOURCE_OWNER_UNAVAILABLE": {
       "owner": "extension",
       "kind": "external",
@@ -1054,7 +1047,6 @@
     "login_page_not_reachable": "MALL_LOGIN_PAGE_UNREACHABLE",
     "operator_action_required": "OPERATOR_ACTION_REQUIRED",
     "provider_contract_changed": "SOURCING_PROVIDER_CONTRACT_CHANGED",
-    "collection_window_owner_conflict": "COLLECTION_WINDOW_OWNER_CONFLICT",
     "search_extraction_failed": "SOURCING_SEARCH_EXTRACTION_FAILED",
     "gateway_provider_unavailable": "AGENT_OS_GATEWAY_UNAVAILABLE",
     "SOURCE_ATTEMPT_TERMINAL": "ATTEMPT_TERMINAL",
