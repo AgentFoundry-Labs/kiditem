@@ -48,7 +48,7 @@
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "sharp": "^0.35.4",
-    "undici": "^7.29.0",
+    "undici": "^7.30.0",
     "xlsx": "npm:@e965/xlsx@^0.20.3",
     "zod": "^3.25.0",
     "zod-to-json-schema": "^3.25.2",
