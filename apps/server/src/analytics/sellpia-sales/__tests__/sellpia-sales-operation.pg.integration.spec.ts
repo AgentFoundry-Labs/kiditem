@@ -25,6 +25,10 @@ import { readSellpiaSalesDailyFacts } from '../read/sellpia-sales-daily-facts';
 import { SellpiaSalesController } from '../sellpia-sales.controller';
 import { SellpiaSalesPublicationRepository } from '../sellpia-sales-publication.repository';
 import { SellpiaSalesService } from '../sellpia-sales.service';
+import type { PrismaService } from '../../../prisma/prisma.service';
+import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
+import { seedAdBillings, seedAdProductDays, seedAdReportRun, seedCoupangAdAccount } from '../../../test-helpers/ad-ledger-seeds';
+import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 
 // 확장 수집기(analytics.sellpia_sales)가 밟는 길을 서버에서 그대로: begin → sales_rows 청크 → finish.
 // 원장(SellpiaSalesDailySnapshot.operationId)은 finish 트랜잭션에서만 창 바꿔 쓰기로 쓰이고, 읽기는 성공한 실행의 창을
@@ -260,6 +264,54 @@ describe('analytics.sellpia_sales owner over the operation contract + disposable
       netProfit: -1,
       profitRate: -0.2,
       profitInputs: { revenue: 600, cost: 240, adCost: 361, qty: 6, basis: { includedDates: ['2026-07-14', '2026-07-15', '2026-07-16'] } },
+    });
+  });
+
+  describe('실제 광고 원장(측정한 날)', () => {
+    const ledgerSummary = (from: string, to: string, knownThrough: string) => {
+      const service = prisma as unknown as PrismaService;
+      const readers = profitCatalogTestReaders(service);
+      return new SellpiaSalesService(
+        new WingTrafficAggregationRepositoryAdapter(readers.listings, service, readers.accounts, readers.ads),
+        service,
+      ).getSummary(ORG, from, to, knownThrough);
+    };
+
+    async function seedAds(start: string, end: string) {
+      const account = await seedCoupangAdAccount(prisma, { organizationId: ORG, externalAccountId: 'A00012345' });
+      const run = await seedAdReportRun(prisma, { organizationId: ORG, channelAccountId: account.id, start, end });
+      const base = { organizationId: ORG, channelAccountId: account.id, operationId: run.id };
+      const days = ['2026-07-14', '2026-07-15', '2026-07-16'].filter((date) => date >= start && date <= end);
+      await seedAdProductDays(prisma, days.map((date, index) => ({ ...base, date, spend: 150, billedSpend: 100 * (index + 1) })));
+      if (days.includes('2026-07-16')) {
+        await seedAdBillings(prisma, [{ ...base, date: '2026-07-16', campaignKey: '', billedSpend: -10 }]);
+      }
+    }
+
+    beforeEach(async () => {
+      await collect({ startDate: '2026-07-14', endDate: '2026-07-16' }, [
+        row('2026-07-14', 1_000, { amount: 1, buyPrice: 400 }),
+        row('2026-07-15', 2_000, { amount: 2, buyPrice: 800 }),
+        row('2026-07-16', 3_000, { amount: 3, buyPrice: 1_200 }),
+      ]);
+    });
+
+    it('광고가 기간의 일부만 측정했으면 이익 광고비·이익은 보류(null)이고 광고 근거는 측정한 날 수를 말한다', async () => {
+      await seedAds('2026-07-15', '2026-07-16');
+      const summary = await ledgerSummary('2026-07-14', '2026-07-16', '2026-07-16');
+      expect(summary).toMatchObject({ totalRevenue: 6_000, adCost: null, netProfit: null, profitRate: null, profitInputs: null });
+      expect(summary.metricBasis?.adCost).toMatchObject({ targetDays: 3, includedDates: ['2026-07-15', '2026-07-16'] });
+    });
+
+    it('광고가 기간의 닫힌 날을 모두 측정했으면 (청구액 + 계정 조정) × 1.1을 이익에 넣는다', async () => {
+      await seedAds('2026-07-14', '2026-07-16');
+      // 청구 100 + 200 + 300, 계정 조정 −10 → 590 × 1.1 = 649. 07-17은 아직 닫히지 않은 날이라 요구하지 않는다.
+      const summary = await ledgerSummary('2026-07-14', '2026-07-17', '2026-07-16');
+      expect(summary).toMatchObject({
+        adCost: 649,
+        netProfit: 6_000 - 2_400 - 649,
+        profitInputs: { revenue: 6_000, cost: 2_400, adCost: 649, basis: { includedDates: ['2026-07-14', '2026-07-15', '2026-07-16'] } },
+      });
     });
   });
 

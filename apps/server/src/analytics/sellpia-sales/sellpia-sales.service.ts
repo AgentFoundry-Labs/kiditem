@@ -39,6 +39,7 @@ import {
   parseBusinessDate,
 } from '../../common/kst';
 import { isCoupangSeller } from './domain/channel-group';
+import { profitAdCostMeasured } from './domain/profit-ad-coverage';
 
 /**
  * Sellpia 판매현황(sale_summary) read model.
@@ -150,13 +151,16 @@ export class SellpiaSalesService {
     });
     // Revenue, cost and advertising entering profit use identical dates.
     const profitBasis = intersectBases(sellpiaBasis, adsBasis);
-    const profitDates = profitBasis.includedDates;
-    const profitInputs = buildProfitInputs(
-      profitDates,
-      dailySales,
-      normalizedAds.byDate,
-      profitBasis,
-    );
+    // Advertising must have measured every closed requested day; a partial ad
+    // window understates ad cost, so profit is withheld (ADR-0006, KID-45).
+    const adMeasured = !dailyAdsRead.failed && profitAdCostMeasured({
+      requestedDates: selectedDates,
+      knownThrough,
+      measuredAdDates: adDates,
+    });
+    const profitInputs = adMeasured
+      ? buildProfitInputs(profitBasis.includedDates, dailySales, normalizedAds.byDate, profitBasis)
+      : null;
     const totalCost = rocket.cost + others.cost;
     const adCost = profitInputs?.adCost ?? null;
     const netProfit = profitInputs
@@ -191,6 +195,16 @@ export class SellpiaSalesService {
       profitInputs,
       metricBasis: buildMetricBasis({
         sellpiaBasis,
+        // A published adCost sums the profit dates; a withheld one names the
+        // closed requested days the ad report measured ("광고 수집 n/m일").
+        adCostBasis: adMeasured ? profitBasis : buildPeriodBasis({
+          from,
+          to: to < knownThrough ? to : knownThrough,
+          includedDates: adDates,
+          invalidDates: normalizedAds.invalidDates,
+          sources: [COUPANG_ADS_SOURCE],
+          queryFailedSources: adsQueryFailedSources,
+        }),
         profitBasis,
       }),
     };
@@ -489,12 +503,13 @@ function buildProfitInputs(
 
 function buildMetricBasis(args: {
   sellpiaBasis: DashboardPeriodBasis;
+  adCostBasis: DashboardPeriodBasis;
   profitBasis: DashboardPeriodBasis;
 }): DashboardMetricBasisMap {
   const metricBasis: DashboardMetricBasisMap = {
     totalRevenue: args.sellpiaBasis,
     totalCost: args.sellpiaBasis,
-    adCost: args.profitBasis,
+    adCost: args.adCostBasis,
     netProfit: args.profitBasis,
     profitRate: args.profitBasis,
     profitInputs: args.profitBasis,
