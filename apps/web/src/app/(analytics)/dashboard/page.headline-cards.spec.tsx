@@ -617,6 +617,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: {
         ...emptyGroup,
@@ -645,6 +646,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: { ...emptyGroup, revenue: 1_000_000, qty: 25, cost: 600_000 },
       totalRevenue: 1_000_000,
@@ -689,6 +691,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: { ...emptyGroup, revenue: 1_000_000, qty: 25, cost: 600_000 },
       totalRevenue: 1_000_000,
@@ -712,6 +715,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: { ...emptyGroup, revenue: 1_000, qty: 25, cost: 100 },
       totalRevenue: 1_000,
@@ -745,6 +749,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: emptyGroup,
       totalRevenue: 0,
