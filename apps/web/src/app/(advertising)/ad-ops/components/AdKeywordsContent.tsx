@@ -390,6 +390,10 @@ function KeywordList({
   // A product-wide request covers every proposal of the product awaiting
   // review, not only the chips the filter shows.
   const pendingIds = pendingProposalIds(keywords);
+  // The non-search row is exposure, not a keyword: it is neither counted nor
+  // judged (the server's keywordCount leaves it out too).
+  const searchCount = keywords.filter((keyword) => !keyword.nonSearch).length;
+  const visibleSearchCount = visible.filter((keyword) => !keyword.nonSearch).length;
 
   return (
     <div className="space-y-2.5">
@@ -409,25 +413,27 @@ function KeywordList({
           </button>
         ))}
         <span className="ml-auto text-[11px]" style={{ color: 'var(--text-muted)' }}>
-          {formatNumber(visible.length)} / {formatNumber(keywords.length)}개
+          {formatNumber(visibleSearchCount)} / {formatNumber(searchCount)}개
         </span>
-        <button
-          onClick={onJudge}
-          disabled={judgeDisabled}
-          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-50"
-          style={{ background: 'var(--primary-soft)', color: 'var(--primary)' }}
-          title="이 상품의 키워드만 AI가 판정합니다"
-        >
-          {judging ? (
-            <>
-              <Loader2 size={11} className="animate-spin" /> 판정 중…
-            </>
-          ) : (
-            <>
-              <Bot size={11} /> 이 상품만 판정
-            </>
-          )}
-        </button>
+        {searchCount > 0 && (
+          <button
+            onClick={onJudge}
+            disabled={judgeDisabled}
+            className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold transition disabled:opacity-50"
+            style={{ background: 'var(--primary-soft)', color: 'var(--primary)' }}
+            title="이 상품의 키워드만 AI가 판정합니다"
+          >
+            {judging ? (
+              <>
+                <Loader2 size={11} className="animate-spin" /> 판정 중…
+              </>
+            ) : (
+              <>
+                <Bot size={11} /> 이 상품만 판정
+              </>
+            )}
+          </button>
+        )}
         {pendingIds.length > 0 && (
           <>
             <button
