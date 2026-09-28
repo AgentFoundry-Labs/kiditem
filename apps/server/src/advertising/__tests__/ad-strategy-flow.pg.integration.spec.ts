@@ -18,11 +18,9 @@ import {
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import type { AdWeeklyPlan } from '@kiditem/shared/advertising';
-import {
-  seedAd as seedAdTargetDay,
-  seedCompletedAdSweepRun,
-  seedCompletedOrderCoverageRun,
-} from '../../test-helpers/finance-seeds';
+import { seedCompletedOrderCoverageRun } from '../../test-helpers/finance-seeds';
+import { seedAdListingDay } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
+import { seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
@@ -186,8 +184,31 @@ describe('AdStrategy flow (PG integration)', () => {
     return { master, option, listing, listingOption };
   }
 
+  /** One listing-day in the ad report ledger. */
+  async function seedAdListingLedgerDay(opts: {
+    organizationId: string;
+    listingId: string;
+    date: string;
+    spend: number;
+    revenue: number;
+    clicks?: number;
+    impressions?: number;
+    conversions?: number;
+  }) {
+    await seedAdListingDay(prisma, {
+      organizationId: opts.organizationId,
+      listingId: opts.listingId,
+      date: opts.date,
+      spend: opts.spend,
+      revenue: opts.revenue,
+      clicks: opts.clicks,
+      impressions: opts.impressions,
+      orders: opts.conversions,
+    });
+  }
+
   /**
-   * A measured listing-day ad fact in the advertising target-day ledger, on the
+   * A measured listing-day ad fact, on the
    * clock's last closed KST day or `daysAgo` days before it. The date is a KST
    * business date written out, never the machine's local midnight, which on a
    * UTC host would land on the still-open 20th outside every ad window.
@@ -203,18 +224,18 @@ describe('AdStrategy flow (PG integration)', () => {
     clicks?: number;
     impressions?: number;
     conversions?: number;
-    conversionsObserved?: boolean;
   }) {
-    await seedAdTargetDay(prisma, {
+    const date = septemberDay(19 - (params.daysAgo ?? 0));
+    // The plan's ad sums and profit window come from the ad report ledger (KID-372).
+    await seedAdListingDay(prisma, {
       organizationId: params.organizationId,
       listingId: params.listingId,
-      date: septemberDay(19 - (params.daysAgo ?? 0)),
+      date,
       spend: params.spend,
       revenue: params.revenue,
       clicks: params.clicks ?? 0,
       impressions: params.impressions ?? 0,
-      conversions: params.conversions ?? 0,
-      conversionsObserved: params.conversionsObserved,
+      orders: params.conversions ?? 0,
     });
   }
 
@@ -237,18 +258,21 @@ describe('AdStrategy flow (PG integration)', () => {
   }
 
   /**
-   * The campaign sweep measured the clock's month from the 1st through its
-   * last closed day, the most a real sweep can have reached — the window the
+   * The ad report measured the clock's month from the 1st through its
+   * last closed day, the most a real collection can have reached — the window the
    * strategy context reads per-listing profit over. Per-listing profit is
    * withheld for the whole window unless every date in it was measured
    * (ADR-0006), so a test that expects a measured profit rate has to declare
-   * the sweep's coverage.
+   * the ad report's coverage.
    */
   async function measureClosedDays(organizationId: string) {
-    await seedCompletedAdSweepRun(prisma, {
-      organizationId,
-      generation: 1,
-      window: { startDate: septemberDay(1), endDate: septemberDay(19) },
+    const account = await prisma.channelAccount.findFirstOrThrow({
+      where: { organizationId, channel: 'coupang' },
+      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+      select: { id: true },
+    });
+    await seedAdReportRun(prisma, {
+      organizationId, channelAccountId: account.id, start: septemberDay(1), end: septemberDay(19),
     });
   }
 
@@ -559,30 +583,15 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(plan.top20[0].traffic).toEqual({ revenue: 123_456, orders: 7 });
     });
 
-    it('전환 컬럼 미관측이면 C-5 안 냄 — an unobserved conversion column raises no zero-conversion action or issue', async () => {
-      const unobserved = await seedGradedListing({
+    it('주문수 0인 광고는 C-5를 낸다 — a measured day always carries the order count (KID-372)', async () => {
+      const zero = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
-        suffix: 'C5-UNOBSERVED',
-      });
-      const observed = await seedGradedListing({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-        suffix: 'C5-OBSERVED',
+        suffix: 'C5-ZERO',
       });
       await seedAd({
         organizationId: TEST_ORGANIZATION_ID,
-        listingId: unobserved.listing.id,
-        spend: 8_000,
-        revenue: 20_000,
-        clicks: 80,
-        impressions: 8_000,
-        conversions: 0,
-        conversionsObserved: false,
-      });
-      await seedAd({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: observed.listing.id,
+        listingId: zero.listing.id,
         spend: 8_000,
         revenue: 20_000,
         clicks: 80,
@@ -592,16 +601,12 @@ describe('AdStrategy flow (PG integration)', () => {
 
       const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
-      const actionFor = (listingId: string) =>
-        plan.actions.find((action) => action.listing.listingId === listingId);
-      expect(actionFor(unobserved.listing.id)?.reason ?? '').not.toContain('전환 0');
-      expect(actionFor(observed.listing.id)).toMatchObject({ priority: 'urgent' });
-      expect(actionFor(observed.listing.id)?.reason).toContain('전환 0');
-      expect(plan.issues.zeroConversion.map((issue) => issue.listing.listingId)).toEqual([
-        observed.listing.id,
-      ]);
-      const top = plan.top20.find((item) => item.listing.listingId === unobserved.listing.id);
-      expect(top?.metrics).toMatchObject({ conversions: null, cvr: null });
+      const action = plan.actions.find((item) => item.listing.listingId === zero.listing.id);
+      expect(action).toMatchObject({ priority: 'urgent' });
+      expect(action?.reason).toContain('전환 0');
+      expect(plan.issues.zeroConversion.map((issue) => issue.listing.listingId)).toEqual([zero.listing.id]);
+      const top = plan.top20.find((item) => item.listing.listingId === zero.listing.id);
+      expect(top?.metrics).toMatchObject({ conversions: 0, cvr: 0 });
     });
 
     it('withholds traffic rows outside the owner-declared population coverage', async () => {
@@ -648,7 +653,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
   /**
    * KID-136 — profit rates evaluate the current KST month clipped to its closed
-   * days (ADR-0001): the only dates an Orders collection and the campaign sweep
+   * days (ADR-0001): the only dates an Orders collection and the ad report
    * can have covered. A Rocket direct-purchase sale carries no commission or
    * other per-sale cost, so its listing's profit is measurable once both
    * sources cover that window.
@@ -657,7 +662,7 @@ describe('AdStrategy flow (PG integration)', () => {
     /**
      * An A-grade listing sold once at noon KST on `businessDate` through a
      * Rocket account and advertised that day: 20,000 revenue − 10,000 purchase
-     * cost − 2,000 shipping − 2,000 ad spend = 6,000, a 30% profit rate.
+     * cost − 2,000 shipping − 2,200 ad cost (2,000 billed × 1.1, KID-368) = 5,800, a 29% profit rate.
      */
     async function seedRocketSale(suffix: string, businessDate: string): Promise<string> {
       const listing = await seedGradedListing({
@@ -678,7 +683,7 @@ describe('AdStrategy flow (PG integration)', () => {
           listingOptionId: listing.listingOption.id,
         }],
       });
-      await seedAdTargetDay(prisma, {
+      const adDay = {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.listing.id,
         date: businessDate,
@@ -686,8 +691,8 @@ describe('AdStrategy flow (PG integration)', () => {
         revenue: 10_000,
         clicks: 100,
         impressions: 10_000,
-        conversions: 10,
-      });
+      };
+      await seedAdListingDay(prisma, { ...adDay, orders: 10 });
       return listing.listing.id;
     }
 
@@ -695,7 +700,7 @@ describe('AdStrategy flow (PG integration)', () => {
       return plan.actions.find((action) => action.listing.listingId === listingId)?.proposedValue ?? null;
     }
 
-    it('proposes a rate from the closed days once orders and the sweep cover them', async () => {
+    it('proposes a rate from the closed days once orders and the ad report cover them', async () => {
       const listingId = await seedRocketSale('ROCKET-COVERED', septemberDay(15));
       await measureClosedDays(TEST_ORGANIZATION_ID);
       await collectOrders(TEST_ORGANIZATION_ID);
@@ -703,7 +708,7 @@ describe('AdStrategy flow (PG integration)', () => {
       const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
       // Both sources stop at the 19th; the open 20th is not asked for.
-      expect(proposedRate(plan, listingId)).toBe(30);
+      expect(proposedRate(plan, listingId)).toBe(29);
       expect(plan.profitWithheldListings).toBe(0);
       expect(plan.orderWindowComplete).toBe(true);
     });
@@ -726,10 +731,16 @@ describe('AdStrategy flow (PG integration)', () => {
       // day. August is collected, swept and holds a measurable 30% sale.
       vi.setSystemTime(new Date('2026-09-01T03:00:00.000Z'));
       const listingId = await seedRocketSale('ROCKET-FIRST', '2026-08-25');
-      await seedCompletedAdSweepRun(prisma, {
+      const augustAccount = await prisma.channelAccount.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+        select: { id: true },
+      });
+      await seedAdReportRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-08-01', endDate: '2026-08-31' },
+        channelAccountId: augustAccount.id,
+        start: '2026-08-01',
+        end: '2026-08-31',
       });
       await seedCompletedOrderCoverageRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1151,7 +1162,7 @@ describe('AdStrategy flow (PG integration)', () => {
           winnerGapPrice: -500,
         },
       });
-      await seedAdTargetDay(prisma, {
+      await seedAdListingLedgerDay({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         date: latestBusinessDate.toISOString().slice(0, 10),
@@ -1222,7 +1233,7 @@ describe('AdStrategy flow (PG integration)', () => {
         businessDate: latestBusinessDateText,
         isOfferWinner: true,
       });
-      await seedAdTargetDay(prisma, {
+      await seedAdListingLedgerDay({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         date: latestBusinessDateText,

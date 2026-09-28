@@ -5,12 +5,11 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   productAbcDisplayStatus,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';
 import { SellpiaProductSalesService } from '../../analytics/sellpia-product-sales/sellpia-product-sales.service';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
@@ -31,7 +30,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
 import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
@@ -46,13 +45,11 @@ import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persis
 const ACCEPTANCE_NOW = new Date('2026-09-13T03:00:00.000Z');
 const EXPECTED_CUTOFF = '2026-09-12';
 const EXPECTED_SELLPIA_FROM = '2025-08-08';
-const EXPECTED_ADVERTISING_FROM = '2025-10-01';
-const FORMULA_CHECKSUM = '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f';
-const AD_SOURCE_POLICY_HASH = '5c612a721e1a6a7177cec1f8155149f390f8fc6073c90efdd577a33ddfcd84fc';
 
 /**
  * KID-40 / KID-95 — one release seam connects the operator's Products recipe
- * replacement to both profitability source owners, Products' explicit ABC
+ * replacement to the Sellpia profitability source owner (ABC reads no
+ * advertising, KID-373), Products' explicit ABC
  * publication command, and the Product Hub reads that operators use. The
  * fixtures below are isolated provider-shaped inputs; this deterministic test
  * is not evidence that a real browser/provider collection ran.
@@ -63,7 +60,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
   let recipes: ChannelOptionRecipeService;
   let abc: RecalculateProductAbcUseCase;
   let sellpia: SellpiaProfitabilitySourceService;
-  let advertising: ProfitabilityAdImportRepositoryAdapter;
   let profitability: MasterProductProfitabilityReadService;
 
   beforeAll(async () => {
@@ -73,18 +69,9 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     const prismaService = prisma as unknown as PrismaService;
     const channelFacts = channelFactTestPorts(prismaService);
     const channelAccounts = channelFacts.accounts;
-    const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(
-      channelFacts.accounts,
-      channelFacts.recipes,
-      channelFacts.listings,
-      prismaService,
-      alerts,
-    );
     profitability = new MasterProductProfitabilityReadService(
       sellpia,
-      advertising,
       prismaService,
      new ProductTransactionalReadRepositoryAdapter());
     const inventory = new ProductAvailabilityUseCase(
@@ -119,7 +106,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts,
+        channelAccounts, advertisingLedgerTestReader(prismaService),
       ),
       inventory,
       new SellpiaProductSalesService(prismaService, inventoryReader),
@@ -131,7 +118,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         channelAccounts,
       ),
       new MasterProductContributionReadService(
-        new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
+        new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(prismaService)),
       ),
       new SellpiaMasterProductProfitFactReader(prismaService),
     );
@@ -174,10 +161,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       mappingChanged: true,
     });
     const previousSources = await completeProfitabilitySources(fixture, null, 'previous');
-    expect(previousSources).toMatchObject({
-      mappingGeneration: '1',
-      advertisingPublicationSequence: '1',
-    });
+    expect(previousSources).toMatchObject({ mappingGeneration: '1' });
 
     const replacement = {
       components: [{ masterProductId: fixture.normal.skuId, quantity: 2 }],
@@ -224,7 +208,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         actualCutoff: null,
         sources: {
           sellpia: { ready: false, latestAttempt: { state: 'COMPLETE' } },
-          advertising: { ready: false, latestAttempt: { state: 'COMPLETE' } },
         },
       });
 
@@ -237,9 +220,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     expect(BigInt(currentSources.sellpiaPublicationSequence)).toBeGreaterThan(BigInt(previousSources.sellpiaPublicationSequence));
     expect(currentSources).toMatchObject({
       mappingGeneration: '2',
-      advertisingPublicationSequence: '2',
       sellpiaCoverage: { from: EXPECTED_SELLPIA_FROM, to: EXPECTED_CUTOFF },
-      advertisingCoverage: { from: EXPECTED_ADVERTISING_FROM, to: EXPECTED_CUTOFF },
       sellpiaQuality: {
         contract: 'sellpia-profitability-v2',
         parserVersion: 'sellpia-profitability-v2',
@@ -250,21 +231,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
           costBasis: 'ORDER_TIME_SUPPLY_COST',
           vatIncluded: true,
         },
-      },
-      advertisingSourceType: 'coupang_ad_profitability',
-      advertisingPolicy: {
-        version: 'WHOLE_RECIPE_QUANTITY_V1',
-        allocation: 'INTEGER_KRW_LARGEST_REMAINDER',
-        tieBreak: 'MASTER_PRODUCT_ID_ASC_LOWERCASE',
-        mappingGeneration: '2',
-        adSourcePolicyHash: AD_SOURCE_POLICY_HASH,
-      },
-      advertisingQuality: {
-        plannedAccountCount: 0,
-        plannedSliceCount: 0,
-        receiptCount: 0,
-        providerSpendKrw: 0,
-        allocatedSpendKrw: 0,
       },
     });
 
@@ -277,10 +243,9 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         classifiedProductCount: 1,
         unclassifiedProductCount: 1,
         changedProductCount: 1,
-        // Both sources end on the official cutoff, so the publication left none out.
+        // Sellpia ends on the official cutoff, so the publication left nothing out.
         sources: {
           sellpia: expect.objectContaining({ ready: true, actualCutoff: EXPECTED_CUTOFF }),
-          advertising: expect.objectContaining({ ready: true, actualCutoff: EXPECTED_CUTOFF }),
         },
       });
 
@@ -300,16 +265,13 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       abcGrade: 'A',
       abcEvaluation: {
         abcGrade: 'A',
-        weightedAdvertisingSpend: 0,
-        formula: { formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: 2 },
+        formula: { formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: 3 },
         formulaRevision: 1,
         publicationRevision: 1,
         gradeBasisCutoffDate: EXPECTED_CUTOFF,
         saleStartDate: '2025-01-01',
         sellpiaOperationId: currentSources.sellpiaOperationId,
-        advertisingSourceImportRunId: currentSources.advertisingSourceImportRunId,
         sellpiaGeneration: currentSources.sellpiaPublicationSequence,
-        advertisingGeneration: '2',
         mappingGeneration: '2',
       },
       abc: {
@@ -391,8 +353,8 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     await completeProfitabilitySources(fixture, null, 'previous');
 
     // Products reads mapping generation 1 and captures its targets. Before the
-    // evidence load reads the mapping, the operator replaces a recipe and both
-    // sources complete on generation 2.
+    // evidence load reads the mapping, the operator replaces a recipe and the
+    // Sellpia source completes on generation 2.
     const repository = new MasterProductAbcRepositoryAdapter(
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter(),
@@ -412,7 +374,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       .recalculate({ organizationId: TEST_ORGANIZATION_ID }))
       .rejects.toMatchObject({ status: 409, response: { code: 'INPUT_CHANGED' } });
 
-    // No source is waiting: both read ready on the new generation, so this is
+    // No source is waiting: Sellpia reads ready on the new generation, so this is
     // not SOURCE_NOT_READY, and nothing was published.
     await expect(profitability.load({
       organizationId: TEST_ORGANIZATION_ID,
@@ -420,7 +382,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     })).resolves.toMatchObject({
       actualCutoff: EXPECTED_CUTOFF,
       mappingGeneration: '2',
-      sources: { sellpia: { ready: true }, advertising: { ready: true } },
+      sources: { sellpia: { ready: true } },
     });
     await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
@@ -468,7 +430,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     productWithHole: string | null,
     label: string,
   ) {
-    // Source owners order attempts by their observed start time. Keep the two
+    // The source owner orders attempts by their observed start time. Keep the
     // completed collections distinct while remaining on the same KST cutoff.
     vi.setSystemTime(new Date(
       ACCEPTANCE_NOW.getTime() + (label === 'current' ? 60_000 : 0),
@@ -505,48 +467,18 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     });
     const sellpiaAttempt = { attemptId: published.operationId };
 
-    const adAttempt = await advertising.beginAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      idempotencyKey: `abc-acceptance-advertising-${label}`,
-    });
-    expect(adAttempt.accounts).toEqual([]);
-    await advertising.finalizeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: adAttempt.attemptId,
-      attemptToken: adAttempt.attemptToken,
-    });
-
-    const [sellpiaCatalog, advertisingCatalog] = await Promise.all([
-      sellpia.readGenerationCatalog({ organizationId: TEST_ORGANIZATION_ID, limit: 2 }),
-      advertising.readSourceSnapshot({ organizationId: TEST_ORGANIZATION_ID, limit: 2 }),
-    ]);
+    const sellpiaCatalog = await sellpia.readGenerationCatalog({ organizationId: TEST_ORGANIZATION_ID, limit: 2 });
     expect(sellpiaCatalog.latestAttempt).toMatchObject({
       attemptId: sellpiaAttempt.attemptId,
       state: 'COMPLETE',
     });
-    expect(advertisingCatalog.latestAttempt).toMatchObject({
-      attemptId: adAttempt.attemptId,
-      state: 'COMPLETE',
-    });
     const sellpiaGeneration = sellpiaCatalog.completeGenerations[0]!;
-    const advertisingGeneration = advertisingCatalog.completeGenerations[0]!;
-    expect(advertisingGeneration.mappingGeneration)
-      .toBe(sellpiaGeneration.mappingGeneration);
     return {
       mappingGeneration: sellpiaGeneration.mappingGeneration,
       sellpiaOperationId: sellpiaGeneration.operationId,
-      advertisingSourceImportRunId: advertisingGeneration.sourceImportRunId,
       sellpiaPublicationSequence: sellpiaGeneration.publicationSequence,
-      advertisingPublicationSequence: advertisingGeneration.publicationSequence,
       sellpiaCoverage: sellpiaGeneration.coverage,
-      advertisingCoverage: {
-        from: advertisingGeneration.coverageStartDate,
-        to: advertisingGeneration.coveredThrough,
-      },
       sellpiaQuality: sellpiaGeneration.quality,
-      advertisingSourceType: advertisingGeneration.sourceType,
-      advertisingPolicy: advertisingGeneration.frozenRecipePolicy,
-      advertisingQuality: advertisingGeneration.qualitySummary,
     };
   }
 });
@@ -570,8 +502,8 @@ async function seedFormula(prisma: PrismaClient): Promise<void> {
       organizationId: TEST_ORGANIZATION_ID,
       formulaKey: 'PRODUCT_ABC_ABSOLUTE',
       version: 1,
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-      formulaChecksum: FORMULA_CHECKSUM,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
     },
   });
   await prisma.masterProductAbcFormulaState.create({

@@ -1,5 +1,6 @@
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -21,7 +22,7 @@ import {
   resolveChannelListingSaleStatus,
 } from "@kiditem/shared/channel-listing";
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   productAbcDisplayStatus,
   productAbcSaleAgeDays,
 } from "@kiditem/shared/product-abc";
@@ -69,6 +70,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     private readonly productSource: ProductSourceReadPort,
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async readProductAbcFacts(
@@ -102,7 +104,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     let classifiedProductCount = 0;
     let newProductCount = 0;
     // The active formula's minimum; a product younger than it is not graded yet.
-    const minimumSaleAgeDays = (snapshot.publication?.formula ?? PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD).minimumSaleAgeDays;
+    const minimumSaleAgeDays = (snapshot.publication?.formula ?? PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD).minimumSaleAgeDays;
     let withheldContributionProductCount = 0;
     for (const product of snapshot.products) {
       const displayStatus = productAbcDisplayStatus(product.abc);
@@ -157,8 +159,6 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         officialCutoffDate: snapshot.publication.officialCutoffDate,
         publishedAt: snapshot.publication.publishedAt,
         sellpiaOperationId: snapshot.publication.sellpiaOperationId,
-        advertisingSourceImportRunId:
-          snapshot.publication.advertisingSourceImportRunId,
         mappingGeneration: snapshot.publication.mappingGeneration,
       },
       gradeChanges: [...gradeChanges],
@@ -218,7 +218,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           tx,
           organizationId,
           from,
-          to, this.channelAccounts
+          to, this.adLedger
         );
         const { metrics, withheldListings, orderWindowComplete } = await buildPerListingMetricsCoverage(
           tx,
@@ -227,7 +227,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           to,
           accountAdEvidence,
           undefined,
-          this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
+          this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
         );
         return {
           rows: metrics,

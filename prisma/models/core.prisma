@@ -95,10 +95,6 @@ model Organization {
 
   // Channels — market-data snapshots (Wave C0)
 
-  // Channels — daily fact extensions (Hard rewrite H1)
-  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
-  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
-
   // Advertising — 광고 보고서 원장 5표(advertising.ad_report, KID-371)
   channelAdProductDailySnapshots ChannelAdProductDailySnapshot[]
   channelAdKeywordDailySnapshots ChannelAdKeywordDailySnapshot[]
@@ -319,8 +315,6 @@ model SourceImportRun {
   keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]        @relation("KeywordRankSource")
   keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]        @relation("KeywordSerpSource")
   wingRankDailyProjections                CoupangWingSalesRankDailySnapshot[]      @relation("WingRankSource")
-  adListingProductMonthlyFacts            ChannelAdListingProductMonthlyFact[]     @relation("AdListingProductMonthlyFacts")
-  adTargetDailySnapshots                  ChannelAdTargetDailySnapshot[]           @relation("AdTargetSourceImport")
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
@@ -333,13 +327,9 @@ model SourceImportRun {
   coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[]      @relation("CoupangDirectTransportConsumptionSource")
   reviewCollectionFacts                   Review[]                                 @relation("ReviewCollectionFacts")
   publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
-  publishedAdvertisingAbcFormulaStates    MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedAdvertising")
   sellpiaAbcEvaluations                   MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationSellpiaSourceImport")
-  advertisingAbcEvaluations               MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationAdvertisingSourceImport")
   previousSellpiaAbcGradeHistories        MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport")
   nextSellpiaAbcGradeHistories            MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport")
-  previousAdvertisingAbcGradeHistories    MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryPreviousAdvertisingSourceImport")
-  nextAdvertisingAbcGradeHistories        MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryNextAdvertisingSourceImport")
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
@@ -348,17 +338,10 @@ model SourceImportRun {
   // PostgreSQL stores IN (...) as = ANY (ARRAY[...]); any other spelling makes db push re-plan the index (KID-143).
   @@unique([organizationId, sourceType, rankKeyword], map: "source_import_runs_keyword_serp_running_key", where: raw("source_type = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text]) AND status = 'running'"))
   @@unique([organizationId, sourceType, rankKeyword, freshnessGeneration], map: "source_import_runs_keyword_serp_generation_key", where: raw("source_type = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text]) AND freshness_generation IS NOT NULL"))
-  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_keyword_running_key", where: raw("source_type = 'coupang_ad_keyword' AND status = 'running'"))
-  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_keyword_generation_key", where: raw("source_type = 'coupang_ad_keyword' AND freshness_generation IS NOT NULL"))
-  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_campaign_running_key", where: raw("source_type = 'coupang_ad_campaign' AND status = 'running'"))
-  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_campaign_generation_key", where: raw("source_type = 'coupang_ad_campaign' AND freshness_generation IS NOT NULL"))
-  @@unique([organizationId, sourceType], map: "source_import_runs_ads_daily_running_key", where: raw("source_type = 'coupang_ads_daily' AND status = 'running'"))
-  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ads_daily_generation_key", where: raw("source_type = 'coupang_ads_daily' AND channel_account_id IS NOT NULL AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_wing_itemwinner_running_key", where: raw("source_type = 'coupang_wing_itemwinner' AND channel_account_id IS NOT NULL AND status = 'running'"))
   @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_wing_itemwinner_generation_key", where: raw("source_type = 'coupang_wing_itemwinner' AND channel_account_id IS NOT NULL AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_profitability_running_key", where: raw("source_type = 'sellpia_product_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_sales_running_key", where: raw("source_type = 'sellpia_sales_daily' AND status = 'running'"))
-  @@unique([organizationId, sourceType], map: "source_import_runs_coupang_ad_profitability_running_key", where: raw("source_type = 'coupang_ad_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_shipment_summary_running_key", where: raw("source_type = 'coupang_shipment_summary' AND status = 'running'"))
   @@unique([organizationId, sourceType], map: "source_import_runs_coupang_reviews_running_key", where: raw("source_type = 'coupang_reviews' AND status = 'running'"))
@@ -453,7 +436,6 @@ model MasterProductAbcFormulaState {
   publishedSellpiaSourceImportRunId     String?   @map("published_sellpia_source_import_run_id") @db.Uuid
   /// 공식 발행이 쓴 셀피아 상품 손익 실행(`analytics.sellpia_product_profitability`). 스칼라 id(FK 없음, KID-361).
   publishedSellpiaOperationId           String?   @map("published_sellpia_operation_id") @db.Uuid
-  publishedAdvertisingSourceImportRunId String?   @map("published_advertising_source_import_run_id") @db.Uuid
   publishedMappingGeneration            BigInt?   @map("published_mapping_generation") @db.BigInt
   mappingGeneration                     BigInt    @default(0) @map("mapping_generation") @db.BigInt
   publishedAt                           DateTime? @map("published_at") @db.Timestamptz
@@ -463,12 +445,10 @@ model MasterProductAbcFormulaState {
   organization                        Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   activeFormulaVersion                MasterProductAbcFormulaVersion? @relation("MasterProductAbcFormulaStateActiveFormula", fields: [activeFormulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   publishedSellpiaSourceImportRun     SourceImportRun?                @relation("MasterProductAbcFormulaStatePublishedSellpia", fields: [publishedSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  publishedAdvertisingSourceImportRun SourceImportRun?                @relation("MasterProductAbcFormulaStatePublishedAdvertising", fields: [publishedAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([activeFormulaVersionId, organizationId], map: "master_product_abc_formula_states_active_formula_org_key")
   @@index([publishedSellpiaSourceImportRunId, organizationId])
   @@index([publishedSellpiaOperationId, organizationId])
-  @@index([publishedAdvertisingSourceImportRunId, organizationId])
   @@map("master_product_abc_formula_states")
 }
 
@@ -482,7 +462,6 @@ model MasterProductAbcEvaluation {
   abcGrade                     String    @map("abc_grade")
   weightedRevenue              Decimal   @map("weighted_revenue") @db.Decimal(20, 6)
   weightedOrderTimeSupplyCost  Decimal   @map("weighted_order_time_supply_cost") @db.Decimal(20, 6)
-  weightedAdvertisingSpend     Decimal   @map("weighted_advertising_spend") @db.Decimal(20, 6)
   weightedOperatingProfit      Decimal   @map("weighted_operating_profit") @db.Decimal(20, 6)
   operatingProfitVelocity30    Decimal   @map("operating_profit_velocity_30") @db.Decimal(20, 6)
   operatingMargin              Decimal?  @map("operating_margin") @db.Decimal(12, 6)
@@ -503,10 +482,7 @@ model MasterProductAbcEvaluation {
   sellpiaSourceImportRunId     String?   @map("sellpia_source_import_run_id") @db.Uuid
   /// 평가가 쓴 셀피아 상품 손익 실행(`analytics.sellpia_product_profitability`). 스칼라 id(FK 없음, KID-361).
   sellpiaOperationId           String?   @map("sellpia_operation_id") @db.Uuid
-  /// Null only under an ABC formula that excludes advertising (formula version 3).
-  advertisingSourceImportRunId String?   @map("advertising_source_import_run_id") @db.Uuid
   sellpiaGeneration            BigInt    @map("sellpia_generation") @db.BigInt
-  advertisingGeneration        BigInt?   @map("advertising_generation") @db.BigInt
   mappingGeneration            BigInt    @map("mapping_generation") @db.BigInt
   calculatedAt                 DateTime  @default(now()) @map("calculated_at") @db.Timestamptz
 
@@ -514,7 +490,6 @@ model MasterProductAbcEvaluation {
   masterProduct              MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
   formulaVersion             MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sellpiaSourceImportRun     SourceImportRun?               @relation("MasterProductAbcEvaluationSellpiaSourceImport", fields: [sellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  advertisingSourceImportRun SourceImportRun?               @relation("MasterProductAbcEvaluationAdvertisingSourceImport", fields: [advertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([masterProductId, organizationId])
   @@index([organizationId, formulaVersionId])
@@ -522,7 +497,6 @@ model MasterProductAbcEvaluation {
   @@index([masterProductId])
   @@index([sellpiaSourceImportRunId, organizationId])
   @@index([sellpiaOperationId, organizationId])
-  @@index([advertisingSourceImportRunId, organizationId])
   @@index([organizationId, publicationRevision])
   @@map("master_product_abc_evaluations")
 }
@@ -544,8 +518,6 @@ model MasterProductAbcGradeHistory {
   /// 등급이 바뀐 전·후 평가의 셀피아 상품 손익 실행(스칼라 id, FK 없음, KID-361).
   previousSellpiaOperationId           String?  @map("previous_sellpia_operation_id") @db.Uuid
   nextSellpiaOperationId               String?  @map("next_sellpia_operation_id") @db.Uuid
-  previousAdvertisingSourceImportRunId String?  @map("previous_advertising_source_import_run_id") @db.Uuid
-  nextAdvertisingSourceImportRunId     String?  @map("next_advertising_source_import_run_id") @db.Uuid
   formulaRevision                      Int      @map("formula_revision")
   publicationRevision                  Int      @map("publication_revision")
   sourceCutoffDate                     DateTime @map("source_cutoff_date") @db.Date
@@ -557,8 +529,6 @@ model MasterProductAbcGradeHistory {
   formulaVersion                     MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionGradeHistories", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   previousSellpiaSourceImportRun     SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport", fields: [previousSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   nextSellpiaSourceImportRun         SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport", fields: [nextSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  previousAdvertisingSourceImportRun SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousAdvertisingSourceImport", fields: [previousAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  nextAdvertisingSourceImportRun     SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextAdvertisingSourceImport", fields: [nextAdvertisingSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId, calculatedAt])
   @@index([organizationId, formulaVersionId])
@@ -569,7 +539,5 @@ model MasterProductAbcGradeHistory {
   @@index([nextSellpiaSourceImportRunId, organizationId])
   @@index([previousSellpiaOperationId, organizationId])
   @@index([nextSellpiaOperationId, organizationId])
-  @@index([previousAdvertisingSourceImportRunId, organizationId])
-  @@index([nextAdvertisingSourceImportRunId, organizationId])
   @@map("master_product_abc_grade_histories")
 }

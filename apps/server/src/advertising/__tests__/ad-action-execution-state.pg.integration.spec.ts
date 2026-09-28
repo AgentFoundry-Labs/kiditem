@@ -13,6 +13,10 @@ import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.r
 import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdCampaignsService } from '../application/service/ad-campaigns.service';
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { seedAdReportRun, seedCoupangAdAccount } from '../../test-helpers/ad-ledger-seeds';
+import { businessDateKey } from '../../common/kst';
+import { periodBounds } from '../domain/ad-metrics';
 
 /**
  * An AdAction's execution words come from its latest ExecutionTask. These
@@ -29,7 +33,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     await prisma.$connect();
     repository = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
-      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter()
     );
   });
 
@@ -364,61 +368,31 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     ]);
   });
 
-  /** One complete keyword collection of a Coupang account holding these keywords. */
+  /** One measured ad report day of a Coupang account whose keyword table holds these keywords. */
   async function seedKeywordCollection(
     keywords: Array<[externalOptionId: string, keyword: string]>,
   ): Promise<void> {
-    const account = await prisma.channelAccount.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Ads',
-        status: 'active',
-        isPrimary: true,
-      },
-      select: { id: true },
+    const account = await seedCoupangAdAccount(prisma, { organizationId: TEST_ORGANIZATION_ID, externalAccountId: 'Ads' });
+    const date = businessDateKey(periodBounds('7d').to);
+    const run = await seedAdReportRun(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id, start: date, end: date,
     });
-    const businessDate = '2026-09-14';
-    const capturedAt = new Date().toISOString();
-    const collection = await prisma.sourceImportRun.create({
-      data: {
+    await prisma.channelAdKeywordDailySnapshot.createMany({
+      data: keywords.map(([vendorItemId, keyword]) => ({
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        sourceType: 'coupang_ad_keyword',
-        parserVersion: 'ad-keyword-v1',
-        status: 'completed',
-        importedAt: new Date(),
-        plan: { captureMode: 'keyword' },
-        qualityReport: {
-          rosterCapturedAt: capturedAt,
-          keywordCoverage: [
-            { campaignIdentity: 'campaign:1', adGroupId: 'group-1', capturedAt, businessDate },
-          ],
-        },
-      },
-      select: { id: true },
-    });
-    await prisma.channelAdTargetDailySnapshot.createMany({
-      data: keywords.map(([externalOptionId, keyword]) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        sourceImportRunId: collection.id,
-        channel: 'coupang',
-        businessDate: new Date(`${businessDate}T00:00:00.000Z`),
-        targetType: 'keyword',
-        targetKey: `account:${account.id}:keyword:campaign:1:${externalOptionId}::${keyword}`,
-        campaignIdentity: 'campaign:1',
+        operationId: run.id,
+        date: new Date(`${date}T00:00:00.000Z`),
         campaignId: '1',
-        campaignName: 'Campaign',
         adGroupId: 'group-1',
-        adGroup: 'Group',
+        vendorItemId,
         keyword,
-        externalOptionId,
         impressions: 100,
-        metaJson: {
-          source: 'advertising.keyword.target',
-          data: { origin: 'smart_targeting', windowDays: 7 },
-        },
+        clicks: 1,
+        spend: 0,
+        orders: 0,
+        units: 0,
+        revenue: 0,
       })),
     });
   }
@@ -482,7 +456,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
     await pause('미미', { approvalStatus: 'pending_review', organizationId: OTHER_ORGANIZATION_ID });
 
     const service = new AdCampaignsService(
-      new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts),
+      new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter()),
       new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never),
       repository,
       {} as never,
@@ -534,7 +508,7 @@ describe('AdAction execution state from the latest ExecutionTask (PG integration
       approvalStatus: 'pending_review',
     });
     const service = new AdCampaignsService(
-      new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts),
+      new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter()),
       new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never),
       repository,
       {} as never,

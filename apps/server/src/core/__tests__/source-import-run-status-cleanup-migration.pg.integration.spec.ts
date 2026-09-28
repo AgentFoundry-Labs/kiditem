@@ -108,7 +108,6 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
         publicationRevision: 3,
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
         publishedSellpiaSourceImportRunId: superseded.id,
-        publishedAdvertisingSourceImportRunId: completed.id,
         publishedMappingGeneration: 7n,
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
       },
@@ -193,7 +192,6 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
         publicationRevision: true,
         officialCutoffDate: true,
         publishedSellpiaSourceImportRunId: true,
-        publishedAdvertisingSourceImportRunId: true,
         publishedMappingGeneration: true,
         publishedAt: true,
       },
@@ -201,7 +199,6 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       publicationRevision: 3,
       officialCutoffDate: null,
       publishedSellpiaSourceImportRunId: null,
-      publishedAdvertisingSourceImportRunId: null,
       publishedMappingGeneration: null,
       publishedAt: null,
     });
@@ -317,7 +314,7 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       return `${foreignKey.child_table}.${columns.join('+')} -> ${foreignKey.parent_table}`;
     });
 
-    expect(references.length).toBeGreaterThan(30);
+    expect(references.length).toBeGreaterThan(15);
     expect(references.filter((reference) => !declared.has(reference))).toEqual([]);
   });
 

@@ -6,7 +6,6 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
 import { AiModule } from "../content/ai.module";
 import { ChannelsModule } from "../channels/channels.module";
-import { AdvertisingProfitabilityReadModule } from "./advertising-profitability-read.module";
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
 import { AdExportController } from "./adapter/in/http/ad-export.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
@@ -17,8 +16,6 @@ import { AdvertisingOverviewController } from "./adapter/in/http/advertising-ove
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
-import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
-import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
 import { WingItemwinnerOperationOwner, WingTrafficOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
 import { WingItemwinnerOperationRepository } from "./adapter/out/repository/wing-itemwinner-operation.repository";
 import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-itemwinner-operation.repository.port";
@@ -42,11 +39,7 @@ import { AdCampaignRepositoryAdapter } from "./adapter/out/repository/ad-campaig
 import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.repository.adapter";
 import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
 import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel-scrape.repository.adapter";
-import { ChannelOptionDailyRepositoryAdapter } from "./adapter/out/repository/channel-option-daily.repository.adapter";
-import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/channel-target-daily.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
-import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
-import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
@@ -83,14 +76,15 @@ import { AD_CAMPAIGN_REPOSITORY_PORT } from "./application/port/out/repository/a
 import { AD_ACTION_REPOSITORY_PORT } from "./application/port/out/repository/ad-action.repository.port";
 import { AD_STRATEGY_CONTEXT_REPOSITORY_PORT } from "./application/port/out/repository/ad-strategy-context.repository.port";
 import { CHANNEL_SCRAPE_REPOSITORY_PORT } from "./application/port/out/repository/channel-scrape.repository.port";
-import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-option-daily.repository.port";
-import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-target-daily.repository.port";
 import { KEYWORD_RANK_REPOSITORY_PORT } from "./application/port/out/repository/keyword-rank.repository.port";
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/repository/wing-tracked-product.repository.port";
 import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domain/keyword-relevance-judge.port";
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
 import { ADVERTISING_HUB_READ_PORT } from "./application/port/in/advertising-hub-read.port";
+import { AdvertisingLedgerReadModule } from "./advertising-ledger-read.module";
+import { AD_LEDGER_READ_REPOSITORY_PORT } from "./application/port/out/repository/ad-ledger-read.repository.port";
+import { AdLedgerReadPersistenceAdapter } from "./adapter/out/persistence/ad-ledger-read.persistence.adapter";
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -125,14 +119,6 @@ const REPOSITORY_PORT_BINDINGS = [
     useExisting: ChannelScrapeRepositoryAdapter,
   },
   {
-    provide: CHANNEL_OPTION_DAILY_REPOSITORY_PORT,
-    useExisting: ChannelOptionDailyRepositoryAdapter,
-  },
-  {
-    provide: CHANNEL_TARGET_DAILY_REPOSITORY_PORT,
-    useExisting: ChannelTargetDailyRepositoryAdapter,
-  },
-  {
     provide: KEYWORD_RANK_REPOSITORY_PORT,
     useExisting: KeywordRankRepositoryAdapter,
   },
@@ -154,8 +140,8 @@ const REPOSITORY_PORT_BINDINGS = [
     AlertsModule,
     AiModule,
     ChannelsModule,
-    AdvertisingProfitabilityReadModule,
     OperationModule,
+    AdvertisingLedgerReadModule,
   ],
   controllers: [
     AdvertisingConfigController,
@@ -168,8 +154,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdExportController,
     AdKeywordAgentController,
     KeywordRankController,
-    AdKeywordSourceController,
-    AdCampaignSourceController,
     CompetitorTrackingController,
     WingTrackedProductController,
   ],
@@ -182,11 +166,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdActionRepositoryAdapter,
     AdStrategyContextRepositoryAdapter,
     ChannelScrapeRepositoryAdapter,
-    ChannelOptionDailyRepositoryAdapter,
-    ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
-    AdKeywordSourceRepository,
-    AdCampaignSourceRepository,
     // Wing 일별 사실 실행 kind(ADR-0025, KID-362)
     WingItemwinnerOperationRepository,
     {
@@ -205,6 +185,11 @@ const REPOSITORY_PORT_BINDINGS = [
     {
       provide: AD_REPORT_OPERATION_REPOSITORY_PORT,
       useExisting: AdReportOperationRepository,
+    },
+    AdLedgerReadPersistenceAdapter,
+    {
+      provide: AD_LEDGER_READ_REPOSITORY_PORT,
+      useExisting: AdLedgerReadPersistenceAdapter,
     },
     AdReportOperationOwner,
     WingTrafficReadRepository,
@@ -257,6 +242,7 @@ const REPOSITORY_PORT_BINDINGS = [
     COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
     AD_TRAFFIC_READ_PORT,
     ADVERTISING_HUB_READ_PORT,
+    AdvertisingLedgerReadModule,
   ],
 })
 export class AdvertisingModule {}

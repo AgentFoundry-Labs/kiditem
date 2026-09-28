@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
   PRODUCT_ABC_ABSOLUTE_V1_ANCHORS,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_JSON,
@@ -33,8 +34,7 @@ function evaluation(overrides: Record<string, unknown> = {}) {
     abcGrade: 'A',
     weightedRevenue: 1_000_000,
     weightedOrderTimeSupplyCost: 100_000,
-    weightedAdvertisingSpend: 50_000,
-    weightedOperatingProfit: 850_000,
+    weightedOperatingProfit: 900_000,
     operatingProfitVelocity30: 825_000,
     operatingMargin: 0.85,
     lossPersistence: 0,
@@ -43,15 +43,13 @@ function evaluation(overrides: Record<string, unknown> = {}) {
     consistencyScore: 100,
     economicScore: 86.5,
     validObservationDays: 31,
-    formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+    formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
     formulaRevision: 1,
     publicationRevision: 1,
     gradeBasisCutoffDate: '2026-07-31',
     saleStartDate: '2026-06-01',
     sellpiaOperationId: UUID,
-    advertisingSourceImportRunId: UUID_2,
     sellpiaGeneration: '11',
-    advertisingGeneration: '7',
     mappingGeneration: '4',
     calculatedAt: ISO,
     ...overrides,
@@ -65,13 +63,6 @@ function sourceFreshness() {
       requiredCutoff: '2026-08-31',
       actualCutoff: '2026-08-31',
       latestAttempt: { state: 'COMPLETE' },
-      latestComplete: { actualCutoff: '2026-08-31' },
-    },
-    advertising: {
-      ready: false,
-      requiredCutoff: '2026-09-01',
-      actualCutoff: '2026-08-31',
-      latestAttempt: { state: 'FAILED', errorCode: 'marketplace_login' },
       latestComplete: { actualCutoff: '2026-08-31' },
     },
     mapping: {
@@ -156,12 +147,11 @@ describe('absolute product profitability ABC contracts', () => {
     expect(ProductAbcDisplayStatusSchema.options).toEqual([
       'SOURCE_UNMAPPED',
       'SELLPIA_SOURCE_STALE',
-      'AD_SOURCE_STALE',
       'INSUFFICIENT_EVIDENCE',
       'READY',
     ]);
 
-    const stale = ProductAbcReadModelSchema.parse({
+    const retained = ProductAbcReadModelSchema.parse({
       abcGrade: 'A',
       evaluation: parsed,
       formulaRevision: 2,
@@ -171,27 +161,28 @@ describe('absolute product profitability ABC contracts', () => {
       actualCutoffDate: '2026-08-31',
       sources: sourceFreshness(),
     });
-    expect(stale.evaluation?.abcGrade).toBe('A');
-    expect(stale.publicationRevision).toBe(4);
-    expect(stale.sources.advertising.actualCutoff).toBe('2026-08-31');
+    expect(retained.evaluation?.abcGrade).toBe('A');
+    expect(retained.publicationRevision).toBe(4);
+    expect(retained.sources.sellpia.actualCutoff).toBe('2026-08-31');
     expect(ProductAbcReadModelSchema.safeParse({
-      ...stale,
+      ...retained,
       recalculationPending: false,
     }).success).toBe(false);
     // The display word is a function of these facts; the read model never carries it.
     expect(ProductAbcReadModelSchema.safeParse({
-      ...stale,
-      displayStatus: 'AD_SOURCE_STALE',
+      ...retained,
+      displayStatus: 'READY',
     }).success).toBe(false);
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       weightedOperatingProfit: -1,
       operatingMargin: null,
     }))).not.toThrow();
+    // ABC grades without advertising (KID-373): no advertising spend or provenance,
+    // and only the advertising-free formula publishes.
+    expect(Object.keys(ProductAbcEvaluationSchema.innerType().shape)
+      .filter((key) => /advertising/i.test(key))).toEqual([]);
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
-      advertisingSourceImportRunId: null,
-    }))).toThrow();
-    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
-      advertisingGeneration: null,
+      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     }))).toThrow();
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       sourceFreshness: {},
@@ -213,23 +204,19 @@ describe('absolute product profitability ABC contracts', () => {
     const facts = (overrides: {
       mapped?: boolean;
       sellpia?: boolean;
-      advertising?: boolean;
       evaluated?: boolean;
     } = {}) => ({
       evaluation: overrides.evaluated === false ? null : retained,
       sources: {
         mapping: { valid: overrides.mapped ?? true },
         sellpia: { ready: overrides.sellpia ?? true },
-        advertising: { ready: overrides.advertising ?? true },
       },
     });
 
     expect(productAbcDisplayStatus(facts())).toBe('READY');
     expect(productAbcDisplayStatus(facts({ evaluated: false }))).toBe('INSUFFICIENT_EVIDENCE');
     // A stale source keeps the retained grade; the word says which source moved on.
-    expect(productAbcDisplayStatus(facts({ advertising: false }))).toBe('AD_SOURCE_STALE');
-    expect(productAbcDisplayStatus(facts({ sellpia: false, advertising: false })))
-      .toBe('SELLPIA_SOURCE_STALE');
+    expect(productAbcDisplayStatus(facts({ sellpia: false }))).toBe('SELLPIA_SOURCE_STALE');
     expect(productAbcDisplayStatus(facts({ mapped: false, sellpia: false, evaluated: false })))
       .toBe('SOURCE_UNMAPPED');
 
@@ -243,13 +230,12 @@ describe('absolute product profitability ABC contracts', () => {
       actualCutoffDate: '2026-08-31',
       sources: sourceFreshness(),
     });
-    expect(productAbcDisplayStatus(published)).toBe('AD_SOURCE_STALE');
+    expect(productAbcDisplayStatus(published)).toBe('READY');
     expect(PRODUCT_ABC_DISPLAY_STATUS_LABELS).toEqual({
       READY: '계산 완료',
       INSUFFICIENT_EVIDENCE: '관찰 중',
       SOURCE_UNMAPPED: '상품 매핑 필요',
       SELLPIA_SOURCE_STALE: 'Sellpia 원천 갱신 필요',
-      AD_SOURCE_STALE: '광고비 원천 갱신 필요',
     });
   });
 
@@ -315,8 +301,6 @@ describe('absolute product profitability ABC contracts', () => {
       sourceCutoffDate: '2026-07-31',
       previousSellpiaOperationId: UUID,
       nextSellpiaOperationId: UUID_2,
-      previousAdvertisingSourceImportRunId: null,
-      nextAdvertisingSourceImportRunId: UUID_2,
       reason: 'AUTOMATIC_PROFITABILITY_EVALUATION',
       calculatedAt: ISO,
     });
@@ -328,7 +312,6 @@ describe('absolute product profitability ABC contracts', () => {
         cutoffDate: '2026-07-31',
         sourceCutoffDate: '2026-07-31',
         sellpiaOperationId: UUID,
-        advertisingSourceImportRunId: UUID_2,
       },
       totals: {
         revenue: 1_000,

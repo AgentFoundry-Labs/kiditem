@@ -69,7 +69,6 @@ export interface DashboardAbcFacts {
     officialCutoffDate: string;
     publishedAt: string;
     sellpiaOperationId: string;
-    advertisingSourceImportRunId: string | null;
     mappingGeneration: string;
   } | null;
   gradeChanges: GradeChangeRow[];

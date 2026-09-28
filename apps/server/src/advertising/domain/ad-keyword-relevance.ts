@@ -40,7 +40,6 @@ export interface KeywordJudgementItem {
   /** Stable handle the model echoes back. Never a database id. */
   ref: string;
   keyword: string;
-  origin: 'registered' | 'smart_targeting';
   impressions: number;
   clicks: number;
   spend: number;
@@ -57,19 +56,23 @@ export interface KeywordProductBatch {
 }
 
 export interface KeywordJudgementSource {
-  adTargetDailyId: string;
+  campaignId: string;
+  adGroupId: string | null;
   keyword: string;
   productName: string | null;
   campaignName: string | null;
   externalOptionId: string | null;
   listingId: string | null;
-  origin: 'registered' | 'smart_targeting';
   impressions: number;
   clicks: number;
   spend: number;
   revenue: number;
-  /** `null` when the keyword table did not carry the conversion column. */
-  conversions: number | null;
+  /** The keyword report's orders over the window. */
+  conversions: number;
+  /** Measured days of the window; 0 means nothing was measured (KID-372). */
+  measuredDays: number;
+  /** Last measured day of the window. */
+  businessDate: string;
 }
 
 export interface KeywordRelevanceVerdict {
@@ -119,8 +122,8 @@ export function buildKeywordProductBatches(
     if (!source.externalOptionId) continue;
     if ((source.productName ?? '').trim().length === 0) continue;
     // A keyword that converted has proven itself regardless of how it reads,
-    // and one whose conversions were not observed may have converted.
-    if (source.conversions === null || source.conversions > 0) continue;
+    // and one over a window with no measured day may have converted.
+    if (source.measuredDays === 0 || source.conversions > 0) continue;
     const bucket = byProduct.get(source.externalOptionId);
     if (bucket) bucket.push(source);
     else byProduct.set(source.externalOptionId, [source]);
@@ -153,7 +156,6 @@ export function buildKeywordProductBatches(
       return {
         ref,
         keyword: source.keyword,
-        origin: source.origin,
         impressions: source.impressions,
         clicks: source.clicks,
         spend: source.spend,
@@ -266,8 +268,8 @@ export interface KeywordPauseCandidateResult {
  * Convert model verdicts into `pause_keyword` proposals.
  *
  * Rejects a verdict when the `ref` was never asked about, the echoed keyword no
- * longer matches that ref, no rationale came back, the keyword's conversions
- * were not observed, or the keyword converted after the batch was built.
+ * longer matches that ref, no rationale came back, the window has no measured
+ * day, or the keyword converted after the batch was built.
  */
 export function toKeywordPauseCandidates(
   verdicts: KeywordRelevanceVerdict[],
@@ -312,8 +314,8 @@ export function toKeywordPauseCandidates(
       rejected.push({ ref, reason: 'missing_reason' });
       continue;
     }
-    if (source.conversions === null) {
-      rejected.push({ ref, reason: 'conversions_unobserved' });
+    if (source.measuredDays === 0) {
+      rejected.push({ ref, reason: 'not_measured' });
       continue;
     }
     if (source.conversions > 0) {
@@ -322,7 +324,6 @@ export function toKeywordPauseCandidates(
     }
 
     candidates.push({
-      adTargetDailyId: source.adTargetDailyId,
       listingId: source.listingId,
       actionType: 'pause_keyword',
       targetType: 'keyword',
@@ -340,7 +341,6 @@ export function toKeywordPauseCandidates(
         productName: source.productName,
         campaignName: source.campaignName,
         externalOptionId: source.externalOptionId,
-        origin: source.origin,
         relevance: 'irrelevant',
         relevanceReason: reason,
         evidence: {
@@ -348,6 +348,14 @@ export function toKeywordPauseCandidates(
           clicks: source.clicks,
           spend: source.spend,
           revenue: source.revenue,
+        },
+        adTarget: {
+          campaignId: source.campaignId,
+          adGroupId: source.adGroupId,
+          vendorItemId: source.externalOptionId,
+          keyword: source.keyword,
+          businessDate: source.businessDate,
+          source: 'ad_report',
         },
       },
     });

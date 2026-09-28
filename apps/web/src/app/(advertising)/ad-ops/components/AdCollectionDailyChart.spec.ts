@@ -14,7 +14,7 @@ function metrics(spend: number, revenue: number): AdMeasuredMetrics {
     revenue,
     impressions: 0,
     clicks: 0,
-    conversions: null,
+    conversions: 0,
     roas: spend > 0 ? (revenue / spend) * 100 : null,
     ctr: null,
     cvr: null,
@@ -60,7 +60,7 @@ describe("AdCollectionDailyChart data model", () => {
 
   it("labels the chart source from the measured day count", () => {
     expect(buildCollectionChartPoints(trends(), []).sourceLabel).toBe(
-      "쿠팡 광고 캠페인 합산 · 2026-07-16까지",
+      "쿠팡 광고 보고서 · 2026-07-16까지",
     );
     expect(
       buildCollectionChartPoints(

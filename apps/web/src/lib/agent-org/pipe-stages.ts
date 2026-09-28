@@ -269,7 +269,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '광고 마케팅',
     owner: '마케팅팀',
     href: '/ad-ops',
-    alertSourceTypes: ['coupang_ad_campaign', 'coupang_ad_keyword', 'coupang_ads_daily', 'coupang_ad_profitability', WING_TRAFFIC_KIND, AD_REPORT_KIND],
+    alertSourceTypes: [WING_TRAFFIC_KIND, AD_REPORT_KIND],
     expectedEveryMs: null,
     noSourceReason: null,
   },

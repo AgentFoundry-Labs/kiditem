@@ -28,14 +28,7 @@ importScripts(
   "sourcing/source-attempt-wire.js",
   // 쿠팡 도메인 모듈
   "coupang/environment-runtime.js",
-  "coupang/ad-collector-delay.js",
-  "coupang/collection-window.js",
-  "coupang/collection-start.js",
-  "coupang/ad-center-collector.js",
   "coupang/collection-runs.js",
-  "coupang/profitability-source-owner.js",
-  "coupang/ad-keyword-source-owner.js",
-  "coupang/ad-campaign-source-owner.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",

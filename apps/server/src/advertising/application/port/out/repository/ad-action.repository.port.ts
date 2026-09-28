@@ -26,38 +26,57 @@ export interface AdActionQuery {
   limit?: number;
 }
 
-export interface LatestTargetRow {
-  id: string;
-  targetType: string;
-  targetKey: string;
-  listingId: string | null;
-  listingOptionId: string | null;
-  externalId: string | null;
-  /** Advertised option (Coupang vendorItemId) when the row names exactly one. */
-  externalOptionId: string | null;
-  campaignId: string | null;
+/**
+ * One rule target over the ad report ledger (KID-372): a campaign (current
+ * `ChannelAdCampaign` state plus the recent measured window's product sums) or
+ * a search keyword (its window sums). There is no bid.
+ */
+export interface AdRuleTarget {
+  targetType: 'campaign' | 'keyword';
+  channelAccountId: string;
+  campaignId: string;
   campaignName: string | null;
+  /** Keyword targets only. */
+  adGroupId: string | null;
+  /** Keyword text; `''` is the non-search row. Null for a campaign. */
   keyword: string | null;
-  status: string | null;
-  currentBid: number | null;
-  dailyBudget: number | null;
+  /** Keyword targets: the advertised option. Null for a campaign. */
+  vendorItemId: string | null;
+  /** Options the target advertised in the window. */
+  vendorItemIds: string[];
+  /** Catalog listings the target advertised in the window (matched rows only). */
+  listingIds: string[];
+  /** Set when the target advertised exactly one catalog listing. */
+  listingId: string | null;
+  /**
+   * The listing's channel account channel. `null` when the target is not
+   * attributable to one active listing.
+   */
+  listingChannel: string | null;
+  productName: string | null;
+  /** Campaign ON/OFF (`ChannelAdCampaign.isActive`); null when unknown. */
+  isActive: boolean | null;
+  /** Campaign budget as reported (assumed KRW/day); null for keywords. */
+  budget: number | null;
   spend: number;
   revenue: number;
   impressions: number;
   clicks: number;
-  /**
-   * `null` when the provider table behind the row did not carry the conversion
-   * column; a stored 0 there is not zero conversions, so no rule reads it.
-   */
-  conversions: number | null;
+  /** The report's orders (conversions). */
+  orders: number;
   abcGrade: string | null;
-  /**
-   * The listing's channel account channel, which decides whether a sales
-   * commission and other per-sale cost apply (`channelAccountSalesCosts`).
-   * `null` when the target is not attributable to an active listing.
-   */
-  listingChannel: string | null;
-  productName: string | null;
+  /** Last measured day of the window the sums cover. */
+  businessDate: string;
+  /** Measured days of the window the sums cover. */
+  measuredDays: number;
+  /** First measured day of the window the sums cover. */
+  windowStartDate: string;
+}
+
+/** A keyword (advertised option + keyword text) a pause proposal names. */
+export interface KeywordPauseKey {
+  externalId: string | null;
+  targetLabel: string;
 }
 
 export interface AdActionReviewSummary {
@@ -85,14 +104,6 @@ export interface HydratedAdAction extends AdActionRecord {
       name: string;
       abcGrade: string | null;
     };
-  } | null;
-  adTargetDaily: {
-    id: string;
-    targetType: string;
-    campaignName: string | null;
-    keyword: string | null;
-    businessDate: Date;
-    lastObservedAt: Date | null;
   } | null;
 }
 
@@ -157,7 +168,16 @@ export interface AdActionRepositoryPort {
     organizationId: string,
   ): Promise<AdActionReviewResult>;
 
-  findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]>;
+  /** Campaign and keyword targets of the recent measured window (KID-372). */
+  findRuleTargets(organizationId: string): Promise<AdRuleTarget[]>;
+
+  /**
+   * Keywords whose `pause_keyword` proposal created on or after the KST
+   * calendar day `sinceDate` stands approved or reads done. The window's
+   * keyword rows still carry the clicks from before the pause, so such a
+   * keyword is not proposed again from that window.
+   */
+  findAppliedKeywordPauses(organizationId: string, sinceDate: string): Promise<KeywordPauseKey[]>;
 
   /**
    * Actions created since `sinceCreatedAt` that are still open work: awaiting

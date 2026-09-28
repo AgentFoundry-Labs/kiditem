@@ -6,18 +6,7 @@ const ENVIRONMENTS = Object.freeze({
 let selectedEnvironmentId = null;
 let environmentGeneration = 0;
 
-const OWNER_STATUS_SOURCES = Object.freeze([
-  {
-    key: 'campaigns',
-    path: '/api/ads/ad-campaigns/source',
-    valueId: 'adsSync',
-    detailId: 'adsSyncDetail',
-    countField: 'campaignCount',
-    countUnit: '캠페인',
-  },
-]);
-
-let ownerStatusRefreshSequence = 0;
+let statusRefreshSequence = 0;
 
 function runtimeMessage(message) {
   return new Promise((resolve, reject) => {
@@ -54,7 +43,7 @@ function isCurrentEnvironmentRequest(request) {
 }
 
 function isCurrentStatusRefresh(request, sequence) {
-  return isCurrentEnvironmentRequest(request) && sequence === ownerStatusRefreshSequence;
+  return isCurrentEnvironmentRequest(request) && sequence === statusRefreshSequence;
 }
 
 async function popupFetch(path, init = {}, request = snapshotEnvironmentRequest()) {
@@ -95,115 +84,14 @@ function setCardValue(id, text, hasDot = false, dotColor = 'dot-gray') {
   element.className = text === '-' || text === '아직 없음' || text === '미수집' ? 'value none' : 'value';
 }
 
-function setCardDetail(id, lines) {
-  const element = document.getElementById(id);
-  if (!element) return;
-  element.replaceChildren(document.createTextNode(Array.isArray(lines) ? lines.join('\n') : String(lines || '')));
-}
-
-function clearOwnerStatusCards() {
-  for (const source of OWNER_STATUS_SOURCES) {
-    setCardValue(source.valueId, '-', true, 'dot-gray');
-    setCardDetail(source.detailId, '');
-  }
-}
-
 function clearEnvironmentStatus() {
   setCardValue('serverStatus', '환경을 선택해주세요.');
   setCardValue('approvedActions', '-', true, 'dot-gray');
-  clearOwnerStatusCards();
   const badge = document.getElementById('connBadge');
   if (badge) {
     badge.textContent = '환경 미선택';
     badge.className = 'badge offline';
   }
-}
-
-function kstDateParts(date) {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Seoul',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(date);
-  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
-}
-
-function displaySourceCutoff(source) {
-  const value = source?.latestComplete?.actualCutoffAt || source?.actualCutoffAt;
-  if (typeof value !== 'string') return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  try {
-    const parts = kstDateParts(date);
-    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} KST`;
-  } catch {
-    return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
-  }
-}
-
-function displaySourceCount(source, definition) {
-  const value = source?.latestComplete?.[definition.countField];
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
-  return `${value.toLocaleString('ko-KR')}${definition.countUnit}`;
-}
-
-function displaySourceFailure(attempt) {
-  const code = typeof attempt?.errorCode === 'string' && attempt.errorCode
-    ? attempt.errorCode.slice(0, 100)
-    : '수집 실패';
-  const message = typeof attempt?.errorMessage === 'string' && attempt.errorMessage
-    ? attempt.errorMessage.slice(0, 300)
-    : '';
-  return message ? `${code}: ${message}` : code;
-}
-
-function renderOwnerStatus(definition, source) {
-  const attempt = source?.latestAttempt;
-  const state = attempt?.state;
-  const failed = state === 'FAILED';
-  const running = !failed && state === 'RUNNING';
-  const unexpectedTerminal = Boolean(
-    state && !['RUNNING', 'COMPLETE', 'FAILED'].includes(state),
-  );
-  const completedCutoff = source?.latestComplete?.actualCutoff
-    ?? source?.latestComplete?.actualCutoffAt?.slice(0, 10)
-    ?? null;
-  const readiness = KidItemSourceReadiness.sourceReadinessStatus({
-    ready: source?.ready === true,
-    latestComplete: source?.latestComplete
-      ? { actualCutoff: completedCutoff }
-      : null,
-  });
-  const statusLabel = KidItemSourceReadiness.SOURCE_READINESS_LABELS[readiness];
-  const dotColor = readiness === 'ready'
-    ? 'dot-green'
-    : readiness === 'stale'
-      ? 'dot-orange'
-      : 'dot-gray';
-  setCardValue(definition.valueId, statusLabel, true, dotColor);
-
-  const details = [];
-  if (unexpectedTerminal) details.push('현재 상태: 완료 여부 확인 필요');
-  if (failed) details.push(`현재 실패: ${displaySourceFailure(attempt)}`);
-  if (running) details.push('현재 실행 중: 아직 완료되지 않음');
-
-  if (source?.latestComplete) {
-    const count = displaySourceCount(source, definition) || '건수 확인 중';
-    const cutoff = displaySourceCutoff(source);
-    details.push(`최근 완료: ${count}${cutoff ? ` · 기준 ${cutoff}` : ''}`);
-  } else {
-    details.push('최근 완료: 없음');
-  }
-  setCardDetail(definition.detailId, details);
-}
-
-function renderOwnerStatusFailure(definition) {
-  setCardValue(definition.valueId, '조회 실패', true, 'dot-red');
-  setCardDetail(definition.detailId, '현재 서버 상태를 불러오지 못했습니다.');
 }
 
 function showResult(message, error = false) {
@@ -257,19 +145,6 @@ async function configureEnvironmentSelector() {
   return selectedEnvironmentId !== null;
 }
 
-async function loadOwnerStatus(definition, request, sequence) {
-  try {
-    const result = await popupFetch(definition.path, {}, request);
-    if (!isCurrentStatusRefresh(request, sequence)) return;
-    if (!result.ok || !result.body || typeof result.body !== 'object') {
-      throw new Error(`HTTP ${result.status || '응답 오류'}`);
-    }
-    renderOwnerStatus(definition, result.body);
-  } catch {
-    if (isCurrentStatusRefresh(request, sequence)) renderOwnerStatusFailure(definition);
-  }
-}
-
 async function loadApprovedActions(request, sequence) {
   try {
     const result = await popupFetch('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50', {}, request);
@@ -304,9 +179,8 @@ async function loadEnvironmentConnection(request, sequence) {
 
 function initEnvironmentStatus(request = snapshotEnvironmentRequest()) {
   if (!isCurrentEnvironmentRequest(request)) return;
-  const sequence = ++ownerStatusRefreshSequence;
+  const sequence = ++statusRefreshSequence;
   void loadEnvironmentConnection(request, sequence);
-  for (const definition of OWNER_STATUS_SOURCES) void loadOwnerStatus(definition, request, sequence);
   void loadApprovedActions(request, sequence);
 }
 

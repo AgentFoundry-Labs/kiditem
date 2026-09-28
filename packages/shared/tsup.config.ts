@@ -61,7 +61,6 @@ export default defineConfig({
     'src/channels-operations.ts',
     'src/operations.ts',
     'src/browser-collection-session.ts',
-    'src/collection-start.ts',
     'src/operation.ts',
     'src/order-collection-source.ts',
     'src/mall-login.ts',

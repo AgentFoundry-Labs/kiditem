@@ -193,8 +193,8 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
     seedAlerts(
       orderCollectionFailed,
       alertItem('22222222-2222-4222-8222-222222222222', {
-        sourceType: 'coupang_ad_campaign',
-        title: '광고 캠페인 수집 실패',
+        sourceType: 'advertising.keyword_serp',
+        title: '키워드 검색 결과 수집 실패',
         message: '광고 데이터를 받지 못했습니다',
       }),
     );

@@ -104,8 +104,6 @@ const OPERATION_KIND_LABELS = {
 export const SOURCE_LABELS: Readonly<Record<string, string>> = {
   coupang_wing_catalog: 'Wing 상품 목록 수집',
   coupang_wing_traffic: 'Wing 트래픽 수집',
-  coupang_ad_campaign: '광고 캠페인 수집',
-  coupang_ad_keyword: '광고 키워드 수집',
   coupang_itemwinner: '아이템위너 수집',
   coupang_review: '쿠팡 리뷰 수집',
   coupang_direct_order: '쿠팡 직배송 주문 수집',
@@ -125,7 +123,6 @@ export const SOURCE_LABELS: Readonly<Record<string, string>> = {
   coupang_wing_tracked_products: 'Wing 추적 상품 수집',
   coupang_competitor_catalog: '경쟁 판매자 수집',
   coupang_competitor_seller_identity: '경쟁 판매자 확인',
-  coupang_ad_profitability: '광고 수익성 수집',
   coupang_wing_itemwinner: '아이템위너 수집',
   coupang_keyword_serp: '키워드 검색 결과 수집',
   coupang_wing_rank: 'Wing 순위 수집',

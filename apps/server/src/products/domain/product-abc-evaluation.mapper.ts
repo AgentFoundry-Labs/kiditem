@@ -17,7 +17,6 @@ export function productAbcEvaluation(
     abcGrade: productAbcGrade(row.abcGrade),
     weightedRevenue: decimalToFinite(row.weightedRevenue),
     weightedOrderTimeSupplyCost: decimalToFinite(row.weightedOrderTimeSupplyCost),
-    weightedAdvertisingSpend: decimalToFinite(row.weightedAdvertisingSpend),
     weightedOperatingProfit: decimalToFinite(row.weightedOperatingProfit),
     operatingProfitVelocity30: decimalToFinite(row.operatingProfitVelocity30),
     operatingMargin: decimalToFinite(row.operatingMargin),
@@ -33,9 +32,7 @@ export function productAbcEvaluation(
     gradeBasisCutoffDate: calendarDate(row.gradeBasisCutoffDate),
     saleStartDate: row.saleStartDate ? calendarDate(row.saleStartDate) : null,
     sellpiaOperationId: row.sellpiaOperationId,
-    advertisingSourceImportRunId: row.advertisingSourceImportRunId,
     sellpiaGeneration: row.sellpiaGeneration.toString(),
-    advertisingGeneration: row.advertisingGeneration?.toString() ?? null,
     mappingGeneration: row.mappingGeneration.toString(),
     calculatedAt: row.calculatedAt,
   });

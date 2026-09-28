@@ -115,8 +115,6 @@
       ],
       "js": [
         "utils/dom.js",
-        "content/coupang/profitability-report.js",
-        "content/coupang/ad-product-metrics.js",
         "content/coupang/ads-report.js"
       ],
       "run_at": "document_idle"

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { requestCollectionStart } from '@/lib/collection-start';
+import { transferExtensionAuthTo } from '@/lib/extension-auth';
 import {
   detectBrowserCollectionExtensionIds,
   detectExtensionId,
@@ -14,6 +14,7 @@ import {
 import {
   useCollectionSourceControl,
   type CollectionSourceAdapter,
+  type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
 import { CollectionStartControl } from './CollectionStartControl';
 
@@ -48,26 +49,32 @@ function attempt(state: SpecAttempt['state'], attemptId = ATTEMPT_ID): SpecAttem
 let serverStatus: SpecStatus;
 let extensionReplies: Record<string, (message: Record<string, unknown>) => unknown>;
 
-const REFUSAL = '쿠팡 광고 캠페인 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.';
+const REFUSAL = '다른 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.';
+const SPEC_START_ACTION = 'startSpecCollection';
 
-function startedReply(message: Record<string, unknown>) {
+function startedReply(): CollectionStartOutcome {
   serverStatus = { ...serverStatus, latestAttempt: attempt('RUNNING') };
-  return { success: true, outcome: 'started', producer: message.producer, attemptId: ATTEMPT_ID };
+  return { outcome: 'started', attemptId: ATTEMPT_ID };
 }
 
-function refusedReply(message: Record<string, unknown>) {
-  return {
-    success: true,
-    outcome: 'refused',
-    producer: message.producer,
-    holder: { producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인 수집', attemptId: null },
-    message: REFUSAL,
-  };
+function refusedReply(): CollectionStartOutcome {
+  return { outcome: 'refused', message: REFUSAL };
+}
+
+/** The spec source starts in the extension after handing it the KidItem login. */
+async function startSpecCollection(): Promise<CollectionStartOutcome> {
+  const extensionId = await detectExtensionId();
+  if (!extensionId) throw new Error('확장 프로그램을 찾을 수 없습니다.');
+  await transferExtensionAuthTo(extensionId);
+  return sendToExtension<CollectionStartOutcome>(extensionId, {
+    action: SPEC_START_ACTION,
+    idempotencyKey: crypto.randomUUID(),
+  });
 }
 
 const specCollection: CollectionSourceAdapter<SpecStatus> = {
-  sourceKey: 'advertising.ad_keyword',
-  label: '광고 키워드 수집',
+  sourceKey: 'spec.source',
+  label: '스펙 수집',
   statusQuery: collectionSourceStatusQueryOptions<SpecStatus, Error, SpecStatus, QueryKey>({
     queryKey: ['collection-start-control-spec'],
     queryFn: () => apiClient.get<SpecStatus>(SOURCE_PATH),
@@ -79,7 +86,7 @@ const specCollection: CollectionSourceAdapter<SpecStatus> = {
           scopeLabel: `${status.latestAttempt.startDate} ~ ${status.latestAttempt.endDate}`,
         }
       : null,
-  start: () => requestCollectionStart('advertising.ad_keyword', {}),
+  start: () => startSpecCollection(),
   cancelOnServer: (attemptId) => apiClient.post(`/api/spec/attempts/${attemptId}/cancel`),
   readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
   onNewComplete: (client) => {
@@ -136,10 +143,10 @@ beforeEach(() => {
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true, collectionStartV1: true },
+      capabilities: { kiditemEnvironmentProfilesV1: true },
     }),
     setAuthToken: () => ({ success: true }),
-    startCollection: startedReply,
+    [SPEC_START_ACTION]: startedReply,
   };
   vi.mocked(detectExtensionId).mockResolvedValue(EXTENSION_ID);
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([EXTENSION_ID]);
@@ -164,20 +171,15 @@ afterEach(() => {
 });
 
 describe('CollectionStartControl', () => {
-  it('starts through the extension start contract and shows the running scope from the server status', async () => {
+  it('starts through the source start and shows the running scope from the server status', async () => {
     renderControls(<SpecControl />);
 
     fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
 
     expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
-    expect(sentMessages('startCollection')).toEqual([
-      {
-        action: 'startCollection',
-        producer: 'advertising.ad_keyword',
-        idempotencyKey: expect.stringMatching(UUID),
-        scope: {},
-      },
+    expect(sentMessages(SPEC_START_ACTION)).toEqual([
+      { action: SPEC_START_ACTION, idempotencyKey: expect.stringMatching(UUID) },
     ]);
     // The extension opens the attempt; the page never begins one itself.
     expect(vi.mocked(apiClient.post).mock.calls.map(([path]) => path)).toEqual([
@@ -197,21 +199,6 @@ describe('CollectionStartControl', () => {
     expect(stop.className).toContain('bg-[var(--danger)]');
   });
 
-  it('asks for an extension update and starts nothing when the extension lacks the start contract', async () => {
-    extensionReplies.ping = () => ({
-      success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true },
-    });
-    renderControls(<SpecControl />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
-
-    expect(await screen.findByText('확장 프로그램을 업데이트해 주세요.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '키워드 수집' })).toBeEnabled();
-    expect(sentMessages('startCollection')).toEqual([]);
-    expect(apiClient.post).not.toHaveBeenCalled();
-  });
-
   it('releases the start with a Korean reason when the auth handoff passes its deadline', async () => {
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path === '/api/auth/extension-handoff') {
@@ -227,30 +214,7 @@ describe('CollectionStartControl', () => {
       await screen.findByText('확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.'),
     ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '키워드 수집' })).toBeEnabled();
-    expect(sentMessages('startCollection')).toEqual([]);
-  });
-
-  it("shows the extension's own reason when it cannot take the start request", async () => {
-    extensionReplies.startCollection = () => ({
-      success: false,
-      errorCode: 'KIDITEM_AUTH_REQUIRED',
-      error: 'KidItem 로그인이 필요합니다.',
-    });
-    renderControls(<SpecControl />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
-
-    expect(await screen.findByText('KidItem 로그인이 필요합니다.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '키워드 수집' })).toBeEnabled();
-  });
-
-  it('asks for an extension update when the start reply does not follow the contract', async () => {
-    extensionReplies.startCollection = () => ({ success: true, attemptId: ATTEMPT_ID });
-    renderControls(<SpecControl />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
-
-    expect(await screen.findByText('확장 프로그램을 업데이트해 주세요.')).toBeInTheDocument();
+    expect(sentMessages(SPEC_START_ACTION)).toEqual([]);
   });
 
   it('blocks a start until the first status read', async () => {
@@ -286,7 +250,7 @@ describe('CollectionStartControl', () => {
   });
 
   it('names the collection holding the window and clears the reason on the next start', async () => {
-    extensionReplies.startCollection = refusedReply;
+    extensionReplies[SPEC_START_ACTION] = refusedReply;
     renderControls(<SpecControl />);
 
     fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
@@ -294,7 +258,7 @@ describe('CollectionStartControl', () => {
     expect(await screen.findByText(REFUSAL)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '키워드 수집' })).toBeEnabled();
 
-    extensionReplies.startCollection = startedReply;
+    extensionReplies[SPEC_START_ACTION] = startedReply;
     fireEvent.click(screen.getByRole('button', { name: '키워드 수집' }));
 
     expect(await screen.findByText('수집 중 · 2026-09-01 ~ 2026-09-07')).toBeInTheDocument();
@@ -302,7 +266,7 @@ describe('CollectionStartControl', () => {
   });
 
   it('retires a refusal once the source status changes', async () => {
-    extensionReplies.startCollection = refusedReply;
+    extensionReplies[SPEC_START_ACTION] = refusedReply;
     const { client } = renderControls(<SpecControl />);
     fireEvent.click(await screen.findByRole('button', { name: '키워드 수집' }));
     expect(await screen.findByText(REFUSAL)).toBeInTheDocument();
@@ -315,9 +279,9 @@ describe('CollectionStartControl', () => {
 
   it('shows the same starting and running state on every mounted control of a source', async () => {
     let answerStart: (() => void) | null = null;
-    extensionReplies.startCollection = (message) =>
+    extensionReplies[SPEC_START_ACTION] = () =>
       new Promise((resolve) => {
-        answerStart = () => resolve(startedReply(message));
+        answerStart = () => resolve(startedReply());
       });
     renderControls(
       <>
@@ -362,7 +326,7 @@ describe('CollectionStartControl', () => {
     });
 
     await waitFor(() => expect(second.result.current.state).toBe('running'));
-    expect(sentMessages('startCollection')).toHaveLength(1);
+    expect(sentMessages(SPEC_START_ACTION)).toHaveLength(1);
   });
 });
 

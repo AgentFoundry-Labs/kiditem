@@ -15,11 +15,11 @@ import {
 import { formatKRW, formatNumber, getGradeColor } from '@/lib/utils';
 import { MasterProductImage } from './MasterProductImage';
 import { PRODUCT_ROW_GRID } from './ProductsColumnHeader';
+import { PROFIT_AD_COST_LABEL } from '@/lib/ad-spend-labels';
 
 const GRADE_ABSENCE_WORD: Record<Exclude<ProductAbcDisplayStatus, 'READY'>, string> = {
   SOURCE_UNMAPPED: '미연결',
   SELLPIA_SOURCE_STALE: '수집 전',
-  AD_SOURCE_STALE: '광고 전',
   INSUFFICIENT_EVIDENCE: '관찰 중',
 };
 
@@ -106,7 +106,7 @@ export function ProductRowCard({
     product.depletion.minMonthsOfAvailableStockLeft === null
       ? null
       : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`,
-    product.adSpend !== null && product.adSpend > 0 ? `광고 ${formatKRW(product.adSpend)}원` : null,
+    product.adCost !== null && product.adCost > 0 ? `${PROFIT_AD_COST_LABEL} ${formatKRW(product.adCost)}원` : null,
   ].filter((fact): fact is string => fact !== null);
 
   return (

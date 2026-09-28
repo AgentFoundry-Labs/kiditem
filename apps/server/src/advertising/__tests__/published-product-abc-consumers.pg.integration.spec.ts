@@ -1,9 +1,11 @@
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { seedAdCampaign, seedAdProductDays, seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -13,7 +15,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdStrategyContextRepositoryAdapter } from '../adapter/out/repository/ad-strategy-context.repository.adapter';
 import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
@@ -90,20 +91,13 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         status: 'completed',
       },
     });
-    const advertisingRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_ad_profitability',
-        status: 'completed',
-      },
-    });
     const formula = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: ORG,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey,
         version: 1,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
     });
     const cutoff = new Date('2026-08-31T00:00:00.000Z');
@@ -116,7 +110,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         officialCutoffDate: cutoff,
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
         publishedSellpiaOperationId: sellpiaRun.id,
-        publishedAdvertisingSourceImportRunId: advertisingRun.id,
         publishedMappingGeneration: 0n,
         mappingGeneration: 0n,
       },
@@ -129,7 +122,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         abcGrade: 'A',
         weightedRevenue: 10_000_000,
         weightedOrderTimeSupplyCost: 6_000_000,
-        weightedAdvertisingSpend: 1_000_000,
         weightedOperatingProfit: 3_000_000,
         operatingProfitVelocity30: 3_000_000,
         operatingMargin: 0.3,
@@ -144,56 +136,31 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         gradeBasisCutoffDate: cutoff,
         saleStartDate: new Date('2026-01-01T00:00:00.000Z'),
         sellpiaOperationId: sellpiaRun.id,
-        advertisingSourceImportRunId: advertisingRun.id,
         sellpiaGeneration: 1n,
-        advertisingGeneration: 1n,
         mappingGeneration: 0n,
       },
     });
 
-    const campaignSweep = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: account.id,
-        sourceType: 'coupang_ad_campaign',
-        parserVersion: 'ad-campaign-v1',
-        status: 'completed',
-        freshnessGeneration: 1n,
-        plan: { captureMode: 'campaign_sweep' },
-        coverageStartDate: new Date('2026-08-31T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-08-31T00:00:00.000Z'),
-      },
+    const adReport = await seedAdReportRun(prisma, {
+      organizationId: ORG, channelAccountId: account.id, start: '2026-08-31', end: '2026-08-31',
     });
-    await prisma.channelAdTargetDailySnapshot.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: account.id,
-        channel: 'coupang',
-        businessDate: new Date('2026-08-31T00:00:00.000Z'),
-        listingId: listing.id,
-        listingOptionId: option.id,
-        externalId: listing.externalId,
-        externalOptionId: option.externalOptionId,
-        targetType: 'product',
-        targetKey: 'product:SELLER-PRODUCT-1',
-        campaignId: 'campaign-1',
-        campaignName: 'Campaign',
-        spend: 1_000,
-        sourceImportRunId: campaignSweep.id,
-        metaJson: { data: { productName: 'Published A product' } },
-      },
+    await seedAdCampaign(prisma, {
+      organizationId: ORG, channelAccountId: account.id, operationId: adReport.id, campaignId: 'campaign-1', name: 'Campaign', budget: 10_000,
     });
+    await seedAdProductDays(prisma, [{
+      organizationId: ORG, channelAccountId: account.id, operationId: adReport.id, date: '2026-08-31',
+      campaignId: 'campaign-1', vendorItemId: option.externalOptionId, listingId: listing.id, spend: 1_000,
+    }]);
 
     const listingReader = new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts);
     const keywordReader = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts);
+    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter());
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');
@@ -208,9 +175,10 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       productName: 'Wing product',
       abcGrade: 'A',
     });
-    expect((await actionReader.findLatestTargetRows(ORG))[0]).toMatchObject({
+    expect((await actionReader.findRuleTargets(ORG))[0]).toMatchObject({
+      targetType: 'campaign',
       listingId: listing.id,
-      listingOptionId: option.id,
+      vendorItemIds: [option.externalOptionId],
       abcGrade: 'A',
     });
   });

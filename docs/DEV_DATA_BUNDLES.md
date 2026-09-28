@@ -391,9 +391,7 @@ select 'raw_snapshots' as table_name, count(*) from channel_scrape_snapshots whe
 union all
 select 'listing_daily', count(*) from channel_listing_daily_snapshots where channel = 'coupang'
 union all
-select 'option_daily', count(*) from channel_listing_option_daily_snapshots where channel = 'coupang'
-union all
-select 'ad_target_daily', count(*) from channel_ad_target_daily_snapshots where channel = 'coupang';
+select 'option_daily', count(*) from channel_listing_option_daily_snapshots where channel = 'coupang';
 "
 ```
 

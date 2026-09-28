@@ -1,3 +1,4 @@
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -60,7 +61,7 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
     await prisma.$connect();
     actions = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
-      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts
+      new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter()
     );
     storedColumnsAtStart = await storedColumnCount();
     if (storedColumnsAtStart !== 0 && storedColumnsAtStart !== STORED_EXECUTION_COLUMNS) {
@@ -693,7 +694,7 @@ describe('v0.1.31:015 close stale ad approvals at cutover (PostgreSQL)', () => {
   async function executorQueue(db: Prisma.TransactionClient) {
     const repository = new AdActionRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes,
       db as never,
-      new AdListingRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes, db as never), profitCatalogTestReaders(db as never).accounts
+      new AdListingRepositoryAdapter(channelFactTestPorts(db as never).listings, channelFactTestPorts(db as never).recipes, db as never), profitCatalogTestReaders(db as never).accounts, new AdLedgerReadPersistenceAdapter()
     );
     const queue = await repository.findAdActionsForReview(
       { approvalStatus: 'approved', executeStatus: 'queued', limit: 50 },

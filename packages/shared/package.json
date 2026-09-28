@@ -265,11 +265,6 @@
       "import": "./dist/browser-collection-session.js",
       "require": "./dist/browser-collection-session.cjs"
     },
-    "./collection-start": {
-      "types": "./dist/collection-start.d.ts",
-      "import": "./dist/collection-start.js",
-      "require": "./dist/collection-start.cjs"
-    },
     "./operation": {
       "types": "./dist/operation.d.ts",
       "import": "./dist/operation.js",
@@ -495,9 +490,6 @@
       ],
       "browser-collection-session": [
         "dist/browser-collection-session.d.ts"
-      ],
-      "collection-start": [
-        "dist/collection-start.d.ts"
       ],
       "mall-login": [
         "dist/mall-login.d.ts"

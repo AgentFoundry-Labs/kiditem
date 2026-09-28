@@ -217,7 +217,6 @@ export const ProductOperationsDataStatusSchema = z.object({
   sources: z.object({
     traffic: ProductOperationsDataSourceStatusSchema,
     orders: ProductOperationsDataSourceStatusSchema,
-    advertising: ProductOperationsDataSourceStatusSchema,
     sellpia: ProductOperationsDataSourceStatusSchema,
     mapping: z.object({
       ready: z.boolean(),
@@ -273,8 +272,10 @@ export const MasterProductOperationsListItemSchema =
     orderCount: z.number().int().nonnegative().nullable(),
     salesQuantity: z.number().int().nonnegative().nullable(),
     salesAmount: z.number().int().nonnegative().nullable(),
-    adSpend: z.number().int().nonnegative().nullable(),
-    adSpendRate: z.number().finite().nonnegative().nullable(),
+    /** 광고비(청구·VAT 포함, KID-368): 측정한 기간 리스팅 청구액 합 × 1.1. 기간을 다 측정하지 못했으면 `null`. */
+    adCost: z.number().int().nonnegative().nullable(),
+    /** `adCost` / 판매액 × 100, 광고와 판매가 같은 날들을 덮을 때만. */
+    adCostRate: z.number().finite().nonnegative().nullable(),
     metricsFreshness: z.object({
       traffic: ProductOperationsTrafficFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,

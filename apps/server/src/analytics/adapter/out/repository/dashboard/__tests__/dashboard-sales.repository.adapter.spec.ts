@@ -1,8 +1,8 @@
-import { profitCatalogTestReaders } from '../../../../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../../../../../test-helpers/channel-fact-ports';
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   type ProductAbcEvaluation,
 } from "@kiditem/shared/product-abc";
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository.adapter";
@@ -49,7 +49,7 @@ vi.mock(
 type SalesAdapterArgs = ConstructorParameters<typeof DashboardSalesRepositoryAdapter>;
 function salesRepository(prisma: SalesAdapterArgs[3], products: SalesAdapterArgs[4], abc: SalesAdapterArgs[5]) {
   const facts = channelFactTestPorts(prisma);
-  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, byMall: {} }) });
+  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, byMall: {} }) }, advertisingLedgerTestReader(prisma as never));
 }
 
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
@@ -202,7 +202,6 @@ describe("DashboardSalesRepositoryAdapter", () => {
       abcGrade: "B",
       weightedRevenue: 1_000_000,
       weightedOrderTimeSupplyCost: 600_000,
-      weightedAdvertisingSpend: 100_000,
       weightedOperatingProfit: 300_000,
       operatingProfitVelocity30: 300_000,
       operatingMargin: 0.3,
@@ -212,15 +211,13 @@ describe("DashboardSalesRepositoryAdapter", () => {
       consistencyScore: 100,
       economicScore: 70,
       validObservationDays: 30,
-      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+      formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
       formulaRevision: 1,
       publicationRevision: 2,
       gradeBasisCutoffDate: "2026-06-30",
       saleStartDate: "2026-05-01",
       sellpiaOperationId: "11111111-1111-4111-8111-111111111111",
-      advertisingSourceImportRunId: "22222222-2222-4222-8222-222222222222",
       sellpiaGeneration: "3",
-      advertisingGeneration: "4",
       mappingGeneration: "5",
       calculatedAt: "2026-07-01T00:00:00.000Z",
     };
@@ -442,7 +439,6 @@ describe("DashboardSalesRepositoryAdapter", () => {
       abcGrade,
       weightedRevenue: 1_000_000,
       weightedOrderTimeSupplyCost: 600_000,
-      weightedAdvertisingSpend: 100_000,
       weightedOperatingProfit: 300_000,
       operatingProfitVelocity30: 300_000,
       operatingMargin: 0.3,
@@ -452,15 +448,13 @@ describe("DashboardSalesRepositoryAdapter", () => {
       consistencyScore: 100,
       economicScore: 70,
       validObservationDays: 30,
-      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+      formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
       formulaRevision: 1,
       publicationRevision: 2,
       gradeBasisCutoffDate: "2026-08-31",
       saleStartDate: "2026-05-01",
       sellpiaOperationId: "11111111-1111-4111-8111-111111111111",
-      advertisingSourceImportRunId: "22222222-2222-4222-8222-222222222222",
       sellpiaGeneration: "3",
-      advertisingGeneration: "4",
       mappingGeneration: "5",
       calculatedAt: "2026-09-01T00:00:00.000Z",
     });

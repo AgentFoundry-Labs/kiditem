@@ -230,7 +230,7 @@ describe('StrategyContent account totals', () => {
           revenue: 0,
           impressions: 0,
           clicks: 0,
-          conversions: null,
+          conversions: 0,
           roas: null,
           ctr: null,
           cvr: null,
@@ -240,10 +240,12 @@ describe('StrategyContent account totals', () => {
     });
 
     const card = await screen.findByTestId('strategy-account-totals');
-    expect(card).toHaveTextContent('측정 14일 · 쿠팡 광고 캠페인 합산 · 2026-07-12까지');
+    expect(card).toHaveTextContent('측정 14일 · 쿠팡 광고 보고서 · 2026-07-12까지');
+    expect(card).toHaveTextContent('계정 광고 합계 (광고 보고서)');
+    expect(within(card).getByText('집행 광고비')).toBeInTheDocument();
     expect(within(card).getByText('1,000원')).toBeInTheDocument();
     expect(within(card).getByText('-')).toBeInTheDocument();
-    expect(within(card).getAllByText('- / -')).toHaveLength(2);
+    expect(within(card).getAllByText('- / -')).toHaveLength(1);
     expect(card).not.toHaveTextContent('0.00%');
   });
 });

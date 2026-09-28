@@ -28,11 +28,14 @@ type Seeded = {
  * scrape rows only they used, and the retired `ads.tier.dailyBudget` setting,
  * keeps raw rows a kept daily fact still references, and affects no rows on
  * any later run. The suite runs on either pushed schema: where the KPI table
- * is already gone, its pre-drop shape is recreated for this file only.
+ * is already gone, its pre-drop shape is recreated for this file only. KID-373
+ * dropped `channel_ad_target_daily_snapshots`, which 013 still checks before
+ * deleting a raw row, so its referencing column is recreated the same way.
  */
 describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let recreatedKpiTable = false;
+  let recreatedAdTargetTable = false;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -53,6 +56,15 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
         )
       `;
     }
+    recreatedAdTargetTable = !(await adTargetTableExists());
+    if (recreatedAdTargetTable) {
+      await prisma.$executeRaw`
+        CREATE TABLE channel_ad_target_daily_snapshots (
+          id uuid PRIMARY KEY,
+          raw_snapshot_id uuid
+        )
+      `;
+    }
   });
 
   afterAll(async () => {
@@ -60,6 +72,9 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
     // Later suites share this database, so restore the pushed schema shape.
     if (recreatedKpiTable) {
       await prisma.$executeRaw`DROP TABLE IF EXISTS channel_account_daily_kpi_snapshots`;
+    }
+    if (recreatedAdTargetTable) {
+      await prisma.$executeRaw`DROP TABLE IF EXISTS channel_ad_target_daily_snapshots`;
     }
     await resetDb(prisma);
     await prisma.$disconnect();
@@ -152,6 +167,13 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
   async function kpiTableExists(): Promise<boolean> {
     const [row] = await prisma.$queryRaw<Array<{ present: boolean }>>`
       SELECT to_regclass('public.channel_account_daily_kpi_snapshots') IS NOT NULL AS present
+    `;
+    return row?.present === true;
+  }
+
+  async function adTargetTableExists(): Promise<boolean> {
+    const [row] = await prisma.$queryRaw<Array<{ present: boolean }>>`
+      SELECT to_regclass('public.channel_ad_target_daily_snapshots') IS NOT NULL AS present
     `;
     return row?.present === true;
   }
@@ -259,17 +281,10 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
         rawSnapshotId: seeded.optionDayRawId,
       },
     });
-    await prisma.channelAdTargetDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        channel: 'coupang',
-        businessDate: BUSINESS_DATE,
-        targetType: 'campaign',
-        targetKey: 'campaign:kid90',
-        rawSnapshotId: seeded.adTargetDayRawId,
-      },
-    });
+    await prisma.$executeRaw`
+      INSERT INTO channel_ad_target_daily_snapshots (id, raw_snapshot_id)
+      VALUES (${randomUUID()}::uuid, ${seeded.adTargetDayRawId}::uuid)
+    `;
 
     const kpiRows: Array<{ organizationId: string; accountId: string; rawSnapshotId: string | null }> = [
       { organizationId: TEST_ORGANIZATION_ID, accountId: account.id, rawSnapshotId: seeded.kpiOnlyRawId },

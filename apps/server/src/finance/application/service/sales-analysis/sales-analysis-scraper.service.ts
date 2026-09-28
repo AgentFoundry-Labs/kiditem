@@ -1,4 +1,3 @@
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { isKiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
@@ -17,7 +16,8 @@ import {
   readObservedOrderBounds,
   readObservedOrderCount,
 } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
-import { readAdWindowFacts } from '../../../../advertising/adapter/out/persistence/read/ad-target-facts';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
 import type { AdTrafficSourceAccountDaily, AdTrafficSourceCoverage, AdTrafficSourceDailyPublished, AdTrafficSourcePublished } from '@kiditem/shared/advertising-operations';
 import type { SalesAnalysisDataSources } from '@kiditem/shared/finance';
 
@@ -27,8 +27,8 @@ import type { SalesAnalysisDataSources } from '@kiditem/shared/finance';
  * `/sales-analysis` 화면은 현재 Drive replay 데이터에서 동작하는데,
  * 그 데이터의 본질은 (1) Wing 매출분석 일자 트래픽 + (2) 쿠팡 광고 캠페인
  * sweep 이 측정한 영업일이라 이 service 는 source coverage 만 반환한다.
- * Wing traffic 은 Advertising source-owner read 로, 광고 날짜는 광고
- * target-일 원장 리더로만 읽는다. Order 기반 손익은 0 건이라 기존
+ * Wing traffic 은 Advertising source-owner read 로, 광고 날짜는 광고 원장
+ * capability 의 측정일(coverage, KID-372)로만 읽는다. Order 기반 손익은 0 건이라 기존
  * sales-analysis.service 로 충분.
  *
  * Date columns (`businessDate`) 는 모두 `@db.Date` 다 → KST instant 로
@@ -42,7 +42,7 @@ export class SalesAnalysisScraperService {
     private readonly prisma: PrismaService,
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly adTrafficRead: AdTrafficReadPort,
-    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async getDataSources(
@@ -57,7 +57,7 @@ export class SalesAnalysisScraperService {
     ]);
 
     const wingRows = accountDailyRows(wingPublished);
-    const adsDateSet = new Set(adsMeasured.days.map((day) => day.businessDate));
+    const adsDateSet = new Set(adsMeasured.measuredDates);
     const sortedAdsDates = [...adsDateSet].sort();
 
     const wingDateSet = new Set(wingRows.map((row) => row.businessDate));
@@ -115,13 +115,13 @@ export class SalesAnalysisScraperService {
   }
 
   /**
-   * Business dates the Coupang campaign sweep measured, through the
-   * advertising target-day reader. With no active Coupang account nothing is
-   * measured and the list is empty.
+   * Business dates the ad report measured for every active Coupang account,
+   * through Advertising's coverage read. With no active Coupang account
+   * nothing is measured and the list is empty.
    */
   private readMeasuredAdDates(organizationId: string) {
     return this.prisma.$transaction(
-      (tx) => readAdWindowFacts(tx, { organizationId }, this.channelAccounts),
+      (tx) => this.adLedger.readAdCoverage(ownerTransaction(tx), { organizationId }),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }

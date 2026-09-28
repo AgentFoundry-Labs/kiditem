@@ -1,4 +1,4 @@
-import { profitCatalogTestReaders } from '../../../../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD } from '@kiditem/shared/product-abc';
@@ -16,7 +16,7 @@ describe('DashboardInventoryRepositoryAdapter — new products', () => {
     saleStartDate,
     abc: {
       evaluation: graded ? { abcGrade: 'B', weightedOperatingProfit: 1 } : null,
-      sources: { mapping: { valid: true }, sellpia: { ready: true }, advertising: { ready: false }, advertisingRequired: false },
+      sources: { mapping: { valid: true }, sellpia: { ready: true } },
     },
   });
 
@@ -59,7 +59,7 @@ describe('DashboardInventoryRepositoryAdapter — new products', () => {
       productAbc as never,
       {} as never,
       {} as never,
-      productSource as never, profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content
+      productSource as never, profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content, advertisingLedgerTestReader(prisma as never)
     );
 
     const facts = await adapter.readProductAbcFacts('11111111-1111-4111-8111-111111111111');

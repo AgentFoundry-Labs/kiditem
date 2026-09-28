@@ -161,7 +161,7 @@ test('finance joins the scanner with the same exact known-violation list (KID-31
 });
 
 test('advertising joins the scanner (KID-311)', () => {
-  assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/read/ad-target-facts.ts', '').length);
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/read/ad-ledger-facts.ts', '').length);
   assert.ok(hexagonalBoundaryViolations('apps/server/src/advertising/mapper/ad-campaign.mapper.ts', '').length);
 });
 

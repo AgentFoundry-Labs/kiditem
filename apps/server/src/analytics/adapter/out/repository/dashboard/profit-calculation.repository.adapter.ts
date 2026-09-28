@@ -17,10 +17,12 @@ import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../
 //   - R-1 (Plan D.1 T4): shipping is `Order.shippingPrice`, once per order
 //     (outer loop), with no per-option fallback.
 //
-// Ad metrics come from the advertising target-day ledger through the one
-// listing-day ad reader (`advertising/read/ad-target-facts`). A business date the
-// campaign sweep reported is a measured day; a date it never reported is
-// absent evidence.
+// Ad metrics come from Advertising's ledger capability
+// (`ADVERTISING_LEDGER_READ_PORT`, KID-372). A business date every active
+// Coupang account's ad report covered is a measured day; any other date is
+// absent evidence. Ad cost is the profit rule (billed spend plus the account
+// adjustment, VAT included — `profitAdCost`); ad revenue, impressions, clicks
+// and conversions (= report orders) stay the report's performance values.
 //
 // Whether advertising applies at all is a property of the organization: no
 // Coupang channel account means advertising is not a required input, so ad
@@ -44,11 +46,12 @@ import {
   type ResolvedDashboardPeriod,
 } from '../../../../domain/dashboard/period/dashboard-period';
 import {
-  advertisingApplies,
-  readAdWindowFacts,
+  ADVERTISING_LEDGER_READ_PORT,
+  type AdvertisingLedgerReadPort,
   type AdWindowDay,
-} from '../../../../../advertising/adapter/out/persistence/read/ad-target-facts';
-import { addDays } from '../../../../../common/kst';
+} from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { adConversions, AD_VAT_RATE, profitAdCost } from '../../../../../advertising/domain/ad-spend-rule';
+import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import {
   resolveOrderLineSalesCosts,
   resolveUnitCost,
@@ -85,6 +88,7 @@ export class ProfitCalculationRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async calculateForRange(
@@ -129,9 +133,6 @@ export class ProfitCalculationRepositoryAdapter
     const hasAdAccount = published.hasAdAccount;
     const adEvidenceError = published.error;
     const adTotals = sumAdRows(adRows);
-    // A day whose provider grid carried no conversion columns stored a 0 that
-    // counted nothing, so no window count exists over it.
-    const conversionsObserved = adRows.every((row) => row.conversionsObserved);
     const orderEvidenceComplete = orderWindow.revenue !== null;
     const costComplete = orderEvidenceComplete && costIncompleteReasons.size === 0;
     const sourceCoverage: ProfitSourceCoverage = {
@@ -160,14 +161,14 @@ export class ProfitCalculationRepositoryAdapter
       costOfGoods: orderEvidenceComplete ? roundOrNull(costOfGoods) : null,
       commission: orderEvidenceComplete ? roundOrNull(commission) : null,
       shippingCost: orderEvidenceComplete ? Math.round(shippingCost) : null,
-      adCost: adEvidenceComplete ? Math.round(adTotals.adCost) : null,
+      adCost: adEvidenceComplete ? adTotals.adCost : null,
       otherCost: orderEvidenceComplete ? roundOrNull(otherCost) : null,
       netProfit: netProfit === null ? null : Math.round(netProfit),
       profitRate,
       orderCount,
       adImpressions: adEvidenceComplete ? adTotals.adImpressions : null,
       adClicks: adEvidenceComplete ? adTotals.adClicks : null,
-      adConversions: adEvidenceComplete && conversionsObserved ? adTotals.adConversions : null,
+      adConversions: adEvidenceComplete ? adTotals.adConversions : null,
       adRevenue: adEvidenceComplete ? Math.round(adTotals.adRevenue) : null,
       costComplete,
       costIncompleteReasons: [...costIncompleteReasons],
@@ -258,18 +259,18 @@ export class ProfitCalculationRepositoryAdapter
       const metrics = byDate.get(date) ?? createDailyProfitMetrics(date, hasAdAccount);
       metrics.adEvidenceError = adEvidenceError;
       metrics.hasAdEvidence = true;
-      metrics.adCost = (metrics.adCost ?? 0) + adRow.spend;
+      // Exact billed spend plus adjustment with VAT; the day rounds once below.
+      metrics.adCost = (metrics.adCost ?? 0) + (adRow.billedSpend + adRow.adjustment) * (1 + AD_VAT_RATE);
       metrics.adRevenue = (metrics.adRevenue ?? 0) + adRow.revenue;
       metrics.adImpressions = (metrics.adImpressions ?? 0) + adRow.impressions;
       metrics.adClicks = (metrics.adClicks ?? 0) + adRow.clicks;
-      metrics.adConversions = (metrics.adConversions ?? 0) + adRow.conversions;
-      if (!adRow.conversionsObserved) metrics.adConversionsObserved = false;
+      metrics.adConversions = (metrics.adConversions ?? 0) + adConversions(adRow);
       byDate.set(date, metrics);
     }
 
     return [...byDate.values()]
       .sort((left, right) => left.date.localeCompare(right.date))
-      .map(({ adConversionsObserved, ...metrics }) => {
+      .map((metrics) => {
         // A component nobody measured is never summed as 0.
         const cost = metrics.costOfGoods === null
           || metrics.commission === null
@@ -304,9 +305,7 @@ export class ProfitCalculationRepositoryAdapter
           adRevenue: metrics.adRevenue === null ? null : Math.round(metrics.adRevenue),
           adImpressions: metrics.adImpressions === null ? null : Math.round(metrics.adImpressions),
           adClicks: metrics.adClicks === null ? null : Math.round(metrics.adClicks),
-          adConversions: metrics.adConversions === null || !adConversionsObserved
-            ? null
-            : Math.round(metrics.adConversions),
+          adConversions: metrics.adConversions === null ? null : Math.round(metrics.adConversions),
           netProfit: netProfit === null ? null : Math.round(netProfit),
           profitRate,
           costComplete,
@@ -336,11 +335,12 @@ export class ProfitCalculationRepositoryAdapter
       // absent evidence, exactly like an account that published nothing.
       return { rows: [], hasAdAccount: true };
     }
-    const from = new Date(`${requestedDates[0]}T00:00:00.000Z`);
-    const to = addDays(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`), 1);
+    const from = requestedDates[0]!;
+    const to = shiftBusinessDateKey(requestedDates[requestedDates.length - 1]!, 1);
     try {
-      const applies = await advertisingApplies(tx, organizationId, this.channelAccounts);
-      const facts = await readAdWindowFacts(tx, { organizationId, from, to }, this.channelAccounts);
+      const transaction = ownerTransaction(tx);
+      const applies = await this.adLedger.advertisingApplies(transaction, organizationId);
+      const facts = await this.adLedger.readAdWindowFacts(transaction, { organizationId, from, to });
       return { rows: facts.days, hasAdAccount: applies };
     } catch (error) {
       throw new AdEvidenceReadFailure(error);
@@ -462,8 +462,6 @@ interface MutableDailyProfitMetrics {
   adImpressions: number | null;
   adClicks: number | null;
   adConversions: number | null;
-  /** False once any ad row of the day came from a grid without conversion columns. */
-  adConversionsObserved: boolean;
   orderCount: number;
   hasOrderEvidence: boolean;
   hasAdEvidence: boolean;
@@ -490,7 +488,6 @@ function createDailyProfitMetrics(
     adImpressions: null,
     adClicks: null,
     adConversions: null,
-    adConversionsObserved: true,
     orderCount: 0,
     hasOrderEvidence: false,
     hasAdEvidence: false,
@@ -555,23 +552,33 @@ function roundOrNull(value: number | null): number | null {
   return value === null ? null : Math.round(value);
 }
 
+/** Window ad totals: cost by the profit rule (rounded once), the rest as the report states them. */
 function sumAdRows(rows: readonly AdWindowDay[]) {
-  return rows.reduce(
-    (totals, row) => ({
-      adCost: totals.adCost + row.spend,
-      adRevenue: totals.adRevenue + row.revenue,
-      adImpressions: totals.adImpressions + row.impressions,
-      adClicks: totals.adClicks + row.clicks,
-      adConversions: totals.adConversions + row.conversions,
+  const totals = rows.reduce(
+    (sum, row) => ({
+      billedSpend: sum.billedSpend + row.billedSpend,
+      adjustment: sum.adjustment + row.adjustment,
+      adRevenue: sum.adRevenue + row.revenue,
+      adImpressions: sum.adImpressions + row.impressions,
+      adClicks: sum.adClicks + row.clicks,
+      adConversions: sum.adConversions + adConversions(row),
     }),
     {
-      adCost: 0,
+      billedSpend: 0,
+      adjustment: 0,
       adRevenue: 0,
       adImpressions: 0,
       adClicks: 0,
       adConversions: 0,
     },
   );
+  return {
+    adCost: profitAdCost({ billedSpend: totals.billedSpend, adjustment: totals.adjustment }),
+    adRevenue: totals.adRevenue,
+    adImpressions: totals.adImpressions,
+    adClicks: totals.adClicks,
+    adConversions: totals.adConversions,
+  };
 }
 
 /**

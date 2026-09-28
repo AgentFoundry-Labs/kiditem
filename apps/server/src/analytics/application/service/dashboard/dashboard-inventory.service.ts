@@ -93,7 +93,6 @@ export class DashboardInventoryService {
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
         SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
       };
       for (const row of abcStatusRows) {
         if (row.displayStatus in abcStatusCount) {
@@ -108,7 +107,6 @@ export class DashboardInventoryService {
           officialCutoffDate: abcFacts.publication?.officialCutoffDate ?? null,
           publishedAt: abcFacts.publication?.publishedAt ?? null,
           sellpiaOperationId: abcFacts.publication?.sellpiaOperationId ?? null,
-          advertisingSourceImportRunId: abcFacts.publication?.advertisingSourceImportRunId ?? null,
           mappingGeneration: abcFacts.publication?.mappingGeneration ?? null,
           includedProductCount: abcFacts.contributionRows.length,
           withheldProductCount: abcFacts.withheldContributionProductCount,
@@ -354,7 +352,6 @@ export class DashboardInventoryService {
       'abcStatusCount.INSUFFICIENT_EVIDENCE': abc,
       'abcStatusCount.SOURCE_UNMAPPED': abc,
       'abcStatusCount.SELLPIA_SOURCE_STALE': abc,
-      'abcStatusCount.AD_SOURCE_STALE': abc,
       'abcContributionProfit.amountByGrade.A': contribution,
       'abcContributionProfit.amountByGrade.B': contribution,
       'abcContributionProfit.amountByGrade.C': contribution,

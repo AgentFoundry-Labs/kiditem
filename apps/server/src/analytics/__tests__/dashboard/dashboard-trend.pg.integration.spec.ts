@@ -25,9 +25,9 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedAd,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
+import { seedAdBillings, seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import type { PrismaClient } from '@prisma/client';
 import { buildDashboardContext } from '../../domain/dashboard/context';
 
@@ -167,7 +167,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     }
 
     if (opts.adSpend !== undefined) {
-      await seedAd(prisma, {
+      await seedListingAdDay(prisma, {
         organizationId: TEST_ORGANIZATION_ID, listingId,
         date: yesterday.toISOString().slice(0, 10), spend: opts.adSpend,
       });
@@ -192,7 +192,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       shippingPrice: 0,
       lineItems: [{ quantity: 1, totalPrice: IDOR_SENTINEL, optionId: oO.id, listingOptionId: oL.listingOptionId }],
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, listingId: oL.listingId,
       date: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10), spend: IDOR_SENTINEL,
     });
@@ -252,7 +252,7 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
     });
     // The sweep visited yesterday and found no advertising: a measured zero.
     const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId,
       date: new Date(yesterday.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10),
@@ -365,24 +365,30 @@ describe('DashboardTrendService.getTrend (PG integration)', () => {
       }
       return trafficPublication;
     });
-    await seedAd(prisma, {
+    const { operationId, channelAccountId } = await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId,
       date: dateKey,
       spend: 30_000,
+      billedSpend: 20_000,
       revenue: 90_000,
       impressions: 1000,
       clicks: 50,
-      conversions: 3,
       orders: 3,
     });
+    await seedAdBillings(prisma, [{
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, operationId,
+      date: dateKey, campaignKey: '', billedSpend: 1_000,
+    }]);
 
     const result = await service.getTrend(buildDashboardContext('month'), TEST_ORGANIZATION_ID);
     const wingRow = result.find((r) => r.date === dateKey);
 
+    // The trend is a profit chart: its ad cost is (billed + account adjustment) × 1.1
+    // (KID-368), not the delivered 30,000.
     expect(wingRow).toMatchObject({
       revenue: 120_000,
-      adCost: 30_000,
+      adCost: 23_100,
       profit: null,
     });
   });

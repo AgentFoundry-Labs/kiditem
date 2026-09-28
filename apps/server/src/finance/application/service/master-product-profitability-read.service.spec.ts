@@ -1,25 +1,15 @@
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import { MasterProductProfitabilityReadService } from './master-product-profitability-read.service';
 
 describe('MasterProductProfitabilityReadService', () => {
-  it('exposes one side-effect-free load seam for a missing source pair', async () => {
+  it('exposes one side-effect-free load seam for a missing Sellpia generation', async () => {
     const sellpia = {
       readGenerationCatalog: vi.fn().mockResolvedValue({
         latestAttempt: null,
         completeGenerations: [],
       }),
       readGenerationFacts: vi.fn(),
-    };
-    const advertising = {
-      readSourceSnapshot: vi.fn().mockResolvedValue({
-        latestAttempt: null,
-        latestComplete: null,
-        completeGenerations: [],
-        ready: false,
-      }),
-      readGeneration: vi.fn(),
     };
     const transaction = vi.fn();
     const prisma = {
@@ -44,7 +34,6 @@ describe('MasterProductProfitabilityReadService', () => {
     transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
     const service = new MasterProductProfitabilityReadService(
       sellpia as never,
-      advertising as never,
       prisma as never,
      new ProductTransactionalReadRepositoryAdapter());
 
@@ -56,7 +45,6 @@ describe('MasterProductProfitabilityReadService', () => {
       actualCutoff: null,
       sources: {
         sellpia: { ready: false, requiredCutoff: '2026-08-31', actualCutoff: null },
-        advertising: { ready: false, requiredCutoff: '2026-08-31', actualCutoff: null },
       },
       products: [{
         masterProductId: 'product-1',
@@ -67,7 +55,6 @@ describe('MasterProductProfitabilityReadService', () => {
       }],
     });
     expect(sellpia.readGenerationFacts).not.toHaveBeenCalled();
-    expect(advertising.readGeneration).not.toHaveBeenCalled();
   });
 
   it('keeps a valid completed generation ready while a newer attempt has failed', async () => {
@@ -87,20 +74,6 @@ describe('MasterProductProfitabilityReadService', () => {
         provenance: { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
       },
     };
-    const advertisingGeneration = {
-      sourceImportRunId: '00000000-0000-4000-8000-000000000032',
-      publicationSequence: '13',
-      mappingGeneration: '0',
-      coverageStartDate: '2026-08-01',
-      coveredThrough: '2026-08-31',
-      requestedThrough: '2026-08-31',
-      capturedAt: '2026-09-01T00:00:00.000Z',
-      adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-      frozenRecipePolicy: {
-        mappingGeneration: '0',
-        adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-      },
-    };
     const sellpia = {
       readGenerationCatalog: vi.fn().mockResolvedValue({
         latestAttempt: {
@@ -113,23 +86,6 @@ describe('MasterProductProfitabilityReadService', () => {
       readGenerationFacts: vi.fn().mockResolvedValue({
         generation: sellpiaGeneration,
         facts: [],
-      }),
-    };
-    const advertising = {
-      readSourceSnapshot: vi.fn().mockResolvedValue({
-        latestAttempt: {
-          attemptId: '00000000-0000-4000-8000-000000000042',
-          sourceImportRunId: '00000000-0000-4000-8000-000000000042',
-          state: 'FAILED',
-          errorCode: 'COLLECTION_FAILED',
-        },
-        latestComplete: advertisingGeneration,
-        completeGenerations: [advertisingGeneration],
-        ready: false,
-      }),
-      readGeneration: vi.fn().mockResolvedValue({
-        summary: advertisingGeneration,
-        allocations: [],
       }),
     };
     const prisma = {
@@ -152,7 +108,6 @@ describe('MasterProductProfitabilityReadService', () => {
     prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
     const service = new MasterProductProfitabilityReadService(
       sellpia as never,
-      advertising as never,
       prisma as never,
      new ProductTransactionalReadRepositoryAdapter());
 
@@ -168,11 +123,8 @@ describe('MasterProductProfitabilityReadService', () => {
       latestAttempt: { state: 'FAILED', errorCode: 'COLLECTION_FAILED' },
       latestComplete: { actualCutoff: '2026-08-31' },
     });
-    expect(result.sources.advertising).toMatchObject({
-      ready: true,
-      latestAttempt: { state: 'FAILED' },
-      latestComplete: { actualCutoff: '2026-08-31' },
-    });
+    // ABC grades on Sellpia alone (KID-373): the evidence names no advertising source.
+    expect(Object.keys(result.sources)).toEqual(['sellpia']);
   });
 
   it('does not overlap reads on the interactive snapshot transaction client', async () => {
@@ -219,18 +171,8 @@ describe('MasterProductProfitabilityReadService', () => {
       readGenerationCatalog: vi.fn().mockResolvedValue({ latestAttempt: null, completeGenerations: [] }),
       readGenerationFacts: vi.fn(),
     };
-    const advertising = {
-      readSourceSnapshot: vi.fn().mockResolvedValue({
-        latestAttempt: null,
-        latestComplete: null,
-        completeGenerations: [],
-        ready: false,
-      }),
-      readGeneration: vi.fn(),
-    };
     const service = new MasterProductProfitabilityReadService(
       sellpia as never,
-      advertising as never,
       prisma as never,
      new ProductTransactionalReadRepositoryAdapter());
 
@@ -248,7 +190,7 @@ describe('MasterProductProfitabilityReadService', () => {
       'sale-age:listings',
     ]);
   });
-  it('pairs only generations ending on the same day inside the cutoff month', async () => {
+  it('selects the newest Sellpia generation that ends on the cutoff or closes its month', async () => {
     const sellpiaGeneration = (operationId: string, publicationSequence: string, to: string) => ({
       operationId,
       publicationSequence,
@@ -265,33 +207,11 @@ describe('MasterProductProfitabilityReadService', () => {
         provenance: { costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
       },
     });
-    const advertisingGeneration = (
-      sourceImportRunId: string,
-      publicationSequence: string,
-      coveredThrough: string,
-      requestedThrough = coveredThrough,
-    ) => ({
-      sourceImportRunId,
-      publicationSequence,
-      mappingGeneration: '0',
-      coverageStartDate: '2026-01-01',
-      coveredThrough,
-      requestedThrough,
-      capturedAt: `${coveredThrough}T03:00:00.000Z`,
-      adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-      frozenRecipePolicy: {
-        mappingGeneration: '0',
-        adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-      },
-    });
     const loadWith = async (
       sellpiaGenerations: readonly ReturnType<typeof sellpiaGeneration>[],
-      advertisingGenerations: readonly ReturnType<typeof advertisingGeneration>[],
-      targetCutoff = '2026-09-06',
-      advertisingMode?: 'required' | 'excluded',
+      targetCutoff: string,
     ) => {
       const sellpiaByRun = new Map(sellpiaGenerations.map((generation) => [generation.operationId, generation]));
-      const advertisingByRun = new Map(advertisingGenerations.map((generation) => [generation.sourceImportRunId, generation]));
       const sellpia = {
         readGenerationCatalog: vi.fn().mockResolvedValue({
           latestAttempt: null,
@@ -300,18 +220,6 @@ describe('MasterProductProfitabilityReadService', () => {
         readGenerationFacts: vi.fn(async ({ operationId }: { operationId: string }) => ({
           generation: sellpiaByRun.get(operationId),
           facts: [],
-        })),
-      };
-      const advertising = {
-        readSourceSnapshot: vi.fn().mockResolvedValue({
-          latestAttempt: null,
-          latestComplete: advertisingGenerations[0] ?? null,
-          completeGenerations: advertisingGenerations,
-          ready: false,
-        }),
-        readGeneration: vi.fn(async ({ sourceImportRunId }: { sourceImportRunId: string }) => ({
-          summary: advertisingByRun.get(sourceImportRunId),
-          allocations: [],
         })),
       };
       const prisma = {
@@ -334,88 +242,26 @@ describe('MasterProductProfitabilityReadService', () => {
       prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) => callback(prisma));
       return new MasterProductProfitabilityReadService(
         sellpia as never,
-        advertising as never,
         prisma as never,
         new ProductTransactionalReadRepositoryAdapter(),
-      ).load({ organizationId: 'organization-1', targetCutoff, advertising: advertisingMode });
+      ).load({ organizationId: 'organization-1', targetCutoff });
     };
     const sellpiaThrough5 = sellpiaGeneration('00000000-0000-4000-8000-000000000031', '11', '2026-09-05');
     const sellpiaThrough6 = sellpiaGeneration('00000000-0000-4000-8000-000000000033', '12', '2026-09-06');
-    const advertisingThrough5 = advertisingGeneration('00000000-0000-4000-8000-000000000032', '21', '2026-09-05');
-    const advertisingThrough6 = advertisingGeneration('00000000-0000-4000-8000-000000000034', '22', '2026-09-06');
 
-    // Sellpia runs past the advertising end: the Sellpia generation ending on it pairs.
-    // Readiness still judges each source by its newest generation, not the paired one.
-    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [advertisingThrough5])).resolves.toMatchObject({
-      actualCutoff: '2026-09-05',
-      sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough5.operationId },
-        advertising: { sourceImportRunId: advertisingThrough5.sourceImportRunId },
-      },
-      sources: {
-        sellpia: { ready: true, actualCutoff: '2026-09-06' },
-        advertising: { ready: false, requiredCutoff: '2026-09-06', actualCutoff: '2026-09-05' },
-      },
-    });
-    // An advertising generation that requested 2026-09-06 and held it as unreported is due only through 2026-09-05.
-    const advertisingHeldThrough5 = advertisingGeneration(
-      '00000000-0000-4000-8000-000000000037',
-      '24',
-      '2026-09-05',
-      '2026-09-06',
-    );
-    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [advertisingHeldThrough5])).resolves.toMatchObject({
-      actualCutoff: '2026-09-05',
-      sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough5.operationId },
-        advertising: { sourceImportRunId: advertisingHeldThrough5.sourceImportRunId },
-      },
-      sources: {
-        sellpia: { ready: true, requiredCutoff: '2026-09-06', actualCutoff: '2026-09-06' },
-        advertising: { ready: true, requiredCutoff: '2026-09-05', actualCutoff: '2026-09-05' },
-      },
-    });
-    // Advertising runs past the Sellpia end: the advertising generation ending on it pairs.
-    await expect(loadWith([sellpiaThrough5], [advertisingThrough6, advertisingThrough5])).resolves.toMatchObject({
-      actualCutoff: '2026-09-05',
-      sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough5.operationId },
-        advertising: { sourceImportRunId: advertisingThrough5.sourceImportRunId },
-      },
-      sources: {
-        sellpia: { ready: false, actualCutoff: '2026-09-05' },
-        advertising: { ready: true, actualCutoff: '2026-09-06' },
-      },
-    });
-    // With no generation ending on the other's end there is no pair; the earlier source is not ready.
-    await expect(loadWith([sellpiaThrough6], [advertisingThrough5])).resolves.toMatchObject({
-      actualCutoff: null,
-      sources: { sellpia: { ready: true }, advertising: { ready: false } },
-    });
-    await expect(loadWith([sellpiaThrough5], [advertisingThrough6])).resolves.toMatchObject({
-      actualCutoff: null,
-      sources: { sellpia: { ready: false }, advertising: { ready: true } },
-    });
-    // Ends on either side of a month boundary still pair at the month end.
-    await expect(loadWith(
-      [sellpiaGeneration('00000000-0000-4000-8000-000000000035', '13', '2026-09-02')],
-      [advertisingGeneration('00000000-0000-4000-8000-000000000036', '23', '2026-08-31')],
-      '2026-09-02',
-    )).resolves.toMatchObject({ actualCutoff: '2026-08-31' });
-
-    // A formula that excludes advertising pairs Sellpia alone — no advertising
-    // generation has to exist — while readiness still reports advertising as it is.
-    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [], '2026-09-06', 'excluded')).resolves.toMatchObject({
+    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], '2026-09-06')).resolves.toMatchObject({
       actualCutoff: '2026-09-06',
-      sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough6.operationId },
-        advertising: { sourceImportRunId: null },
-      },
-      sources: { sellpia: { ready: true }, advertising: { ready: false } },
+      sourceVector: { sellpia: { sourceImportRunId: sellpiaThrough6.operationId } },
+      sources: { sellpia: { ready: true, actualCutoff: '2026-09-06' } },
     });
-    // The same sources under a formula that counts advertising have no pair.
-    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [], '2026-09-06')).resolves.toMatchObject({
-      actualCutoff: null,
+    // A generation running past a cutoff inside its month cannot be cut back to it;
+    // the one ending on the cutoff is read instead.
+    await expect(loadWith([sellpiaThrough6, sellpiaThrough5], '2026-09-05')).resolves.toMatchObject({
+      actualCutoff: '2026-09-05',
+      sourceVector: { sellpia: { sourceImportRunId: sellpiaThrough5.operationId } },
     });
+    await expect(loadWith([sellpiaThrough6], '2026-09-05')).resolves.toMatchObject({ actualCutoff: null });
+    // A cutoff that closes its month reads any generation running past it.
+    await expect(loadWith([sellpiaThrough6], '2026-08-31')).resolves.toMatchObject({ actualCutoff: '2026-08-31' });
   });
 });

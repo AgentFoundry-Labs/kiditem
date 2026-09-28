@@ -41,7 +41,6 @@ export const KNOWN_VIOLATIONS = [
   // Finance services read settlement and Orders ledger helpers until KID-334.
   { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/out/persistence/read/settlement/settlement-facts', removeWith: 'KID-334' },
   { owner: 'finance', file: 'finance/application/service/sales-analysis/sales-analysis-scraper.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
-  { owner: 'finance', file: 'finance/application/service/sales-analysis/sales-analysis-scraper.service.ts', specifier: '../../../../advertising/adapter/out/persistence/read/ad-target-facts', removeWith: 'KID-334' },
   // Finance services take incoming DTOs until KID-335.
   { owner: 'finance', file: 'finance/application/service/report-export/finance-report-export.service.ts', specifier: '../../../adapter/in/web/report-export/dto/report-export-query.dto', removeWith: 'KID-335' },
   { owner: 'finance', file: 'finance/application/service/report-export/finance-report-export.service.ts', specifier: '../../../adapter/in/web/report-export/dto/profit-loss-export-query.dto', removeWith: 'KID-335' },

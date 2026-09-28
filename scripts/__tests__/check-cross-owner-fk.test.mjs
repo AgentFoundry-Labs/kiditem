@@ -392,8 +392,8 @@ test('the CLI rejects new Channels foreign keys to scope and SourceImportRun', (
 test('the configured owner map follows ChannelAd and current Rocket PO responsibility', () => {
   const config = loadConfig(repoRoot);
 
-  assert.equal(config.owners.ChannelAdTargetDailySnapshot, 'advertising');
-  assert.equal(config.owners.ChannelAdListingProductMonthlyFact, 'advertising');
+  assert.equal(config.owners.ChannelAdProductDailySnapshot, 'advertising');
+  assert.equal(config.owners.ChannelAdDailyBilling, 'advertising');
   assert.equal(config.owners.CoupangRepresentativeKeywordOverride, 'advertising');
   assert.equal(config.owners.CoupangKeywordTracker, 'advertising');
   assert.equal(config.owners.CoupangKeywordRankDailySnapshot, 'advertising');

@@ -30,7 +30,6 @@ export type ProductAbcSnapshot = Readonly<{
     officialCutoffDate: string;
     publishedAt: string;
     sellpiaOperationId: string;
-    advertisingSourceImportRunId: string | null;
     mappingGeneration: string;
     formulaRevision: number | null;
     formula: ProductAbcFormulaPayload | null;

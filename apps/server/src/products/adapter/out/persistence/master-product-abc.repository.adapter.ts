@@ -31,7 +31,6 @@ type FormulaStateRow = Readonly<{
   officialCutoffDate: CalendarValue;
   publishedAt: Date | null;
   publishedSellpiaOperationId: string | null;
-  publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: string | null;
   mappingGeneration: string;
   formulaJson: Prisma.JsonValue | null;
@@ -42,7 +41,6 @@ type ExistingAbcRow = Readonly<{
   evaluationGrade: string;
   /** NULL for evaluations published before the Sellpia operation cutover. */
   sellpiaOperationId: string | null;
-  advertisingSourceImportRunId: string | null;
 }>;
 
 @Injectable()
@@ -95,12 +93,10 @@ async function publishTx(
   input: ProductAbcPublicationInput,
   inventoryTransactionalRead: ProductTransactionalReadPort,
 ): Promise<MasterProductAbcPublicationResult> {
-  // The Coupang ad source owner locks its terminality before the shared
-  // mapping fence, so ABC takes that lock first. The Sellpia profitability
-  // finalize (operation kind analytics.sellpia_product_profitability) takes
-  // only `kiditem.product-mapping`, so ABC and it serialise on that fence.
-  // ABC then serialises its own publication.
-  await lockNamed(tx, 'kiditem.coupang-ad-profitability', input.organizationId);
+  // The Sellpia profitability finalize (operation kind
+  // analytics.sellpia_product_profitability) takes only
+  // `kiditem.product-mapping`, so ABC and it serialise on that fence. ABC then
+  // serialises its own publication.
   await lockProductMapping(tx, input.organizationId);
   await lockNamed(tx, 'kiditem.master-product-abc', input.organizationId);
 
@@ -118,10 +114,6 @@ async function publishTx(
   // drives readProductSaleAgeEvidence below.
   const actualCutoff = minCalendarDate(
     dateKey(input.sourceFences.sellpia.selectedComplete.coverageEndDate),
-    // No advertising fence under a formula that excludes advertising.
-    input.sourceFences.advertising
-      ? dateKey(input.sourceFences.advertising.selectedComplete.coverageEndDate)
-      : input.targetCutoff,
     input.targetCutoff,
   );
   if (actualCutoff !== input.actualCutoff) {
@@ -173,7 +165,6 @@ async function publishTx(
     SET publication_revision = ${nextPublicationRevision},
         official_cutoff_date = ${atUtcDate(actualCutoff)}::date,
         published_sellpia_operation_id = ${input.sourceFences.sellpia.selectedComplete.sourceImportRunId}::uuid,
-        published_advertising_source_import_run_id = ${input.sourceFences.advertising?.selectedComplete.sourceImportRunId ?? null}::uuid,
         published_mapping_generation = ${BigInt(input.mappingGeneration)}::bigint,
         published_at = ${input.calculatedAt}::timestamptz,
         updated_at = NOW()
@@ -220,7 +211,6 @@ async function insertEvaluations(
       abcGrade: candidate.abcGrade,
       weightedRevenue: new Prisma.Decimal(candidate.weightedRevenue),
       weightedOrderTimeSupplyCost: new Prisma.Decimal(candidate.weightedOrderTimeSupplyCost),
-      weightedAdvertisingSpend: new Prisma.Decimal(candidate.weightedAdvertisingSpend),
       weightedOperatingProfit: new Prisma.Decimal(candidate.weightedOperatingProfit),
       operatingProfitVelocity30: new Prisma.Decimal(candidate.operatingProfitVelocity30),
       operatingMargin: decimalOrNull(candidate.operatingMargin),
@@ -235,11 +225,7 @@ async function insertEvaluations(
       gradeBasisCutoffDate: atUtcDate(candidate.gradeBasisCutoffDate),
       saleStartDate: atUtcDate(candidate.saleStartDate),
       sellpiaOperationId: candidate.sellpiaOperationId,
-      advertisingSourceImportRunId: candidate.advertisingSourceImportRunId,
       sellpiaGeneration: BigInt(candidate.sellpiaGeneration),
-      advertisingGeneration: candidate.advertisingGeneration === null
-        ? null
-        : BigInt(candidate.advertisingGeneration),
       mappingGeneration: BigInt(candidate.mappingGeneration),
       calculatedAt: input.calculatedAt,
     }));
@@ -255,9 +241,7 @@ type GradeTransition = Readonly<{
   weightedOperatingProfit: number;
   operatingMargin: number | null;
   previousSellpiaOperationId: string | null;
-  previousAdvertisingSourceImportRunId: string | null;
   nextSellpiaOperationId: string;
-  nextAdvertisingSourceImportRunId: string | null;
 }>;
 
 function gradeTransitions(
@@ -277,9 +261,7 @@ function gradeTransitions(
       weightedOperatingProfit: candidate.weightedOperatingProfit,
       operatingMargin: candidate.operatingMargin,
       previousSellpiaOperationId: row.sellpiaOperationId,
-      previousAdvertisingSourceImportRunId: row.advertisingSourceImportRunId,
       nextSellpiaOperationId: candidate.sellpiaOperationId,
-      nextAdvertisingSourceImportRunId: candidate.advertisingSourceImportRunId,
     }];
   });
 }
@@ -302,8 +284,6 @@ async function insertHistory(
       operatingMargin: decimalOrNull(transition.operatingMargin),
       previousSellpiaOperationId: transition.previousSellpiaOperationId,
       nextSellpiaOperationId: transition.nextSellpiaOperationId,
-      previousAdvertisingSourceImportRunId: transition.previousAdvertisingSourceImportRunId,
-      nextAdvertisingSourceImportRunId: transition.nextAdvertisingSourceImportRunId,
       formulaRevision: input.expectedFormulaRevision,
       publicationRevision,
       sourceCutoffDate: atUtcDate(input.actualCutoff),
@@ -328,8 +308,7 @@ async function readExistingAbcRows(
   return tx.$queryRaw<ExistingAbcRow[]>(Prisma.sql`
     SELECT e.master_product_id AS "masterProductId",
            e.abc_grade AS "evaluationGrade",
-           e.sellpia_operation_id AS "sellpiaOperationId",
-           e.advertising_source_import_run_id AS "advertisingSourceImportRunId"
+           e.sellpia_operation_id AS "sellpiaOperationId"
     FROM master_product_abc_evaluations e
     WHERE e.organization_id = ${organizationId}::uuid
     ORDER BY e.master_product_id ASC
@@ -351,7 +330,6 @@ async function readFormulaState(
            s.official_cutoff_date AS "officialCutoffDate",
            s.published_at AS "publishedAt",
            s.published_sellpia_operation_id AS "publishedSellpiaOperationId",
-           s.published_advertising_source_import_run_id AS "publishedAdvertisingSourceImportRunId",
            s.published_mapping_generation::text AS "publishedMappingGeneration",
            s.mapping_generation::text AS "mappingGeneration",
            fv.formula_json AS "formulaJson"
@@ -374,7 +352,6 @@ function stateRecord(row: FormulaStateRow): MasterProductAbcFormulaStateRecord {
     officialCutoffDate: dateKey(row.officialCutoffDate),
     publishedAt: row.publishedAt?.toISOString() ?? null,
     publishedSellpiaOperationId: row.publishedSellpiaOperationId,
-    publishedAdvertisingSourceImportRunId: row.publishedAdvertisingSourceImportRunId,
     publishedMappingGeneration: row.publishedMappingGeneration,
     mappingGeneration: row.mappingGeneration,
     formula: row.formulaJson ? ProductAbcFormulaPayloadSchema.parse(row.formulaJson) : null,
@@ -390,7 +367,6 @@ function emptyState(organizationId: string): MasterProductAbcFormulaStateRecord 
     officialCutoffDate: null,
     publishedAt: null,
     publishedSellpiaOperationId: null,
-    publishedAdvertisingSourceImportRunId: null,
     publishedMappingGeneration: null,
     mappingGeneration: '0',
     formula: null,
@@ -405,13 +381,10 @@ function stateMatches(row: FormulaStateRow, input: ProductAbcPublicationInput): 
 }
 
 function sourceSelectionsMatchMapping(input: ProductAbcPublicationInput): boolean {
-  const fences = input.sourceFences.advertising
-    ? [input.sourceFences.sellpia, input.sourceFences.advertising]
-    : [input.sourceFences.sellpia];
-  return fences.every(({ selectedComplete }) =>
-    selectedComplete.sourceImportRunId !== null
+  const { selectedComplete } = input.sourceFences.sellpia;
+  return selectedComplete.sourceImportRunId !== null
     && selectedComplete.publicationSequence !== null
-    && selectedComplete.mappingGeneration === input.mappingGeneration);
+    && selectedComplete.mappingGeneration === input.mappingGeneration;
 }
 
 function candidateSetIsValid(
@@ -428,14 +401,8 @@ function candidateSetIsValid(
     candidate.sellpiaOperationId.length === 0
     || candidate.sellpiaOperationId
       !== input.sourceFences.sellpia.selectedComplete.sourceImportRunId
-    // Advertising provenance is present exactly when there is an advertising fence.
-    || candidate.advertisingSourceImportRunId
-      !== (input.sourceFences.advertising?.selectedComplete.sourceImportRunId ?? null)
-    || (input.sourceFences.advertising !== null && !candidate.advertisingSourceImportRunId)
     || validGrade(candidate.abcGrade) === null
     || candidate.sellpiaGeneration !== input.sourceFences.sellpia.selectedComplete.publicationSequence
-    || candidate.advertisingGeneration
-      !== (input.sourceFences.advertising?.selectedComplete.publicationSequence ?? null)
     || candidate.mappingGeneration !== input.mappingGeneration
     || candidate.gradeBasisCutoffDate !== input.actualCutoff
     || saleAgeById.get(candidate.masterProductId)?.mappingValid !== true
@@ -451,7 +418,6 @@ function finiteCandidate(candidate: MasterProductAbcCandidateRecord): boolean {
   return [
     candidate.weightedRevenue,
     candidate.weightedOrderTimeSupplyCost,
-    candidate.weightedAdvertisingSpend,
     candidate.weightedOperatingProfit,
     candidate.operatingProfitVelocity30,
     candidate.operatingMargin,

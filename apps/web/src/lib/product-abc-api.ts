@@ -3,11 +3,11 @@ import { SourceReadinessSchema } from '@kiditem/shared/source-readiness';
 import { apiClient } from './api-client';
 
 const CalendarDateSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-[0-3]\d$/);
-// Each source's own readiness. On a publication, a source whose actual cutoff
-// passes the official cutoff collected further than the pair that published.
+// The Sellpia source's own readiness; ABC grades without advertising (KID-373).
+// On a publication, an actual cutoff past the official cutoff collected further
+// than the generation that published.
 const ProductAbcSourcesSchema = z.object({
   sellpia: SourceReadinessSchema,
-  advertising: SourceReadinessSchema,
 }).strict();
 export const ProductAbcRecalculationResponseSchema = z.discriminatedUnion('outcome', [
   z.object({
@@ -26,12 +26,6 @@ export const ProductAbcRecalculationResponseSchema = z.discriminatedUnion('outco
     officialCutoff: CalendarDateSchema.nullable(),
     actualCutoff: CalendarDateSchema.nullable(),
     sources: ProductAbcSourcesSchema,
-    // Present when no source pair exists while a source reads ready.
-    pairing: z.object({
-      lateSource: z.enum(['sellpia', 'advertising']),
-      sellpiaEndDate: CalendarDateSchema,
-      advertisingEndDate: CalendarDateSchema,
-    }).strict().optional(),
   }).strict(),
 ]);
 

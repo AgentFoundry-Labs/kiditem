@@ -8,8 +8,6 @@ export interface AdActionRow {
   id: string;
   organizationId: string;
   listingId: string | null;
-  listingOptionId: string | null;
-  adTargetDailyId: string | null;
   actionType: string;
   targetType: string;
   externalId: string | null;

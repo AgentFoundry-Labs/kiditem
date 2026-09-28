@@ -1,404 +1,154 @@
 import { describe, it, expect } from 'vitest';
 
 import {
-  calcProfitRate,
   createActionCandidate,
   type ChannelSkuAdEvidence,
 } from '../ad-action-rules';
-import type { LatestTargetRow } from '../../application/port/out/repository/ad-action.repository.port';
+import type { AdRuleTarget } from '../../application/port/out/repository/ad-action.repository.port';
 
 /**
- * Pure decision logic for the 5 `AdAction` rules. The rules consume one
- * `LatestTargetRow` (latest `ChannelAdTargetDailySnapshot` per `targetKey`)
- * and the exact component-derived ChannelSku capacity per `listingOptionId`.
- * Tested without Prisma so threshold/priority/payload
- * regressions surface as plain unit failures.
- *
- * Lifecycle, persistence, and end-to-end orchestration are protected by the
- * sibling integration test (`ad-action-flow.pg.integration.spec.ts`).
+ * Pure decision logic for the `AdAction` rules over the ad report ledger
+ * (KID-372). A rule reads one campaign (current `ChannelAdCampaign` state and
+ * the recent measured window's product sums) or one keyword (its recent
+ * window sums) and the exact component-derived ChannelSku capacity per
+ * advertised option (`vendorItemId`). There is no bid rule: the ledger carries
+ * no bid. `budget` is assumed to be KRW per day (unit not yet confirmed,
+ * KID-371).
  */
 
-function baseRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
+function campaign(overrides: Partial<AdRuleTarget> = {}): AdRuleTarget {
   return {
-    id: 'TGT-1',
     targetType: 'campaign',
-    targetKey: 'campaign:CMP-1',
-    listingId: 'L1',
-    listingOptionId: 'LO1',
-    externalId: 'EXT-1',
+    channelAccountId: 'ACC-1',
     campaignId: 'CMP-1',
     campaignName: 'C1',
+    adGroupId: null,
     keyword: null,
-    status: 'active',
-    currentBid: null,
-    dailyBudget: 10000,
-    spend: 5000,
-    revenue: 10000,
+    vendorItemId: null,
+    vendorItemIds: ['VI-1'],
+    listingIds: ['L1'],
+    listingId: 'L1',
+    listingChannel: 'coupang',
+    productName: '상품1',
+    isActive: true,
+    budget: 10_000,
+    spend: 5_000,
+    revenue: 10_000,
     impressions: 100,
     clicks: 10,
-    conversions: 2,
+    orders: 2,
     abcGrade: 'B',
-    // The listing's channel account decides whether a sales commission and an
-    // other per-sale cost apply (KID-114); Rocket direct purchase applies neither.
-    listingChannel: 'rocket',
-    productName: '상품1',
+    businessDate: '2026-09-20',
+    measuredDays: 14,
+    windowStartDate: '2026-09-07',
     ...overrides,
   };
 }
 
-describe('createActionCandidate — 5 rules', () => {
-  describe('Rule 1: zero stock → change_daily_budget urgent', () => {
-    it('does not treat unknown canonical ChannelSku capacity as sold out', () => {
-      const row = baseRow();
+function keyword(overrides: Partial<AdRuleTarget> = {}): AdRuleTarget {
+  return campaign({
+    targetType: 'keyword',
+    adGroupId: 'G1',
+    keyword: '물총',
+    vendorItemId: 'VI-1',
+    vendorItemIds: ['VI-1'],
+    budget: null,
+    ...overrides,
+  });
+}
 
-      const candidate = createActionCandidate(
-        row,
-        new Map<string, ChannelSkuAdEvidence>([['LO1', {
-          sellableStock: null,
-          purchaseCost: 3000,
-          salePrice: 10000,
-        }]]),
-      );
+const stock = (entries: Array<[string, number | null]>) =>
+  new Map<string, ChannelSkuAdEvidence>(entries.map(([id, sellableStock]) => [id, { sellableStock }]));
 
-      expect(candidate).toBeNull();
-    });
-
-    it('fires when canonical ChannelSku sellableStock is 0 (proposedValue=3000, urgent)', () => {
-      const row = baseRow();
-
-      const candidate = createActionCandidate(
-        row,
-        new Map<string, ChannelSkuAdEvidence>([['LO1', {
-          sellableStock: 0,
-          purchaseCost: 3000,
-          salePrice: 10000,
-        }]]),
-      );
-
+describe('createActionCandidate over the ad report ledger', () => {
+  describe('Rule 1: advertised options all sold out → budget cut (budget assumed KRW/day)', () => {
+    it('fires urgent with proposed 3000 when every advertised option has sellable stock 0', () => {
+      const candidate = createActionCandidate(campaign({ vendorItemIds: ['VI-1', 'VI-2'] }), stock([['VI-1', 0], ['VI-2', 0]]));
       expect(candidate).toMatchObject({
-        adTargetDailyId: 'TGT-1',
-        listingId: 'L1',
         actionType: 'change_daily_budget',
         targetType: 'campaign',
+        externalId: 'CMP-1',
         priority: 'urgent',
-        currentValue: 10000,
+        currentValue: 10_000,
         proposedValue: 3000,
+        payload: { adTarget: { campaignId: 'CMP-1', adGroupId: null, vendorItemId: null, businessDate: '2026-09-20', source: 'ad_report' } },
       });
-      expect(candidate?.reason).toContain('재고 0개');
+      expect(candidate).not.toHaveProperty('adTargetDailyId');
     });
 
-    it('does not fire when canonical ChannelSku sellableStock is positive', () => {
-      const row = baseRow();
-      const observed = new Map<string, ChannelSkuAdEvidence>([['LO1', {
-        sellableStock: 5,
-        purchaseCost: 3000,
-        salePrice: 10000,
-      }]]);
-
-      const candidate = createActionCandidate(row, observed);
-
-      expect(candidate).toBeNull();
+    it('does not fire while one advertised option still has stock or its capacity is unknown', () => {
+      expect(createActionCandidate(campaign({ vendorItemIds: ['VI-1', 'VI-2'] }), stock([['VI-1', 0], ['VI-2', 3]]))?.priority).not.toBe('urgent');
+      expect(createActionCandidate(campaign(), stock([['VI-1', null]]))?.priority).not.toBe('urgent');
+      expect(createActionCandidate(campaign(), new Map())?.priority).not.toBe('urgent');
     });
 
-    it('skips when listingOptionId is null (option stock not observable)', () => {
-      const row = baseRow({ listingOptionId: null });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate).toBeNull();
-    });
-
-    it('skips when canonical capacity is not available', () => {
-      const row = baseRow();
-
-      const candidate = createActionCandidate(row, new Map());
-
-      // ROAS = revenue/spend*100 = 10000/5000*100 = 200 → no rule 4/5 either
-      expect(candidate).toBeNull();
+    it('skips a paused campaign', () => {
+      expect(createActionCandidate(campaign({ isActive: false }), stock([['VI-1', 0]]))).toBeNull();
     });
   });
 
   describe('Rule 2: keyword pause', () => {
-    it('zero conversion + spend>=5000 → pause_keyword urgent (non-A grade)', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 0,
-        spend: 8000,
-        revenue: 0,
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
+    it('zero orders + spend>=5000 → pause_keyword urgent on the advertised option', () => {
+      const candidate = createActionCandidate(keyword({ orders: 0, spend: 6_000, revenue: 0 }), new Map());
       expect(candidate).toMatchObject({
         actionType: 'pause_keyword',
         targetType: 'keyword',
+        externalId: 'VI-1',
+        targetLabel: '물총',
         priority: 'urgent',
-        currentValue: null,
-        proposedValue: null,
+        payload: { adTarget: { campaignId: 'CMP-1', adGroupId: 'G1', vendorItemId: 'VI-1', keyword: '물총', businessDate: '2026-09-20', source: 'ad_report' } },
       });
-    });
-
-    it('an unobserved conversion count (null) is never a zero-conversion pause', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: null,
-        spend: 8000,
-        revenue: 0,
-      });
-
-      expect(createActionCandidate(row, new Map())).toBeNull();
+      expect(candidate?.reason).toContain('전환 0건');
     });
 
     it('keyword roas in (0,100) + grade=A → pause_keyword high', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 1,
-        spend: 2000,
-        revenue: 1000, // ROAS = 50
-        abcGrade: 'A',
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate?.actionType).toBe('pause_keyword');
-      expect(candidate?.priority).toBe('high');
+      expect(createActionCandidate(keyword({ abcGrade: 'A', spend: 10_000, revenue: 5_000 }), new Map()))
+        .toMatchObject({ actionType: 'pause_keyword', priority: 'high' });
     });
 
-    it('skips when keyword status text already indicates paused (e.g. "off")', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 0,
-        spend: 8000,
-        status: 'OFF',
-      });
+    it('proposes nothing for a keyword of a paused campaign or the non-search row', () => {
+      expect(createActionCandidate(keyword({ isActive: false, orders: 0, spend: 6_000 }), new Map())).toBeNull();
+      expect(createActionCandidate(keyword({ keyword: '', orders: 0, spend: 6_000 }), new Map())).toBeNull();
+    });
 
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate).toBeNull();
+    it('never proposes a bid change: a keyword with ROAS 100–200 has no action', () => {
+      expect(createActionCandidate(keyword({ spend: 10_000, revenue: 15_000 }), new Map())).toBeNull();
     });
   });
 
-  describe('Rule 3: keyword bid down', () => {
-    it('uses exact ChannelSku sale price and component purchase cost for margin priority', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 5,
-        spend: 10000,
-        revenue: 15000,
-        currentBid: 1000,
-      });
-      const evidence = new Map([['LO1', {
-        sellableStock: 5,
-        purchaseCost: 12000,
-        salePrice: 10000,
-      }]]) as Map<string, ChannelSkuAdEvidence>;
-
-      expect(createActionCandidate(row, evidence)?.priority).toBe('high');
-    });
-
-    it('keeps priority neutral when exact component purchase cost is unknown', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 5,
-        spend: 10000,
-        revenue: 15000,
-        currentBid: 1000,
-      });
-      const evidence = new Map([['LO1', {
-        sellableStock: 5,
-        purchaseCost: null,
-        salePrice: 10000,
-      }]]) as Map<string, ChannelSkuAdEvidence>;
-
-      expect(createActionCandidate(row, evidence)?.priority).toBe('medium');
-    });
-
-    it('keeps priority neutral when the account sales commission has no source even if cost exceeds price', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 5,
-        spend: 10000,
-        revenue: 15000,
-        currentBid: 1000,
-        listingChannel: 'coupang',
-      });
-      const evidence = new Map([['LO1', {
-        sellableStock: 5,
-        purchaseCost: 12000,
-        salePrice: 10000,
-      }]]) as Map<string, ChannelSkuAdEvidence>;
-
-      expect(createActionCandidate(row, evidence)?.priority).toBe('medium');
-    });
-
-    it('keyword 100<=roas<200 + currentBid>0 → change_bid (currentBid * 0.85, rounded)', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 5,
-        spend: 10000,
-        revenue: 15000, // ROAS = 150
-        currentBid: 1000,
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate).toMatchObject({
-        actionType: 'change_bid',
-        targetType: 'keyword',
-        currentValue: 1000,
-        proposedValue: 850,
-      });
-    });
-
-    it('upgrades priority to high when calculated profit rate is negative', () => {
-      const row = baseRow({
-        targetType: 'keyword',
-        keyword: 'K1',
-        conversions: 5,
-        spend: 10000,
-        revenue: 15000, // ROAS = 150
-        currentBid: 1000,
-      });
-
-      const candidate = createActionCandidate(row, new Map([['LO1', {
-        sellableStock: 5,
-        purchaseCost: 12000,
-        salePrice: 10000,
-      }]]));
-
-      expect(candidate?.priority).toBe('high');
-    });
-  });
-
-  describe('Rule 4: A-grade campaign budget expansion', () => {
-    it('grade=A + roas>=480 + campaign with budget → change_daily_budget high (budget * 1.2)', () => {
-      const row = baseRow({
-        dailyBudget: 10000,
-        spend: 1000,
-        revenue: 5000, // ROAS = 500
-        abcGrade: 'A',
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate).toMatchObject({
-        actionType: 'change_daily_budget',
-        targetType: 'campaign',
-        priority: 'high',
-        currentValue: 10000,
-        proposedValue: 12000,
+  describe('Rule 3: A-grade campaign budget expansion', () => {
+    it('grade=A + roas>=480 → change_daily_budget high (budget * 1.2)', () => {
+      expect(createActionCandidate(campaign({ abcGrade: 'A', spend: 1_000, revenue: 5_000 }), new Map())).toMatchObject({
+        actionType: 'change_daily_budget', priority: 'high', currentValue: 10_000, proposedValue: 12_000,
       });
     });
   });
 
-  describe('Rule 5: low-performance campaign budget shrink', () => {
+  describe('Rule 4: low-performance campaign budget shrink', () => {
     it('does not treat an unclassified product as C when ROAS is healthy', () => {
-      const row = baseRow({
-        abcGrade: null,
-        dailyBudget: 20_000,
-        spend: 5_000,
-        revenue: 10_000,
-      });
-
-      expect(createActionCandidate(row, new Map())).toBeNull();
+      expect(createActionCandidate(campaign({ abcGrade: null, spend: 1_000, revenue: 3_000 }), new Map())).toBeNull();
     });
 
-    it('uses only the metric rule for an unclassified low-ROAS product', () => {
-      const row = baseRow({
-        abcGrade: null,
-        dailyBudget: 20_000,
-        spend: 10_000,
-        revenue: 8_000,
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate).toMatchObject({
-        actionType: 'change_daily_budget',
-        priority: 'medium',
-      });
-      expect(candidate?.reason).toContain('ROAS 80%');
-      expect(candidate?.reason).not.toContain('C등급');
-      expect(candidate?.reason).not.toContain('null등급');
-    });
-
-    it('grade=C + dailyBudget>3000 → change_daily_budget high (max(3000, budget*0.5))', () => {
-      const row = baseRow({
-        dailyBudget: 20000,
-        spend: 10000,
-        revenue: 8000, // ROAS = 80
-        abcGrade: 'C',
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate).toMatchObject({
-        actionType: 'change_daily_budget',
-        priority: 'high',
-        currentValue: 20000,
-        proposedValue: 10000,
+    it('grade=C + budget>3000 → high, max(3000, budget*0.5)', () => {
+      expect(createActionCandidate(campaign({ abcGrade: 'C' }), new Map())).toMatchObject({
+        priority: 'high', proposedValue: 5_000,
       });
     });
 
-    it('non-C grade + low ROAS uses medium priority', () => {
-      const row = baseRow({
-        dailyBudget: 20000,
-        spend: 10000,
-        revenue: 8000, // ROAS = 80
-        abcGrade: 'B',
+    it('non-C grade + low ROAS uses medium priority and clamps to 3000', () => {
+      expect(createActionCandidate(campaign({ budget: 5_000, spend: 10_000, revenue: 5_000 }), new Map())).toMatchObject({
+        priority: 'medium', proposedValue: 3_000,
       });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate?.priority).toBe('medium');
     });
 
-    it('clamps proposedValue to 3000 when budget*0.5 falls below floor', () => {
-      const row = baseRow({
-        dailyBudget: 5000,
-        spend: 100,
-        revenue: 50, // ROAS = 50
-        abcGrade: 'B',
-      });
-
-      const candidate = createActionCandidate(row, new Map());
-
-      expect(candidate?.currentValue).toBe(5000);
-      expect(candidate?.proposedValue).toBe(3000);
+    it('proposes no budget change for an active campaign with no spend in the window', () => {
+      expect(createActionCandidate(campaign({ abcGrade: 'C', spend: 0, revenue: 0 }), new Map())).toBeNull();
+      expect(createActionCandidate(campaign({ abcGrade: null, spend: 0, revenue: 0 }), new Map())).toBeNull();
+      expect(createActionCandidate(campaign({ abcGrade: 'A', spend: 0, revenue: 5_000 }), new Map())).toBeNull();
     });
-  });
-});
 
-describe('calcProfitRate', () => {
-  it('returns null when sellPrice is missing or non-positive', () => {
-    expect(calcProfitRate({ costPrice: 1000, sellPrice: 0, channel: 'rocket' })).toBeNull();
-    expect(calcProfitRate({ costPrice: 1000, sellPrice: null, channel: 'rocket' })).toBeNull();
-  });
-
-  it('computes a Rocket direct-purchase margin with commission and other cost not applied', () => {
-    // sell=10000, recipe cost=3000, no commission/other cost by rule → 70.00%
-    expect(calcProfitRate({ costPrice: 3000, sellPrice: 10000, channel: 'rocket' })).toBe(70);
-    // cost above price stays a measured negative margin
-    expect(calcProfitRate({ costPrice: 12000, sellPrice: 10000, channel: 'rocket' })).toBe(-20);
-  });
-
-  it('returns null when the recipe purchase cost is unknown, never counting it as 0', () => {
-    expect(calcProfitRate({ costPrice: null, sellPrice: 10000, channel: 'rocket' })).toBeNull();
-  });
-
-  it('returns null when the account carries a sales commission with no measured source', () => {
-    expect(calcProfitRate({ costPrice: 3000, sellPrice: 10000, channel: 'coupang' })).toBeNull();
-  });
-
-  it('returns null when the listing has no channel account', () => {
-    expect(calcProfitRate({ costPrice: 3000, sellPrice: 10000, channel: null })).toBeNull();
+    it('skips a campaign without a budget', () => {
+      expect(createActionCandidate(campaign({ abcGrade: 'C', budget: null }), new Map())).toBeNull();
+    });
   });
 });

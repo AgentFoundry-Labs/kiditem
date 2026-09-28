@@ -50,7 +50,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
-import { seedAd } from '../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 
 const VENDOR_ID = 'VENDOR-AGREEMENT';
 
@@ -175,7 +175,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
     const { channelAccountId, listingId } = await seedCoupangAccount();
     await publishWingTraffic(channelAccountId, COLLECTED_FROM, collectedThrough);
     for (const businessDate of enumerateDashboardDates(COLLECTED_FROM, collectedThrough)) {
-      await seedAd(prisma, {
+      await seedListingAdDay(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         listingId,
         date: businessDate,
@@ -183,7 +183,6 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
         revenue: ADS_DAILY.adRevenue,
         impressions: ADS_DAILY.impressions,
         clicks: ADS_DAILY.clicks,
-        conversions: ADS_DAILY.conversions,
         orders: ADS_DAILY.orders,
       });
     }

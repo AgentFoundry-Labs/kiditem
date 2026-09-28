@@ -13,6 +13,20 @@ throughout.
 
 - Advertising owns Coupang ad facts, keyword/SERP evidence, competitor
   observations, strategy proposals, and approved ad-action execution.
+- The ad report ledger (see Ad Report) is the only ad fact source for
+  readers. Inside the owner, reads go through `AD_LEDGER_READ_REPOSITORY_PORT`
+  (`adapter/out/persistence/ad-ledger-read.persistence.adapter.ts`); other
+  owners inject `ADVERTISING_LEDGER_READ_PORT` only.
+- A measured day is a calendar day every active Coupang account's succeeded
+  `advertising.ad_report` run window covers (`domain/ad-report-coverage`); a
+  measured day without rows is 0, an unmeasured day is absent, never 0.
+- Spend has two readings (`domain/ad-spend-rule`): profit uses
+  `(billedSpend + account adjustment) × 1.1` ("광고비(청구·VAT 포함)");
+  performance screens, rules, benchmark and strategy use delivered `spend`
+  ("집행 광고비"). Conversions are the report's `orders`.
+- Ad action rules read current `ChannelAdCampaign` state (active, budget)
+  and the recent measured window (`readCurrentAdTargets`); there is no bid
+  rule. A proposal's evidence is `payload.adTarget`.
 - Approving an action of a `MANUAL_AD_ACTION_TYPES` type
   (`domain/execution-task-lifecycle.ts`) records the operator's confirmation,
   and the operator applies the change in the ad center. The server refuses
@@ -24,27 +38,14 @@ throughout.
 
 ## Keyword Grain
 
-`ad_keyword` reads the per-ad keyword table behind the ad centre "키워드 보기"
-modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
+Keyword facts are the ad report's keyword table
+(`ChannelAdKeywordDailySnapshot`): one row per keyword, ad group, advertised
+option and day, only for keywords that drew a click.
 
-- Collection is its own producer (`advertising.ad_keyword`), triggered from the
-  dashboard collection modal. It enumerates every campaign from
-  `tetris-api/campaigns` (each campaign carries its `groupList`) without page
-  navigation or a dependency on the 31-day campaign sweep.
-- A one-day window returns an empty keyword table. Collection uses a trailing
-  multi-day window (7 days), `businessDate` is the window END, and
-  `metaJson.data.windowDays` records its width.
-- These rows are therefore NOT additive. `findKeywordTargetRollups` takes the
-  latest observation per keyword; summing two collections double-counts their
-  overlap.
-- Keyword rows carry no business date and cannot observe a single day, so a
-  window collected before Coupang reports yesterday can include that unreported
-  day. Keyword windows are never held back: the confirmed window is the plan.
-- The report grid's `키워드` column holds a modal-open button, not a keyword.
-  `normalizeAdKeyword()` rejects those control labels at the domain boundary.
-- `replaceCampaignDay` is grain-scoped through `replaceScope`. The campaign
-  sweep owns `['campaign','product']` and keyword ingest owns `['keyword']`;
-  neither producer may mark the other's rows stale.
+- Rows are daily, so a period view sums the chosen period's measured days.
+  They are not additive to product totals.
+- Non-search exposure is the row with `keyword ''`; readers mark it
+  `nonSearch` and never propose pausing it.
 - Relevance is judged **per advertised product**: the question is only
   answerable against a specific product, and one product can hold hundreds of
   keywords (953 observed; 7,613 across 42 products). One judgement call per
@@ -57,8 +58,8 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   fixed prompt/schema/model, no autonomous tool use or planning, and output
   only becomes human-reviewed `AdAction` proposals.
 - The model only proposes. `toKeywordPauseCandidates` rejects unknown refs,
-  drifted keywords, missing rationale, keywords whose conversions were not
-  observed, and keywords that converted; survivors become `pause_keyword`
+  drifted keywords, missing rationale, keywords over a window with no
+  measured day, and keywords that converted; survivors become `pause_keyword`
   AdActions in `pending_review` that require human approval. The operator
   pauses an approved keyword in the ad center (see Ownership).
 
@@ -90,9 +91,11 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - `advertising.ad_report` (KID-371, `adapter/in/operation/ad-report-operation-owner.ts`)
   writes the five ad ledgers — `ChannelAdProductDailySnapshot`,
   `ChannelAdKeywordDailySnapshot`, `ChannelAdCampaign`, `ChannelAdCampaignAd`,
-  `ChannelAdDailyBilling` — in its finish transaction. `ChannelAdTargetDailySnapshot`
-  and the monthly facts take no new writer; their readers move in KID-372 and
-  the tables go in KID-373.
+  `ChannelAdDailyBilling` — in its finish transaction. Campaign totals are
+  sums of product rows (there is no campaign-grain row); budget, status and
+  ROAS target come from `ChannelAdCampaign`. They are the only advertising
+  facts; the old campaign-sweep, keyword and profitability collections and
+  their ledgers are gone (KID-373).
 - It holds `resource:ad-center:<id>`, never `account:<id>`. The closed-day hold
   (`domain/ad-report-confirmation`) narrows the run window, and product
   `billedSpend` sums to the settlement bill per campaign-day to the won
@@ -122,18 +125,10 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.
-- `ChannelAdTargetDailySnapshot`, what the campaign sweep publishes, is the
-  one advertising ledger. Outside its owner publication it is read only through
-  `adapter/out/persistence/read/ad-target-facts`, whose gate is the current completed sweep, product
-  grain, no keyword rows; `npm run check:ledger-readers` fails any undeclared
-  production read and inventories the remaining exact owner and legacy paths.
-  A day the sweep never reported is absent, never a
-  cost of zero. `ChannelListingDailySnapshot` has no advertising columns;
-  listing-day advertising comes only from this ledger.
-- Account totals are sums of the campaign sweep's target rows; there is no
-  separate account-day KPI collection. A provider grid without conversion
-  columns stores 0 with an unobserved stamp, and readers publish that count as
-  `null`, so no conversion rule fires on it.
+- Listing-day advertising comes only from the ad report ledgers through
+  `ADVERTISING_LEDGER_READ_PORT`; `ChannelListingDailySnapshot` has no
+  advertising columns. `npm run check:ledger-readers` fails any undeclared
+  production read. Account totals are sums of product rows.
 - Revenue, operating-profit contribution, rank, and cumulative share are
   reporting metrics only; none changes the absolute ABC grade.
 - Reach Channels through its exported port rather than concrete services.
@@ -141,22 +136,17 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 ## Boundary Rules
 
 - KST business date conversion goes through `toBusinessDate()`.
-- Campaign sweeps and the profitability import request through the closed day
-  but confirm it only once they saw spend that day or no spend the day before
+- The ad report requests through the closed day but confirms it only once it
+  saw spend that day or no spend the day before
   (`domain/ad-report-confirmation`); a held day stays out of the confirmed
   window until a same-day re-collection sees its spend or a collection on a
-  later day confirms it. Each account confirms on its own spend: the
-  profitability import publishes through the earliest account end and
-  re-allocates every month that loses the held day, so no account's
-  spend on it is published. Readers that require the latest ads day use
-  `readAdEvidenceCutoff`, or `adReportEvidenceCutoff` over a profitability
-  generation's `requestedThrough` and `coveredThrough`, never the closed day.
+  later day confirms it. Readers that require the latest ads day use
+  `readAdEvidenceCutoff` (`adReportEvidenceCutoff` over the runs' requested and
+  confirmed ends), never the closed day.
 - Period views derive from daily facts; ratios recompute from summed raw
   values instead of provider ratios.
 - Listing facts match `vendorItemId` to `ChannelListingOption`, then
   `externalId` to a Coupang `ChannelListing`; preserve unmatched raw evidence.
-- Build target keys only with `buildAdTargetKey()` and return an error when no
-  stable identifier exists.
 - A margin is measurable only from recipe × Sellpia purchase price and the
   Channels `channelAccountSalesCosts` rule; option cost columns are not inputs,
   and an unknown cost leaves the margin `null`.

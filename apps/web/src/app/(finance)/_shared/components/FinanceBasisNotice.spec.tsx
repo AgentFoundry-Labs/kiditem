@@ -43,7 +43,7 @@ describe('FinanceBasisNotice cost inputs (KID-114)', () => {
     expect(screen.getByText('판매수수료가 적용되지 않는 주문 라인 2건은 0원으로 계산했습니다.')).toBeInTheDocument();
     expect(screen.getByText('기타비용이 적용되지 않는 주문 라인 2건은 0원으로 계산했습니다.')).toBeInTheDocument();
     // Not applied to any line of the window: the whole component is 0 by rule.
-    expect(screen.getByText('광고가 적용되지 않아 주문 라인 3건 모두 광고비 0원으로 계산했습니다.')).toBeInTheDocument();
+    expect(screen.getByText('광고가 적용되지 않아 주문 라인 3건 모두 광고비(청구·VAT 포함) 0원으로 계산했습니다.')).toBeInTheDocument();
     expect(screen.getByText(`판매수수료 원천이 없는 주문 라인 1건 — ${WITHHELD}`)).toBeInTheDocument();
     expect(screen.getByText(`기타비용 원천이 없는 주문 라인 1건 — ${WITHHELD}`)).toBeInTheDocument();
     expect(screen.getByText(`매입가가 없는 주문 라인 1건 — ${WITHHELD}`)).toBeInTheDocument();

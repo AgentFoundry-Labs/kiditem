@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ProductTransactionalReadRepositoryAdapter } from './product-transactional-read.repository.adapter';
 import { MasterProductAbcRepositoryAdapter } from './master-product-abc.repository.adapter';
 import type { ProductAbcPublicationInput } from '../../../application/port/out/persistence/master-product-abc.repository.port';
@@ -7,7 +7,6 @@ import type { ProductAbcPublicationInput } from '../../../application/port/out/p
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const formulaVersionId = '00000000-0000-4000-8000-000000000002';
 const sellpiaRunId = '00000000-0000-4000-8000-000000000003';
-const advertisingRunId = '00000000-0000-4000-8000-000000000004';
 const productId = '00000000-0000-4000-8000-000000000005';
 
 function publication(overrides: Partial<ProductAbcPublicationInput> = {}): ProductAbcPublicationInput {
@@ -23,9 +22,6 @@ function publication(overrides: Partial<ProductAbcPublicationInput> = {}): Produ
       sellpia: {
         selectedComplete: sourceView(sellpiaRunId, '12'),
       },
-    advertising: {
-      selectedComplete: sourceView(advertisingRunId, '18'),
-    },
     },
     saleAgeInputs: [{ masterProductId: productId, mappingValid: false, saleStartDate: null }],
     targetProductIds: [productId],
@@ -54,23 +50,22 @@ function stateRow(overrides: Record<string, unknown> = {}) {
     publicationRevision: 0,
     officialCutoffDate: null,
     publishedSellpiaOperationId: null,
-    publishedAdvertisingSourceImportRunId: null,
     publishedMappingGeneration: null,
     mappingGeneration: '7',
-    formulaJson: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+    formulaJson: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
     ...overrides,
   };
 }
 
 describe('MasterProductAbcRepositoryAdapter', () => {
-  it('takes source, mapping, and ABC locks before the formula CAS', async () => {
+  it('takes the mapping and ABC locks before the formula CAS', async () => {
     const calls: string[] = [];
     const tx = {
       $queryRaw: vi.fn(async (query: { values?: unknown[] }) => {
         const key = query.values?.find((value): value is string =>
           typeof value === 'string' && value.startsWith('kiditem.'));
         if (key) calls.push(key);
-        if (calls.length === 4) return [stateRow({ formulaRevision: 2 })];
+        if (calls.length === 2) return [stateRow({ formulaRevision: 2 })];
         return [];
       }),
       masterProductAbcEvaluation: { deleteMany: vi.fn(), createMany: vi.fn() },
@@ -85,7 +80,6 @@ describe('MasterProductAbcRepositoryAdapter', () => {
 
     await expect(repository.publish(publication())).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
     expect(calls).toEqual([
-      'kiditem.coupang-ad-profitability:' + organizationId,
       'kiditem.product-mapping:' + organizationId,
       'kiditem.master-product-abc:' + organizationId,
     ]);

@@ -502,7 +502,8 @@ describe('listing daily facts reader (PG integration)', () => {
 
     try {
       await publicationLocked.promise;
-      const repository = new WingTrafficAggregationRepositoryAdapter(profitCatalogTestReaders(prisma as unknown as PrismaService).listings, prisma as unknown as PrismaService, profitCatalogTestReaders(prisma as unknown as PrismaService).accounts
+      const repository = new WingTrafficAggregationRepositoryAdapter(profitCatalogTestReaders(prisma as unknown as PrismaService).listings, prisma as unknown as PrismaService, profitCatalogTestReaders(prisma as unknown as PrismaService).accounts,
+        profitCatalogTestReaders(prisma as unknown as PrismaService).ads,
       );
       const reading = repository.aggregateTraffic(TEST_ORGANIZATION_ID, {
         sourceClass: 'closed_day_clipped',

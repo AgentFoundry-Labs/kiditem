@@ -1,12 +1,10 @@
-import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
+import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository.adapter';
-import { randomUUID } from 'node:crypto';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD, PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-assertions';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
@@ -37,18 +35,16 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedAd,
-  seedCompletedAdSweepRun,
   seedCompletedInventorySnapshot,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import type { PrismaClient } from '@prisma/client';
 
 describe('DashboardInventoryService.getSummary (PG integration)', () => {
   let prisma: PrismaClient;
   let service: DashboardInventoryService;
   let sellpiaSource: SellpiaProfitabilitySourceService;
-  let advertisingSource: ProfitabilityAdImportRepositoryAdapter;
   let repository: DashboardInventoryRepositoryAdapter;
 
   beforeAll(async () => {
@@ -57,10 +53,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
     const alerts = new SourceFailureAlerts(prisma as never);
     sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never);
-    advertisingSource = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     const evidence = new MasterProductProfitabilityReadService(
       sellpiaSource,
-      advertisingSource,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter());
     const m = await Test.createTestingModule({
@@ -211,13 +205,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
    */
   let sweepGeneration = 0;
   async function coverMonth(short = 0): Promise<void> {
-    await seedCompletedAdSweepRun(prisma, {
+    sweepGeneration += 1;
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: ++sweepGeneration,
-      window: {
-        startDate: adDay(1),
-        endDate: shiftBusinessDateKey(lastClosedDate(warningContext())!, -short),
-      },
+      start: adDay(1),
+      end: shiftBusinessDateKey(lastClosedDate(warningContext())!, -short),
     });
   }
 
@@ -708,8 +700,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         organizationId,
         formulaKey: 'PRODUCT_ABC_ABSOLUTE',
         version: 1,
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
       },
     });
   }
@@ -729,17 +721,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // 실패로 끝난 셀피아 상품 손익 실행 — 픽스처가 그 id를 옛 공식 발행으로 붙든다(KID-361 J3).
     const sellpiaOperation = await seedSellpiaProfitabilityOperation(prisma, { organizationId, status: 'failed' });
     const sellpia = { attemptId: sellpiaOperation.id };
-    const advertising = await advertisingSource.beginAttempt({
-      organizationId,
-      idempotencyKey: randomUUID(),
-    });
-    await advertisingSource.failAttempt({
-      organizationId,
-      attemptId: advertising.attemptId,
-      attemptToken: advertising.attemptToken,
-      code: 'COLLECTION_FAILED',
-      message: 'Historical publication retained by fixture',
-    });
     await prisma.alert.updateMany({
       where: { organizationId, sourceType: { not: null } },
       data: { readAt: new Date() },
@@ -757,7 +738,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           officialCutoffDate: cutoff,
           publishedAt: calculatedAt,
           publishedSellpiaOperationId: sellpia.attemptId,
-          publishedAdvertisingSourceImportRunId: advertising.attemptId,
           publishedMappingGeneration: mappingGeneration,
           mappingGeneration,
         },
@@ -768,7 +748,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           officialCutoffDate: cutoff,
           publishedAt: calculatedAt,
           publishedSellpiaOperationId: sellpia.attemptId,
-          publishedAdvertisingSourceImportRunId: advertising.attemptId,
           publishedMappingGeneration: mappingGeneration,
         },
       });
@@ -779,7 +758,6 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         abcGrade: grade.abcGrade,
         weightedRevenue: 100,
         weightedOrderTimeSupplyCost: 20,
-        weightedAdvertisingSpend: 10,
         weightedOperatingProfit: 70,
         operatingProfitVelocity30: 70,
         operatingMargin: 0.7,
@@ -793,9 +771,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         publicationRevision: 1,
         gradeBasisCutoffDate: cutoff,
         sellpiaOperationId: sellpia.attemptId,
-        advertisingSourceImportRunId: advertising.attemptId,
         sellpiaGeneration: 1n,
-        advertisingGeneration: 1n,
         mappingGeneration,
         calculatedAt,
       })) });
@@ -830,7 +806,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // and the listing carries a zero row on the order's day.
     const lossDay = midMonth().toISOString().slice(0, 10);
     await coverMonth();
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId, date: lossDay, spend: 0,
     });
 
@@ -874,7 +850,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-C-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: cOpt.id, listingOptionId: cList.listingOptionId }],
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: cList.listingId,
       date: midMonth().toISOString().slice(0, 10), spend: 20_000,
     });
@@ -934,7 +910,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     /** Record ad rows for a listing on each named day of the month. */
     async function seedAdDays(listingId: string, days: readonly number[]): Promise<void> {
       for (const day of days) {
-        await seedAd(prisma, {
+        await seedListingAdDay(prisma, {
           organizationId: TEST_ORGANIZATION_ID, listingId, date: adDay(day), spend: 1_000,
         });
       }
@@ -1176,10 +1152,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       await seedCompletedOrderCoverageRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID, startDate: '2026-08-01', endDate: '2026-08-31',
       });
-      await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: ++sweepGeneration,
-        window: { startDate: '2026-08-01', endDate: '2026-08-31' },
+        start: '2026-08-01', end: '2026-08-31',
       });
       const firstOfMonth = buildDashboardContext(
         undefined, undefined, undefined, new Date('2026-09-01T03:00:00.000Z'),

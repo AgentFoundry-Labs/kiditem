@@ -4,10 +4,7 @@ import { ProfitCalculationRepositoryAdapter } from "../../adapter/out/repository
 import type { PrismaService } from "../../../prisma/prisma.service";
 import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
 import { readOrderLineWindowFacts } from "../../../orders/adapter/out/persistence/read/order-facts.reader";
-import {
-  advertisingApplies,
-  readAdWindowFacts,
-} from "../../../advertising/adapter/out/persistence/read/ad-target-facts";
+import type { AdvertisingLedgerReadPort } from "../../../advertising/application/port/in/capability/advertising-ledger-read.port";
 import { businessDateKey, kstBusinessDate } from "../../../common/kst";
 import { businessDatesInWindow } from "../../domain/dashboard/period/dashboard-period";
 import { periodOf } from "./test-helpers/period";
@@ -18,22 +15,22 @@ vi.mock("../../../orders/adapter/out/persistence/read/order-facts.reader", async
   >()),
   readOrderLineWindowFacts: vi.fn(),
 }));
-vi.mock("../../../advertising/adapter/out/persistence/read/ad-target-facts", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../advertising/adapter/out/persistence/read/ad-target-facts")>()),
+const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
+/**
+ * Ad days come from Advertising's ledger capability (`ADVERTISING_LEDGER_READ_PORT`),
+ * an owner boundary this unit spec fakes; the ledger rules themselves run on
+ * PostgreSQL in `ad-ledger-facts.pg.integration.spec`.
+ */
+const adLedger = {
   advertisingApplies: vi.fn(),
   readAdWindowFacts: vi.fn(),
-}));
+  readAdCoverage: vi.fn(),
+  readListingAdWindowFacts: vi.fn(),
+  readMonthlyAdAllocation: vi.fn(),
+};
+const mockedAdvertisingApplies = adLedger.advertisingApplies;
+const mockedReadAdWindowFacts = adLedger.readAdWindowFacts;
 
-const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
-const mockedAdvertisingApplies = vi.mocked(advertisingApplies);
-const mockedReadAdWindowFacts = vi.mocked(readAdWindowFacts);
-
-/**
- * Ad days come from the advertising target-day ledger through
- * `advertising/read/ad-target-facts`, which the adapter reaches as `$queryRaw`. Tests
- * keep the order/lineItem path focused while providing explicit measured days
- * where ad evidence is part of the assertion.
- */
 type PrismaMock = {
   $transaction: ReturnType<typeof vi.fn>;
   channelListingOption: { findMany: ReturnType<typeof vi.fn> };
@@ -193,19 +190,20 @@ function makeAdapter(
       return {
         businessDate: businessDateKey(raw.business_date as Date),
         spend: Number(raw.spend ?? 0),
+        billedSpend: Number(raw.billed_spend ?? raw.spend ?? 0),
+        adjustment: Number(raw.adjustment ?? 0),
         revenue: Number(raw.revenue ?? 0),
         impressions: Number(raw.impressions ?? 0),
         clicks: Number(raw.clicks ?? 0),
-        conversions: Number(raw.conversions ?? 0),
         orders: Number(raw.orders ?? 0),
-        conversionsObserved: true,
+        units: Number(raw.orders ?? 0),
       };
     }),
     observedAt: null,
   });
   return new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
     prisma as unknown as PrismaService,
-    prisma.productTransactionalRead as unknown as ProductTransactionalReadPort,
+    prisma.productTransactionalRead as unknown as ProductTransactionalReadPort, adLedger as unknown as AdvertisingLedgerReadPort,
   );
 }
 
@@ -213,20 +211,23 @@ function ownerRow(
   businessDate: string,
   values: Partial<{
     adSpend: number;
+    billedSpend: number;
+    adjustment: number;
     adRevenue: number;
     impressions: number;
     clicks: number;
-    conversions: number;
+    orders: number;
   }> = {},
 ) {
   return {
     business_date: new Date(`${businessDate}T00:00:00.000Z`),
     spend: values.adSpend ?? 0,
+    billed_spend: values.billedSpend ?? values.adSpend ?? 0,
+    adjustment: values.adjustment ?? 0,
     revenue: values.adRevenue ?? 0,
     impressions: values.impressions ?? 0,
     clicks: values.clicks ?? 0,
-    conversions: values.conversions ?? 0,
-    orders: 0,
+    orders: values.orders ?? 0,
     observed_at: new Date(`${businessDate}T23:00:00.000Z`),
   };
 }
@@ -353,7 +354,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
 });
 
 describe("ProfitCalculationRepositoryAdapter.calculateForRange — owner-published ad evidence", () => {
-  it("aggregates additive ad metrics from Advertising owner rows", async () => {
+  it("charges billed spend plus the account adjustment with VAT as ad cost and keeps performance metrics as reported", async () => {
     const prisma = makePrisma([]);
     const from = new Date("2026-04-01T00:00:00Z");
     const to = new Date("2026-05-01T00:00:00Z");
@@ -364,10 +365,12 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — owner-publish
           index === 0
             ? {
                 adSpend: 12345,
+                billedSpend: 10000,
+                adjustment: 1001,
                 adRevenue: 67890,
                 impressions: 1000,
                 clicks: 50,
-                conversions: 5,
+                orders: 5,
               }
             : {},
         ),
@@ -377,7 +380,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — owner-publish
       completeOwnerRows,
     ).calculateForRange("organization-1", periodOf(from, to));
 
-    expect(result.adCost).toBe(12345);
+    expect(result.adCost).toBe(12101); // (10_000 + 1_001) × 1.1 = 12_101.1
     expect(result.adRevenue).toBe(67890);
     expect(result.adImpressions).toBe(1000);
     expect(result.adClicks).toBe(50);
@@ -615,38 +618,26 @@ describe("ProfitCalculationRepositoryAdapter.calculateDailyForRange", () => {
   });
 });
 
-describe("ProfitCalculationRepositoryAdapter — conversion counts a provider grid did not carry", () => {
-  it("publishes no conversion count for a window or day whose grid carried no conversion columns", async () => {
+describe("ProfitCalculationRepositoryAdapter — conversions are the report's order count", () => {
+  it("counts report orders as conversions on every measured day and rounds each day's VAT-included cost once", async () => {
     const from = new Date("2026-03-31T15:00:00.000Z");
     const to = new Date("2026-04-02T15:00:00.000Z");
     const dates = businessDatesInWindow(from, to);
-    const adapter = makeAdapter(makePrisma([]), dates.map((date) => ownerRow(date)));
-    mockedReadAdWindowFacts.mockResolvedValue({
-      days: dates.map((businessDate, index) => ({
-        businessDate,
-        spend: 100,
-        revenue: 0,
-        impressions: 10,
-        clicks: 1,
-        conversions: 0,
-        orders: 0,
-        // The first day came from the campaign dashboard grid, which has no
-        // conversion columns: its stored 0 counted nothing.
-        conversionsObserved: index !== 0,
-      })),
-      observedAt: null,
-    });
+    const adapter = makeAdapter(
+      makePrisma([]),
+      dates.map((date) => ownerRow(date, { adSpend: 120, billedSpend: 101, clicks: 1, orders: 2 })),
+    );
 
     const range = await adapter.calculateForRange("organization-1", periodOf(from, to));
     expect(range).toMatchObject({
-      adCost: 100 * dates.length,
+      adCost: 222, // 2 days × 101 × 1.1 = 222.2
       adClicks: dates.length,
-      adConversions: null,
+      adConversions: 2 * dates.length,
     });
 
     const daily = await adapter.calculateDailyForRange("organization-1", periodOf(from, to));
-    expect(daily.map((row) => [row.date, row.adConversions])).toEqual(
-      dates.map((date, index) => [date, index === 0 ? null : 0]),
+    expect(daily.map((row) => [row.date, row.adCost, row.adConversions])).toEqual(
+      dates.map((date) => [date, 111, 2]), // 101 × 1.1 = 111.1
     );
   });
 });

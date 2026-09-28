@@ -6,17 +6,12 @@
 // 각 도메인의 최상위 선언을 그 도메인 안에 가둔다. 본문 들여쓰기는 병합 diff 를
 // 읽을 수 있게 유지하기 위해 원본 그대로 둔다.
 
-chrome.runtime.onMessage.addListener(KidItemAdCollectorDelay.handleMessage);
-
 // KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const AD_ACTION_URL =
   "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
 const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
 const WING_CATALOG_MAX_PAGES = 5;
-const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
-const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
-const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
@@ -30,61 +25,6 @@ const authedFetch = (environmentId, path, init) =>
   adsEnvironmentContext.authedFetch(environmentId, path, init);
 const getAuthToken = (environmentId) =>
   adsEnvironmentContext.getAccessToken(environmentId);
-const collectionWindows = Object.fromEntries(
-  adsEnvironmentContext.environmentIds.map((environmentId) => [
-    environmentId,
-    KidItemCollectionWindow.create({
-      chrome,
-      storageKey: coupangEnvironment.stateKey(COLLECTION_WINDOW_STORAGE_KEY, environmentId),
-      sessions: collectionSessions,
-      bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
-      attemptEnded: (session) => coupangCollectionAttemptEnded(environmentId, session),
-      collectionName: (session) => KidItemCoupangCollectionStart.collectionName(session?.producer),
-    }),
-  ]),
-);
-function collectionWindowFor(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return collectionWindows[environmentId];
-}
-
-// Every start of a collection that takes turns in the Coupang collection
-// window, and of the Wing catalog import, goes through this admission (KID-147).
-// It answers the web app once the start is decided and runs the source owner
-// afterwards.
-const coupangCollectionStart = KidItemCoupangCollectionStart.create({
-  windowFor: collectionWindowFor,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  keepAlive: KidItemWorkerKeepAlive,
-  manualReportUrl: KidItemAdCenterCollector.manualReportUrl,
-  runs: {
-    "advertising.ad_sync": ({ environmentId, attemptId }) =>
-      adCampaignSourceOwner.run({ environmentId, attemptId }),
-    "advertising.ad_keyword": ({ environmentId, attemptId }) =>
-      adKeywordSourceOwner.run({ environmentId, attemptId }),
-    // The profitability owner opens its import from the idempotency key, so
-    // its run replays the begin the admission already made.
-    "advertising.profitability_import": ({ environmentId, idempotencyKey }) =>
-      profitabilitySourceOwner.run({ environmentId, idempotencyKey }),
-  },
-});
-
-const adCenterCollectors = Object.fromEntries(
-  adsEnvironmentContext.environmentIds.map((environmentId) => [
-    environmentId,
-    KidItemAdCenterCollector.create({
-      window: collectionWindows[environmentId], chrome, sessions: collectionSessions,
-      statusKey: coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId),
-      cancelKey: coupangEnvironment.stateKey(BATCH_SCRAPE_CANCEL_KEY, environmentId),
-      bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
-      notify: () => notifyDashboard(environmentId),
-    }),
-  ]),
-);
-function adCenterCollectorFor(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return adCenterCollectors[environmentId];
-}
 
 async function exportWingInventoryWorkbook(products, sender) {
   if (!Array.isArray(products) || products.length === 0) {
@@ -146,64 +86,6 @@ function parseContentDispositionFilename(header) {
   return /filename="([^"]+)"/i.exec(header)?.[1] || null;
 }
 
-// The source owners that close through collectionWindowFor share one window
-// per environment. A run holds the window's turn until its outcome is reported
-// and its window and session are released. The turn never waits: a run finds
-// the window free, enters the turn the admission that started it holds, or is
-// refused because another collection holds the window.
-function coupangWindowTurn(producer) {
-  return (environmentId, operation) =>
-    coupangCollectionStart.takeTurn(environmentId, producer, operation);
-}
-
-// A leftover session can hold the window after its attempt ended. Only the
-// producer's own source owner can tell, through its attempt control read.
-async function coupangCollectionAttemptEnded(environmentId, session) {
-  if (session?.environmentId !== environmentId) return false;
-  const { attemptId } = session;
-  switch (session.producer) {
-    case "advertising.ad_sync":
-      return adCampaignSourceOwner.attemptEnded(environmentId, attemptId);
-    case "advertising.ad_keyword":
-      return adKeywordSourceOwner.attemptEnded(environmentId, attemptId);
-    case "advertising.profitability_import":
-      return profitabilitySourceOwner.attemptEnded(environmentId, attemptId);
-    default:
-      return false;
-  }
-}
-
-const profitabilitySourceOwner = KidItemProfitabilitySourceOwner.create({
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collectSlice: collectAdvertisingProfitabilitySlice,
-  closeAttempt: (environmentId, attemptId) =>
-    collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn("advertising.profitability_import"),
-});
-const adKeywordSourceOwner = KidItemAdKeywordSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: (tabId) => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    adCenterCollectorFor(environmentId).collectKeywords({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn("advertising.ad_keyword"),
-});
-chrome.runtime.onMessage.addListener(adKeywordSourceOwner.handleMessage);
-const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
-  chrome, sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    adCenterCollectorFor(environmentId).collectCampaigns({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn("advertising.ad_sync"),
-});
-chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
 // Write-only Wing/Ads sync stamps no build reads any more. Remove them once from
 // installed profiles.
 const COUPANG_RETIRED_LOCAL_COPY_KEYS = [
@@ -301,29 +183,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.action === "reportCollectionTargetProgress") {
-    const runId = typeof msg.runId === "string" ? msg.runId : null;
-    const progress = msg.progress;
-    let senderUrl;
-    try { senderUrl = new URL(sender?.url || sender?.tab?.url || ""); } catch {}
-    if (!runId || !progress || typeof progress !== "object" || Array.isArray(progress)
-      || Object.keys(msg).some((key) => !["action", "runId", "progress"].includes(key))
-      || !Number.isInteger(sender?.tab?.id)
-      || senderUrl?.origin !== "https://advertising.coupang.com"
-      || senderUrl.username || senderUrl.password) {
-      sendResponse({ success: false, error: "invalid collection progress" });
-      return;
-    }
-    coupangEnvironment.environmentForTab(sender.tab.id)
-      .then((environmentId) => adCenterCollectorFor(environmentId).reportProgress({
-        environmentId, attemptId: runId, tabId: sender.tab.id, progress,
-      }))
-      .then((result) => sendResponse({ success: true, ...result }))
-      .catch((error) =>
-        sendResponse({ success: false, error: error?.message || "progress update failed" }),
-      );
-    return true;
-  }
 
 });
 
@@ -676,75 +535,20 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function collectAdvertisingProfitabilitySlice({
-  environmentId,
-  attemptId,
-  account,
-  slice,
-}) {
-  return adCenterCollectorFor(environmentId).collectProfitabilitySlice({
-    environmentId, attemptId, account, slice,
-  });
-}
-
-async function cancelCollectionSession(runId, environmentId) {
-  const session = await collectionSessions.getOwned(runId, environmentId);
-  if (session?.producer === "advertising.ad_sync") {
-    await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return adCampaignSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
-  if (session?.producer === "advertising.ad_keyword") {
-    await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return adKeywordSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
-  if (session?.producer === "advertising.profitability_import") {
-    await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });
-  }
-  throw new Error("Collection producer source owner does not support cancellation");
-}
-
-// A restarted worker continues a collection only through the web-app lifetime,
-// which recovers an environment after it confirms a connected KidItem tab there
-// and settles its stop requests. The ad campaign and keyword owners only
-// settle attempts that already ended. Profitability continues its same live
-// import inside the window turn a new start would take. The Wing catalog import
-// continues its same unexpired attempt after taking the import turn a
-// new start would take. The runs keep the worker alive on their own, so the
-// lifetime is not held until they end.
-function recoverCoupangCollections(environmentId) {
-  for (const [label, recover] of [
-    ["광고 캠페인 owner", () => adCampaignSourceOwner.recover(environmentId)],
-    ["광고 키워드 owner", () => adKeywordSourceOwner.recover(environmentId)],
-    ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
-  ]) {
-    KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
-      console.error(`[KIDITEM] ${label} 복구 실패:`, error?.message || error));
-  }
-}
-
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
-  producerPrefixes: ["advertising", "channels", "dashboard"],
-  externalActions: {
-    startCollection: {
-      validate: KidItemCoupangCollectionStart.parseRequest,
-      handle: (request, environmentId) =>
-        KidItemWorkerKeepAlive.during(coupangCollectionStart.start(request, environmentId)),
-    },
-  },
+  producerPrefixes: ["channels", "dashboard"],
   capabilities: {
-    profitabilityAdvertisingSourceOwnerV1: true,
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
     browserCollectionSessions: true,
-    collectionStartV1: true,
-    advertisingKeywordSourceOwnerV1: true,
-    advertisingCampaignSourceOwnerV1: true,
     kiditemEnvironmentProfilesV1: true,
   },
-  cancelCollectionSession,
-  recoverCollections: (environmentId) => recoverCoupangCollections(environmentId),
+  // 광고 수집(캠페인·키워드·수익성)은 새 런타임의 실행 kind라, 이 도메인에는
+  // 취소하거나 복구할 브라우저 수집 세션이 남지 않는다(KID-373).
+  cancelCollectionSession: async () => {
+    throw new Error("Collection producer source owner does not support cancellation");
+  },
 });

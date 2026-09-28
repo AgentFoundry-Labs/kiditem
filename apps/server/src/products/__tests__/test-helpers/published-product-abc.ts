@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
   type ProductAbcGrade,
 } from '@kiditem/shared/product-abc';
 
@@ -34,10 +34,10 @@ export async function seedPublishedProductAbcGrades(
     }) ?? await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: input.organizationId,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
-        version: 1,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey,
+        version: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
       select: { id: true },
     });
@@ -46,23 +46,14 @@ export async function seedPublishedProductAbcGrades(
 
   const completeEnvelope = state?.publicationRevision && state.officialCutoffDate
     && state.publishedAt && state.publishedSellpiaOperationId
-    && state.publishedAdvertisingSourceImportRunId
     && state.publishedMappingGeneration !== null;
   if (!completeEnvelope) {
-    const [sellpia, advertising] = await Promise.all([
-      prisma.sourceImportRun.create({ data: {
-        organizationId: input.organizationId,
-        sourceType: 'test_sellpia_product_profitability',
-        status: 'completed',
-        importedAt: new Date('2026-09-01T00:00:00.000Z'),
-      } }),
-      prisma.sourceImportRun.create({ data: {
-        organizationId: input.organizationId,
-        sourceType: 'test_coupang_ad_profitability',
-        status: 'completed',
-        importedAt: new Date('2026-09-01T00:00:00.000Z'),
-      } }),
-    ]);
+    const sellpia = await prisma.sourceImportRun.create({ data: {
+      organizationId: input.organizationId,
+      sourceType: 'test_sellpia_product_profitability',
+      status: 'completed',
+      importedAt: new Date('2026-09-01T00:00:00.000Z'),
+    } });
     state = await prisma.masterProductAbcFormulaState.upsert({
       where: { organizationId: input.organizationId },
       create: {
@@ -73,7 +64,6 @@ export async function seedPublishedProductAbcGrades(
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
         publishedSellpiaOperationId: sellpia.id,
-        publishedAdvertisingSourceImportRunId: advertising.id,
         publishedMappingGeneration: 0n,
         mappingGeneration: 0n,
       },
@@ -84,7 +74,6 @@ export async function seedPublishedProductAbcGrades(
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
         publishedSellpiaOperationId: sellpia.id,
-        publishedAdvertisingSourceImportRunId: advertising.id,
         publishedMappingGeneration: state?.mappingGeneration ?? 0n,
       },
     });
@@ -95,7 +84,6 @@ export async function seedPublishedProductAbcGrades(
   const cutoff = state!.officialCutoffDate!;
   const calculatedAt = state!.publishedAt!;
   const sellpiaOperationId = state!.publishedSellpiaOperationId!;
-  const advertisingSourceImportRunId = state!.publishedAdvertisingSourceImportRunId!;
   const mappingGeneration = state!.publishedMappingGeneration!;
 
   await Promise.all(input.grades.map(({ masterProductId, abcGrade }) =>
@@ -113,7 +101,6 @@ export async function seedPublishedProductAbcGrades(
         abcGrade,
         weightedRevenue: 100,
         weightedOrderTimeSupplyCost: 20,
-        weightedAdvertisingSpend: 10,
         weightedOperatingProfit: 70,
         operatingProfitVelocity30: 70,
         operatingMargin: 0.7,
@@ -128,9 +115,7 @@ export async function seedPublishedProductAbcGrades(
         gradeBasisCutoffDate: cutoff,
         saleStartDate: new Date('2026-01-01T00:00:00.000Z'),
         sellpiaOperationId,
-        advertisingSourceImportRunId,
         sellpiaGeneration: 1n,
-        advertisingGeneration: 1n,
         mappingGeneration,
         calculatedAt,
       },

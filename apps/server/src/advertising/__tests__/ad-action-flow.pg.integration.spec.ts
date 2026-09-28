@@ -1,3 +1,4 @@
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -19,6 +20,8 @@ import {
 import type { PrismaClient } from '@prisma/client';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { measuredRunCovering } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
+import { seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 
 describe('AdAction flow (PG integration)', () => {
   let prisma: PrismaClient;
@@ -106,12 +109,11 @@ describe('AdAction flow (PG integration)', () => {
   }
 
   /**
-   * H3 — seed `ChannelAdTargetDailySnapshot` (the new source-of-truth) with a
-   * completed named source-owner run. Maps the legacy `seedSnapshot` shape
-   * onto the new target-daily columns (pageType → targetType, etc.). Each row
-   * uses today's KST businessDate so the latest-per-targetKey query lands it.
-   * The action reader intentionally ignores rows without a published owner
-   * attempt, so this fixture must model the production provenance boundary.
+   * One ad report target of today's KST date in the ad report ledger (KID-372),
+   * under a succeeded `advertising.ad_report` run covering the day. A campaign
+   * is its `ChannelAdCampaign` row (budget, ON/OFF) plus one product row of the
+   * advertised option; a keyword is a keyword-table row plus a zero product row
+   * that ties its option to the listing.
    */
   async function seedSnapshot(params: {
     organizationId: string;
@@ -119,149 +121,69 @@ describe('AdAction flow (PG integration)', () => {
     listingId: string;
     listingOptionId?: string | null;
     optionId?: string | null;
-    pageType: 'campaign' | 'keyword' | 'product';
+    pageType: 'campaign' | 'keyword';
     externalId: string;
     campaignName?: string;
     keyword?: string;
     status?: string;
-    currentBid?: number | null;
     dailyBudget?: number | null;
     impressions?: number;
     clicks?: number;
     conversions?: number;
     spend?: number;
     revenue?: number;
-    /** Legacy ROAS input — when provided, derive revenue from spend so
-     * `recomputeRoas(revenue, spend)` returns this value (matches the old
-     * provider-ratio expectation in tests). */
+    /** Derive revenue from spend so `recomputeRoas(revenue, spend)` returns this value. */
     roas?: number;
-    /** Whether the keyword table carried conversion columns; ingest stamps it. */
-    conversionsObserved?: boolean;
   }) {
-    // Today's KST business date (same `@db.Date` shape ingestion writes).
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const date = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const day = new Date(`${date}T00:00:00.000Z`);
     const channelAccountId = params.channelAccountId ?? (
       await prisma.channelListing.findFirstOrThrow({
-        where: {
-          id: params.listingId,
-          organizationId: params.organizationId,
-        },
+        where: { id: params.listingId, organizationId: params.organizationId },
         select: { channelAccountId: true },
       })
     ).channelAccountId;
-    const campaignName = params.campaignName ?? 'C';
-    const campaignIdentity =
-      params.pageType === 'keyword' || params.campaignName
-        ? `campaign:test:${campaignName}`
-        : null;
-    const adGroupId =
-      params.pageType === 'keyword' ? `ad-group:test:${campaignName}` : null;
-
-    // targetKey shape per util/ad-target-key.ts
-    const targetKeySuffix =
-      params.pageType === 'keyword'
-        ? `keyword:${campaignName}::${params.keyword ?? params.externalId}`
-        : params.pageType === 'product'
-          ? `product:${params.externalId}`
-          : `campaign:${campaignName}`;
-    const targetKey = `account:${channelAccountId}:${targetKeySuffix}`;
-
-    const sourceImportRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: params.organizationId,
-        channelAccountId,
-        sourceType:
-          params.pageType === 'keyword'
-            ? 'coupang_ad_keyword'
-            : 'coupang_ad_campaign',
-        parserVersion:
-          params.pageType === 'keyword' ? 'ad-keyword-v1' : 'ad-campaign-v1',
-        status: 'completed',
-        importedAt: new Date(),
-        // A completed campaign sweep declares the day it swept.
-        ...(params.pageType === 'keyword'
-          ? {}
-          : { coverageStartDate: today, coverageEndDate: today }),
-        plan:
-          params.pageType === 'keyword'
-            ? { captureMode: 'keyword' }
-            : { captureMode: 'campaign_sweep' },
-        qualityReport:
-          params.pageType === 'keyword'
-            ? {
-                rosterCapturedAt: new Date().toISOString(),
-                keywordCoverage: [
-                  {
-                    campaignIdentity,
-                    adGroupId,
-                    capturedAt: new Date().toISOString(),
-                    businessDate: today.toISOString().slice(0, 10),
-                  },
-                ],
-              }
-            : { campaignDescriptors: [] },
-      },
+    const operationId = await measuredRunCovering(prisma, params.organizationId, channelAccountId, date);
+    const vendorItemId = params.listingOptionId
+      ? (await prisma.channelListingOption.findUniqueOrThrow({
+          where: { id: params.listingOptionId },
+          select: { externalOptionId: true },
+        })).externalOptionId
+      : `VI-${params.externalId}`;
+    const spend = params.spend ?? (params.roas != null && params.revenue == null ? 1000 : 0);
+    const revenue = params.revenue ?? (params.roas != null && spend > 0 ? Math.round((params.roas / 100) * spend) : 0);
+    const orders = params.conversions ?? 0;
+    const campaignId = params.pageType === 'campaign' ? params.externalId : `KW-CAMPAIGN-${params.externalId}`;
+    const product = {
+      organizationId: params.organizationId, channelAccountId, operationId, date: day, campaignId,
+      adGroupId: 'G1', vendorItemId, listingId: params.listingId,
+    };
+    if (params.pageType === 'campaign') {
+      await prisma.channelAdCampaign.create({
+        data: {
+          organizationId: params.organizationId, channelAccountId, operationId, campaignId,
+          name: params.campaignName ?? 'C',
+          isActive: !(params.status ?? '').toLowerCase().includes('off'),
+          budget: params.dailyBudget ?? null,
+          lastSeenAt: new Date(),
+        },
+      });
+      await prisma.channelAdProductDailySnapshot.create({
+        data: {
+          ...product, impressions: params.impressions ?? 0, clicks: params.clicks ?? 0,
+          spend, billedSpend: spend, revenue, orders, units: orders,
+        },
+      });
+      return;
+    }
+    await prisma.channelAdProductDailySnapshot.create({
+      data: { ...product, impressions: 0, clicks: 0, spend: 0, billedSpend: 0, revenue: 0, orders: 0, units: 0 },
     });
-
-    // When the test passes `roas` without an explicit spend, default spend to
-    // 1000 so `recomputeRoas(revenue, spend)` returns the intended ratio.
-    const spend =
-      params.spend ?? (params.roas != null && params.revenue == null ? 1000 : 0);
-    // Derive revenue from explicit value, or from legacy roas hint, else 0.
-    const revenue =
-      params.revenue ??
-      (params.roas != null && spend > 0
-        ? Math.round((params.roas / 100) * spend)
-        : 0);
-
-    return prisma.channelAdTargetDailySnapshot.create({
+    await prisma.channelAdKeywordDailySnapshot.create({
       data: {
-        organizationId: params.organizationId,
-        channelAccountId,
-        sourceImportRunId: sourceImportRun.id,
-        channel: 'coupang',
-        businessDate: today,
-        targetType: params.pageType,
-        targetKey,
-        listingId: params.listingId,
-        listingOptionId: params.listingOptionId ?? null,
-        externalId: params.externalId,
-        campaignName: params.campaignName ?? null,
-        campaignIdentity,
-        adGroupId,
-        keyword: params.keyword ?? null,
-        status: params.status ?? null,
-        currentBid: params.currentBid ?? null,
-        dailyBudget: params.dailyBudget ?? null,
-        metaJson: params.pageType === 'keyword'
-          ? {
-              source: 'advertising.keyword.target',
-              data: {
-                origin: 'registered',
-                windowDays: 7,
-                adId: null,
-                productName: null,
-                keywordType: null,
-                bidSource: null,
-                observedMetrics: {
-                  spend: true,
-                  revenue: true,
-                  impressions: true,
-                  clicks: true,
-                  conversions: params.conversionsObserved ?? true,
-                  orders: params.conversionsObserved ?? true,
-                },
-              },
-            }
-          : undefined,
-        impressions: params.impressions ?? 0,
-        clicks: params.clicks ?? 0,
-        conversions: params.conversions ?? 0,
-        spend,
-        revenue,
-        adSpend: spend,
-        adRevenue: revenue,
+        organizationId: params.organizationId, channelAccountId, operationId, date: day, campaignId,
+        adGroupId: 'G1', vendorItemId, keyword: params.keyword ?? params.externalId,
+        impressions: params.impressions ?? 0, clicks: params.clicks ?? 1, spend, revenue, orders, units: orders,
       },
     });
   }
@@ -414,8 +336,8 @@ describe('AdAction flow (PG integration)', () => {
     }
   });
 
-  describe('generateActions — 5 rules', () => {
-    it('#1 Rule 1: zero stock + campaign + dailyBudget>0 → change_daily_budget urgent', async () => {
+  describe('generateActions over the ad report ledger (KID-372)', () => {
+    it('#1 Rule 1: every advertised option sold out + campaign budget>0 (KRW/day assumed) → change_daily_budget urgent', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
@@ -445,7 +367,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.proposedValue).toBe(3000);
     });
 
-    it('#2 Rule 1 skip when target row has no listingOptionId (option daily join 불가)', async () => {
+    it('#2 Rule 1 skip when the advertised option has no catalog capacity', async () => {
       const { listing } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
@@ -469,7 +391,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(count).toBe(0);
     });
 
-    it('#3 Rule 2: keyword + spend>=5000 + conversions=0 → pause_keyword urgent', async () => {
+    it('#3 Rule 2: keyword + spend>=5000 + zero orders → pause_keyword urgent with the ad report evidence', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
@@ -495,65 +417,20 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.actionType).toBe('pause_keyword');
       expect(action.targetType).toBe('keyword');
       expect(action.priority).toBe('urgent');
+      expect(action.listingId).toBe(listing.id);
+      expect(action.externalId).toBe(listingOption.externalOptionId);
+      expect(action.payload).toMatchObject({
+        adTarget: {
+          campaignId: 'KW-CAMPAIGN-KW-WASTE',
+          adGroupId: 'G1',
+          vendorItemId: listingOption.externalOptionId,
+          keyword: 'waste keyword',
+          source: 'ad_report',
+        },
+      });
     });
 
-    it('#3b Rule 2: an unobserved keyword conversion column raises no zero-conversion pause', async () => {
-      const { listing, option, listingOption } = await seedListingWithOption({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-      });
-      await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        listingOptionId: listingOption.id,
-        optionId: option.id,
-        pageType: 'keyword',
-        externalId: 'KW-UNOBSERVED',
-        keyword: 'unobserved keyword',
-        spend: 6000,
-        conversions: 0,
-        conversionsObserved: false,
-      });
-
-      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
-
-      expect(result.generated).toBe(0);
-      await expect(
-        prisma.adAction.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
-      ).resolves.toBe(0);
-    });
-
-    it('#4 Rule 3: keyword + currentBid>0 + 100<=roas<200 → change_bid to 85% rounded', async () => {
-      const { listing, option, listingOption } = await seedListingWithOption({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'B',
-      });
-      await seedSnapshot({
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        listingOptionId: listingOption.id,
-        optionId: option.id,
-        pageType: 'keyword',
-        externalId: 'KW-BID-DOWN',
-        keyword: 'bid down',
-        currentBid: 1000,
-        spend: 1000,
-        conversions: 2,
-        roas: 150,
-      });
-
-      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
-
-      expect(result.generated).toBe(1);
-      const action = await prisma.adAction.findFirstOrThrow({
-        where: { organizationId: TEST_ORGANIZATION_ID },
-      });
-      expect(action.actionType).toBe('change_bid');
-      expect(action.currentValue).toBe(1000);
-      expect(action.proposedValue).toBe(850);
-    });
-
-    it('#5 Rule 4: A grade + campaign + roas>=480 → budget expand 1.2x', async () => {
+    it('#5 Rule 3: A grade + campaign + roas>=480 → budget expand 1.2x', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -583,7 +460,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.priority).toBe('high');
     });
 
-    it('#6 Rule 5: C grade campaign + dailyBudget>3000 → budget shrink to 50% (min 3000)', async () => {
+    it('#6 Rule 4: C grade campaign + budget>3000 → budget shrink to 50% (min 3000)', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'C',
@@ -610,6 +487,45 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.actionType).toBe('change_daily_budget');
       expect(action.currentValue).toBe(20000);
       expect(action.proposedValue).toBe(10000);
+    });
+    it('#6b does not propose pausing a keyword again while a pause of it made in the measured window stands approved or done', async () => {
+      const { listing, option, listingOption } = await seedListingWithOption({
+        organizationId: TEST_ORGANIZATION_ID,
+        abcGrade: 'B',
+      });
+      const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const windowStart = new Date(Date.parse(`${today}T00:00:00.000Z`) - 13 * 86_400_000).toISOString().slice(0, 10);
+      await seedAdReportRun(prisma, {
+        organizationId: TEST_ORGANIZATION_ID, channelAccountId: listing.channelAccountId, start: windowStart, end: today,
+      });
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        listingId: listing.id,
+        listingOptionId: listingOption.id,
+        optionId: option.id,
+        pageType: 'keyword',
+        externalId: 'KW-APPLIED',
+        keyword: 'applied keyword',
+        spend: 6000,
+        conversions: 0,
+      });
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 1 });
+      const pause = await prisma.adAction.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID } });
+      await adActionService.approveActions([pause.id], TEST_ORGANIZATION_ID);
+      // The operator paused it in the ad center; an attempt from before decision A reads done.
+      await prisma.executionTask.updateMany({ where: { actionId: pause.id }, data: { status: 'done', finishedAt: new Date() } });
+      const backdate = (days: number) => prisma.adAction.update({
+        where: { id: pause.id },
+        data: { createdAt: new Date(Date.now() - days * 86_400_000) },
+      });
+
+      // Past the 24-hour dedup, but inside the window whose rows still show the keyword's clicks.
+      await backdate(3);
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 0 });
+
+      // A pause older than the window's first measured day no longer stands for these rows.
+      await backdate(20);
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 1 });
     });
   });
 
@@ -1017,7 +933,7 @@ describe('AdAction flow (PG integration)', () => {
       });
       const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts, new AdLedgerReadPersistenceAdapter()
       );
 
       expect(await refusal(rejecting.rejectAdActions([action.id], TEST_ORGANIZATION_ID)))
@@ -1052,7 +968,7 @@ describe('AdAction flow (PG integration)', () => {
       });
       const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts, new AdLedgerReadPersistenceAdapter()
       );
       try {
         return await rejecting.rejectAdActions([actionId], TEST_ORGANIZATION_ID);
@@ -1277,7 +1193,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(await extensionQueueIds()).toEqual([]);
     });
 
-    it('#19 keeps an approved bid or budget change out of the next generation until the operator closes it', async () => {
+    it('#19 keeps an approved keyword pause or budget change out of the next generation until the operator closes it', async () => {
       const zeroStock = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
@@ -1293,22 +1209,20 @@ describe('AdAction flow (PG integration)', () => {
         campaignName: 'Manual budget campaign',
         dailyBudget: 10000,
       });
-      const bidTarget = await seedListingWithOption({
+      const pauseTarget = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
       });
       await seedSnapshot({
         organizationId: TEST_ORGANIZATION_ID,
-        listingId: bidTarget.listing.id,
-        listingOptionId: bidTarget.listingOption.id,
-        optionId: bidTarget.option.id,
+        listingId: pauseTarget.listing.id,
+        listingOptionId: pauseTarget.listingOption.id,
+        optionId: pauseTarget.option.id,
         pageType: 'keyword',
-        externalId: 'KW-MANUAL-BID',
-        keyword: 'manual bid',
-        currentBid: 1000,
-        spend: 1000,
-        conversions: 2,
-        roas: 150,
+        externalId: 'KW-MANUAL-PAUSE',
+        keyword: 'manual pause',
+        spend: 6000,
+        conversions: 0,
       });
 
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
@@ -1318,15 +1232,17 @@ describe('AdAction flow (PG integration)', () => {
         select: { id: true, actionType: true },
       });
       expect(proposals.map((proposal) => proposal.actionType).sort())
-        .toEqual(['change_bid', 'change_daily_budget']);
+        .toEqual(['change_daily_budget', 'pause_keyword']);
       const ids = proposals.map((proposal) => proposal.id);
 
       await adActionService.approveActions(ids, TEST_ORGANIZATION_ID);
       // The ad center keeps the old values until the operator applies them and
       // a later sweep reads them, so the rules fire again; the confirmed
       // proposals still stand.
+      // The approved keyword pause leaves the rule input (an applied pause in the
+      // window); the approved budget change is skipped as existing work.
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
-        .resolves.toMatchObject({ generated: 0, skippedExisting: 2 });
+        .resolves.toMatchObject({ generated: 0, skippedExisting: 1 });
 
       await adActionService.rejectActions(ids, TEST_ORGANIZATION_ID);
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID))
@@ -1477,8 +1393,8 @@ describe('AdAction flow (PG integration)', () => {
       const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
 
       expect(result.generated).toBe(1);
-      const actions = await prisma.adAction.findMany({ select: { organizationId: true, listingId: true, listingOptionId: true } });
-      expect(actions).toEqual([{ organizationId: TEST_ORGANIZATION_ID, listingId: null, listingOptionId: null }]);
+      const actions = await prisma.adAction.findMany({ select: { organizationId: true, listingId: true } });
+      expect(actions).toEqual([{ organizationId: TEST_ORGANIZATION_ID, listingId: null }]);
     });
 
     it('#13 markRunning on another tenant id → NotFoundException', async () => {

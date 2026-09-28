@@ -300,7 +300,8 @@ export const DailyRevenueItemSchema = z.object({
 
 export const DailyAdItemSchema = z.object({
   date: z.string(),
-  adCost: z.number(),
+  /** 그날 집행 광고비(성과, KID-368). 이익 규칙의 광고비(청구·VAT 포함)는 `/api/dashboard/trend`의 `adCost`다. */
+  adSpend: z.number(),
   adRate: z.number().optional(),
   source: z.enum(['coupang_ads', 'listing', 'orders', 'unavailable']).optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
@@ -485,7 +486,6 @@ export const DashboardInventorySummarySchema = z.object({
     INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
     SOURCE_UNMAPPED: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
-    AD_SOURCE_STALE: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfit: z.object({
     amountByGrade: z.object({
@@ -503,7 +503,6 @@ export const DashboardInventorySummarySchema = z.object({
       officialCutoffDate: DashboardCalendarDateSchema.nullable(),
       publishedAt: zIsoDate.nullable(),
       sellpiaOperationId: z.string().uuid().nullable(),
-      advertisingSourceImportRunId: z.string().uuid().nullable(),
       mappingGeneration: z.string().regex(/^\d+$/).nullable(),
       includedProductCount: z.number().int().nonnegative(),
       withheldProductCount: z.number().int().nonnegative(),

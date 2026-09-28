@@ -24,11 +24,10 @@ import {
   type KeywordProductBatch,
   type KeywordRelevanceVerdict,
 } from '../../domain/ad-keyword-relevance';
-import { normalizeAdKeywordOrigin } from '../../domain/ad-keyword';
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionRepositoryPort,
-  type LatestTargetRow,
+  type AdRuleTarget,
 } from '../port/out/repository/ad-action.repository.port';
 import {
   KEYWORD_RELEVANCE_JUDGE_PORT,
@@ -80,13 +79,13 @@ export class AdKeywordAgentService {
     triggeredByUserId: string | null;
     externalOptionId?: string | null;
   }): Promise<KeywordRelevanceRunResult> {
-    const rows = await this.actionRepo.findLatestTargetRows(input.organizationId);
+    const rows = await this.actionRepo.findRuleTargets(input.organizationId);
     const sources = rows
       .filter((row) => row.targetType === 'keyword')
       .filter(
         (row) =>
           !input.externalOptionId ||
-          row.externalOptionId === input.externalOptionId,
+          row.vendorItemId === input.externalOptionId,
       )
       .map((row) => toJudgementSource(row));
 
@@ -98,7 +97,7 @@ export class AdKeywordAgentService {
 
     if (batches.length === 0) {
       return emptyResult(
-        '판정할 광고 키워드가 없습니다. 대시보드에서 광고 키워드 수집을 먼저 실행해 주세요.',
+        '판정할 광고 키워드가 없습니다. 광고 보고서 수집을 먼저 실행해 주세요.',
       );
     }
 
@@ -190,28 +189,23 @@ export class AdKeywordAgentService {
   }
 }
 
-function toJudgementSource(row: LatestTargetRow): KeywordJudgementSource {
+function toJudgementSource(row: AdRuleTarget): KeywordJudgementSource {
   return {
-    adTargetDailyId: row.id,
+    campaignId: row.campaignId,
+    adGroupId: row.adGroupId,
     keyword: row.keyword ?? '',
     productName: row.productName,
     campaignName: row.campaignName,
-    // Keyword ingest clears the option link when a keyword serves several
-    // ads, so this is set only when the keyword names exactly one product.
-    externalOptionId: row.externalOptionId,
+    // The keyword report names the advertised option of every row.
+    externalOptionId: row.vendorItemId,
     listingId: row.listingId,
-    // `LatestTargetRow` carries no metaJson; a provider audit status is only
-    // present on keywords the advertiser registered.
-    origin: normalizeAdKeywordOrigin(
-      typeof row.status === 'string' && row.status.trim().length > 0
-        ? 'registered'
-        : 'smart_targeting',
-    ),
     impressions: row.impressions,
     clicks: row.clicks,
     spend: row.spend,
     revenue: row.revenue,
-    conversions: row.conversions,
+    conversions: row.orders,
+    measuredDays: row.measuredDays,
+    businessDate: row.businessDate,
   };
 }
 

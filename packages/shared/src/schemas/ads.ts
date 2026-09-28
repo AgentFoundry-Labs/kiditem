@@ -86,10 +86,9 @@ export type FindAllAdsResponse = z.infer<typeof FindAllAdsResponseSchema>;
 
 // ───── Campaigns / Trends ─────
 
-// `listing` becomes nullable — campaign-grain rollups in `ChannelAdTargetDailySnapshot`
-// are not always tied to a specific listing (Coupang campaigns frequently span many
-// products). Drive replay only has campaign- and account-level ad data, so listing-less
-// rows must surface to operators instead of being dropped.
+// A campaign row is the current `ChannelAdCampaign` state plus the product-report sums
+// of its measured days (KID-372). `listing` is set only when the campaign advertised
+// exactly one listing in the period; Coupang campaigns usually span many products.
 export const AdCampaignSnapshotSchema = z.object({
   listing: AdListingSummarySchema.nullable(),
   channelAccountId: z.string().uuid(),
@@ -97,28 +96,23 @@ export const AdCampaignSnapshotSchema = z.object({
   campaignId: z.string().nullable(),
   campaignName: z.string().nullable(),
   /**
-   * Whether the requested period has additive campaign facts.
-   *
-   * A completed campaign sweep can observe an OFF campaign without producing
-   * dated performance facts. In that case the structural `metrics` object is
-   * still present, but consumers must render unknown values rather than its
-   * zero placeholders.
+   * Whether the requested period has any measured ad day. When it has none the
+   * structural `metrics` object is still present, but consumers must render
+   * unknown values rather than its zero placeholders. On a measured period a
+   * campaign without rows spent 0.
    */
   metricsAvailable: z.boolean(),
-  /** Current provider state from the latest identity-complete sweep. */
+  /** Current provider status (`ChannelAdCampaign.status`). */
   status: z.string().nullable(),
-  /** Current provider ON/OFF state from the latest identity-complete sweep. */
+  /** `isActive` as the ad center's ON/OFF word. */
   onOff: z.string().nullable(),
+  isActive: z.boolean(),
+  /** Provider budget as reported; the unit (KRW per day) is not yet confirmed (KID-371). */
+  budget: z.number().int().nullable(),
+  /** Provider ROAS target as reported. */
+  roasTarget: z.number().nullable(),
   period: z.string(),
-  /**
-   * Whether `metrics.conversions` is a collected value at all.
-   *
-   * The Coupang campaign dashboard grid has no conversion-count column — only
-   * the per-campaign product detail grid carries `광고 전환 판매수`. The scraper
-   * emits a numeric 0 for absent columns, so a campaign-grain `conversions: 0`
-   * means "not collected". Render unknown (`-`) rather than a fabricated 0.
-   */
-  conversionsAvailable: z.boolean(),
+  /** Spend is the ad center's delivered spend ("집행 광고비"); conversions are orders. */
   metrics: AdMetricsSchema,
 });
 export type AdCampaignSnapshot = z.infer<typeof AdCampaignSnapshotSchema>;
@@ -136,7 +130,6 @@ export const AdProductSnapshotSchema = z.object({
   onOff: z.string().nullable(),
   productName: z.string().nullable(),
   imageUrl: z.string().nullable(),
-  productUrl: z.string().nullable(),
   saleType: z.string().nullable(),
   period: z.string(),
   metrics: AdMetricsSchema,
@@ -145,16 +138,10 @@ export type AdProductSnapshot = z.infer<typeof AdProductSnapshotSchema>;
 
 // ───── Keyword grain ─────
 //
-// The Coupang ad centre "키워드 보기" modal is backed by two provider calls:
-// `POST /marketing/cmg-api/tableMetric` with `tableType='keyword'` (metrics per
-// keyword for one ad) and `GET /marketing/tetris-api/ad/keywords/{adId}`
-// (manually registered keywords with their audit state and bid). A keyword that
-// only appears in the metric table is smart-targeting inventory Coupang matched
-// on its own — the advertiser never registered it.
-
-/** How a keyword became attached to an ad. */
-export const AdKeywordOriginSchema = z.enum(['registered', 'smart_targeting']);
-export type AdKeywordOrigin = z.infer<typeof AdKeywordOriginSchema>;
+// Keyword rows come from the ad report's keyword table (KID-371/372): one row
+// per keyword, ad group, advertised option and day, and only for keywords that
+// drew a click. A period view sums the measured days of the chosen period.
+// Non-search exposure is the row with `keyword ''`, marked `nonSearch`.
 
 /** Relevance verdict produced by the keyword agent. `null` = not judged yet. */
 export const AdKeywordRelevanceSchema = z.enum([
@@ -220,25 +207,20 @@ export const AdKeywordSnapshotSchema = z.object({
   campaignName: z.string().nullable(),
   adGroup: z.string().nullable(),
   keyword: z.string(),
-  origin: AdKeywordOriginSchema,
-  /** Provider audit state for registered keywords ("승인" / "검수중" / …). */
+  /** The non-search exposure row (`keyword ''`) of one advertised option. */
+  nonSearch: z.boolean(),
   status: z.string().nullable(),
   onOff: z.string().nullable(),
-  currentBid: z.number().int().nullable(),
   /** Advertised option this keyword is attached to. */
   externalOptionId: z.string().nullable(),
   productName: z.string().nullable(),
   listing: AdListingSummarySchema.nullable(),
-  /** Source-declared non-additive observation window. */
-  period: z.literal('7d'),
-  windowDays: z.literal(7),
+  /** The chosen period. */
+  period: z.string(),
+  /** Measured days this keyword had rows on within the period. */
+  windowDays: z.number().int().nonnegative(),
+  /** Last measured day this keyword had a row. */
   businessDate: zIsoDate,
-  /**
-   * Whether `metrics.conversions` is a collected count. The keyword table can
-   * lack the conversion column; ingest then stores 0, so render unknown (`-`)
-   * and treat `metrics.cvr` as unavailable when this is false.
-   */
-  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
   relevance: AdKeywordRelevanceSchema.nullable(),
   relevanceReason: z.string().nullable(),
@@ -254,15 +236,12 @@ export const AdKeywordProductSummarySchema = z.object({
   campaignId: z.string().nullable(),
   campaignName: z.string().nullable(),
   listing: AdListingSummarySchema.nullable(),
+  /** Search keywords; the non-search row is not counted. */
   keywordCount: z.number().int(),
-  registeredCount: z.number().int(),
-  smartTargetingCount: z.number().int(),
-  /** Keywords that drew at least one impression in the period. */
+  /** Search keywords that drew at least one impression in the period. */
   servingCount: z.number().int(),
   irrelevantCount: z.number().int(),
   unjudgedCount: z.number().int(),
-  /** True only when every rolled-up keyword's conversion count was collected. */
-  conversionsAvailable: z.boolean(),
   metrics: AdMetricsSchema,
 });
 export type AdKeywordProductSummary = z.infer<
@@ -270,24 +249,23 @@ export type AdKeywordProductSummary = z.infer<
 >;
 
 export const AdKeywordsDataSchema = z.object({
-  period: z.literal('7d'),
-  windowDays: z.literal(7),
+  period: z.string(),
+  /** 측정일 수: 고른 기간 안에서 광고 보고서가 측정한 날 수(달력 일수가 아니다 — 월 기간이어도 측정한 날만 센다). */
+  windowDays: z.number().int().nonnegative(),
   collectedAt: z.string().nullable(),
   products: z.array(AdKeywordProductSummarySchema),
   keywords: z.array(AdKeywordSnapshotSchema),
 });
 export type AdKeywordsData = z.infer<typeof AdKeywordsDataSchema>;
 
-// ───── Measured ad metrics over the campaign sweep's ledger ─────
+// ───── Measured ad metrics over the ad report ledger ─────
 //
-// The advertising target-day ledger stores 0 in a conversion column the
-// provider grid did not carry. A reader publishes that count as `null`, so a
-// consumer never renders or reasons over a conversion count nobody observed.
+// Every row of a measured day carries the report's order count, so a measured
+// metric always has a conversion count (KID-372). An unmeasured day has no
+// metrics at all (`metrics: null`), never zeros.
 const AdBusinessDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-export const AdMeasuredMetricsSchema = AdMetricsSchema.extend({
-  conversions: z.number().int().nullable(),
-});
+export const AdMeasuredMetricsSchema = AdMetricsSchema;
 export type AdMeasuredMetrics = z.infer<typeof AdMeasuredMetricsSchema>;
 
 /** One requested business date; `metrics: null` when the sweep never measured it. */

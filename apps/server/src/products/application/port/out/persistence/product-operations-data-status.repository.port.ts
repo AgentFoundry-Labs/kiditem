@@ -24,12 +24,10 @@ export type ProductOperationsDataStatusFacts = {
   orders: ProductOperationsDataSourceStatus;
   actualCutoff: string | null;
   sellpia: ProductOperationsDataSourceStatus;
-  advertising: ProductOperationsDataSourceStatus;
   mappingReady: boolean;
   contributionBasis: ProfitabilityEvidenceSnapshot['contributionBasis'];
   sourceVector: {
     sellpia: ProductOperationsAbcSourceManifest | null;
-    advertising: ProductOperationsAbcSourceManifest | null;
   };
   formulaState: {
     formulaRevision: number;

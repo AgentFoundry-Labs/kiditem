@@ -139,12 +139,11 @@ const inventory = {
     INSUFFICIENT_EVIDENCE: 2,
     SOURCE_UNMAPPED: 1,
     SELLPIA_SOURCE_STALE: 2,
-    AD_SOURCE_STALE: 1,
   },
   abcContributionProfit: {
     amountByGrade: { A: 12_000, B: 4_000, C: -500 },
     shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
-    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
+    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
   },
   abcFormula: null,
   alerts: [],
@@ -587,6 +586,8 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     // 명시적인 0 은 0 이다. 세 칸 모두 지우지 않는다.
     expect(screen.getByTestId('headline-adConvRevenue')).toHaveTextContent('0원');
     expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('0원');
+    // 광고 성과 줄은 집행 광고비다. 이익 줄의 청구·VAT 포함 광고비와 다른 값이다.
+    expect(screen.getByTestId('headline-adSpend')).toHaveTextContent('집행 광고비');
     expect(screen.getByTestId('headline-roas')).toHaveTextContent('0%');
   });
 
@@ -616,6 +617,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: {
         ...emptyGroup,
@@ -640,6 +642,41 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     expect(screen.getByTestId('headline-profit')).toHaveTextContent('—');
   });
 
+  it('withholds Sellpia ad cost and profit over a partly measured ad window and says how many days were measured', async () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
+    sellpiaState.summary = {
+      range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
+      rocket: emptyGroup,
+      others: { ...emptyGroup, revenue: 1_000_000, qty: 25, cost: 600_000 },
+      totalRevenue: 1_000_000,
+      totalCost: 600_000,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      lastCapturedAt: '2026-09-06T01:00:00.000Z',
+      hasData: true,
+      profitInputs: null,
+      metricBasis: {
+        adCost: {
+          ...completeSellpiaProfitBasis,
+          includedDates: ['2026-09-04', '2026-09-05', '2026-09-06'],
+          sources: ['coupang_ads'],
+        },
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    // 광고가 기간의 일부만 측정했으면 이익 광고비는 "—"이고, 몇 날을 측정했는지 말한다(ADR-0006, KID-45).
+    const adCost = screen.getByTestId('headline-adCost');
+    expect(adCost).toHaveTextContent('—');
+    // 영수증 줄의 안내는 값 칸의 title로 붙는다.
+    expect(adCost.querySelector('[title="광고 수집 3/6일"]')).not.toBeNull();
+    expect(screen.getByTestId('headline-profit')).toHaveTextContent('—');
+  });
+
   it('does not borrow order profit beneath an unavailable Sellpia card', async () => {
     salesResponse = {
       ...sales,
@@ -654,6 +691,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: { ...emptyGroup, revenue: 1_000_000, qty: 25, cost: 600_000 },
       totalRevenue: 1_000_000,
@@ -677,6 +715,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: { ...emptyGroup, revenue: 1_000, qty: 25, cost: 100 },
       totalRevenue: 1_000,
@@ -698,6 +737,8 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     renderDashboard();
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
+    // 이익 줄의 광고비는 청구액·부가세 포함이다 — 광고 성과 줄의 집행 광고비와 다른 값이다.
+    expect(screen.getByTestId('headline-adCost')).toHaveTextContent('광고비(청구·VAT 포함)');
     // 서버가 낸 순이익을 그대로 쓴다 — 입력으로 다시 계산하지 않는다.
     const profit = screen.getByTestId('headline-profit');
     expect(profit).toHaveTextContent('777원');
@@ -708,6 +749,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
     sellpiaState.summary = {
       range: { from: '2026-09-01', to: '2026-09-06' },
+      knownThrough: '2026-09-06',
       rocket: emptyGroup,
       others: emptyGroup,
       totalRevenue: 0,

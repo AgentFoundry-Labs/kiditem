@@ -18,9 +18,6 @@ export type ProductAbcDisplayStatusFacts = Readonly<{
   sources: Readonly<{
     mapping: Readonly<{ valid: boolean }>;
     sellpia: Readonly<{ ready: boolean }>;
-    advertising: Readonly<{ ready: boolean }>;
-    /** False when the formula excludes advertising; absent means required. */
-    advertisingRequired?: boolean;
   }>;
 }>;
 
@@ -34,9 +31,6 @@ export function productAbcDisplayStatus(
 ): ProductAbcDisplayStatus {
   if (!facts.sources.mapping.valid) return 'SOURCE_UNMAPPED';
   if (!facts.sources.sellpia.ready) return 'SELLPIA_SOURCE_STALE';
-  if (facts.sources.advertisingRequired !== false && !facts.sources.advertising.ready) {
-    return 'AD_SOURCE_STALE';
-  }
   // A product the evaluation has not graded is one still gathering evidence,
   // whether because it is young or because its months are short. Both wait.
   return facts.evaluation !== null ? 'READY' : 'INSUFFICIENT_EVIDENCE';
@@ -47,7 +41,6 @@ export const PRODUCT_ABC_DISPLAY_STATUS_LABELS = {
   INSUFFICIENT_EVIDENCE: '관찰 중',
   SOURCE_UNMAPPED: '상품 매핑 필요',
   SELLPIA_SOURCE_STALE: 'Sellpia 원천 갱신 필요',
-  AD_SOURCE_STALE: '광고비 원천 갱신 필요',
 } as const satisfies Record<ProductAbcDisplayStatus, string>;
 
 export const PRODUCT_ABC_MAPPING_STATUS_LABELS = {

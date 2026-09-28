@@ -1,3 +1,4 @@
+import { KiditemPreconditionError } from '@kiditem/shared/errors';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   evaluateMasterProductAbc,
@@ -21,7 +22,6 @@ import type {
   MasterProductAbcRecalculationInput,
   MasterProductAbcRecalculationPort,
   ProductAbcRecalculationResult,
-  ProductAbcSourcePairing,
 } from '../port/in/master-product-abc-recalculation.port';
 
 /**
@@ -46,36 +46,37 @@ export class RecalculateProductAbcUseCase implements MasterProductAbcRecalculati
     if (!state.formula || !state.activeFormulaVersionId) {
       throw new Error('ABC formula is not initialized');
     }
+    // ABC grades without advertising (KID-373); v0.1.31:016 moved every
+    // organization to the advertising-free formula (version 3).
+    if (!productAbcExcludesAdvertising(state.formula)) {
+      throw new KiditemPreconditionError('PRODUCTS_ABC_FORMULA_RETIRED');
+    }
 
     const calculatedAt = new Date();
     const targetCutoff = productAbcEvidenceCutoff(calculatedAt);
     const targetProductIds = uniqueSorted(
       await this.repository.listCurrentAbcTargetIds(input.organizationId),
     );
-    // A formula that excludes advertising grades on Sellpia alone.
-    const advertisingExcluded = productAbcExcludesAdvertising(state.formula);
+    // ABC grades on Sellpia sales and purchase cost alone (KID-373).
     const snapshot = await this.profitability.load({
       organizationId: input.organizationId,
       targetCutoff,
-      advertising: advertisingExcluded ? 'excluded' : 'required',
     });
-    // The load reads the mapping generation again. A pair on another generation
+    // The load reads the mapping generation again. A generation on another one
     // means the mapping moved after this calculation read its state: the input
-    // changed and no source is waiting. Without a pair the snapshot carries no
-    // generation, and the sources are what the operator waits on.
+    // changed and no source is waiting. Without a generation the snapshot
+    // carries no mapping generation, and the source is what the operator waits on.
     if (snapshot.mappingGeneration !== null
       && snapshot.mappingGeneration !== state.mappingGeneration) {
       throw new ConflictException({ code: 'INPUT_CHANGED' });
     }
-    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration, advertisingExcluded)) {
-      const pairing = advertisingExcluded ? null : unpairedSourceEnds(snapshot);
+    if (!hasCompatibleCompleteEvidence(snapshot, state.mappingGeneration)) {
       return {
         outcome: 'SOURCE_NOT_READY',
         publicationRevision: state.publicationRevision,
         officialCutoff: state.officialCutoffDate,
         actualCutoff: snapshot.actualCutoff,
         sources: snapshot.sources,
-        ...(pairing ? { pairing } : {}),
       };
     }
 
@@ -104,7 +105,6 @@ export class RecalculateProductAbcUseCase implements MasterProductAbcRecalculati
         }),
         snapshot,
         state.mappingGeneration,
-        advertisingExcluded,
       ));
     }
 
@@ -120,9 +120,6 @@ export class RecalculateProductAbcUseCase implements MasterProductAbcRecalculati
         sellpia: {
           selectedComplete: snapshot.sourceVector.sellpia,
         },
-        advertising: advertisingExcluded
-          ? null
-          : { selectedComplete: snapshot.sourceVector.advertising },
       },
       saleAgeInputs: targetProductIds.map((masterProductId) => ({
         masterProductId,
@@ -154,23 +151,15 @@ function candidateRecord(
   candidate: MasterProductAbcCandidate,
   snapshot: ProfitabilityEvidenceSnapshot,
   mappingGeneration: string,
-  advertisingExcluded: boolean,
 ): MasterProductAbcCandidateRecord {
   const sellpia = snapshot.sourceVector.sellpia;
-  const advertising = snapshot.sourceVector.advertising;
-  if (
-    !sellpia.sourceImportRunId
-    || !sellpia.publicationSequence
-    || (!advertisingExcluded && (!advertising.sourceImportRunId || !advertising.publicationSequence))
-  ) {
+  if (!sellpia.sourceImportRunId || !sellpia.publicationSequence) {
     throw new ConflictException({ code: 'SOURCE_NOT_READY' });
   }
   return {
     ...candidate,
     sellpiaOperationId: sellpia.sourceImportRunId,
-    advertisingSourceImportRunId: advertisingExcluded ? null : advertising.sourceImportRunId,
     sellpiaGeneration: sellpia.publicationSequence,
-    advertisingGeneration: advertisingExcluded ? null : advertising.publicationSequence,
     mappingGeneration,
   };
 }
@@ -193,13 +182,14 @@ function isEligibleEvidence(
 /**
  * Admits valid evidence, not fresh evidence.
  *
- * The profitability owner selects the newest cutoff every source verifiably
- * reaches; ABC publishes at that actual cutoff even when it stops short of the
- * desired one. Freshness signals — `sources[x].ready`, a newer RUNNING or
- * FAILED attempt over a source that already published a complete generation —
- * are reported to the caller and displayed, never an admission gate. Only real
- * incompatibility refuses here: no compatible pair at all, or a selected
- * manifest whose coverage does not reach its own cutoff. A pair on a mapping
+ * The profitability owner selects the newest cutoff the Sellpia source
+ * verifiably reaches; ABC publishes at that actual cutoff even when it stops
+ * short of the desired one. Freshness signals — `sources.sellpia.ready`, a
+ * newer RUNNING or FAILED attempt over a source that already published a
+ * complete generation — are reported to the caller and displayed, never an
+ * admission gate. Only real incompatibility refuses here: no usable generation
+ * at all, or a selected manifest whose coverage does not reach its own cutoff.
+ * A generation on a mapping
  * generation other than the one this calculation read is an input change that
  * `recalculate` already refused as `INPUT_CHANGED`; the mapping comparisons
  * below only keep a malformed snapshot out.
@@ -207,45 +197,15 @@ function isEligibleEvidence(
 function hasCompatibleCompleteEvidence(
   snapshot: ProfitabilityEvidenceSnapshot,
   mappingGeneration: string,
-  advertisingExcluded: boolean,
 ): boolean {
   const actualCutoff = snapshot.actualCutoff;
   if (actualCutoff === null || snapshot.mappingGeneration !== mappingGeneration) return false;
-
-  const required = advertisingExcluded
-    ? [snapshot.sourceVector.sellpia]
-    : [snapshot.sourceVector.sellpia, snapshot.sourceVector.advertising];
-  for (const source of required) {
-    if (!source.sourceImportRunId
-      || !source.publicationSequence
-      || source.mappingGeneration !== mappingGeneration
-      || !source.coverageEndDate
-      || source.coverageEndDate < actualCutoff) return false;
-  }
-  return true;
-}
-
-/**
- * The ends that kept the sources from pairing. Without a pair a source can
- * still read ready (advertising that held its closed day does), so freshness
- * alone names nothing; the source that ends earlier is the one to collect
- * again. When both sources are stale against their own cutoffs, `sources`
- * already names them and nothing is added.
- */
-function unpairedSourceEnds(
-  snapshot: ProfitabilityEvidenceSnapshot,
-): ProductAbcSourcePairing | null {
-  const { sellpia, advertising } = snapshot.sources;
-  if (snapshot.actualCutoff !== null || (!sellpia.ready && !advertising.ready)) return null;
-  const sellpiaEndDate = sellpia.actualCutoff;
-  const advertisingEndDate = advertising.actualCutoff;
-  if (sellpiaEndDate === null || advertisingEndDate === null
-    || sellpiaEndDate === advertisingEndDate) return null;
-  return {
-    lateSource: advertisingEndDate < sellpiaEndDate ? 'advertising' : 'sellpia',
-    sellpiaEndDate,
-    advertisingEndDate,
-  };
+  const source = snapshot.sourceVector.sellpia;
+  return Boolean(source.sourceImportRunId
+    && source.publicationSequence
+    && source.mappingGeneration === mappingGeneration
+    && source.coverageEndDate
+    && source.coverageEndDate >= actualCutoff);
 }
 
 function assertOrganizationId(organizationId: string): void {

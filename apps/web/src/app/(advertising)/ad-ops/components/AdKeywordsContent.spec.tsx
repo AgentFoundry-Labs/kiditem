@@ -49,6 +49,8 @@ function proposal(
   return { actionId, approvalStatus, executeStatus, errorMessage };
 }
 
+// A keyword row is one searched keyword that drew clicks in the page period:
+// no registered/smart split, no bid, and its conversions are its orders.
 function keyword(text: string, pauseProposal: AdKeywordPauseProposal | null): AdKeywordSnapshot {
   return {
     channelAccountId: '11111111-1111-4111-8111-111111111111',
@@ -57,22 +59,18 @@ function keyword(text: string, pauseProposal: AdKeywordPauseProposal | null): Ad
     campaignName: '집중 캠페인',
     adGroup: 'group-1',
     keyword: text,
-    origin: 'smart_targeting',
+    nonSearch: text === '',
     status: null,
     onOff: null,
-    currentBid: null,
     externalOptionId: 'VID-1',
     productName: PRODUCT,
     listing: null,
-    period: '7d',
-    windowDays: 7,
     businessDate: '2026-09-14',
-    conversionsAvailable: true,
     metrics,
     relevance: pauseProposal ? 'irrelevant' : null,
     relevanceReason: pauseProposal ? `${text}은 상품과 연관이 없습니다` : null,
     pauseProposal,
-  };
+  } as AdKeywordSnapshot;
 }
 
 /** What the server records on an approved keyword pause (KID-138 decision A). */
@@ -91,8 +89,6 @@ const KEYWORDS = [
 
 function keywordsData(): AdKeywordsData {
   return {
-    period: '7d',
-    windowDays: 7,
     collectedAt: '2026-09-14T03:00:00.000Z',
     products: [
       {
@@ -102,17 +98,14 @@ function keywordsData(): AdKeywordsData {
         campaignName: '집중 캠페인',
         listing: null,
         keywordCount: KEYWORDS.length,
-        registeredCount: 0,
-        smartTargetingCount: KEYWORDS.length,
         servingCount: KEYWORDS.length,
         irrelevantCount: 6,
         unjudgedCount: 1,
-        conversionsAvailable: true,
         metrics,
       },
     ],
     keywords: KEYWORDS,
-  };
+  } as AdKeywordsData;
 }
 
 function keywordReads() {
@@ -304,8 +297,8 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
   it('approves or rejects every proposal of the expanded product awaiting review, and only those, counting them whatever the filter shows', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ updated: 2 });
     await renderExpandedProduct();
-    // The filter hides every chip; the product-wide buttons still count and send all of its proposals.
-    fireEvent.click(screen.getByRole('button', { name: '노출 0' }));
+    // The search hides every chip; the product-wide buttons still count and send all of its proposals.
+    fireEvent.change(screen.getByPlaceholderText('상품명·키워드 검색'), { target: { value: PRODUCT } });
     expect(screen.getByText('조건에 맞는 키워드가 없습니다.')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '이 상품 제안 2개 모두 승인' }));
@@ -378,5 +371,107 @@ describe('AdKeywordsContent pause proposal review (KID-138)', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(ALREADY_RAN_REFUSAL.message));
     expect(toast.success).not.toHaveBeenCalled();
     await waitFor(() => expect(keywordReads()).toBe(2));
+  });
+});
+
+describe('AdKeywordsContent over the selected period (KID-372)', () => {
+  function renderFor(period: string) {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    return render(
+      <QueryClientProvider client={client}>
+        <AdKeywordsContent period={period} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it('reads the keywords of the page period and names them the searched keywords with clicks in it', async () => {
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+      if (path === '/api/ads/keywords?period=14d') return keywordsData();
+      throw new Error(`unexpected GET ${path}`);
+    });
+    renderFor('14d');
+
+    expect(await screen.findByText('이 기간에 클릭이 있던 검색 키워드')).toBeInTheDocument();
+    expect(apiClient.get).toHaveBeenCalledWith('/api/ads/keywords?period=14d');
+  });
+
+  it('shows no registered or smart targeting split, no zero-impression filter, and labels the spend column as the executed ad spend', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(keywordsData());
+    const view = renderFor('7d');
+
+    expect(await screen.findByText(PRODUCT)).toBeInTheDocument();
+    expect(view.container).not.toHaveTextContent('스마트 타겟팅');
+    expect(view.container).not.toHaveTextContent('등록');
+    expect(screen.getByRole('columnheader', { name: '집행 광고비' })).toBeInTheDocument();
+    // A keyword table sum is not the product ad spend, so no spend summary card.
+    expect(screen.getAllByText('집행 광고비')).toHaveLength(1);
+
+    fireEvent.click(screen.getByText(PRODUCT));
+    expect(await screen.findByRole('button', { name: '노출 중' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '노출 0' })).not.toBeInTheDocument();
+  });
+
+  it('describes each chip by its clicks and orders instead of how the keyword was attached', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...keywordsData(),
+      keywords: [{ ...keyword('비눗방울', null), metrics: { ...metrics, conversions: 3 } }],
+    });
+    renderFor('7d');
+
+    fireEvent.click(await screen.findByText(PRODUCT));
+
+    const chip = await screen.findByRole('group', { name: '비눗방울' });
+    expect(chip).toHaveAttribute('title', '노출 100 · 클릭 2 · 주문 3');
+  });
+
+  it('shows the non-search row under 비검색', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...keywordsData(),
+      keywords: [keyword('', null)],
+    });
+    renderFor('7d');
+
+    fireEvent.click(await screen.findByText(PRODUCT));
+
+    expect(await screen.findByRole('group', { name: '비검색' })).toHaveTextContent('비검색');
+  });
+
+  it('does not count the non-search row as a keyword or offer to judge a product that has only it', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...keywordsData(),
+      products: [{ ...keywordsData().products[0], keywordCount: 0, servingCount: 0, irrelevantCount: 0, unjudgedCount: 0 }],
+      keywords: [keyword('', null)],
+    });
+    renderFor('7d');
+
+    fireEvent.click(await screen.findByText(PRODUCT));
+
+    expect(await screen.findByRole('group', { name: '비검색' })).toBeInTheDocument();
+    expect(screen.getByText('0 / 0개')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /이 상품만 판정/ })).not.toBeInTheDocument();
+  });
+
+  it('counts only search keywords beside the non-search row', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...keywordsData(),
+      keywords: [keyword('', null), keyword('비눗방울', null)],
+    });
+    renderFor('7d');
+
+    fireEvent.click(await screen.findByText(PRODUCT));
+
+    expect(await screen.findByText('1 / 1개')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /이 상품만 판정/ })).toBeInTheDocument();
+  });
+
+  it('says the period had no clicked search keyword and points to the ad report collection when empty', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({ collectedAt: null, products: [], keywords: [] });
+    const view = renderFor('month');
+
+    expect(await screen.findByText('이 기간에 클릭이 있던 검색 키워드가 없습니다')).toBeInTheDocument();
+    expect(view.container).toHaveTextContent('광고 보고서 수집');
+    expect(view.container).not.toHaveTextContent('광고 동기화');
   });
 });

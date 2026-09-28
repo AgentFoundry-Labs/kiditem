@@ -23,7 +23,6 @@ const UNCLASSIFIED_ABC = {
   actualCutoffDate: null,
   sources: {
     sellpia: missingAbcSource(),
-    advertising: missingAbcSource(),
     mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
   },
 };

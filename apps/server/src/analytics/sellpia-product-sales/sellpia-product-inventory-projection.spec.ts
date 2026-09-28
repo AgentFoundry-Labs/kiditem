@@ -215,7 +215,6 @@ function missingAbc(): import('@kiditem/shared/product-abc').ProductAbcReadModel
     actualCutoffDate: null,
     sources: {
       sellpia: source,
-      advertising: source,
       mapping: {
         valid: true,
         currentMappingGeneration: '0',

@@ -1,3 +1,4 @@
+import { advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import request from 'supertest';
@@ -48,6 +49,7 @@ describe('Wing rank readiness over advertising.wing_rank operations through publ
           ),
           { catalogFreshness: async () => ({ syncedAt: null }) },
           new AdvertisingKeywordRankReadAdapter(prisma as never),
+          advertisingLedgerTestReader(prisma as never),
         ),
       }],
     });

@@ -1,7 +1,7 @@
-import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD, PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD, PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
 import { SellpiaProductInventoryReader } from '../../sellpia-product-sales/sellpia-product-inventory-reader';
 import { ProductAvailabilityRepositoryAdapter } from '../../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../../products/application/service/product-availability.usecase';
@@ -11,7 +11,6 @@ import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out
 import { ProductAbcReadUseCase } from '../../../products/application/service/product-abc-read.usecase';
 import { RecalculateProductAbcUseCase } from '../../../products/application/service/recalculate-product-abc.usecase';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
@@ -27,7 +26,6 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
   let dashboard: DashboardInventoryService;
   let inventory: SellpiaProductInventoryReader;
   let sellpia: SellpiaProfitabilitySourceService;
-  let advertising: ProfitabilityAdImportRepositoryAdapter;
   let evidence: MasterProductProfitabilityReadService;
   let availability: ProductAvailabilityUseCase;
 
@@ -39,8 +37,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const alerts = new SourceFailureAlerts(prisma as never);
     const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
     sellpia = new SellpiaProfitabilitySourceService(prisma as never);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
-    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
+    evidence = new MasterProductProfitabilityReadService(sellpia, prisma as never, new ProductTransactionalReadRepositoryAdapter());
     availability = new ProductAvailabilityUseCase(
       new ProductAvailabilityRepositoryAdapter(prisma as never),
     );
@@ -53,7 +50,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       // The panel's rows come from the alerts module, not from this adapter.
       alerts,
       inventoryTransactionalRead,
-      new ProductSourceReadRepositoryAdapter(prisma as never), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content
+      new ProductSourceReadRepositoryAdapter(prisma as never), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content, advertisingLedgerTestReader(prisma as never)
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       availability,
@@ -74,11 +71,11 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(result.unclassifiedProductCount).toBe(1);
     expect(result.abcStatusCount).toEqual({
       READY: 0, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 1,
-      SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0,
+      SELLPIA_SOURCE_STALE: 0
     });
   });
 
-  it('reads a complete source pair and the explicitly published absolute evaluation in Sellpia inventory', async () => {
+  it('reads a complete Sellpia generation and the explicitly published absolute evaluation in Sellpia inventory', async () => {
     const cutoff = await publishProduct();
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{
       key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
@@ -92,12 +89,12 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     });
     expect(ownAbcStatuses(result)).toMatchObject({ inventoryProduct: 'READY' });
     expect(result.projection.summary.abcStatusCounts).toEqual({
-      READY: 1, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0, SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0,
+      READY: 1, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0, SELLPIA_SOURCE_STALE: 0
     });
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.abcStatusCount.READY).toBe(1);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
-    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
+    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD);
     expect(summary.abcContributionProfit.amountByGrade.A).toBe(result.projection.summary.abcContributionProfitByGrade.A);
     expect(summary.abcContributionProfit.amountByGrade.A).toBeGreaterThan(0);
     expect(summary.abcContributionProfit.basis).toMatchObject({
@@ -122,18 +119,10 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(asOf! <= cutoff).toBe(true);
   });
 
-  it.each(['sellpia', 'advertising'] as const)('retains the official grade and actual complete cutoff after a newer %s failure', async (source) => {
+  it('retains the official grade and actual complete cutoff after a newer Sellpia failure', async () => {
+    const source = 'sellpia';
     const cutoff = await publishProduct();
-    if (source === 'sellpia') {
-      await seedSellpiaProfitabilityOperation(prisma, { organizationId: TEST_ORGANIZATION_ID, status: 'failed' });
-    } else {
-      const attempt = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'newer-ad-failure' });
-      await advertising.failAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: attempt.attemptId,
-        // The adapter declares `{code, message}`; this passed `errorCode`/
-        // `errorMessage`, so both had been arriving undefined.
-        attemptToken: attempt.attemptToken, code: 'COLLECTION_FAILED', message: 'Provider unavailable',
-      });
-    }
+    await seedSellpiaProfitabilityOperation(prisma, { organizationId: TEST_ORGANIZATION_ID, status: 'failed' });
     const result = await inventory.project(TEST_ORGANIZATION_ID, [{
       key: 'OWN', evidence: { productCode: 'SKU-OWN', optionCode: '', barcode: null }, completeMonthly: [],
     }]);
@@ -157,7 +146,6 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
     expect(summary.abcStatusCount.READY).toBe(1);
     expect(summary.abcStatusCount.SELLPIA_SOURCE_STALE).toBe(0);
-    expect(summary.abcStatusCount.AD_SOURCE_STALE).toBe(0);
   });
 
   it('counts a carried official grade but withholds its contribution from a newer publication basis', async () => {
@@ -206,9 +194,9 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     const nextFormula = await prisma.masterProductAbcFormulaVersion.create({ data: {
       organizationId: TEST_ORGANIZATION_ID,
       formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-      version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version + 1,
+      version: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version + 1,
       formulaChecksum: 'f'.repeat(64),
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
     } });
     await prisma.masterProductAbcFormulaState.update({
       where: { organizationId: TEST_ORGANIZATION_ID },
@@ -231,7 +219,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     // and not `unavailable`, so the retained count stays on screen.
     const summary = await dashboard.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
     expect(summary.gradeCount).toEqual({ A: 1, B: 0, C: 0 });
-    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD);
+    expect(summary.abcFormula).toEqual(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD);
     expect(summary.abcContributionProfit.basis).toMatchObject({
       publicationRevision: 1,
       mappingGeneration: '0',
@@ -307,12 +295,9 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
         }];
       },
     });
-    const ad = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'analytics-ad' });
-    expect(ad.accounts).toEqual([]);
-    await advertising.finalizeAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: ad.attemptId, attemptToken: ad.attemptToken });
     const formula = await prisma.masterProductAbcFormulaVersion.create({ data: {
-      organizationId: TEST_ORGANIZATION_ID, formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version,
-      formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH, formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+      organizationId: TEST_ORGANIZATION_ID, formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version,
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH, formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
     } });
     await prisma.masterProductAbcFormulaState.upsert({ where: { organizationId: TEST_ORGANIZATION_ID },
       create: { organizationId: TEST_ORGANIZATION_ID, activeFormulaVersionId: formula.id, formulaRevision: 1 },

@@ -10,8 +10,8 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AlertsModule } from '../../alerts/alerts.module';
 import { AiModule } from '../../content/ai.module';
 import { ChannelsModule } from '../../channels/channels.module';
-import { AdvertisingProfitabilityReadModule } from '../advertising-profitability-read.module';
 import { OperationModule } from '../../common/operation/operation.module';
+import { AdvertisingLedgerReadModule } from '../advertising-ledger-read.module';
 
 describe('AdvertisingModule retained wiring', () => {
   it('uses direct Advertising source owners and the operation contract for the Wing daily kinds (KID-362)', () => {
@@ -24,8 +24,8 @@ describe('AdvertisingModule retained wiring', () => {
       AlertsModule,
       AiModule,
       ChannelsModule,
-      AdvertisingProfitabilityReadModule,
       OperationModule,
+      AdvertisingLedgerReadModule,
     ]);
     const providerNames = (Reflect.getMetadata('providers', AdvertisingModule) ?? [])
       .map((provider: Function | { provide?: unknown }) =>

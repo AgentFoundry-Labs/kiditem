@@ -5,11 +5,15 @@ import {
   UnprocessableEntityException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
-import { readMonthlyAdAllocationPublication } from '../../../../advertising/adapter/out/persistence/read/monthly-ad-allocation.reader';
+import {
+  ADVERTISING_LEDGER_READ_PORT,
+  type AdvertisingLedgerReadPort,
+} from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
 import { readExactSellpiaProductMonthlyFacts } from '../../../../analytics/sellpia-product-sales/read/sellpia-product-monthly-facts';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -27,7 +31,6 @@ type RawContributionRow = Readonly<{
   basisCutoffDate: Date | string;
   sourceCutoffDate: Date | string | null;
   sellpiaOperationId: string | null;
-  advertisingSourceImportRunId: string | null;
   revenueTotal: unknown;
   positiveOperatingProfitTotal: unknown;
   lossMagnitudeTotal: unknown;
@@ -68,6 +71,8 @@ export class MasterProductContributionRepositoryAdapter
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products: ProductTransactionalReadPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT)
+    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readMonthlyAdAllocation'>,
   ) {}
 
   async readContribution(
@@ -93,23 +98,11 @@ export class MasterProductContributionRepositoryAdapter
         coverage_start_date: fact.coverageStartDate?.toISOString().slice(0, 10) ?? null,
         coverage_end_date: fact.coverageEndDate?.toISOString().slice(0, 10) ?? null,
       })));
-      const advertisingPublication = input.advertisingSourceImportRunId
-        ? await readMonthlyAdAllocationPublication(tx, {
-          organizationId: input.organizationId,
-          sourceImportRunId: input.advertisingSourceImportRunId,
-        })
-        : null;
-      const advertisingAllocations = JSON.stringify(
-        advertisingPublication?.allocations.map((fact) => ({
-          master_product_id: fact.masterProductId,
-          month: fact.month,
-          covered_start_date: fact.coveredStartDate,
-          covered_end_date: fact.coveredEndDate,
-          mapping_generation: fact.mappingGeneration,
-          observed_target_day_count: fact.observedTargetDayCount,
-          allocated_spend: fact.allocatedSpend,
-        })) ?? [],
-      );
+      const advertising = await readAdvertisingCosts(this.adLedger, tx, input);
+      const advertisingAllocations = JSON.stringify(advertising.costs.map((fact) => ({
+        master_product_id: fact.masterProductId,
+        advertising_cost: fact.advertisingCost,
+      })));
       const productIdentities = await this.products.readSourceIdentities(
         { client: tx },
         {
@@ -129,7 +122,6 @@ export class MasterProductContributionRepositoryAdapter
       WITH params AS (
         SELECT
           ${input.organizationId}::uuid AS organization_id,
-          ${input.advertisingSourceImportRunId}::uuid AS advertising_source_import_run_id,
           ${input.basisFromDate}::date AS basis_from_date,
           ${input.basisCutoffDate}::date AS basis_cutoff_date,
           ${sellpia.generation?.id ?? null}::uuid AS sellpia_id,
@@ -138,26 +130,9 @@ export class MasterProductContributionRepositoryAdapter
           ${sellpia.generation?.coverageStartDate ?? null}::date AS sellpia_coverage_start_date,
           ${sellpia.generation?.coverageEndDate ?? null}::date AS sellpia_coverage_end_date,
           ${sellpia.generation?.coveredMonths ?? []}::text[] AS sellpia_covered_months,
-          ${advertisingPublication !== null}::boolean AS advertising_publication_ready,
+          ${advertising.ready}::boolean AS advertising_ready,
           ${advertisingAllocations}::jsonb AS advertising_allocations,
           ${currentMasterProductIdsSql} AS current_master_product_ids
-      ),
-      source_candidates AS (
-        SELECT
-          p.*,
-          advertising.id AS advertising_id,
-          advertising.status AS advertising_attempt_status,
-          advertising.publication_sequence AS advertising_publication_sequence,
-          advertising.mapping_generation AS advertising_mapping_generation,
-          advertising.coverage_start_date AS advertising_coverage_start_date,
-          advertising.coverage_end_date AS advertising_coverage_end_date,
-          advertising.covered_months AS advertising_covered_months,
-          advertising.ad_source_policy_hash AS advertising_source_policy_hash
-        FROM params p
-        LEFT JOIN source_import_runs advertising
-          ON advertising.id = p.advertising_source_import_run_id
-         AND advertising.organization_id = p.organization_id
-         AND advertising.source_type = 'coupang_ad_profitability'
       ),
       validated_manifests AS (
         SELECT
@@ -180,46 +155,16 @@ export class MasterProductContributionRepositoryAdapter
               )
             ),
             FALSE
-          ) AS sellpia_ready,
-          COALESCE(
-            candidates.advertising_attempt_status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-            AND candidates.advertising_publication_ready
-            AND candidates.advertising_publication_sequence IS NOT NULL
-            AND candidates.advertising_mapping_generation IS NOT NULL
-            AND candidates.advertising_source_policy_hash
-              = ${PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH}
-            AND candidates.advertising_coverage_start_date <= candidates.basis_from_date
-            AND candidates.advertising_coverage_end_date >= candidates.basis_cutoff_date
-            AND NOT EXISTS (
-              SELECT 1
-              FROM generate_series(
-                date_trunc('month', candidates.basis_from_date)::date,
-                date_trunc('month', candidates.basis_cutoff_date)::date,
-                interval '1 month'
-              ) AS required_month(month_start)
-              WHERE NOT (
-                to_char(required_month.month_start, 'YYYY-MM')
-                = ANY(candidates.advertising_covered_months)
-              )
-            ),
-            FALSE
-          ) AS advertising_ready
-        FROM source_candidates candidates
+          ) AS sellpia_ready
+        FROM params candidates
       ),
       source_status AS (
         SELECT
           manifests.*,
-          manifests.sellpia_ready
-            AND manifests.advertising_ready
-            AND manifests.sellpia_mapping_generation = manifests.advertising_mapping_generation
-            AS mapping_ready,
+          manifests.sellpia_ready AND manifests.advertising_ready AS mapping_ready,
           CASE
-            WHEN manifests.sellpia_id IS NULL AND manifests.advertising_id IS NULL THEN NULL
-            ELSE LEAST(
-              manifests.basis_cutoff_date,
-              manifests.sellpia_coverage_end_date,
-              manifests.advertising_coverage_end_date
-            )
+            WHEN manifests.sellpia_id IS NULL THEN NULL
+            ELSE LEAST(manifests.basis_cutoff_date, manifests.sellpia_coverage_end_date)
           END AS source_cutoff_date
         FROM validated_manifests manifests
       ),
@@ -267,31 +212,14 @@ export class MasterProductContributionRepositoryAdapter
       advertising_amounts AS (
         SELECT
           facts.master_product_id,
-          SUM(facts.allocated_spend)::numeric AS advertising_spend,
-          BOOL_AND(
-            facts.allocated_spend >= 0
-            AND facts.observed_target_day_count > 0
-            AND facts.mapping_generation = status.advertising_mapping_generation
-            AND facts.covered_start_date <= facts.covered_end_date
-            AND facts.covered_start_date >= status.basis_from_date
-            AND facts.covered_end_date <= status.basis_cutoff_date
-          ) AS fact_ready
+          facts.advertising_cost::numeric AS advertising_spend,
+          TRUE AS fact_ready
         FROM source_status status
         JOIN LATERAL jsonb_to_recordset(status.advertising_allocations) AS facts(
           master_product_id uuid,
-          month date,
-          covered_start_date date,
-          covered_end_date date,
-          mapping_generation bigint,
-          observed_target_day_count integer,
-          allocated_spend numeric
+          advertising_cost bigint
         ) ON status.advertising_ready
-        WHERE facts.month BETWEEN date_trunc('month', status.basis_from_date)::date
-                              AND status.basis_cutoff_date
-          AND facts.master_product_id = ANY(status.current_master_product_ids)
-          AND facts.covered_start_date <= status.basis_cutoff_date
-          AND facts.covered_end_date >= status.basis_from_date
-        GROUP BY facts.master_product_id
+        WHERE facts.master_product_id = ANY(status.current_master_product_ids)
       ),
       product_population AS (
         SELECT master_product_id FROM sellpia_amounts
@@ -485,7 +413,6 @@ export class MasterProductContributionRepositoryAdapter
         summary.basis_cutoff_date AS "basisCutoffDate",
         summary.source_cutoff_date AS "sourceCutoffDate",
         summary.sellpia_id AS "sellpiaOperationId",
-        summary.advertising_id AS "advertisingSourceImportRunId",
         CASE
           WHEN summary.sellpia_ready THEN COALESCE(summary.revenue_total, 0)::text
           ELSE NULL
@@ -547,7 +474,6 @@ export class MasterProductContributionRepositoryAdapter
         cutoffDate: calendarDate(summary.basisCutoffDate),
         sourceCutoffDate: nullableCalendarDate(summary.sourceCutoffDate),
         sellpiaOperationId: summary.sellpiaOperationId,
-        advertisingSourceImportRunId: summary.advertisingSourceImportRunId,
       },
       totals: {
         revenue: contributionMoney(summary.revenueTotal),
@@ -596,6 +522,60 @@ export class MasterProductContributionRepositoryAdapter
       }]),
     } satisfies MasterProductContributionAnalytics;
   }
+}
+
+/**
+ * Advertising's side of operating profit (KID-372): with no active Coupang
+ * account it is Not applied (ready, no cost); otherwise every day of the basis
+ * must be a measured ad-report day, and each source product's cost is its
+ * monthly allocation of billed spend over those days, VAT included and rounded
+ * once per product (`profitAdCost`). The account adjustment belongs to no
+ * product and stays out of contribution.
+ */
+async function readAdvertisingCosts(
+  adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readMonthlyAdAllocation'>,
+  tx: Prisma.TransactionClient,
+  input: MasterProductContributionRepositoryReadInput,
+): Promise<{ ready: boolean; costs: Array<{ masterProductId: string; advertisingCost: number }> }> {
+  const transaction = ownerTransaction(tx);
+  if (!(await adLedger.advertisingApplies(transaction, input.organizationId))) {
+    return { ready: true, costs: [] };
+  }
+  const to = shiftBusinessDateKey(input.basisCutoffDate, 1);
+  const coverage = await adLedger.readAdCoverage(transaction, {
+    organizationId: input.organizationId,
+    from: input.basisFromDate,
+    to,
+  });
+  const basisDays = daysBetween(input.basisFromDate, input.basisCutoffDate);
+  if (coverage.measuredDates.length !== basisDays) return { ready: false, costs: [] };
+  const allocations = await adLedger.readMonthlyAdAllocation(transaction, {
+    organizationId: input.organizationId,
+    months: yearMonths(input.basisFromDate, input.basisCutoffDate),
+    from: input.basisFromDate,
+    to,
+  });
+  const billedByProduct = new Map<string, number>();
+  for (const allocation of allocations) {
+    billedByProduct.set(
+      allocation.masterProductId,
+      (billedByProduct.get(allocation.masterProductId) ?? 0) + allocation.allocatedBilledSpend,
+    );
+  }
+  return {
+    ready: true,
+    costs: [...billedByProduct].map(([masterProductId, billedSpend]) => ({
+      masterProductId,
+      advertisingCost: profitAdCost({ billedSpend }),
+    })),
+  };
+}
+
+/** Calendar days of an inclusive `[from, to]` basis. */
+function daysBetween(fromDate: string, cutoffDate: string): number {
+  let days = 0;
+  for (let day = fromDate; day <= cutoffDate; day = shiftBusinessDateKey(day, 1)) days += 1;
+  return days;
 }
 
 function finalProductFilter(masterProductIds: readonly string[] | undefined): Prisma.Sql {

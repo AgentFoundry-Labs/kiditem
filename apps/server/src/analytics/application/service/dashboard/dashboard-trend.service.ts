@@ -103,10 +103,12 @@ export class DashboardTrendService {
         const revenue = hasOrderRow ? orderRev : hasWingRow ? wingRev : null;
 
         // Account owner ads are the only account-level ad source. A collected
-        // zero is valid; absence is unknown rather than a fabricated zero.
+        // zero is valid; absence is unknown rather than a fabricated zero. The
+        // trend is a profit chart, so it charts the profit ad cost (billed plus
+        // account adjustment, VAT included — KID-368), not delivered spend.
         const adRow = coupangAdsByDate.get(date);
         const adCost = adRow !== undefined
-          ? Number(adRow.ad_cost)
+          ? Math.round(Number(adRow.profit_ad_cost))
           : dailyProfit?.adCost ?? null;
         const ownerAdEvidence = dailyProfit?.hasAdEvidence === true
           && dailyProfit.adCost !== null;

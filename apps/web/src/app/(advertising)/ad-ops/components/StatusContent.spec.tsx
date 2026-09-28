@@ -9,11 +9,10 @@ const mockApiGet = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api-client", () => ({
   apiClient: { get: mockApiGet },
 }));
-// The status tab's chart, side panel and profitability card read their own
-// sources; the itemwinner card is the surface under test.
+// The status tab's chart and side panel read their own sources; the
+// collection cards are the surface under test.
 vi.mock("./AdCollectionDailyChart", () => ({ default: () => null }));
 vi.mock("./AdSidePanel", () => ({ default: () => null }));
-vi.mock("./AdvertisingProfitabilityRefresh", () => ({ default: () => null }));
 
 function wrapper(children: React.ReactNode) {
   return (
@@ -36,7 +35,6 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
     campaignName: "중단 캠페인",
     period: "14d",
     metricsAvailable: false,
-    conversionsAvailable: false,
     status: "OFF",
     onOff: "OFF",
     metrics: {
@@ -50,7 +48,7 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
       cvr: null,
     },
     ...overrides,
-  };
+  } as AdCampaignSnapshot;
 }
 
 describe("wingKpiCount", () => {
@@ -120,6 +118,9 @@ describe("StatusContent", () => {
 
     expect(screen.getByRole("heading", { name: "광고 보고서" })).toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "광고 보고서 수집" })).toBeEnabled();
+    // The ad report is the one ad collector: no separate product ad spend report.
+    expect(screen.queryByText("상품별 광고비 보고서")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "상품별 광고비 보고서 수집" })).not.toBeInTheDocument();
   });
 });
 
@@ -158,7 +159,6 @@ describe("CampaignSummary", () => {
       campaignIdentity: "campaign:on",
       campaignName: "운영 캠페인",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
       metrics: {
@@ -185,6 +185,7 @@ describe("CampaignSummary", () => {
     const activeButton = screen.getByRole("button", { name: /운영 캠페인ON/ });
     expect(activeButton).toBeEnabled();
     expect(within(activeButton).getByText("ROAS 500%")).toHaveClass("text-emerald-600");
+    expect(activeButton).toHaveTextContent("클릭 10 · 전환 2");
     expect(screen.queryByText(/중단 캠페인/)).not.toBeInTheDocument();
   });
 
@@ -196,7 +197,6 @@ describe("CampaignSummary", () => {
       campaignIdentity: "campaign:unknown-roas",
       campaignName: "ROAS 미수집",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
     });
@@ -204,7 +204,6 @@ describe("CampaignSummary", () => {
       campaignIdentity: "campaign:zero-roas",
       campaignName: "ROAS 0",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
       metrics: {

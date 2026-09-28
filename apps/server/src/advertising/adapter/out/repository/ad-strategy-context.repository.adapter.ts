@@ -1,5 +1,6 @@
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../application/port/in/capability/advertising-ledger-read.port';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -12,7 +13,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, type KstQueryWindow } from '../../../../common/kst';
-import { readListingAdWindowFacts } from '../persistence/read/ad-target-facts';
+import { activeAdAccountIds, AD_SWEEP_CHANNEL } from '../../../domain/ad-sweep-coverage';
+import {
+  AD_LEDGER_READ_REPOSITORY_PORT,
+  type AdLedgerReadRepositoryPort,
+} from '../../../application/port/out/repository/ad-ledger-read.repository.port';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
 import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import {
@@ -51,6 +56,8 @@ export class AdStrategyContextRepositoryAdapter
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
+    @Inject(AD_LEDGER_READ_REPOSITORY_PORT) private readonly ledger: AdLedgerReadRepositoryPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async loadStrategyContext(
@@ -81,13 +88,19 @@ export class AdStrategyContextRepositoryAdapter
     const range = periodBounds(period);
 
     // The period's `to` is an inclusive business date; both readers take a
-    // half-open window, so the bound is the day after.
+    // half-open window, so the bound is the day after. Per-listing ad sums
+    // come from the ad report ledger's measured days (KID-372).
     const windowEnd = addDays(range.to, 1);
-    const adAgg = await readListingAdWindowFacts(tx, {
+    const identities = await this.channelAccounts.readProviderIdentities(ownerTransaction(tx), {
       organizationId,
-      from: range.from,
-      to: windowEnd,
-    }, this.channelAccounts);
+      channel: AD_SWEEP_CHANNEL,
+    });
+    const adAgg = await this.ledger.readListingAdWindowFacts(ownerTransaction(tx), {
+      organizationId,
+      activeAccountIds: activeAdAccountIds(identities),
+      from: businessDateKey(range.from),
+      to: businessDateKey(windowEnd),
+    });
 
     const listingIds = uniqueIds([
       ...adAgg.map((a) => a.listingId),
@@ -111,7 +124,7 @@ export class AdStrategyContextRepositoryAdapter
       tx,
       organizationId,
       profitWindow.from,
-      profitWindow.to, this.channelAccounts
+      profitWindow.to, this.adLedger
     );
     const coverage = await buildPerListingMetricsCoverage(
       tx,
@@ -120,7 +133,7 @@ export class AdStrategyContextRepositoryAdapter
       profitWindow.to,
       accountAdEvidence,
       listingIdSet,
-      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
+      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
     );
     const channelStateByListing = await this.loadChannelStateByListingIn(
       tx,

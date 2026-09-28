@@ -43,12 +43,12 @@ describe('KpiDashboard', () => {
     expect(screen.getByText('5,154원')).toBeInTheDocument();
     expect(screen.getByText('250건')).toBeInTheDocument();
     expect(screen.getByText('679.5%')).toBeInTheDocument();
-    expect(screen.getByText('광고비/전환매출')).toBeInTheDocument();
+    expect(screen.getByText('집행 광고비/전환매출')).toBeInTheDocument();
     expect(screen.getByText('14.7%')).toBeInTheDocument();
     expect(screen.getByText('2.5%')).toBeInTheDocument();
     expect(screen.getByText('8.3%')).toBeInTheDocument();
     expect(
-      screen.getAllByText('이번달 중 측정 23일 · 쿠팡 광고 캠페인 합산 · 2026-07-23까지'),
+      screen.getAllByText('이번달 중 측정 23일 · 쿠팡 광고 보고서 · 2026-07-23까지'),
     ).toHaveLength(2);
   });
 
@@ -72,7 +72,7 @@ describe('KpiDashboard', () => {
     expect(screen.queryAllByText(/^0(원|건|%)?$/)).toEqual([]);
   });
 
-  it('keeps measured zeros while unmeasured ratios and conversion counts stay unknown', () => {
+  it('keeps measured zeros (conversions are always measured) while unmeasured ratios stay unknown', () => {
     render(
       <KpiDashboard
         period="7d"
@@ -83,7 +83,7 @@ describe('KpiDashboard', () => {
             revenue: 0,
             impressions: 0,
             clicks: 0,
-            conversions: null,
+            conversions: 0,
             roas: null,
             ctr: null,
             cvr: null,
@@ -95,7 +95,7 @@ describe('KpiDashboard', () => {
 
     expect(screen.getAllByText('0')).toHaveLength(4);
     expect(screen.getAllByText('0원')).toHaveLength(2);
-    expect(screen.getAllByText('-')).toHaveLength(7);
+    expect(screen.getAllByText('-')).toHaveLength(6);
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
   });

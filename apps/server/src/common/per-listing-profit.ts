@@ -25,11 +25,8 @@ import {
   kstWindowDateRange,
   type KstQueryWindow,
 } from './kst';
-import {
-  advertisingApplies,
-  readAdWindowFacts,
-  readListingAdWindowFacts,
-} from '../advertising/adapter/out/persistence/read/ad-target-facts';
+import type { AdvertisingLedgerReadPort } from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { profitAdCost } from '../advertising/domain/ad-spend-rule';
 import {
   adSweepCoversChannelAccount,
   advertisingAppliesToSale,
@@ -49,7 +46,14 @@ export interface ProfitCatalogReaders {
   recipes: Pick<ChannelOptionRecipePort, 'readListingProductSummaries'>;
   accounts: Pick<ChannelAccountPort, 'findByIds' | 'readProviderIdentities'>;
   content: Pick<ListingContentQueryPort, 'readLatestListingThumbnails'>;
+  ads: ProfitAdReader;
 }
+
+/** Advertising's ledger capability, as the profit projection reads it (KID-372). */
+export type ProfitAdReader = Pick<
+  AdvertisingLedgerReadPort,
+  'advertisingApplies' | 'readAdWindowFacts' | 'readListingAdWindowFacts'
+>;
 
 /**
  * Per-listing and window profit over live owner facts, shared by finance
@@ -58,7 +62,7 @@ export interface ProfitCatalogReaders {
  *
  * Every input comes from its owner's reader: order lines from a completed
  * Orders collection, purchase prices from Inventory, advertising from the
- * target-day ledger and grades from the current Products publication. The
+ * ad-report ledger (billed spend, KID-368) and grades from the current Products publication. The
  * reads run in the caller's transaction; this module owns no state.
  *
  * ADR-0006 on both sides of a profit:
@@ -131,10 +135,14 @@ export interface PerListingMetrics extends PerListingProfit {
 export interface AccountAdEvidence {
   /** False when the organization has no Coupang channel account, so advertising does not apply. */
   hasAdAccount: boolean;
-  /** Business dates the sweep measured inside the window. */
+  /** Business dates the ad report measured inside the window. */
   publishedDates: number;
-  /** Ad spend summed over those measured dates. */
+  /** Delivered spend (performance basis) summed over those measured dates. */
   accountSpend: number;
+  /** Billed spend on product rows (profit basis, before VAT) over those dates. */
+  accountBilledSpend: number;
+  /** Billed spend of the account adjustment rows (campaign key '') over those dates, before VAT. */
+  accountAdjustment: number;
   /** Whether the sweep measured **every** business date in the window. */
   coversWindow: boolean;
 }
@@ -212,13 +220,14 @@ export interface ProfitWindowFacts {
    */
   unallocatedShipping: number;
   ad: AdWindowEvidence;
-  listingAdSpend: ReadonlyMap<string, number>;
+  /** Billed spend per listing over the measured dates (profit basis, before VAT). */
+  listingBilledSpend: ReadonlyMap<string, number>;
   gradeByProductId: ReadonlyMap<string, string>;
 }
 
 type ProfitRowFacts = Pick<
   ProfitWindowFacts,
-  'orderWindow' | 'lines' | 'listingAdSpend' | 'gradeByProductId'
+  'orderWindow' | 'lines' | 'listingBilledSpend' | 'gradeByProductId'
 > & { ad: AccountAdEvidence };
 
 async function readAdWindowEvidence(
@@ -226,20 +235,27 @@ async function readAdWindowEvidence(
   organizationId: string,
   from: Date,
   to: Date,
-  accounts: ProfitCatalogReaders['accounts'],
+  ads: Pick<ProfitAdReader, 'advertisingApplies' | 'readAdWindowFacts'>,
 ): Promise<AdWindowEvidence> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
   const requestedDates = datesInclusive(businessDateFrom, addDays(businessDateTo, -1))
     .map(businessDateKey);
-  const hasAdAccount = await advertisingApplies(tx, organizationId, accounts);
+  const transaction = ownerTransaction(tx);
+  const hasAdAccount = await ads.advertisingApplies(transaction, organizationId);
   const days = requestedDates.length === 0
     ? []
-    : (await readAdWindowFacts(tx, { organizationId, from: businessDateFrom, to: businessDateTo }, accounts)).days;
+    : (await ads.readAdWindowFacts(transaction, {
+      organizationId,
+      from: businessDateKey(businessDateFrom),
+      to: businessDateKey(businessDateTo),
+    })).days;
   return {
     hasAdAccount,
     publishedDates: days.length,
     accountSpend: days.reduce((sum, day) => sum + day.spend, 0),
+    accountBilledSpend: days.reduce((sum, day) => sum + day.billedSpend, 0),
+    accountAdjustment: days.reduce((sum, day) => sum + day.adjustment, 0),
     coversWindow: requestedDates.length > 0 && days.length === requestedDates.length,
     requestedDates,
     measuredDates: days.map((day) => day.businessDate),
@@ -249,19 +265,19 @@ async function readAdWindowEvidence(
 /**
  * The window answer, read from the advertising ledger: whether advertising
  * applies (no Coupang account, nothing to collect), how many business dates
- * of the window the campaign sweep measured, what it spent across them, and
- * whether every date in the window was measured.
+ * of the window the ad report measured, what it delivered and billed across
+ * them, and whether every date in the window was measured.
  */
 export async function readAdEvidenceFromLedger(
   tx: Prisma.TransactionClient,
   organizationId: string,
   from: Date,
   to: Date,
-  accounts: ProfitCatalogReaders['accounts'],
+  ads: Pick<ProfitAdReader, 'advertisingApplies' | 'readAdWindowFacts'>,
 ): Promise<AccountAdEvidence> {
-  const { hasAdAccount, publishedDates, accountSpend, coversWindow } =
-    await readAdWindowEvidence(tx, organizationId, from, to, accounts);
-  return { hasAdAccount, publishedDates, accountSpend, coversWindow };
+  const { requestedDates: _requested, measuredDates: _measured, ...evidence } =
+    await readAdWindowEvidence(tx, organizationId, from, to, ads);
+  return evidence;
 }
 
 async function readProfitLines(
@@ -410,19 +426,19 @@ async function readProfitLines(
   };
 }
 
-async function readListingAdSpend(
+async function readListingBilledSpend(
   tx: Prisma.TransactionClient,
   organizationId: string,
   from: Date,
   to: Date,
-  accounts: ProfitCatalogReaders['accounts'],
+  ads: ProfitAdReader,
 ): Promise<ReadonlyMap<string, number>> {
-  const rows = await readListingAdWindowFacts(tx, {
+  const rows = await ads.readListingAdWindowFacts(ownerTransaction(tx), {
     organizationId,
-    from: kstBusinessDate(from),
-    to: kstBusinessDate(to),
-  }, accounts);
-  return new Map(rows.map((row) => [row.listingId, row.spend]));
+    from: businessDateKey(kstBusinessDate(from)),
+    to: businessDateKey(kstBusinessDate(to)),
+  });
+  return new Map(rows.map((row) => [row.listingId, row.billedSpend]));
 }
 
 async function readGrades(
@@ -451,11 +467,11 @@ export async function readProfitWindowFacts(
   catalog: ProfitCatalogReaders,
 ): Promise<ProfitWindowFacts> {
   const { from, to } = window.effective;
-  const ad = await readAdWindowEvidence(tx, organizationId, from, to, catalog.accounts);
+  const ad = await readAdWindowEvidence(tx, organizationId, from, to, catalog.ads);
   const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory, catalog);
-  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to, catalog.accounts);
+  const listingBilledSpend = await readListingBilledSpend(tx, organizationId, from, to, catalog.ads);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
-  return { ...lineFacts, window, ad, listingAdSpend, gradeByProductId };
+  return { ...lineFacts, window, ad, listingBilledSpend, gradeByProductId };
 }
 
 /**
@@ -467,12 +483,12 @@ export async function readProfitWindowFacts(
 export function advertisingAppliesToListing(
   ad: Pick<AccountAdEvidence, 'hasAdAccount'>,
   listing: Pick<ProfitListingIdentity, 'adSweepCovers' | 'listingId'>,
-  listingAdSpend: ReadonlyMap<string, number>,
+  listingBilledSpend: ReadonlyMap<string, number>,
 ): boolean {
   return advertisingAppliesToSale({
     organizationAdvertises: ad.hasAdAccount,
     sweepCoversAccount: listing.adSweepCovers,
-    hasMeasuredSpend: listingAdSpend.has(listing.listingId),
+    hasMeasuredSpend: listingBilledSpend.has(listing.listingId),
   });
 }
 
@@ -517,18 +533,18 @@ export function addOrUnavailable(total: number | null, value: number | null): nu
  * - A window the sweep measured no date of, or only part of. A sum over 3 of
  *   30 requested days proves nothing about the other 27, so the cost is
  *   unavailable.
- * - A fully measured window. The sweep looked at every listing on every
- *   measured date, so a listing's cost is the sum of its rows and a listing
- *   without a row spent nothing.
+ * - A fully measured window. The report looked at every listing on every
+ *   measured date, so a listing's cost is its billed spend plus VAT
+ *   (`profitAdCost`) and a listing without a row spent nothing.
  */
 function listingAdCost(
   ad: AccountAdEvidence,
-  listingAdSpend: ReadonlyMap<string, number>,
+  listingBilledSpend: ReadonlyMap<string, number>,
   listing: ProfitListingIdentity,
 ): number | null {
-  if (!advertisingAppliesToListing(ad, listing, listingAdSpend)) return 0;
+  if (!advertisingAppliesToListing(ad, listing, listingBilledSpend)) return 0;
   if (ad.publishedDates === 0 || !ad.coversWindow) return null;
-  return listingAdSpend.has(listing.listingId) ? listingAdSpend.get(listing.listingId)! : 0;
+  return profitAdCost({ billedSpend: listingBilledSpend.get(listing.listingId) ?? 0 });
 }
 
 /**
@@ -576,10 +592,10 @@ export function perListingProfitRows(facts: ProfitRowFacts): PerListingProfit[] 
     const costOfGoods = roundOrUnavailable(group.costOfGoods);
     const commission = roundOrUnavailable(group.commission);
     const otherCost = roundOrUnavailable(group.otherCost);
-    const adCost = listingAdCost(facts.ad, facts.listingAdSpend, identity);
+    const adCost = listingAdCost(facts.ad, facts.listingBilledSpend, identity);
     const costs = totalOrUnavailable([costOfGoods, commission, otherCost, adCost]);
     const datesAligned = profitDatesAligned(
-      advertisingAppliesToListing(facts.ad, identity, facts.listingAdSpend),
+      advertisingAppliesToListing(facts.ad, identity, facts.listingBilledSpend),
       facts.orderWindow,
     );
     const netProfit = !datesAligned || costs === null
@@ -626,11 +642,12 @@ function lineCostsComplete(facts: Pick<ProfitWindowFacts, 'lines' | 'unmappedLin
 export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotals {
   const revenue = facts.orderWindow.revenue;
   const hasClosedDates = facts.orderWindow.requestedDates.length > 0;
-  const adCost = !hasClosedDates
-    ? null
-    : !facts.ad.hasAdAccount
-      ? 0
-      : facts.ad.coversWindow ? Math.round(facts.ad.accountSpend) : null;
+  const adMeasured = hasClosedDates && (!facts.ad.hasAdAccount || facts.ad.coversWindow);
+  const accountBilledSpend = facts.ad.hasAdAccount ? facts.ad.accountBilledSpend : 0;
+  const accountAdjustment = facts.ad.hasAdAccount ? facts.ad.accountAdjustment : 0;
+  const adCost = adMeasured
+    ? profitAdCost({ billedSpend: accountBilledSpend, adjustment: accountAdjustment })
+    : null;
   const lineCosts = lineCostsComplete(facts)
     ? Math.round(facts.lines.reduce(
       (sum, line) => sum + line.costOfGoods! + line.commission! + line.otherCost!,
@@ -652,30 +669,33 @@ export function profitWindowTotals(facts: ProfitWindowFacts): FinanceWindowTotal
     adCostRate: revenue === null || adCost === null || revenue <= 0
       ? null
       : Math.round((adCost / revenue) * 1000) / 10,
-    unallocatedAdCost: adCost === null ? null : Math.round(adParts.unsoldListingSpend),
-    adCostGrainDifference: adCost === null ? null : Math.round(adParts.grainDifference),
+    unallocatedAdCost: adCost === null ? null : profitAdCost({ billedSpend: adParts.unsoldListingBilledSpend }),
+    unmatchedAdCost: adCost === null
+      ? null
+      : profitAdCost({ billedSpend: accountBilledSpend - adParts.listingBilledSpend }),
+    adAccountAdjustment: adCost === null ? null : profitAdCost({ billedSpend: 0, adjustment: accountAdjustment }),
     unallocatedShipping: revenue === null ? null : Math.round(facts.unallocatedShipping),
   } satisfies FinanceWindowTotals;
 }
 
 /**
- * The parts of the window's ad cost no product row carries, from exact spend:
- * listing-grain spend on listings with no collected line, and the account
- * total (campaign grain where a campaign row exists) minus listing-grain spend
- * over every listing. Rows carry the rest; rounding is never a part.
+ * The parts of the window's ad cost no product row carries, from exact billed
+ * spend: listings with no collected line, and — through the listing total —
+ * report rows matched to no listing (account billed spend minus every
+ * listing's). The account adjustment is its own line (`adAccountAdjustment`).
+ * Rounding is never a part.
  */
 function adCostParts(
-  facts: Pick<ProfitWindowFacts, 'ad' | 'lines' | 'listingAdSpend'>,
-): { unsoldListingSpend: number; grainDifference: number } {
+  facts: Pick<ProfitWindowFacts, 'lines' | 'listingBilledSpend'>,
+): { unsoldListingBilledSpend: number; listingBilledSpend: number } {
   const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
-  let listingSpend = 0;
-  let unsoldListingSpend = 0;
-  for (const [listingId, spend] of facts.listingAdSpend) {
-    listingSpend += spend;
-    if (!soldListingIds.has(listingId)) unsoldListingSpend += spend;
+  let unsoldListingBilledSpend = 0;
+  let listingBilledSpend = 0;
+  for (const [listingId, billedSpend] of facts.listingBilledSpend) {
+    listingBilledSpend += billedSpend;
+    if (!soldListingIds.has(listingId)) unsoldListingBilledSpend += billedSpend;
   }
-  const accountSpend = facts.ad.hasAdAccount ? facts.ad.accountSpend : 0;
-  return { unsoldListingSpend, grainDifference: accountSpend - listingSpend };
+  return { unsoldListingBilledSpend, listingBilledSpend };
 }
 
 /** The basis of values counted from collected order lines alone, over the evaluated window. */
@@ -700,7 +720,7 @@ function costInputsBasis(facts: ProfitWindowFacts): FinanceCostInputsBasis {
   let advertisingNotApplied = 0;
   let advertisingUnmeasured = 0;
   for (const line of facts.lines) {
-    if (!advertisingAppliesToListing(facts.ad, line.listing, facts.listingAdSpend)) {
+    if (!advertisingAppliesToListing(facts.ad, line.listing, facts.listingBilledSpend)) {
       advertisingNotApplied += 1;
     } else if (!advertisingMeasured) {
       advertisingUnmeasured += 1;
@@ -786,7 +806,7 @@ async function readPerListingProfit(
   catalog: ProfitCatalogReaders,
 ): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
   const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory, catalog);
-  const listingAdSpend = await readListingAdSpend(tx, organizationId, from, to, catalog.accounts);
+  const listingBilledSpend = await readListingBilledSpend(tx, organizationId, from, to, catalog.ads);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return {
     orderWindow: lineFacts.orderWindow,
@@ -794,7 +814,7 @@ async function readPerListingProfit(
       orderWindow: lineFacts.orderWindow,
       lines: lineFacts.lines,
       ad: accountAdEvidence,
-      listingAdSpend,
+      listingBilledSpend,
       gradeByProductId,
     }),
   };

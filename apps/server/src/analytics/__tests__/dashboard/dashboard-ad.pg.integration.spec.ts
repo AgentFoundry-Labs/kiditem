@@ -19,7 +19,7 @@ import {
   OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
-import { seedAd, seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import { addDays, businessDateKey, evidenceCutoffDate } from '../../../common/kst';
 import type { PrismaClient } from '@prisma/client';
 
@@ -127,35 +127,32 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     const windowStart = businessDateKey(addDays(businessDate, -40));
     const runs = new Map<string, string>();
     for (const organizationId of [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID]) {
-      runs.set(organizationId, await seedCompletedAdSweepRun(prisma, {
+      runs.set(organizationId, await seedAdReportWindow(prisma, {
         organizationId,
-        generation: 1,
-        window: { startDate: windowStart, endDate: date },
+        start: windowStart, end: date,
       }));
     }
     // TEST measured ad day — spend 500
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listingT.id,
-      runId: runs.get(TEST_ORGANIZATION_ID),
       date,
       spend: 500,
       revenue: 1500,
       impressions: 100,
       clicks: 10,
-      conversions: 1,
+      orders: 1,
     });
     // OTHER measured ad day — sentinel
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: OTHER_ORGANIZATION_ID,
       listingId: listingO.id,
-      runId: runs.get(OTHER_ORGANIZATION_ID),
       date,
       spend: IDOR_SENTINEL,
       revenue: IDOR_SENTINEL,
       impressions: 100,
       clicks: 10,
-      conversions: 1,
+      orders: 1,
     });
   }
 
@@ -168,11 +165,11 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     expect(result.monthly.source).toBe('coupang_ads');
     expect(result.dailyAd).toContainEqual({
       date: latestClosedBusinessDate(),
-      adCost: 500,
+      adSpend: 500,
       source: 'coupang_ads',
     });
     for (const row of result.dailyAd ?? []) {
-      expect(row.adCost).not.toBe(IDOR_SENTINEL);
+      expect(row.adSpend).not.toBe(IDOR_SENTINEL);
     }
   });
 
@@ -185,11 +182,11 @@ describe('DashboardAdService.getSummary (PG integration) — IDOR + dailyAdRows'
     expect(result.monthly.source).toBe('coupang_ads');
     expect(result.dailyAd).toContainEqual({
       date: latestClosedBusinessDate(),
-      adCost: IDOR_SENTINEL,
+      adSpend: IDOR_SENTINEL,
       source: 'coupang_ads',
     });
     for (const row of result.dailyAd ?? []) {
-      expect(row.adCost).not.toBe(500);
+      expect(row.adSpend).not.toBe(500);
     }
   });
 

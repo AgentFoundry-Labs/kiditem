@@ -19,7 +19,6 @@ export type MasterProductAbcFormulaStateRecord = Readonly<{
   officialCutoffDate: string | null;
   publishedAt: string | null;
   publishedSellpiaOperationId: string | null;
-  publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: string | null;
   mappingGeneration: string;
   formula: ProductAbcFormulaPayload | null;
@@ -33,7 +32,6 @@ export type MasterProductAbcCandidateRecord = Readonly<{
   gradeBasisCutoffDate: string;
   weightedRevenue: number;
   weightedOrderTimeSupplyCost: number;
-  weightedAdvertisingSpend: number;
   weightedOperatingProfit: number;
   operatingProfitVelocity30: number;
   operatingMargin: number | null;
@@ -43,10 +41,7 @@ export type MasterProductAbcCandidateRecord = Readonly<{
   consistencyScore: number;
   economicScore: number;
   sellpiaOperationId: string;
-  /** Null only under a formula that excludes advertising. */
-  advertisingSourceImportRunId: string | null;
   sellpiaGeneration: string;
-  advertisingGeneration: string | null;
   mappingGeneration: string;
 }>;
 
@@ -64,8 +59,6 @@ export type ProductAbcPublicationInput = Readonly<{
   mappingGeneration: string;
   sourceFences: Readonly<{
     sellpia: MasterProductAbcSourceFence;
-    /** Null under a formula that excludes advertising. */
-    advertising: MasterProductAbcSourceFence | null;
   }>;
   saleAgeInputs: readonly Readonly<{
     masterProductId: string;

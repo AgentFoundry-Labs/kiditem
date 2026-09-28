@@ -1,19 +1,20 @@
-// Pure scrape-row normalization helpers shared by advertising source owners.
-//
-// - `asScrapeRow` / `pairScrapeRows`: pair raw extension rows with parser
-//   normalized rows. Matching/legacy writes use the normalized row, while
-//   `ChannelScrapeSnapshot.rawJson` keeps the original source row for
-//   replay/debuggability.
-// - Primitive value helpers (`cleanString`, `parseProviderNumber`,
-//   `toNumberOrNull`, `readProviderMetric`, `toBooleanOrNull`). A cell that
-//   does not parse is `null` or a rejected row, never a measured 0.
-// - Wing item-winner row → daily state normalizers. Returns `null` when
-//   the row carries no observable state so callers can skip the upsert.
-// - `deriveAdTargetType`: keyword/product/campaign grain inference for
-//   campaign/raw-scrape handlers.
+// Pure scrape-row helpers for the Wing item-winner, sales-rank and
+// keyword-rank handlers: primitive value readers (`cleanString`,
+// `toNumberOrNull`) and the Wing item-winner row → daily state normalizers.
+// A cell that does not parse is `null`, never a measured 0.
 
-import type { AdTargetType } from './util/ad-target-key';
-import type { ListingOptionDailyState } from '../application/port/out/repository/channel-option-daily.repository.port';
+/** Option-day winner state a scraped option row carries (`ChannelListingOptionDailySnapshot` columns). */
+export interface ListingOptionDailyState {
+  optionName?: string | null;
+  salePrice?: number | null;
+  stockQty?: number | null;
+  saleStatus?: string | null;
+  isActive?: boolean | null;
+  isOfferWinner?: boolean | null;
+  myPrice?: number | null;
+  winnerPrice?: number | null;
+  winnerGapPrice?: number | null;
+}
 
 /** Listing-level state that one Wing item-winner row can observe. */
 export interface ListingDailyState {
@@ -22,39 +23,6 @@ export interface ListingDailyState {
   myPrice: number | null;
   winnerPrice: number | null;
   winnerGapPrice: number | null;
-}
-
-export type ScrapeRowPair = {
-  rawRow: Record<string, any>;
-  normalizedRow: Record<string, any>;
-  hasNormalizedRow: boolean;
-};
-
-export function asScrapeRow(row: unknown): Record<string, any> {
-  if (row && typeof row === 'object' && !Array.isArray(row)) {
-    return row as Record<string, any>;
-  }
-  return { value: row };
-}
-
-export function pairScrapeRows(
-  rawRowsInput: unknown[] | undefined,
-  normalizedRowsInput: unknown[] | undefined,
-): ScrapeRowPair[] {
-  const rawRows = (rawRowsInput ?? []).map((row) => asScrapeRow(row));
-  const normalizedRows = (normalizedRowsInput ?? []).map((row) =>
-    asScrapeRow(row),
-  );
-  const rowCount = Math.max(rawRows.length, normalizedRows.length);
-
-  return Array.from({ length: rowCount }, (_, index) => {
-    const normalizedRow = normalizedRows[index] ?? rawRows[index] ?? {};
-    return {
-      rawRow: rawRows[index] ?? normalizedRow,
-      normalizedRow,
-      hasNormalizedRow: normalizedRows[index] !== undefined,
-    };
-  });
 }
 
 export function cleanString(value: unknown): string | null {
@@ -80,36 +48,6 @@ export function parseProviderNumber(value: unknown): number | null {
 export function toNumberOrNull(value: unknown): number | null {
   const parsed = parseProviderNumber(value);
   return parsed === null ? null : Math.round(parsed);
-}
-
-/**
- * An additive ad metric for a non-null ledger column. A column the provider
- * grid did not carry is stored as 0 and recorded as unobserved by the caller's
- * `observedMetrics` stamp; a column it did carry must parse, so an unreadable
- * cell rejects the row instead of becoming a measured zero.
- */
-export function readProviderMetric(
-  value: unknown,
-  observed: boolean,
-  field: string,
-): number {
-  const parsed = parseProviderNumber(value);
-  if (parsed !== null) return Math.round(parsed);
-  if (observed) throw new AdMetricUnparseableError(field);
-  return 0;
-}
-
-/**
- * An observed provider metric cell that does not parse. Source owners turn it
- * into their receipt rejection (a failed attempt or a warning), never HTTP 500.
- */
-export class AdMetricUnparseableError extends Error {
-  readonly code = 'AD_METRIC_UNPARSEABLE' as const;
-
-  constructor(readonly field: string) {
-    super(`AD_METRIC_UNPARSEABLE: ${field}`);
-    this.name = 'AdMetricUnparseableError';
-  }
 }
 
 export function toBooleanOrNull(value: unknown): boolean | null {
@@ -172,19 +110,4 @@ export function normalizeWingOptionState(
     winnerPrice,
     winnerGapPrice,
   };
-}
-
-/**
- * Derive the appropriate ad target grain for a campaign/raw-scrape row.
- * `keyword` rows always fall to keyword grain; otherwise infer from
- * `pageType`. Ad-product rows are reserved for the campaign/raw-scrape
- * pipelines where the provider distinguishes ad placement.
- */
-export function deriveAdTargetType(
-  pageType: string,
-  keyword: string | null,
-): AdTargetType {
-  if (pageType === 'product') return 'product';
-  if (keyword) return 'keyword';
-  return 'campaign';
 }

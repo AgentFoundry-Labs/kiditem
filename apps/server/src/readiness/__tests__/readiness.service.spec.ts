@@ -8,71 +8,60 @@ const ORGANIZATION_ID = '00000000-0000-0000-0000-0000000c0001';
 const ACTIVE_COUPANG_ACCOUNT_ID = '00000000-0000-4000-8000-0000000c0002';
 const SELLPIA_COMPLETE_RUN_ID = '00000000-0000-4000-8000-0000000c0003';
 
-/** One measured ad day as `readAdWindowFacts` reads it from the ledger. */
+/** One day the ad report measured, as Advertising's coverage read counts it. */
 function adPublishedRow(
   businessDate: string,
   observedAt = '2026-05-02T01:00:00.000Z',
 ) {
+  return { businessDate, observedAt: new Date(observedAt) };
+}
+
+type AdCoverageWindow = { organizationId: string; from?: string; to?: string };
+
+/**
+ * Advertising's ledger capability (`readAdCoverage`, `readAdEvidenceCutoff`) — an owner boundary
+ * this unit spec fakes. `evidenceCutoff` is Advertising's answer; by default the closed day itself.
+ */
+function fakeAdCoverage(rows: ReturnType<typeof adPublishedRow>[], evidenceCutoff?: string) {
   return {
-    business_date: new Date(`${businessDate}T00:00:00.000Z`),
-    spend: 0,
-    revenue: 0,
-    impressions: 0,
-    clicks: 0,
-    conversions: 0,
-    orders: 0,
-    observed_at: new Date(observedAt),
+    readAdEvidenceCutoff: vi.fn(async (_transaction: unknown, input: { closedDay: string }) => evidenceCutoff ?? input.closedDay),
+    readAdCoverage: vi.fn(async (_transaction: unknown, window: AdCoverageWindow) => {
+      const inWindow = rows
+        .filter((row) => (!window.from || row.businessDate >= window.from) && (!window.to || row.businessDate < window.to))
+        .sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+      return {
+        measuredDates: inWindow.map((row) => row.businessDate),
+        latestMeasuredDate: inWindow.at(-1)?.businessDate ?? null,
+        observedAt: inWindow.reduce<Date | null>(
+          (latest, row) => (!latest || row.observedAt > latest ? row.observedAt : latest),
+          null,
+        ),
+        activeAccountIds: [ACTIVE_COUPANG_ACCOUNT_ID],
+      };
+    }),
   };
 }
 
-type RawQuery = { strings?: readonly string[]; values?: unknown[] };
-
-/** Whether a `$queryRaw` call is the ad target-day ledger read. */
-function isAdLedgerRead(sql: unknown): boolean {
-  return ((sql as RawQuery | undefined)?.strings ?? []).join('')
-    .includes('channel_ad_target_daily_snapshots');
-}
-
-/** An active account's newest complete sweep, as the evidence cutoff read returns it. */
-type SweepEnds = { requested_end: Date | null; confirmed_end: Date | null };
+/** The ad coverage the next `readinessService` is built with. */
+let currentAds = fakeAdCoverage([]);
 
 /**
- * The service's two `$queryRaw` reads: the ad ledger returns `rows`, and the
- * sweep evidence cutoff returns `sweepEnds` (no complete sweep by default).
+ * Sets the days the ad report measured for the next service and returns the
+ * `$queryRaw` fake the remaining raw reads (Wing rank) use.
  */
-function adLedger(
-  rows: ReturnType<typeof adPublishedRow>[] = [],
-  sweepEnds: SweepEnds[] = [],
-) {
-  return vi.fn(async (sql: unknown) => (isAdLedgerRead(sql) ? rows : sweepEnds));
+function adLedger(rows: ReturnType<typeof adPublishedRow>[] = [], evidenceCutoff?: string) {
+  currentAds = fakeAdCoverage(rows, evidenceCutoff);
+  return vi.fn(async () => []);
 }
 
-/** The ad ledger `$queryRaw` call. */
-function ledgerQuery(queryRaw: ReturnType<typeof vi.fn>): RawQuery | undefined {
-  return queryRaw.mock.calls.find(([sql]) => isAdLedgerRead(sql))?.[0] as RawQuery | undefined;
+/** The `[from, to)` window of the ad coverage read the check itself used (the last one). */
+function queriedWindow(): AdCoverageWindow | undefined {
+  return currentAds.readAdCoverage.mock.calls.at(-1)?.[1];
 }
 
-/**
- * The distinct business-date bounds the ledger read carried (`[from, to)`).
- * The reader binds the same pair in more than one CTE, so the raw `values`
- * repeat them; the bounds themselves are what the service chose.
- */
-function queriedDates(queryRaw: ReturnType<typeof vi.fn>): string[] {
-  const sql = ledgerQuery(queryRaw);
-  // The ad ledger read, whatever CTE the reader opens with.
-  expect((sql?.strings ?? []).join('')).toContain('channel_ad_target_daily_snapshots');
-  const dates = (sql?.values ?? []).filter(
-    (v): v is string => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v),
-  );
-  return [...new Set(dates)];
-}
-
-/** The organization the ledger `$queryRaw` call was scoped to. */
-function queriedOrganization(queryRaw: ReturnType<typeof vi.fn>): string | undefined {
-  return ledgerQuery(queryRaw)?.values?.find(
-    (value): value is string =>
-      typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value),
-  );
+function queriedDates(): string[] {
+  const window = queriedWindow();
+  return window ? [window.from!, window.to!] : [];
 }
 
 /**
@@ -172,7 +161,7 @@ function readinessService(prisma: unknown): ReadinessService {
       status: (row.status as string | undefined) ?? 'active',
     })),
   };
-  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness }, new AdvertisingKeywordRankReadAdapter(prisma as never));
+  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness }, new AdvertisingKeywordRankReadAdapter(prisma as never), currentAds as never);
 }
 
 /** Channels 카탈로그 신선도 capability(KID-354)의 가짜 — 테스트마다 최신 상세 성공 시각을 정한다. */
@@ -267,9 +256,8 @@ describe('ReadinessService', () => {
       where: { sellerId: string };
     };
     // Half-open `[from, to)` over KST business dates, fenced to the organization.
-    expect(queryRaw.mock.calls.filter(([sql]) => isAdLedgerRead(sql))).toHaveLength(1);
-    expect(queriedOrganization(queryRaw)).toBe(ORGANIZATION_ID);
-    expect(queriedDates(queryRaw)).toEqual(['2026-04-02', '2026-05-02']);
+    expect(queriedWindow()?.organizationId).toBe(ORGANIZATION_ID);
+    expect(queriedDates()).toEqual(['2026-04-02', '2026-05-02']);
     expect(sellpiaQuery.where).toMatchObject({
       organizationId: ORGANIZATION_ID,
       operationId: { not: null },
@@ -455,7 +443,7 @@ describe('ReadinessService', () => {
       ORGANIZATION_ID,
     );
 
-    expect(queryRaw).not.toHaveBeenCalled();
+    expect(currentAds.readAdCoverage).not.toHaveBeenCalled();
     expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
     expect(prisma.channelListing.count).not.toHaveBeenCalled();
     expect(catalogFreshness).not.toHaveBeenCalled();
@@ -514,7 +502,7 @@ describe('ReadinessService', () => {
     const sales = status.checks.find((check) => check.key === 'wing_sales');
 
     // Half-open `[from, to)` over KST business dates.
-    expect(queriedDates(queryRaw)).toEqual(['2026-06-18', '2026-07-18']);
+    expect(queriedDates()).toEqual(['2026-06-18', '2026-07-18']);
     expect(sellpiaQuery.where.businessDate).toEqual({
       gte: new Date('2026-07-01T00:00:00.000Z'),
       lte: new Date('2026-07-17T00:00:00.000Z'),
@@ -561,7 +549,7 @@ describe('ReadinessService', () => {
     const ads = status.checks.find((check) => check.key === 'coupang_ads');
 
     // Half-open `[from, to)` over KST business dates.
-    expect(queriedDates(queryRaw)).toEqual(['2026-06-18', '2026-07-18']);
+    expect(queriedDates()).toEqual(['2026-06-18', '2026-07-18']);
     expect(ads).toMatchObject({
       count: expectedDates.length,
       lastSyncedAt: previousCompleteObservedAt,
@@ -569,7 +557,7 @@ describe('ReadinessService', () => {
     expect(readinessState(ads)).toBe('ok');
   });
 
-  it('ends the ad check at the evidence cutoff when every account held yesterday as unreported', async () => {
+  it('ends the ad check at the evidence cutoff Advertising names, and keeps yesterday when it names yesterday', async () => {
     vi.useFakeTimers();
     // 2026-07-18 12:00 KST: yesterday is 2026-07-17.
     vi.setSystemTime(new Date('2026-07-18T03:00:00.000Z'));
@@ -579,7 +567,7 @@ describe('ReadinessService', () => {
       date.setUTCDate(date.getUTCDate() + index);
       return date.toISOString().slice(0, 10);
     });
-    const statusWith = async (sweepEnds: SweepEnds) => {
+    const statusWith = async (evidenceCutoff: string) => {
       const prisma = {
         channelAccount: {
           findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
@@ -596,23 +584,23 @@ describe('ReadinessService', () => {
       };
       const queryRaw = adLedger(
         measuredDates.map((businessDate) => adPublishedRow(businessDate, '2026-07-17T23:30:00.000Z')),
-        [sweepEnds],
+        evidenceCutoff,
       );
       (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
       const status = await readinessService(withSellpiaReaderTransaction(prisma)).getStatus(
         ORGANIZATION_ID,
       );
       return {
-        queried: queriedDates(queryRaw),
+        queried: queriedDates(),
         ads: status.checks.find((check) => check.key === 'coupang_ads'),
         sales: status.checks.find((check) => check.key === 'wing_sales'),
       };
     };
 
-    // The newest complete sweep requested 2026-07-17 and held it: nothing newer to collect yet.
-    const held = await statusWith({
-      requested_end: new Date('2026-07-17T00:00:00.000Z'),
-      confirmed_end: new Date('2026-07-16T00:00:00.000Z'),
+    // Every account's newest report requested 2026-07-17 and held it: nothing newer to collect yet.
+    const held = await statusWith('2026-07-16');
+    expect(currentAds.readAdEvidenceCutoff).toHaveBeenCalledWith(expect.anything(), {
+      organizationId: ORGANIZATION_ID, closedDay: '2026-07-17',
     });
     expect(held.queried).toEqual(['2026-06-17', '2026-07-17']);
     expect(held.ads).toMatchObject({
@@ -626,11 +614,8 @@ describe('ReadinessService', () => {
     // Sellpia keeps the closed day.
     expect(held.sales?.referenceDate).toBe('2026-07-17');
 
-    // A sweep that requested only 2026-07-16 has not looked at yesterday.
-    const stale = await statusWith({
-      requested_end: new Date('2026-07-16T00:00:00.000Z'),
-      confirmed_end: new Date('2026-07-16T00:00:00.000Z'),
-    });
+    // A report that requested only 2026-07-16 has not looked at yesterday: the check stays at yesterday.
+    const stale = await statusWith('2026-07-17');
     expect(stale.queried).toEqual(['2026-06-18', '2026-07-18']);
     expect(stale.ads).toMatchObject({
       referenceDate: '2026-07-17',

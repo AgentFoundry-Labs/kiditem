@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
@@ -10,7 +11,7 @@ import {
   type MasterProductAbcFormulaReadyMonthlyFact,
 } from './master-product-abc';
 
-const formula = PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD;
+const formula = PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD;
 const cutoffDate = '2026-07-31';
 
 type MonthOptions = Partial<Omit<MasterProductAbcFormulaReadyMonthlyFact, 'provenance'>> & {
@@ -28,7 +29,6 @@ function month(options: MonthOptions = {}): MasterProductAbcFormulaReadyMonthlyF
     coveredDays: options.coveredDays ?? days,
     recognizedRevenue: options.recognizedRevenue ?? 1_000_000,
     orderTimeSupplyCost: options.orderTimeSupplyCost ?? 100_000,
-    advertisingSpend: options.advertisingSpend === undefined ? 0 : options.advertisingSpend,
     provenance: {
       costBasis: options.costBasis ?? 'ORDER_TIME_SUPPLY_COST',
       vatIncluded: options.vatIncluded ?? true,
@@ -125,21 +125,25 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       .toThrow('coverage outside month 2026-07');
   });
 
-  it('computes operating profit from the three formula components', () => {
+  // ABC grades without advertising (KID-373): operating profit is revenue less supply cost.
+  it('computes operating profit from revenue and order-time supply cost', () => {
     const candidate = evaluate([month({
       recognizedRevenue: 1_000_000,
       orderTimeSupplyCost: 250_000,
-      advertisingSpend: 125_000,
     })]);
 
     expect(candidate.weightedOperatingProfit).toBeGreaterThan(0);
-    expect(candidate.operatingMargin).toBeCloseTo(0.625, 6);
+    expect(candidate.operatingMargin).toBeCloseTo(0.75, 6);
     expect(candidate.weightedOperatingProfit).toBeCloseTo(
-      candidate.weightedRevenue
-        - candidate.weightedOrderTimeSupplyCost
-        - candidate.weightedAdvertisingSpend,
+      candidate.weightedRevenue - candidate.weightedOrderTimeSupplyCost,
       5,
     );
+    expect(Object.keys(candidate).filter((key) => /advertising/i.test(key))).toEqual([]);
+  });
+
+  it('refuses a formula that counts advertising with the retired-formula precondition code', () => {
+    expect(() => evaluate([month()], PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD))
+      .toThrow(expect.objectContaining({ name: 'KiditemPreconditionError', code: 'PRODUCTS_ABC_FORMULA_RETIRED' }));
   });
 
   it('matches the 90-day half-life golden weight at an exact midpoint', () => {
@@ -200,7 +204,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     const interpolated = evaluate([month({
       recognizedRevenue: revenue,
       orderTimeSupplyCost: 0,
-      advertisingSpend: 0,
     })], custom);
     const expectedProfitScore = (betweenProfitAnchors.score + upperProfit.score) / 2;
     expect(interpolated.profitScore).toBeCloseTo(expectedProfitScore, 6);
@@ -208,7 +211,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     const clampedHigh = evaluate([month({
       recognizedRevenue: 100_000_000,
       orderTimeSupplyCost: 0,
-      advertisingSpend: 0,
     })], custom);
     expect(clampedHigh.profitScore).toBe(custom.anchors.profitVelocity30.at(-1)!.score);
     expect(clampedHigh.marginScore).toBe(custom.anchors.operatingMargin.at(-1)!.score);
@@ -219,7 +221,7 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     const custom = { ...formula, velocityPeriodDays: 60 };
     const candidate = evaluate([month()], custom);
     expect(candidate.operatingProfitVelocity30).toBeCloseTo(
-      (month().recognizedRevenue - month().orderTimeSupplyCost - month().advertisingSpend!)
+      (month().recognizedRevenue - month().orderTimeSupplyCost)
         / month().coveredDays * custom.velocityPeriodDays,
       6,
     );
@@ -229,10 +231,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     expect(zeroRevenue.marginScore).toBeNull();
     expect(evaluate([month({ recognizedRevenue: 100, orderTimeSupplyCost: 100 })]).abcGrade).toBe('C');
     expect(evaluate([month({ recognizedRevenue: 100, orderTimeSupplyCost: 0, coverageStartDate: '2026-07-22', coveredDays: 10 }), month({ yearMonth: '2026-06', recognizedRevenue: 0, orderTimeSupplyCost: 1, coveredDays: 30 })]).abcGrade).toBe('C');
-  });
-
-  it('reads a zero advertising spend as no cost', () => {
-    expect(evaluate([month({ advertisingSpend: 0 })]).abcGrade).toBe('A');
   });
 
   it('uses sale age as an independent 29/30-day eligibility gate', () => {
@@ -292,7 +290,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       coveredDays: 11,
       recognizedRevenue: 500,
       orderTimeSupplyCost: 0,
-      advertisingSpend: 0,
     });
     const latest = month({
       yearMonth: '2026-07',
@@ -301,13 +298,11 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       coveredDays: 12,
       recognizedRevenue: 1_000,
       orderTimeSupplyCost: 0,
-      advertisingSpend: 0,
     });
     const confirmedZero = month({
       yearMonth: '2026-05',
       recognizedRevenue: 0,
       orderTimeSupplyCost: 0,
-      advertisingSpend: 0,
     });
     const candidate = evaluate([confirmedZero, partial, latest]);
     const mayMidpointAge = 76;
@@ -333,16 +328,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     })])).toThrow('covered days do not match coverage');
   });
 
-  it('accepts a complete confirmed-zero advertising month as zero spend', () => {
-    const candidate = evaluate([month({
-      recognizedRevenue: 10_000,
-      orderTimeSupplyCost: 2_000,
-      advertisingSpend: 0,
-    })]);
-    expect(candidate.weightedAdvertisingSpend).toBe(0);
-    expect(candidate.weightedOperatingProfit).toBeGreaterThan(0);
-  });
-
   it('applies each Hard C rule before threshold assignment', () => {
     const zeroProfit = evaluate([month({ recognizedRevenue: 100_000, orderTimeSupplyCost: 100_000 })]);
     expect(zeroProfit.abcGrade).toBe('C');
@@ -366,14 +351,14 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       operatingMargin: null,
       marginScore: null,
     });
-    expect(() => evaluate([month({ recognizedRevenue: 0, orderTimeSupplyCost: -1, advertisingSpend: 0 })])).toThrow('positive operating profit');
+    expect(() => evaluate([month({ recognizedRevenue: 0, orderTimeSupplyCost: -1 })])).toThrow('positive operating profit');
   });
 
   it('uses unrounded thresholds and the two A guards', () => {
-    const allHigh = evaluate([month({ recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0, advertisingSpend: 0 })]);
+    const allHigh = evaluate([month({ recognizedRevenue: 10_000_000, orderTimeSupplyCost: 0 })]);
     expect(allHigh.abcGrade).toBe('A');
 
-    const marginGuard = evaluate([month({ recognizedRevenue: 20_000_000, orderTimeSupplyCost: 17_500_000, advertisingSpend: 0 })]);
+    const marginGuard = evaluate([month({ recognizedRevenue: 20_000_000, orderTimeSupplyCost: 17_500_000 })]);
     expect(marginGuard.economicScore).toBeGreaterThanOrEqual(formula.gradeThresholds.aEconomicScoreGte);
     expect(marginGuard.marginScore).toBeLessThan(formula.gradeThresholds.aMarginScoreGte);
     expect(marginGuard.abcGrade).toBe('B');
@@ -392,7 +377,7 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
         lossPersistence: formula.anchors.lossPersistence.map((anchor) => ({ ...anchor, score: 100 })),
       },
     });
-    const bBoundary = evaluate([month({ recognizedRevenue: 1_000_000, orderTimeSupplyCost: 0, advertisingSpend: 0 })], bFormula);
+    const bBoundary = evaluate([month({ recognizedRevenue: 1_000_000, orderTimeSupplyCost: 0 })], bFormula);
     expect(bBoundary.economicScore).toBeGreaterThanOrEqual(formula.gradeThresholds.bEconomicScoreGte);
     expect(bBoundary.abcGrade).toBe('B');
   });
@@ -419,7 +404,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     const candidate = evaluate([month({
       recognizedRevenue: 1_000_000,
       orderTimeSupplyCost: 0,
-      advertisingSpend: 0,
     })], crossingFormula);
 
     expect(candidate.operatingMargin).toBe(1);
@@ -431,7 +415,6 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
   it('rejects missing or ineligible provenance instead of manufacturing a candidate', () => {
     expect(() => evaluate([month({ costBasis: 'LEGACY' as never })])).toThrow('ineligible cost provenance');
     expect(() => evaluate([month({ vatIncluded: false as never })])).toThrow('VAT inclusion');
-    expect(() => evaluate([month({ advertisingSpend: Number.NaN })])).toThrow('advertising spend');
     const missingProvenance = { ...month(), provenance: undefined } as never;
     expect(() => evaluate([missingProvenance])).toThrow('ineligible cost provenance');
   });

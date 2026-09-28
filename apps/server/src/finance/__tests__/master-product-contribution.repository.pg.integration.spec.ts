@@ -1,8 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import {
-  PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-  productAbcContributionMetricStatus,
-} from '@kiditem/shared/product-abc';
+import { productAbcContributionMetricStatus } from '@kiditem/shared/product-abc';
 import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
@@ -14,6 +11,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedSellpiaProfitabilityOperation } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { seedAdProductDays, seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
+import { advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 
 const BASIS_FROM = '2026-07-01';
@@ -33,6 +32,7 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     repository = new MasterProductContributionRepositoryAdapter(
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
+      advertisingLedgerTestReader(prisma as never),
     );
   });
 
@@ -70,14 +70,15 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     expect(filtered.products[0]).toMatchObject({
       masterProductId: active,
       revenue: 100,
-      operatingProfit: 70,
+      // 100 − 20 − 11 (10 billed ad spend × 1.1, KID-368).
+      operatingProfit: 69,
       salesRank: 2,
       positiveOperatingProfitRank: 1,
     });
     expect(filtered.products[0]?.salesContribution).toBeCloseTo(100 / 450);
     expect(filtered.products[0]?.cumulativeSalesContribution).toBeCloseTo(400 / 450);
     expect(filtered.products[0]?.cumulativePositiveOperatingProfitContribution)
-      .toBeCloseTo(140 / 190);
+      .toBeCloseTo(138 / 188);
     expect(filtered.metrics.sales).toMatchObject({
       sourceComplete: true,
       includedProductCount: 4,
@@ -87,9 +88,9 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     expect(productAbcContributionMetricStatus(filtered.metrics.sales)).toBe('READY');
     expect(filtered.totals).toEqual({
       revenue: 450,
-      positiveOperatingProfit: 190,
-      lossMagnitude: 150,
-      netOperatingProfit: 40,
+      positiveOperatingProfit: 188,
+      lossMagnitude: 153,
+      netOperatingProfit: 35,
     });
 
     const allProducts = await repository.readContribution(input(sources));
@@ -113,9 +114,9 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.metrics.positiveOperatingProfit.denominator).toBe(140);
-    expect(result.metrics.loss.denominator).toBe(150);
-    expect(result.totals.netOperatingProfit).toBe(-10);
+    expect(result.metrics.positiveOperatingProfit.denominator).toBe(138);
+    expect(result.metrics.loss.denominator).toBe(153);
+    expect(result.totals.netOperatingProfit).toBe(-15);
     expect(sum(result.products, 'positiveOperatingProfitContribution')).toBeCloseTo(1);
     expect(sum(result.products, 'lossImpact')).toBeCloseTo(1);
     const firstProfit = result.products.find((product) => product.masterProductId === profitableA)!;
@@ -167,14 +168,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     });
   });
 
-  it('keeps sales complete when exact advertising evidence is unavailable', async () => {
-    const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
+  it('keeps sales complete while a day of the basis has no measured ad report', async () => {
+    const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID, { adReportEnd: '2026-07-30' });
     await seedProductFact(prisma, sources, {
       code: 'SALES-ONLY', revenue: 100, cost: 20, adSpend: 10,
-    });
-    await prisma.sourceImportRun.update({
-      where: { id: sources.advertisingSourceImportRunId },
-      data: { status: 'failed' },
     });
 
     const result = await repository.readContribution(input(sources));
@@ -193,49 +190,22 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     });
   });
 
-  it('requires frozen advertising provenance before calculating operating profit', async () => {
-    const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
+  it('reads advertising as not applied when the organization has no active Coupang account', async () => {
+    const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID, { adReportEnd: null });
     await seedProductFact(prisma, sources, {
-      code: 'UNFROZEN-AD', revenue: 100, cost: 20, adSpend: 10,
+      code: 'NO-ADS', revenue: 100, cost: 20, adSpend: 0,
     });
-    await prisma.sourceImportRun.update({
-      where: { id: sources.advertisingSourceImportRunId },
-      data: { adSourcePolicyHash: null },
+    await prisma.channelAccount.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+      data: { status: 'inactive' },
     });
 
     const result = await repository.readContribution(input(sources));
 
-    expect(result.metrics.sales).toMatchObject({ sourceComplete: true, denominator: 100 });
-    expect(productAbcContributionMetricStatus(result.metrics.sales)).toBe('READY');
-    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
-      .toBe('SOURCE_INCOMPLETE');
+    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit)).toBe('READY');
     expect(result.products[0]).toMatchObject({
-      revenue: 100,
-      operatingProfit: null,
-      metricCompleteness: { sales: true, operatingProfit: false },
-    });
-  });
-
-  it('rejects a non-canonical advertising policy hash as stale evidence', async () => {
-    const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
-    await seedProductFact(prisma, sources, {
-      code: 'WRONG-AD-POLICY', revenue: 100, cost: 20, adSpend: 10,
-    });
-    await prisma.sourceImportRun.update({
-      where: { id: sources.advertisingSourceImportRunId },
-      data: { adSourcePolicyHash: 'f'.repeat(64) },
-    });
-
-    const result = await repository.readContribution(input(sources));
-
-    expect(result.metrics.sales).toMatchObject({ sourceComplete: true, denominator: 100 });
-    expect(productAbcContributionMetricStatus(result.metrics.sales)).toBe('READY');
-    expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
-      .toBe('SOURCE_INCOMPLETE');
-    expect(result.products[0]).toMatchObject({
-      revenue: 100,
-      operatingProfit: null,
-      metricCompleteness: { sales: true, operatingProfit: false },
+      operatingProfit: 80,
+      metricCompleteness: { sales: true, operatingProfit: true },
     });
   });
 
@@ -283,7 +253,7 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
       sourceComplete: true,
       includedProductCount: 1,
       excludedProductCount: 1,
-      denominator: 70,
+      denominator: 69,
     });
     expect(productAbcContributionMetricStatus(result.metrics.positiveOperatingProfit))
       .toBe('SOURCE_INCOMPLETE');
@@ -296,7 +266,7 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     });
   });
 
-  it('counts frozen advertising spend as loss when the complete Sellpia manifest proves zero sales', async () => {
+  it('counts measured advertising cost as loss when the complete Sellpia manifest proves zero sales', async () => {
     const sources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
     await seedProductFact(prisma, sources, {
       code: 'AD-ONLY', revenue: 0, cost: 0, adSpend: 30, omitSellpia: true,
@@ -307,12 +277,12 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     expect(result.totals).toEqual({
       revenue: 0,
       positiveOperatingProfit: 0,
-      lossMagnitude: 30,
-      netOperatingProfit: -30,
+      lossMagnitude: 33,
+      netOperatingProfit: -33,
     });
     expect(result.products[0]).toMatchObject({
       revenue: 0,
-      operatingProfit: -30,
+      operatingProfit: -33,
       lossImpact: 1,
       metricCompleteness: { sales: true, operatingProfit: true },
     });
@@ -326,13 +296,13 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
     const positiveOnly = await repository.readContribution(input(positiveSources));
 
     expect(positiveOnly.metrics.positiveOperatingProfit).toMatchObject({
-      sourceComplete: true, denominator: 70,
+      sourceComplete: true, denominator: 69,
     });
     expect(productAbcContributionMetricStatus(positiveOnly.metrics.positiveOperatingProfit))
       .toBe('READY');
     expect(productAbcContributionMetricStatus(positiveOnly.metrics.loss))
       .toBe('NO_DENOMINATOR');
-    expect(positiveOnly.totals.netOperatingProfit).toBe(70);
+    expect(positiveOnly.totals.netOperatingProfit).toBe(69);
 
     const lossSources = await seedCompleteSources(prisma, TEST_ORGANIZATION_ID);
     await seedProductFact(prisma, lossSources, {
@@ -343,9 +313,10 @@ describe('MasterProductContributionRepositoryAdapter (PostgreSQL)', () => {
 
     expect(productAbcContributionMetricStatus(lossOnly.metrics.positiveOperatingProfit))
       .toBe('NO_DENOMINATOR');
-    expect(lossOnly.metrics.loss).toMatchObject({ sourceComplete: true, denominator: 15 });
+    // 10 − 20 − 6 (5 billed × 1.1 = 5.5, rounded once per product).
+    expect(lossOnly.metrics.loss).toMatchObject({ sourceComplete: true, denominator: 16 });
     expect(productAbcContributionMetricStatus(lossOnly.metrics.loss)).toBe('READY');
-    expect(lossOnly.totals.netOperatingProfit).toBe(-15);
+    expect(lossOnly.totals.netOperatingProfit).toBe(-16);
   });
 });
 
@@ -355,7 +326,6 @@ function input(sources: Sources) {
     basisFromDate: BASIS_FROM,
     basisCutoffDate: BASIS_CUTOFF,
     sellpiaOperationId: sources.sellpiaOperationId,
-    advertisingSourceImportRunId: sources.advertisingSourceImportRunId,
   } as const;
 }
 
@@ -366,7 +336,15 @@ function sum(
   return rows.reduce((total, row) => total + Number(row[field] ?? 0), 0);
 }
 
-async function seedCompleteSources(prisma: PrismaClient, organizationId: string) {
+/**
+ * Sellpia's July generation and the organization's Coupang account, whose ad
+ * report measured July through `adReportEnd` (`null`: no report at all).
+ */
+async function seedCompleteSources(
+  prisma: PrismaClient,
+  organizationId: string,
+  options: { adReportEnd?: string | null } = {},
+) {
   // 셀피아 상품 손익 세대 = 성공한 실행(KID-361 J3). 월 사실은 이 실행 id로 넣는다.
   const sellpia = await seedSellpiaProfitabilityOperation(prisma, {
     organizationId,
@@ -383,26 +361,14 @@ async function seedCompleteSources(prisma: PrismaClient, organizationId: string)
       externalAccountId: `contribution-${organizationId}`,
     },
   });
-  const advertising = await prisma.sourceImportRun.create({
-    data: {
-      organizationId,
-      sourceType: 'coupang_ad_profitability',
-      channelAccountId: account.id,
-      status: 'completed',
-      publicationSequence: 1n,
-      mappingGeneration: 7n,
-      coverageStartDate: COVERAGE_START,
-      coverageEndDate: COVERAGE_END,
-      coveredMonths: ['2026-07'],
-      importedAt: new Date('2026-08-01T00:00:00.000Z'),
-      providerBackedEmptyProof: false,
-      adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-    },
-  });
+  const adReportEnd = options.adReportEnd === undefined ? BASIS_CUTOFF : options.adReportEnd;
+  const report = adReportEnd === null
+    ? null
+    : await seedAdReportRun(prisma, { organizationId, channelAccountId: account.id, start: BASIS_FROM, end: adReportEnd });
   return {
     organizationId,
     sellpiaOperationId: sellpia.id,
-    advertisingSourceImportRunId: advertising.id,
+    adReportOperationId: report?.id ?? null,
     accountId: account.id,
   };
 }
@@ -452,22 +418,25 @@ async function seedProductFact(
       },
     });
   }
-  await prisma.channelAdListingProductMonthlyFact.create({
-    data: {
-      organizationId: sources.organizationId,
-      sourceImportRunId: sources.advertisingSourceImportRunId,
-      channelAccountId: sources.accountId,
-      channelListingId: listing.id,
-      masterProductId: product.id,
-      month: COVERAGE_START,
-      coveredStartDate: COVERAGE_START,
-      coveredEndDate: COVERAGE_END,
-      wholeRecipeWeight: 1,
-      mappingGeneration: 7n,
-      observedTargetDayCount: 31,
-      allocatedSpend: BigInt(fact.adSpend),
-    },
+  // The listing's current recipe is the product alone, so it carries the listing's whole ad cost.
+  const option = await prisma.channelListingOption.create({
+    data: { organizationId: sources.organizationId, listingId: listing.id, externalOptionId: `VI-${fact.code}` },
   });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: { organizationId: sources.organizationId, channelListingOptionId: option.id, masterProductId: product.id, quantity: 1 },
+  });
+  if (fact.adSpend > 0 && sources.adReportOperationId) {
+    await seedAdProductDays(prisma, [{
+      organizationId: sources.organizationId,
+      channelAccountId: sources.accountId,
+      operationId: sources.adReportOperationId,
+      date: '2026-07-15',
+      listingId: listing.id,
+      vendorItemId: `VI-${fact.code}`,
+      spend: fact.adSpend,
+      billedSpend: fact.adSpend,
+    }]);
+  }
   return product.id;
 }
 

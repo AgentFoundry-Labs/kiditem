@@ -36,7 +36,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
-import { partialPeriodDaysText, periodCoverageDaysText, trafficCoverageBasis } from '@/lib/period-days';
+import { partialPeriodDaysText, periodCoverageDaysText, periodDaysText, trafficCoverageBasis } from '@/lib/period-days';
 import { cn, formatKRW, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
 import ReadinessModal from '@/components/ReadinessModal';
 import {
@@ -56,6 +56,7 @@ import { DashboardReadFailures, type DashboardReadFailure } from './components/D
 import { DashboardTopProducts } from './components/DashboardTopProducts';
 import { DashboardGradeCards } from './components/DashboardGradeCards';
 import { WingDailyTrafficCollection } from './components/WingDailyTrafficCollection';
+import { PERFORMANCE_AD_SPEND_LABEL, PROFIT_AD_COST_LABEL } from '@/lib/ad-spend-labels';
 import {
   DashboardBasisDisclosure,
   DashboardDataBasis,
@@ -750,11 +751,6 @@ export default function Dashboard() {
   const displayProfit = profitCardUsesSellpia
     ? spProfit
     : (!sellpiaHasData && profitMetricsAvailable) ? kpiProfit : null;
-  // The source line names what the value would be built from, withheld or not
-  // — it is how the operator knows which collection to go fix.
-  const profitCellNote = sellpiaHasData
-    ? '셀피아 · 판매금액 − 매입가 − 쿠팡 광고비'
-    : profitMetricsAvailable ? '주문 기준' : '정산 데이터 없음';
   // Why it is withheld reads under it, and only when it is.
   const profitCellReason = displayProfit !== null
     ? null
@@ -798,6 +794,12 @@ export default function Dashboard() {
     ? `광고 수집 ${adCoverageForHeadline.completedDays}/${adCoverageForHeadline.targetDays}일`
     : null;
   const receiptReady = sellpiaHasData && sp !== undefined;
+  // A withheld Sellpia ad cost says how many closed days the ad report measured
+  // (the server publishes that basis only when advertising fell short).
+  const sellpiaAdCostBasis = readMetricBasis(sp, 'adCost');
+  const sellpiaAdCostNote = sellpiaAdCostBasis?.kind === 'period'
+    ? `광고 수집 ${periodDaysText(sellpiaAdCostBasis)}`
+    : `${PROFIT_AD_COST_LABEL} 수집 전`;
   const headlineRevenue: HeadlineMetric[] = [
     {
       key: 'revenue',
@@ -816,11 +818,11 @@ export default function Dashboard() {
     },
     {
       key: 'adCost',
-      label: '광고비',
+      label: PROFIT_AD_COST_LABEL,
       value: receiptReady && sp.adCost !== null ? formatKRW(sp.adCost) : null,
       unit: '원',
       negative: true,
-      note: receiptReady && sp.adCost === null ? '광고비 수집 전' : null,
+      note: receiptReady && sp.adCost === null ? sellpiaAdCostNote : null,
     },
     {
       key: 'profit',
@@ -858,7 +860,7 @@ export default function Dashboard() {
     },
     {
       key: 'adSpend',
-      label: '광고비',
+      label: PERFORMANCE_AD_SPEND_LABEL,
       value: headlineAdSpend === null ? null : formatKRW(headlineAdSpend),
       unit: '원',
       note: prevNote(headlinePrevAdSpend, (value) => `${formatKRW(value)}원`),

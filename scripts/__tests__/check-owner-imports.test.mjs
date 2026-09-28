@@ -288,9 +288,9 @@ test('rejects import exceptions without a KID removal issue while loading the ma
           {
             name: 'Advertising target day',
             owner: 'advertising',
-            table: 'channel_ad_target_daily_snapshots',
-            prismaModel: 'channelAdTargetDailySnapshot',
-            prismaType: 'ChannelAdTargetDailySnapshot',
+            table: 'example_ledger_daily_snapshots',
+            prismaModel: 'exampleLedgerDailySnapshot',
+            prismaType: 'ExampleLedgerDailySnapshot',
             relationNames: [],
             ownerPublications: [],
             legacyReaders: [],
@@ -309,7 +309,7 @@ test('rejects import exceptions without a KID removal issue while loading the ma
     write(
       root,
       'prisma/models/advertising.prisma',
-      `model ChannelAdTargetDailySnapshot {
+      `model ExampleLedgerDailySnapshot {
   id String @id
 }
 `,

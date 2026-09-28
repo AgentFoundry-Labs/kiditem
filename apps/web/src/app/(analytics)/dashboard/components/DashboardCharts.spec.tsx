@@ -170,8 +170,8 @@ describe('DashboardCharts', () => {
     );
 
     expect(chartCaptures.areaData).toEqual([trendWithUnavailableGap]);
-    expect(chartCaptures.tooltipFormatters[0]?.(null, 'adCost')).toEqual(['—', '광고비']);
-    expect(chartCaptures.tooltipFormatters[0]?.(0, 'adCost')).toEqual(['₩0', '광고비']);
+    expect(chartCaptures.tooltipFormatters[0]?.(null, 'adCost')).toEqual(['—', '광고비(청구·VAT 포함)']);
+    expect(chartCaptures.tooltipFormatters[0]?.(0, 'adCost')).toEqual(['₩0', '광고비(청구·VAT 포함)']);
   });
 
   it('shows actual tooltip values with units alongside their evidence', () => {

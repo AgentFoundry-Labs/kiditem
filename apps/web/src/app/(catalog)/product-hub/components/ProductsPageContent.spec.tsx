@@ -44,13 +44,6 @@ const state = vi.hoisted(() => ({
             latestAttempt: null,
             latestComplete: null,
           },
-          advertising: {
-            ready: false,
-            requiredCutoff: '2026-07-31',
-            actualCutoff: null,
-            latestAttempt: null,
-            latestComplete: null,
-          },
           mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
         },
       },
@@ -508,7 +501,60 @@ describe('<ProductsPageContent>', () => {
       expect(screen.queryByText(/조회·장바구니 부분/)).not.toBeInTheDocument();
     });
   });
+
+  describe('ad report freshness', () => {
+    afterEach(() => {
+      state.isPlaceholderData = false;
+    });
+
+    it('says once, beside the traffic caption, through which day the ad report measured', () => {
+      state.data = listWithAdvertising({ ready: true, coverageStartDate: '2026-09-15', coverageEndDate: '2026-09-28', capturedAt: '2026-09-29T00:10:00.000Z' }, trafficBasis(13));
+
+      render(<ProductsPageContent headingLevel={1} />);
+
+      expect(screen.getAllByText('광고 보고서 ~09-28')).toHaveLength(1);
+      expect(screen.getAllByText('조회·장바구니 부분 13/14일')).toHaveLength(1);
+    });
+
+    it('says the ad report covers only part of the period when it missed a day', () => {
+      state.data = listWithAdvertising({ ready: false, coverageStartDate: '2026-09-15', coverageEndDate: '2026-09-28', capturedAt: '2026-09-29T00:10:00.000Z' }, trafficBasis(14));
+
+      render(<ProductsPageContent headingLevel={1} />);
+
+      expect(screen.getAllByText('광고 보고서 일부 ~09-28')).toHaveLength(1);
+    });
+
+    it.each<[string, () => void]>([
+      ['the organization has no ad account', () => {
+        state.data = listWithAdvertising({ ready: true, coverageStartDate: '2026-09-15', coverageEndDate: '2026-09-28', capturedAt: null }, trafficBasis(14));
+      }],
+      ['the ad report never measured a day', () => {
+        state.data = listWithAdvertising({ ready: false, coverageStartDate: '2026-09-15', coverageEndDate: '2026-09-28', capturedAt: null }, trafficBasis(14));
+      }],
+      ['the list is refreshing for new conditions', () => {
+        state.data = listWithAdvertising({ ready: true, coverageStartDate: '2026-09-15', coverageEndDate: '2026-09-28', capturedAt: '2026-09-29T00:10:00.000Z' }, trafficBasis(14));
+        state.isPlaceholderData = true;
+      }],
+    ])('shows no ad caption when %s', (_case, arrange) => {
+      arrange();
+
+      render(<ProductsPageContent headingLevel={1} />);
+
+      expect(screen.queryByText(/광고 보고서/)).not.toBeInTheDocument();
+    });
+  });
 });
+
+function listWithAdvertising(
+  advertising: MasterProductOperationsListResponse['items'][number]['metricsFreshness']['advertising'],
+  basis: DashboardPeriodBasis,
+): MasterProductOperationsListResponse {
+  const list = listWithTrafficBasis(basis);
+  return {
+    ...list,
+    items: list.items.map((item) => ({ ...item, metricsFreshness: { ...item.metricsFreshness, advertising } })),
+  };
+}
 
 /** A 14-day Wing traffic basis whose first `coveredDays` days were collected. */
 function trafficBasis(coveredDays: number): DashboardPeriodBasis {
