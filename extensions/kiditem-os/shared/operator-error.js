@@ -617,6 +617,13 @@
       "text": "셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.",
       "retryable": false
     },
+    "PRODUCTS_ABC_FORMULA_RETIRED": {
+      "owner": "products",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "광고를 세는 옛 ABC 공식은 더 계산하지 않습니다. 광고를 빼는 새 공식으로 옮긴 뒤 다시 계산해 주세요.",
+      "retryable": false
+    },
     "INVENTORY_NOT_FOUND": {
       "owner": "inventory",
       "kind": "not_found",

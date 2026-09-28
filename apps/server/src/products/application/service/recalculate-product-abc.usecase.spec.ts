@@ -240,7 +240,7 @@ describe('RecalculateProductAbcUseCase', () => {
     expect(Object.keys(publication.candidates[0]!).filter((key) => /advertising/i.test(key))).toEqual([]);
   });
 
-  it('refuses to grade under a formula that still counts advertising', async () => {
+  it('refuses a formula that still counts advertising with the retired-formula precondition code', async () => {
     const products = repository({
       getFormulaState: vi.fn().mockResolvedValue({ ...state, formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD }),
     });
@@ -248,7 +248,11 @@ describe('RecalculateProductAbcUseCase', () => {
       { masterProductId: productA, revenue: 1_000_000, cost: 200_000 },
     ]));
 
-    await expect(service.recalculate({ organizationId })).rejects.toThrow('ABC formula counts advertising');
+    await expect(service.recalculate({ organizationId })).rejects.toMatchObject({
+      name: 'KiditemPreconditionError',
+      code: 'PRODUCTS_ABC_FORMULA_RETIRED',
+      httpStatus: 422,
+    });
     expect(profitability.load).not.toHaveBeenCalled();
     expect(products.publish).not.toHaveBeenCalled();
   });

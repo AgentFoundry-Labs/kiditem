@@ -1,3 +1,4 @@
+import { KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   parseProductAbcDateToKstCalendarDate,
@@ -96,7 +97,7 @@ export function evaluateMasterProductAbc(
 ): MasterProductAbcCandidate {
   const formula = input.formula;
   if (!productAbcExcludesAdvertising(formula)) {
-    throw new Error('ABC formula counts advertising, which ABC no longer reads');
+    throw new KiditemPreconditionError('PRODUCTS_ABC_FORMULA_RETIRED');
   }
   const formulaReadyFacts = input.facts;
   const normalizedSaleStartDate = parseProductAbcDateToKstCalendarDate(

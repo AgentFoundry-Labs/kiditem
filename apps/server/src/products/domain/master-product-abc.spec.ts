@@ -141,9 +141,9 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
     expect(Object.keys(candidate).filter((key) => /advertising/i.test(key))).toEqual([]);
   });
 
-  it('refuses a formula that counts advertising', () => {
+  it('refuses a formula that counts advertising with the retired-formula precondition code', () => {
     expect(() => evaluate([month()], PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD))
-      .toThrow('ABC formula counts advertising');
+      .toThrow(expect.objectContaining({ name: 'KiditemPreconditionError', code: 'PRODUCTS_ABC_FORMULA_RETIRED' }));
   });
 
   it('matches the 90-day half-life golden weight at an exact midpoint', () => {

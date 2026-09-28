@@ -33,6 +33,7 @@ import { renameSourcingIngestionRunIdsMigration } from './v0.1.31/030_rename_sou
 import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_complete_sourcing_runs';
 import { removeRetiredSourceFailureAlertsMigration } from './v0.1.31/032_remove_retired_source_failure_alerts';
 import { removeRetiredMallAdminListingAlertsMigration } from './v0.1.31/033_remove_retired_mall_admin_listing_alerts';
+import { moveAdCountingAbcFormulaStatesMigration } from './v0.1.31/034_move_ad_counting_abc_formula_states';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -84,6 +85,7 @@ export const dataMigrations: readonly DataMigration[] = [
   publishCompleteSourcingRunsMigration,
   removeRetiredSourceFailureAlertsMigration,
   removeRetiredMallAdminListingAlertsMigration,
+  moveAdCountingAbcFormulaStatesMigration,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

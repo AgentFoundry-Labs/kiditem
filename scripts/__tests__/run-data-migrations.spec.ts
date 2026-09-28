@@ -69,6 +69,7 @@ describe("data migration registry", () => {
       "v0.1.31:031_publish_complete_sourcing_runs",
       "v0.1.31:032_remove_retired_source_failure_alerts",
       "v0.1.31:033_remove_retired_mall_admin_listing_alerts",
+      "v0.1.31:034_move_ad_counting_abc_formula_states",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -404,6 +405,7 @@ describe("data migration registry", () => {
       "v0.1.31:031_publish_complete_sourcing_runs",
       "v0.1.31:032_remove_retired_source_failure_alerts",
       "v0.1.31:033_remove_retired_mall_admin_listing_alerts",
+      "v0.1.31:034_move_ad_counting_abc_formula_states",
     ]);
   });
 

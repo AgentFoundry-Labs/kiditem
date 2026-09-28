@@ -1,3 +1,4 @@
+import { KiditemPreconditionError } from '@kiditem/shared/errors';
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
   evaluateMasterProductAbc,
@@ -48,7 +49,7 @@ export class RecalculateProductAbcUseCase implements MasterProductAbcRecalculati
     // ABC grades without advertising (KID-373); v0.1.31:016 moved every
     // organization to the advertising-free formula (version 3).
     if (!productAbcExcludesAdvertising(state.formula)) {
-      throw new Error('ABC formula counts advertising, which ABC no longer reads');
+      throw new KiditemPreconditionError('PRODUCTS_ABC_FORMULA_RETIRED');
     }
 
     const calculatedAt = new Date();
