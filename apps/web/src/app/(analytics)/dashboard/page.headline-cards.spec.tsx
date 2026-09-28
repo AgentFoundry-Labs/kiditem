@@ -641,6 +641,40 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
     expect(screen.getByTestId('headline-profit')).toHaveTextContent('—');
   });
 
+  it('withholds Sellpia ad cost and profit over a partly measured ad window and says how many days were measured', async () => {
+    const emptyGroup = { revenue: 0, qty: 0, cost: 0, revenueShare: null, daily: [], malls: [] };
+    sellpiaState.summary = {
+      range: { from: '2026-09-01', to: '2026-09-06' },
+      rocket: emptyGroup,
+      others: { ...emptyGroup, revenue: 1_000_000, qty: 25, cost: 600_000 },
+      totalRevenue: 1_000_000,
+      totalCost: 600_000,
+      adCost: null,
+      netProfit: null,
+      profitRate: null,
+      lastCapturedAt: '2026-09-06T01:00:00.000Z',
+      hasData: true,
+      profitInputs: null,
+      metricBasis: {
+        adCost: {
+          ...completeSellpiaProfitBasis,
+          includedDates: ['2026-09-04', '2026-09-05', '2026-09-06'],
+          sources: ['coupang_ads'],
+        },
+      },
+    };
+
+    renderDashboard();
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    // 광고가 기간의 일부만 측정했으면 이익 광고비는 "—"이고, 몇 날을 측정했는지 말한다(ADR-0006, KID-45).
+    const adCost = screen.getByTestId('headline-adCost');
+    expect(adCost).toHaveTextContent('—');
+    // 영수증 줄의 안내는 값 칸의 title로 붙는다.
+    expect(adCost.querySelector('[title="광고 수집 3/6일"]')).not.toBeNull();
+    expect(screen.getByTestId('headline-profit')).toHaveTextContent('—');
+  });
+
   it('does not borrow order profit beneath an unavailable Sellpia card', async () => {
     salesResponse = {
       ...sales,

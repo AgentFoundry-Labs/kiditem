@@ -68,6 +68,9 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
           <thead>
             <tr>
               <th>캠페인명</th>
+              {/* 광고센터가 알려 준 캠페인의 현재 설정(ChannelAdCampaign) — 기간 성과가 아니다. */}
+              <th className="text-right">일 예산</th>
+              <th className="text-right">ROAS 목표</th>
               <th className="text-right">집행 광고비</th>
               <th className="text-right">광고매출</th>
               <th className="text-right">ROAS</th>
@@ -86,7 +89,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
           <tbody>
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={9} className="text-center py-12 text-slate-500">캠페인 데이터가 없습니다.</td>
+                <td colSpan={11} className="text-center py-12 text-slate-500">캠페인 데이터가 없습니다.</td>
               </tr>
             )}
             {sorted.map((c) => {
@@ -145,6 +148,8 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                       )}
                     </div>
                   </td>
+                  <td className="text-right">{c.budget != null ? formatKRW(c.budget) : '-'}</td>
+                  <td className="text-right">{c.roasTarget != null ? `${c.roasTarget}%` : '-'}</td>
                   <td className="text-right">{hasMetrics ? formatKRW(c.metrics.spend) : '-'}</td>
                   <td className="text-right">{hasMetrics ? formatKRW(c.metrics.revenue) : '-'}</td>
                   <td className={cn(

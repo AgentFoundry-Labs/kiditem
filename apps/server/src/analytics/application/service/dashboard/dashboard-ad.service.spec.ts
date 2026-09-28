@@ -283,8 +283,9 @@ describe('DashboardAdService detailed ad KPI period', () => {
     );
 
     expect(result.dailyAd).toEqual([
-      { date: '2026-09-05', adCost: 12_000, source: 'coupang_ads' },
-      { date: '2026-09-06', adCost: 0, source: 'coupang_ads' },
+      // 일별 광고는 집행 광고비(성과)다 — 이익 규칙의 청구·VAT 광고비(profit_ad_cost)가 아니다.
+      { date: '2026-09-05', adSpend: 12_000, source: 'coupang_ads' },
+      { date: '2026-09-06', adSpend: 0, source: 'coupang_ads' },
     ]);
   });
 

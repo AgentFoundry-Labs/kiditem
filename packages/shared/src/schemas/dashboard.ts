@@ -300,7 +300,8 @@ export const DailyRevenueItemSchema = z.object({
 
 export const DailyAdItemSchema = z.object({
   date: z.string(),
-  adCost: z.number(),
+  /** 그날 집행 광고비(성과, KID-368). 이익 규칙의 광고비(청구·VAT 포함)는 `/api/dashboard/trend`의 `adCost`다. */
+  adSpend: z.number(),
   adRate: z.number().optional(),
   source: z.enum(['coupang_ads', 'listing', 'orders', 'unavailable']).optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),

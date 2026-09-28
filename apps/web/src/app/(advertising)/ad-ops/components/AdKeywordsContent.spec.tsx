@@ -59,6 +59,7 @@ function keyword(text: string, pauseProposal: AdKeywordPauseProposal | null): Ad
     campaignName: '집중 캠페인',
     adGroup: 'group-1',
     keyword: text,
+    nonSearch: text === '',
     status: null,
     onOff: null,
     externalOptionId: 'VID-1',
@@ -435,6 +436,34 @@ describe('AdKeywordsContent over the selected period (KID-372)', () => {
     fireEvent.click(await screen.findByText(PRODUCT));
 
     expect(await screen.findByRole('group', { name: '비검색' })).toHaveTextContent('비검색');
+  });
+
+  it('does not count the non-search row as a keyword or offer to judge a product that has only it', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...keywordsData(),
+      products: [{ ...keywordsData().products[0], keywordCount: 0, servingCount: 0, irrelevantCount: 0, unjudgedCount: 0 }],
+      keywords: [keyword('', null)],
+    });
+    renderFor('7d');
+
+    fireEvent.click(await screen.findByText(PRODUCT));
+
+    expect(await screen.findByRole('group', { name: '비검색' })).toBeInTheDocument();
+    expect(screen.getByText('0 / 0개')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /이 상품만 판정/ })).not.toBeInTheDocument();
+  });
+
+  it('counts only search keywords beside the non-search row', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue({
+      ...keywordsData(),
+      keywords: [keyword('', null), keyword('비눗방울', null)],
+    });
+    renderFor('7d');
+
+    fireEvent.click(await screen.findByText(PRODUCT));
+
+    expect(await screen.findByText('1 / 1개')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /이 상품만 판정/ })).toBeInTheDocument();
   });
 
   it('says the period had no clicked search keyword and points to the ad report collection when empty', async () => {
