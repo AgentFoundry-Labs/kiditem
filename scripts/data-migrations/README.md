@@ -201,10 +201,10 @@ whatever `--release-version` selects, and runs none in `pre-schema`.
   and creates it wherever v0.1.31:012 has not. It fails while a run holds a
   status outside `SOURCE_IMPORT_RUN_STATUSES`: add a pre-schema cleanup
   migration before changing the set.
-- `ensure:absolute_product_abc_formula` gives every organization the current
-  absolute ABC formula version and a formula state attached to it, the rows
-  v0.1.31:002 writes, under the server's product-mapping and ABC publication
-  locks. It keeps a mapping-only state's `mappingGeneration` and never changes
+- `ensure:absolute_product_abc_formula` gives every organization the
+  advertising-free absolute ABC formula (version 3) and a formula state
+  attached to it, the end state v0.1.31:016 produces, under the server's
+  product-mapping and ABC publication locks. It keeps a mapping-only state's `mappingGeneration` and never changes
   a state that already names a formula. It fails, naming every such
   organization, when a stored formula with the current key and version has
   another checksum, or when a state without a formula is not mapping-only.
