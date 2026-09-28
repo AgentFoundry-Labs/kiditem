@@ -6,16 +6,6 @@ export const MASTER_PRODUCT_ABC_RECALCULATION_PORT = Symbol(
   'MASTER_PRODUCT_ABC_RECALCULATION_PORT',
 );
 
-/**
- * Why no source pair exists although a source reads ready: the newest complete
- * generations end on different days, and `lateSource` ends earlier.
- */
-export type ProductAbcSourcePairing = Readonly<{
-  lateSource: 'sellpia' | 'advertising';
-  sellpiaEndDate: string;
-  advertisingEndDate: string;
-}>;
-
 export type ProductAbcRecalculationResult = Readonly<
   | {
       outcome: 'PUBLISHED';
@@ -26,9 +16,9 @@ export type ProductAbcRecalculationResult = Readonly<
       unclassifiedProductCount: number;
       changedProductCount: number;
       /**
-       * Each source's own readiness, as on `SOURCE_NOT_READY`. A source whose
-       * `actualCutoff` passes `officialCutoff` collected further than the pair
-       * this publication used.
+       * The Sellpia source's own readiness, as on `SOURCE_NOT_READY`. A
+       * `sellpia.actualCutoff` past `officialCutoff` collected further than the
+       * generation this publication used.
        */
       sources: ProfitabilityEvidenceSnapshot['sources'];
     }
@@ -38,8 +28,6 @@ export type ProductAbcRecalculationResult = Readonly<
       officialCutoff: string | null;
       actualCutoff: string | null;
       sources: ProfitabilityEvidenceSnapshot['sources'];
-      /** Present only when no pair exists and at least one source reads ready. */
-      pairing?: ProductAbcSourcePairing;
     }
 >;
 

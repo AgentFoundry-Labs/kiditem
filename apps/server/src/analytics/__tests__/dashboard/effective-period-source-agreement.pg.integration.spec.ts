@@ -50,7 +50,6 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 import type { PrismaClient } from '@prisma/client';
-import { seedAd } from '../../../test-helpers/finance-seeds';
 import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 
 const VENDOR_ID = 'VENDOR-AGREEMENT';

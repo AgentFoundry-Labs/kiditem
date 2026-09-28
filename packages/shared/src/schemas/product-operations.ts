@@ -217,7 +217,6 @@ export const ProductOperationsDataStatusSchema = z.object({
   sources: z.object({
     traffic: ProductOperationsDataSourceStatusSchema,
     orders: ProductOperationsDataSourceStatusSchema,
-    advertising: ProductOperationsDataSourceStatusSchema,
     sellpia: ProductOperationsDataSourceStatusSchema,
     mapping: z.object({
       ready: z.boolean(),

@@ -25,59 +25,23 @@ export type ProductAbcRecalculationFeedback = {
 type SourceNotReady = Extract<ProductAbcRecalculationResponse, { outcome: 'SOURCE_NOT_READY' }>;
 type Published = Extract<ProductAbcRecalculationResponse, { outcome: 'PUBLISHED' }>;
 
-const PUBLISHED_SOURCE_LABELS = {
-  sellpia: '셀피아 상품 손익',
-  advertising: '광고 손익',
-} as const;
-
-function notReadySourceLabels(result: SourceNotReady): string {
-  return Object.entries(result.sources)
-    .filter(([, source]) => !source.ready)
-    .map(([source]) => (source === 'sellpia' ? '셀피아' : '광고비'))
-    .join(', ');
-}
-
-/**
- * Without a source pair the late source is the one to collect again. Advertising
- * that ends on its own required cutoff held yesterday: its last complete
- * collection saw no spend yesterday for an account that spent the day before.
- * That is a late Coupang report or ads paused yesterday, and the server cannot
- * tell which, so the message gives the step that confirms the day for each: a
- * collection after the report sees the spend, and tomorrow's collection confirms
- * a paused day because only a collection's closed day is ever held.
- */
+/** A grade waits only on the Sellpia product profitability source (KID-373). */
 function sourceNotReadyMessage(result: SourceNotReady): string {
   const officialCutoff = `공식 등급 기준일 ${result.officialCutoff ?? '없음'}`;
-  const { pairing } = result;
-  if (pairing?.lateSource === 'advertising') {
-    return pairing.advertisingEndDate === result.sources.advertising.requiredCutoff
-      ? `마지막으로 완료된 광고 손익 수집은 어제 광고비를 확정하지 못해 그제까지만 반영했습니다. 기존 공식 등급을 유지합니다. 쿠팡 보고가 늦었다면 보고 뒤 다시 수집해 주세요. 어제 광고를 멈춘 계정이면 내일 수집에서 반영됩니다. ${officialCutoff}`
-      : `광고 손익 기준일(${pairing.advertisingEndDate})이 셀피아(${pairing.sellpiaEndDate})보다 이릅니다. 광고 손익을 다시 수집해 주세요. ${officialCutoff}`;
-  }
-  if (pairing?.lateSource === 'sellpia') {
-    return `셀피아 상품 손익 기준일(${pairing.sellpiaEndDate})이 광고 손익(${pairing.advertisingEndDate})보다 이릅니다. 셀피아 상품 손익을 다시 수집해 주세요. ${officialCutoff}`;
-  }
-  const notReady = notReadySourceLabels(result);
+  const notReady = result.sources.sellpia.ready ? '' : '셀피아';
   return `원천이 준비되지 않아 기존 공식 등급을 유지합니다. ${officialCutoff} · 표시 데이터 기준일 ${result.actualCutoff ?? '없음'}${notReady ? ` · 준비 필요: ${notReady}` : ''}`;
 }
 
 /**
- * A publication pairs the newest collections that end together, so a source
- * that collected further than the other is reflected only through the official
- * cutoff. Each such source is named with the day its newest collection
- * reaches: the days after the cutoff are what the grades leave out, and the
- * operator reads that from whichever screen refreshed.
+ * A publication reads the newest Sellpia collection that reaches a usable
+ * cutoff, so a collection past the official cutoff is reflected only through
+ * it; the message names the day that collection reaches.
  */
 function publishedMessage(result: Published): string {
-  const collectedPastCutoff = (['sellpia', 'advertising'] as const).flatMap((source) => {
-    const { actualCutoff } = result.sources[source];
-    return actualCutoff !== null && actualCutoff > result.officialCutoff
-      ? [`${PUBLISHED_SOURCE_LABELS[source]}(${actualCutoff}까지 수집)`]
-      : [];
-  });
+  const { actualCutoff } = result.sources.sellpia;
   const published = `ABC 등급을 발행했습니다. 공식 등급 기준일 ${result.officialCutoff}`;
-  return collectedPastCutoff.length > 0
-    ? `${published} · 기준일 뒤 수집분 미반영: ${collectedPastCutoff.join(', ')}`
+  return actualCutoff !== null && actualCutoff > result.officialCutoff
+    ? `${published} · 기준일 뒤 수집분 미반영: 셀피아 상품 손익(${actualCutoff}까지 수집)`
     : published;
 }
 

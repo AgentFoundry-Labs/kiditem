@@ -15,16 +15,8 @@ const worker = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
-const collectionWindowSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/collection-window.js'),
-  'utf8',
-);
 const collectionRunsSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-runs.js'),
-  'utf8',
-);
-const profitabilitySourceOwner = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/profitability-source-owner.js'),
   'utf8',
 );
 const sourceOwnerManifest = fs.readFileSync(
@@ -47,11 +39,23 @@ test('loads the canonical session manager and focus owners before collector runt
   assert.ok(at('collection-session.js') >= 0);
   assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
   assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
-  assert.ok(at('coupang/collection-window.js') > at('worker-globals.js'));
-  assert.ok(at('coupang/profitability-source-owner.js') > at('coupang/collection-window.js'));
+  assert.ok(at('coupang/worker.js') > at('worker-globals.js'));
   // KID-354: the Wing catalog runs in the TypeScript operation runtime, not as an old module.
   assert.equal(at('coupang/coupang-catalog-import.js'), -1);
-  assert.ok(at('coupang/worker.js') > at('coupang/profitability-source-owner.js'));
+  // KID-373: advertising collection is the runtime kind `advertising.ad_report`;
+  // the old window, admission, collector and source owners are gone.
+  for (const retired of [
+    'coupang/collection-window.js',
+    'coupang/collection-start.js',
+    'coupang/ad-center-collector.js',
+    'coupang/ad-collector-delay.js',
+    'coupang/ad-campaign-source-owner.js',
+    'coupang/ad-keyword-source-owner.js',
+    'coupang/profitability-source-owner.js',
+  ]) {
+    assert.equal(at(retired), -1, retired);
+    assert.equal(fs.existsSync(path.join(extensionRoot, 'background', retired)), false, retired);
+  }
   assert.doesNotMatch(worker, /^importScripts\(/m);
 
   const globals = fs.readFileSync(
@@ -86,7 +90,7 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(worker, /function autoScrape\(/);
   assert.doesNotMatch(worker, /alarmName\(["']auto-scrape["']/);
   assert.match(worker, /KidItemDomains\.register\(/);
-  assert.match(worker, /producerPrefixes:\s*\["advertising",\s*"channels",\s*"dashboard"\]/);
+  assert.match(worker, /producerPrefixes:\s*\["channels",\s*"dashboard"\]/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -101,8 +105,6 @@ test('retires the generic scrape ingress before producer actions', () => {
   // 취소는 producer별 source owner가 server FAILED를 커밋한 뒤 local control을 정리한다.
   assert.doesNotMatch(worker, /collectionRuns\s*\n?\s*\.cancel\(/);
   assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
-  assert.match(worker, /session\?\.producer === "advertising\.ad_sync"[\s\S]*adCampaignSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === "advertising\.ad_keyword"[\s\S]*adKeywordSourceOwner\.cancel/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
@@ -110,8 +112,9 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(worker, /FromPopup|monthlyScrape|beginSourceOwnerAttempt/);
 });
 
-test('starts window collections only through the collection start contract', () => {
-  assert.match(worker, /startCollection:\s*\{/);
+test('opens no browser collection from a web start and exposes no ad collection action (KID-373)', () => {
+  assert.doesNotMatch(worker, /startCollection|collectionStartV1|SourceOwnerV1/);
+  assert.doesNotMatch(worker, /manualSync|collectProfitabilitySlice|collectCampaigns|collectKeywords/);
   for (const retired of [
     'collectAdvertisingWingTraffic',
     'collectAdvertisingWingItemwinner',
@@ -134,7 +137,6 @@ test('retires the advertising account-day KPI owner from every extension surface
     'background/service-worker.js': read('background/service-worker.js'),
     'background/source-owner-manifest.js': sourceOwnerManifest,
     'background/coupang/worker.js': worker,
-    'background/coupang/ad-center-collector.js': read('background/coupang/ad-center-collector.js'),
     'content/coupang/ads-report.js': read('content/coupang/ads-report.js'),
     'popup/popup.js': read('popup/popup.js'),
     'popup/popup.html': read('popup/popup.html'),
@@ -150,15 +152,10 @@ test('retires the advertising account-day KPI owner from every extension surface
 });
 
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
-  const producerSources = `${sourceOwnerManifest}\n${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
-  for (const producer of [
-    'dashboard.coupang_products',
-    'advertising.ad_sync',
-    'advertising.profitability_import',
-    'channels.coupang_catalog',
-  ]) {
-    assert.match(producerSources, new RegExp(producer.replace('.', '\\.')));
+  for (const producer of ['dashboard.coupang_products', 'channels.coupang_catalog']) {
+    assert.match(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
   }
+  assert.doesNotMatch(sourceOwnerManifest, /"advertising\./);
   assert.match(worker, /browserCollectionSessions:\s*true/);
   assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
   // 윙 상품등록 포트(`kiditem-wing-form-v1`)는 런타임 실행 kind `channels.registration`으로 옮겼다(KID-256).
@@ -168,21 +165,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     'utf8',
   );
   assert.match(dispatchSource, /onConnectExternal\?\.addListener\(handlePort\)/);
-});
-
-test('source capture policies share the environment-owned resource without a universal target loop', () => {
-  // Runtime serialization, teardown, retry and progress behavior are covered
-  // through the production resource and named collector interfaces.
-  assert.match(worker, /KidItemAdCenterCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice']) {
-    assert.match(worker, new RegExp(`\\.${method}\\(`));
-  }
-  assert.doesNotMatch(worker, /\.collectTargets\(/);
-  assert.doesNotMatch(collectionWindowSource, /sessions\.(progress|succeed|fail|cancel)\(/);
-  assert.doesNotMatch(collectionWindowSource, /manualSync|targetDate|statusKey|cancelKey/);
-  assert.match(worker, /\.reportProgress\(\{/);
-  assert.doesNotMatch(worker, /session\.status/);
-  assert.doesNotMatch(worker, /reportBatchScrapeDone/);
 });
 
 test('automatic collectors contain no direct focus primitives', () => {
@@ -204,7 +186,7 @@ test('automatic collectors never reuse or navigate a user-active tab', () => {
 test('legacy batch controls are no longer exposed beside source-owner cancellation', () => {
   assert.doesNotMatch(worker, /function cancelBatchScrape\(/);
   assert.doesNotMatch(worker, /function autoScrape\(/);
-  assert.match(worker, /cancelCollectionSession\(runId, environmentId\)/);
+  assert.match(worker, /cancelCollectionSession: async \(\) => \{/);
   assert.doesNotMatch(worker, /collectionWindowFor\(environmentId\)\.cancelRun/);
   assert.doesNotMatch(worker, /collectionSessions\.remove/);
 });

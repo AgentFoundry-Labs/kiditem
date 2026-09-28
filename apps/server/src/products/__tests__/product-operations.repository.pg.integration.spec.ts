@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
   productAbcDisplayStatus,
 } from '@kiditem/shared/product-abc';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
@@ -41,8 +41,6 @@ import { MasterProductProfitabilityReadService } from '../../finance/application
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
@@ -56,7 +54,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let service: ProductQueryUseCase;
   let sellpia: SellpiaProfitabilitySourceService;
-  let advertising: ProfitabilityAdImportRepositoryAdapter;
   let dataStatus: ProductDataStatusUseCase;
   let recipes: ChannelOptionRecipeService;
   let channelAccounts: ReturnType<typeof channelFactTestPorts>['accounts'];
@@ -65,21 +62,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    const alerts = new SourceFailureAlerts(prismaService);
     const transactionalRead = new ProductTransactionalReadRepositoryAdapter();
     const channelFacts = channelFactTestPorts(prismaService);
     channelAccounts = channelFacts.accounts;
     sellpia = new SellpiaProfitabilitySourceService(prismaService);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(
-      channelFacts.accounts,
-      channelFacts.recipes,
-      channelFacts.listings,
-      prismaService,
-      alerts,
-    );
     const dataStatusRepository = new ProductOperationsDataStatusRepositoryAdapter(
       prismaService,
-      new MasterProductProfitabilityReadService(sellpia, advertising, prismaService, transactionalRead),
+      new MasterProductProfitabilityReadService(sellpia, prismaService, transactionalRead),
       transactionalRead,
       channelAccounts,
     );
@@ -517,7 +506,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
     const originalEvidence = new MasterProductProfitabilityReadService(
       sellpia,
-      advertising,
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter());
     const adapter = new ProductOperationsDataStatusRepositoryAdapter(
@@ -1798,7 +1786,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     // Hold the independent profitability port's cutoff fixed; Orders and
     // traffic still cross their real PostgreSQL reader boundaries below.
     const profitability = new MasterProductProfitabilityReadService(
-      sellpia, advertising, prisma as PrismaService,
+      sellpia, prisma as PrismaService,
       new ProductTransactionalReadRepositoryAdapter());
     const selectedStatus = new ProductDataStatusUseCase(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
@@ -2168,18 +2156,14 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const formulaVersion = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
-        version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey,
+        version: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
     });
     const sellpiaPublished = await publishSellpiaProfitability(prisma, { organizationId: TEST_ORGANIZATION_ID, products: () => [] });
     const sellpiaSource = { attemptId: sellpiaPublished.operationId, plan: sellpiaPublished.plan };
-    const advertisingSource = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: randomUUID() });
-    expect(advertisingSource.accounts).toEqual([]);
-    await advertising.finalizeAttempt({ organizationId: TEST_ORGANIZATION_ID,
-      attemptId: advertisingSource.attemptId, attemptToken: advertisingSource.attemptToken });
     await prisma.$transaction(async (tx) => {
       await tx.masterProductAbcFormulaState.create({
         data: {
@@ -2189,7 +2173,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           publicationRevision: 1,
           officialCutoffDate: coverageEndDate,
           publishedSellpiaOperationId: sellpiaSource.attemptId,
-          publishedAdvertisingSourceImportRunId: advertisingSource.attemptId,
           publishedMappingGeneration: 0n,
           mappingGeneration: 0n,
           publishedAt: calculatedAt,
@@ -2203,7 +2186,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           abcGrade,
           weightedRevenue: 1_000_000,
           weightedOrderTimeSupplyCost: 200_000,
-          weightedAdvertisingSpend: 100_000,
           weightedOperatingProfit: 700_000,
           operatingProfitVelocity30: 700_000,
           operatingMargin: 0.7,
@@ -2217,15 +2199,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           publicationRevision: 1,
           gradeBasisCutoffDate: coverageEndDate,
           sellpiaOperationId: sellpiaSource.attemptId,
-          advertisingSourceImportRunId: advertisingSource.attemptId,
           sellpiaGeneration: 1n,
-          advertisingGeneration: 1n,
           mappingGeneration: 0n,
           calculatedAt,
         })),
       });
     });
-    return { formulaVersion, sellpiaSource, advertisingSource };
+    return { formulaVersion, sellpiaSource };
   }
 
   async function attachCatalogPrimaryImage(

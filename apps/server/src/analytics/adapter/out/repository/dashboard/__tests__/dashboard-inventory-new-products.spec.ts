@@ -16,7 +16,7 @@ describe('DashboardInventoryRepositoryAdapter — new products', () => {
     saleStartDate,
     abc: {
       evaluation: graded ? { abcGrade: 'B', weightedOperatingProfit: 1 } : null,
-      sources: { mapping: { valid: true }, sellpia: { ready: true }, advertising: { ready: false }, advertisingRequired: false },
+      sources: { mapping: { valid: true }, sellpia: { ready: true } },
     },
   });
 

@@ -1,8 +1,6 @@
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { describe, expect, it, vi } from 'vitest';
 import { MODULE_METADATA } from '@nestjs/common/constants';
-import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
-import { AdvertisingProfitabilityReadModule } from '../../advertising/advertising-profitability-read.module';
 import { SellpiaProductSalesModule } from '../../analytics/sellpia-product-sales/sellpia-product-sales.module';
 import { SellpiaProfitabilitySourceModule } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.module';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../application/port/in/master-product-profitability-read.port';
@@ -13,7 +11,6 @@ import { ProfitabilityEvidenceModule } from '../profitability-evidence.module';
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const PRODUCT_ID = '00000000-0000-4000-8000-000000000002';
 const SELLPIA_RUN_ID = '00000000-0000-4000-8000-000000000010';
-const ADVERTISING_RUN_ID = '00000000-0000-4000-8000-000000000011';
 const LISTING_ID = '00000000-0000-4000-8000-000000000031';
 const MULTI_MASTER_PRODUCT_ID = '00000000-0000-4000-8000-000000000003';
 const INVALID_MAPPING_PRODUCT_ID = '00000000-0000-4000-8000-000000000004';
@@ -99,117 +96,15 @@ function sellpiaFacts(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function advertisingSummary(overrides: Record<string, unknown> = {}) {
-  return {
-    sourceImportRunId: ADVERTISING_RUN_ID,
-    sourceType: 'coupang_ad_profitability',
-    organizationId: ORGANIZATION_ID,
-    publicationSequence: '9',
-    coverageStartDate: '2025-09-01',
-    coveredThrough: '2026-08-31',
-    // A generation confirms the day it requested unless a test holds one back.
-    requestedThrough: overrides.coveredThrough ?? '2026-08-31',
-    capturedAt: '2026-09-02T00:00:00.000Z',
-    mappingGeneration: '3',
-    adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-    frozenRecipePolicy: {
-      version: 'WHOLE_RECIPE_QUANTITY_V1',
-      allocation: 'INTEGER_KRW_LARGEST_REMAINDER',
-      tieBreak: 'MASTER_PRODUCT_ID_ASC_LOWERCASE',
-      mappingGeneration: '3',
-      adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-    },
-    qualitySummary: {
-      contract: 'profitability-report-v1',
-      parserVersion: 'profitability-report-v1',
-      plannedAccountCount: 1,
-      plannedSliceCount: 12,
-      receiptCount: 12,
-      targetFactCount: 12,
-      matchedTargetCount: 12,
-      unmatchedTargetCount: 0,
-      allocatableTargetCount: 12,
-      unallocatableTargetCount: 0,
-      monthlyAllocationFactCount: 12,
-      reportIdCount: 12,
-      campaignCount: 0,
-      expectedRowCount: 12,
-      collectedRowCount: 12,
-      responseBytes: 1,
-      providerSpendKrw: 12_000,
-      allocatedSpendKrw: 12_000,
-      unmatchedSpendKrw: 0,
-      unallocatableSpendKrw: 0,
-    },
-    ...overrides,
-  };
-}
-
-function advertisingSnapshot(overrides: Record<string, unknown> = {}) {
-  const summary = advertisingSummary();
-  return {
-    latestAttempt: {
-      attemptId: ADVERTISING_RUN_ID,
-      sourceImportRunId: ADVERTISING_RUN_ID,
-      state: 'COMPLETE',
-      startedAt: '2026-09-02T00:00:00.000Z',
-      capturedAt: '2026-09-02T00:00:00.000Z',
-      expiresAt: '2026-09-02T01:00:00.000Z',
-      errorCode: null,
-      errorMessage: null,
-      mappingGeneration: '3',
-      adSourcePolicyHash: PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH,
-      coverageStartDate: '2025-09-01',
-      coverageEndDate: '2026-08-31',
-    },
-    latestComplete: summary,
-    completeGenerations: [summary],
-    ready: true,
-    ...overrides,
-  };
-}
-
-function advertisingGeneration(overrides: Record<string, unknown> = {}) {
-  const summary = advertisingSummary();
-  return {
-    summary,
-    allocations: MONTHS.map((month) => ({
-      channelAccountId: '00000000-0000-4000-8000-000000000030',
-      channelListingId: '00000000-0000-4000-8000-000000000031',
-      masterProductId: PRODUCT_ID,
-      month,
-      coveredStartDate: `${month}-01`,
-      coveredEndDate: monthEnd(month),
-      wholeRecipeWeight: 1,
-      allocatedSpend: 1_000,
-      observedTargetDayCount: new Date(
-        Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0),
-      ).getUTCDate(),
-      mappingGeneration: '3',
-    })),
-    ...overrides,
-  };
-}
-
 function makeService(input: {
   sellpiaCatalog?: unknown;
   sellpiaFacts?: unknown;
-  advertisingSnapshot?: unknown;
-  advertisingGeneration?: unknown;
   products?: unknown[];
   mappingGeneration?: bigint | string | null;
 } = {}) {
   const sellpia = {
     readGenerationCatalog: vi.fn().mockResolvedValue(input.sellpiaCatalog ?? sellpiaCatalog()),
     readGenerationFacts: vi.fn().mockResolvedValue(input.sellpiaFacts ?? sellpiaFacts()),
-  };
-  const advertising = {
-    readSourceSnapshot: vi.fn().mockResolvedValue(input.advertisingSnapshot ?? advertisingSnapshot()),
-    readGeneration: vi.fn().mockResolvedValue(
-      input.advertisingGeneration === undefined
-        ? advertisingGeneration()
-        : input.advertisingGeneration,
-    ),
   };
   const transaction = vi.fn();
   const prisma = {
@@ -256,18 +151,16 @@ function makeService(input: {
   return {
     service: new MasterProductProfitabilityReadService(
       sellpia as never,
-      advertising as never,
       prisma as never,
      new ProductTransactionalReadRepositoryAdapter()) as unknown as { load(input: { organizationId: string; targetCutoff: string }): Promise<any> },
     sellpia,
-    advertising,
     prisma,
   };
 }
 
 describe('ProfitabilityEvidence', () => {
   it('uses at most twelve completed months ending at the target cutoff', async () => {
-    const { service, sellpia, advertising, prisma } = makeService();
+    const { service, sellpia, prisma } = makeService();
 
     const result = await service.load({
       organizationId: ORGANIZATION_ID,
@@ -281,10 +174,10 @@ describe('ProfitabilityEvidence', () => {
       operationId: SELLPIA_RUN_ID,
       yearMonths: MONTHS,
     }));
-    expect(advertising.readGeneration).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      sourceImportRunId: ADVERTISING_RUN_ID,
-    });
+    // ABC grades on Sellpia alone (KID-373): no advertising source or spend.
+    expect(Object.keys(result.sources)).toEqual(['sellpia']);
+    expect(Object.keys(result.sourceVector)).toEqual(['sellpia']);
+    expect(result.products[0].formulaReadyFacts.monthlyFacts[0]).not.toHaveProperty('advertisingSpend');
     expect(prisma.$transaction).toHaveBeenCalledWith(
       expect.any(Function),
       { isolationLevel: 'RepeatableRead' },
@@ -359,15 +252,6 @@ describe('ProfitabilityEvidence', () => {
         ? { ...fact, coverageEndDate: '2026-08-15' }
         : fact),
     });
-    const advertisingSummaryWithPartialCutoff = advertisingSummary({
-      coveredThrough: '2026-08-15',
-    });
-    const advertising = advertisingGeneration({
-      summary: advertisingSummaryWithPartialCutoff,
-      allocations: advertisingGeneration().allocations.map((fact: { month: string }) => fact.month === '2026-08'
-        ? { ...fact, coveredEndDate: '2026-08-15', observedTargetDayCount: 15 }
-        : fact),
-    });
     const { service } = makeService({
       sellpiaCatalog: {
         ...sellpiaCatalog({ completeGenerations: [sellpiaGenerationWithPartialCutoff] }),
@@ -377,15 +261,6 @@ describe('ProfitabilityEvidence', () => {
         },
       },
       sellpiaFacts: sellpia,
-      advertisingSnapshot: {
-        ...advertisingSnapshot({ completeGenerations: [advertisingSummaryWithPartialCutoff] }),
-        latestComplete: advertisingSummaryWithPartialCutoff,
-        latestAttempt: {
-          ...advertisingSnapshot().latestAttempt,
-          coverageEndDate: '2026-08-15',
-        },
-      },
-      advertisingGeneration: advertising,
     });
 
     const result = await service.load({
@@ -421,19 +296,6 @@ describe('ProfitabilityEvidence', () => {
         generation: sellpiaGenerationWithPartialCutoff,
         facts: sellpiaFacts().facts.map((fact: { yearMonth: string }) => fact.yearMonth === '2026-08'
           ? { ...fact, coverageEndDate: '2026-08-14' }
-          : fact),
-      }),
-      // The advertising generation the snapshot lists is the one read back.
-      advertisingSnapshot: {
-        ...advertisingSnapshot(),
-        latestAttempt: { ...advertisingSnapshot().latestAttempt, coverageEndDate: '2026-08-15' },
-        latestComplete: advertisingSummary({ coveredThrough: '2026-08-15' }),
-        completeGenerations: [advertisingSummary({ coveredThrough: '2026-08-15' })],
-      },
-      advertisingGeneration: advertisingGeneration({
-        summary: advertisingSummary({ coveredThrough: '2026-08-15' }),
-        allocations: advertisingGeneration().allocations.map((fact: { month: string }) => fact.month === '2026-08'
-          ? { ...fact, coveredEndDate: '2026-08-15', observedTargetDayCount: 15 }
           : fact),
       }),
     });
@@ -492,9 +354,8 @@ describe('ProfitabilityEvidence', () => {
     });
   });
 
-  it('counts only the shared partial-month coverage days', async () => {
+  it('counts only the partial-month coverage days of the Sellpia fact', async () => {
     const facts = sellpiaFacts();
-    const allocations = advertisingGeneration().allocations;
     const { service } = makeService({
       sellpiaFacts: {
         ...facts,
@@ -503,12 +364,6 @@ describe('ProfitabilityEvidence', () => {
             ? { ...fact, coverageStartDate: '2025-09-02' }
             : fact),
       },
-      advertisingGeneration: advertisingGeneration({
-        allocations: allocations.map((allocation: { month: string }) =>
-          allocation.month === '2025-09'
-            ? { ...allocation, coveredStartDate: '2025-09-02' }
-            : allocation),
-      }),
     });
 
     const result = await service.load({
@@ -524,42 +379,13 @@ describe('ProfitabilityEvidence', () => {
     });
   });
 
-  it('keeps the previous complete pair as stale display evidence after a failed attempt', async () => {
-    const snapshot = advertisingSnapshot({
-      latestAttempt: {
-        ...advertisingSnapshot().latestAttempt,
-        attemptId: '00000000-0000-4000-8000-000000000099',
-        sourceImportRunId: '00000000-0000-4000-8000-000000000099',
-        state: 'FAILED',
-        errorCode: 'PROVIDER_FAILED',
-        errorMessage: 'provider unavailable',
-      },
-      ready: false,
+  it('excludes every month after the selected Sellpia cutoff', async () => {
+    const july = sellpiaGeneration({
+      coverage: { from: '2025-09-01', to: '2026-07-31', coveredMonths: MONTHS.slice(0, -1) },
     });
-    const { service } = makeService({ advertisingSnapshot: snapshot });
-
-    const result = await service.load({
-      organizationId: ORGANIZATION_ID,
-      targetCutoff: '2026-08-31',
-    });
-
-    expect(result.sources.advertising).toMatchObject({
-      ready: true,
-      latestAttempt: { state: 'FAILED', errorCode: 'PROVIDER_FAILED' },
-      actualCutoff: '2026-08-31',
-    });
-    expect(result.sourceVector.advertising.sourceImportRunId).toBe(ADVERTISING_RUN_ID);
-    expect(result.products[0].formulaReadyFacts).not.toBeNull();
-  });
-
-  it('excludes every month after the selected common cutoff', async () => {
-    const julyAdvertising = advertisingSummary({ coveredThrough: '2026-07-31' });
     const { service } = makeService({
-      advertisingSnapshot: advertisingSnapshot({
-        latestComplete: julyAdvertising,
-        completeGenerations: [julyAdvertising],
-      }),
-      advertisingGeneration: advertisingGeneration({ summary: julyAdvertising }),
+      sellpiaCatalog: sellpiaCatalog({ completeGenerations: [july] }),
+      sellpiaFacts: sellpiaFacts({ generation: july }),
     });
 
     const result = await service.load({
@@ -571,55 +397,7 @@ describe('ProfitabilityEvidence', () => {
     expect(result.products[0].formulaReadyFacts.monthlyFacts.at(-1)?.yearMonth).toBe('2026-07');
   });
 
-  it('does not infer NOT_APPLIED before advertising manifest coverage starts', async () => {
-    const octoberAdvertising = advertisingSummary({ coverageStartDate: '2025-10-01' });
-    const generation = advertisingGeneration({
-      summary: octoberAdvertising,
-      allocations: advertisingGeneration().allocations.filter(
-        (allocation: { month: string }) => allocation.month !== '2025-09',
-      ),
-    });
-    const { service } = makeService({
-      advertisingSnapshot: advertisingSnapshot({
-        latestComplete: octoberAdvertising,
-        completeGenerations: [octoberAdvertising],
-      }),
-      advertisingGeneration: generation,
-    });
-
-    const result = await service.load({
-      organizationId: ORGANIZATION_ID,
-      targetCutoff: '2026-08-31',
-    });
-
-    expect(result.products[0].formulaReadyFacts.monthlyFacts[0]?.yearMonth).toBe('2025-10');
-  });
-
-  it('does not synthesize advertising zero when no complete advertising generation exists', async () => {
-    const { service } = makeService({
-      advertisingSnapshot: {
-        latestAttempt: null,
-        latestComplete: null,
-        completeGenerations: [],
-        ready: false,
-      },
-    });
-
-    const result = await service.load({
-      organizationId: ORGANIZATION_ID,
-      targetCutoff: '2026-08-31',
-    });
-
-    expect(result.sources.advertising).toMatchObject({ ready: false, actualCutoff: null });
-    expect(result.sources.sellpia).toMatchObject({
-      ready: true,
-      actualCutoff: '2026-08-31',
-    });
-    expect(result.sourceVector.advertising.sourceImportRunId).toBeNull();
-    expect(result.products[0].formulaReadyFacts).toBeNull();
-  });
-
-  it('selects an older compatible pair when the newest source generations disagree on mapping', async () => {
+  it('selects an older Sellpia generation when the newest one is on another mapping', async () => {
     const olderSellpia = sellpiaGeneration({
       operationId: '00000000-0000-4000-8000-000000000012',
       publicationSequence: '6',
@@ -634,7 +412,6 @@ describe('ProfitabilityEvidence', () => {
         mappingGeneration: '4',
       },
     });
-    const adSummary = advertisingSummary();
     const { service } = makeService({
       sellpiaCatalog: {
         ...sellpiaCatalog(),
@@ -655,14 +432,10 @@ describe('ProfitabilityEvidence', () => {
       publicationSequence: '6',
       mappingGeneration: '3',
     });
-    expect(result.sourceVector.advertising).toMatchObject({
-      sourceImportRunId: adSummary.sourceImportRunId,
-      mappingGeneration: '3',
-    });
     expect(result.sources.sellpia).toMatchObject({ ready: true, actualCutoff: '2026-08-31' });
   });
 
-  it('does not mark a source pair ready when it is behind FormulaState mapping generation', async () => {
+  it('does not mark the Sellpia source ready when it is behind FormulaState mapping generation', async () => {
     const { service } = makeService({ mappingGeneration: 4n });
 
     const result = await service.load({
@@ -672,10 +445,7 @@ describe('ProfitabilityEvidence', () => {
 
     expect(result.mappingGeneration).toBeNull();
     expect(result.actualCutoff).toBeNull();
-    expect(result.sources).toMatchObject({
-      sellpia: { ready: false },
-      advertising: { ready: false },
-    });
+    expect(result.sources).toMatchObject({ sellpia: { ready: false } });
     expect(result.products[0].formulaReadyFacts).toBeNull();
   });
 
@@ -831,27 +601,6 @@ describe('ProfitabilityEvidence', () => {
     });
   });
 
-  it('keeps zero allocated advertising spend as confirmed zero despite observed coverage days', async () => {
-    const completeAdvertising = advertisingGeneration();
-    const { service } = makeService({
-      advertisingGeneration: {
-        ...completeAdvertising,
-        allocations: completeAdvertising.allocations.map((allocation: { allocatedSpend: number }) => ({
-          ...allocation,
-          allocatedSpend: 0,
-          observedTargetDayCount: 31,
-        })),
-      },
-    });
-
-    const result = await service.load({
-      organizationId: ORGANIZATION_ID,
-      targetCutoff: '2026-08-31',
-    });
-
-    expect(result.products[0].formulaReadyFacts?.monthlyFacts[0]?.advertisingSpend).toBe(0);
-  });
-
   it('requires the latest attempt to be COMPLETE and exposes Sellpia failure code', async () => {
     const failedAttempt = {
       ...sellpiaCatalog().latestAttempt,
@@ -889,15 +638,6 @@ describe('ProfitabilityEvidence', () => {
     })).rejects.toThrow('malformed manifest');
   });
 
-  it('rejects when an exact advertising generation disappears after catalog selection', async () => {
-    const { service } = makeService({ advertisingGeneration: null });
-
-    await expect(service.load({
-      organizationId: ORGANIZATION_ID,
-      targetCutoff: '2026-08-31',
-    })).rejects.toThrow('SOURCE_GENERATION_NOT_FOUND');
-  });
-
   it('rejects an unsafe aggregate instead of rounding source money', async () => {
     const generationFacts = sellpiaFacts();
     const first = generationFacts.facts[0]!;
@@ -931,10 +671,9 @@ describe('ProfitabilityEvidenceModule', () => {
       .not.toContain(SellpiaProductSalesModule);
   });
 
-  it('exports one Finance-owned evidence seam over the two exact source readers', () => {
+  it('exports one Finance-owned evidence seam over the Sellpia source reader', () => {
     expect(Reflect.getMetadata(MODULE_METADATA.IMPORTS, ProfitabilityEvidenceModule)).toEqual([
       SellpiaProfitabilitySourceModule,
-      AdvertisingProfitabilityReadModule,
       ProductCollectionRuntimeModule,
     ]);
     expect(Reflect.getMetadata(MODULE_METADATA.PROVIDERS, ProfitabilityEvidenceModule)).toEqual([

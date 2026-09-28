@@ -15,7 +15,8 @@ export type SourceGenerationView = Readonly<{
 
 /**
  * Finance's formula input. Finance assembles facts and provenance; Products
- * remains the only owner of the ABC formula and evaluator.
+ * remains the only owner of the ABC formula and evaluator. ABC grades on
+ * Sellpia sales and purchase cost alone (KID-373).
  */
 export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
   yearMonth: string;
@@ -24,8 +25,6 @@ export type MasterProductAbcFormulaReadyMonthlyFact = Readonly<{
   coveredDays: number;
   recognizedRevenue: number;
   orderTimeSupplyCost: number;
-  /** Allocated ad spend for the month; `0` when the organization has no advertising. */
-  advertisingSpend: number;
   provenance: Readonly<{
     costBasis: 'ORDER_TIME_SUPPLY_COST';
     vatIncluded: true;
@@ -62,11 +61,9 @@ export type ProfitabilityEvidenceSnapshot = Readonly<{
   }> | null;
   sourceVector: Readonly<{
     sellpia: SourceGenerationView;
-    advertising: SourceGenerationView;
   }>;
   sources: Readonly<{
     sellpia: SourceReadiness;
-    advertising: SourceReadiness;
   }>;
   products: readonly ProductProfitabilityEvidence[];
 }>;
@@ -76,11 +73,5 @@ export interface ProfitabilityEvidence {
   load(input: {
     organizationId: string;
     targetCutoff: string;
-    /**
-     * `excluded` pairs Sellpia alone and prices advertising at nothing — only
-     * for an ABC formula that excludes advertising. Source readiness still
-     * reports advertising as it is. Defaults to `required`.
-     */
-    advertising?: 'required' | 'excluded';
   }): Promise<ProfitabilityEvidenceSnapshot>;
 }

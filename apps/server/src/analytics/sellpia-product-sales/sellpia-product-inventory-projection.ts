@@ -88,7 +88,6 @@ export function projectSellpiaProductInventory(input: {
       INSUFFICIENT_EVIDENCE: number;
       SOURCE_UNMAPPED: number;
       SELLPIA_SOURCE_STALE: number;
-      AD_SOURCE_STALE: number;
     };
     abcContributionProfitByGrade: { A: number; B: number; C: number };
     classifiedProductCount: number;
@@ -292,7 +291,6 @@ function summarizeInventoryProductAbc(
     INSUFFICIENT_EVIDENCE: number;
     SOURCE_UNMAPPED: number;
     SELLPIA_SOURCE_STALE: number;
-    AD_SOURCE_STALE: number;
   };
   abcContributionProfitByGrade: { A: number; B: number; C: number };
   classifiedProductCount: number;
@@ -311,7 +309,6 @@ function summarizeInventoryProductAbc(
       INSUFFICIENT_EVIDENCE: 0,
       SOURCE_UNMAPPED: 0,
       SELLPIA_SOURCE_STALE: 0,
-      AD_SOURCE_STALE: 0,
     },
     abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
     classifiedProductCount: 0,

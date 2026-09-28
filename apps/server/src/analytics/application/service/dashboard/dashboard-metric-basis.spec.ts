@@ -702,7 +702,6 @@ describe('dashboard inventory metricBasis', () => {
     'abcStatusCount.INSUFFICIENT_EVIDENCE',
     'abcStatusCount.SOURCE_UNMAPPED',
     'abcStatusCount.SELLPIA_SOURCE_STALE',
-    'abcStatusCount.AD_SOURCE_STALE',
     'abcContributionProfit.amountByGrade.A',
     'abcContributionProfit.amountByGrade.B',
     'abcContributionProfit.amountByGrade.C',

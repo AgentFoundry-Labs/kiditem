@@ -50,9 +50,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
 
   it('accepts every approved producer and attention reason', () => {
     expect(BROWSER_COLLECTION_PRODUCERS).toEqual([
-      'advertising.ad_keyword',
-      'advertising.ad_sync',
-      'advertising.profitability_import',
       'channels.coupang_catalog',
       'dashboard.coupang_products',
       'orders.mall',
@@ -66,7 +63,7 @@ describe('BrowserCollectionSessionViewSchema', () => {
     }
   });
 
-  it('rejects retired advertising account-day KPI producers', () => {
+  it('rejects retired advertising producers; advertising collects as the ad_report operation kind', () => {
     for (const producer of [
       'advertising.ad_account_daily_kpi',
       'dashboard.coupang_ads',

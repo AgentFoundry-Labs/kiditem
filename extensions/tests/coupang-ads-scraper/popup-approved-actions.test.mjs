@@ -8,19 +8,11 @@ const popupSource = await readFile(
   new URL('../../kiditem-os/popup/popup.js', import.meta.url),
   'utf8',
 );
-const sourceReadinessRuntime = await readFile(
-  new URL('../../kiditem-os/shared/source-readiness.js', import.meta.url),
-  'utf8',
-);
 const popupHtml = await readFile(
   new URL('../../kiditem-os/popup/popup.html', import.meta.url),
   'utf8',
 );
 
-// Wing 트래픽·아이템위너는 실행 kind다(KID-362) — 팝업은 옛 source 상태를 읽지 않는다.
-const OWNER_PATHS = [
-  '/api/ads/ad-campaigns/source',
-];
 const ACTIONS_PATH = '/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50';
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
@@ -32,21 +24,6 @@ async function flush() {
 
 function response(body, { success = true, ok = true, status = 200 } = {}) {
   return { success, ok, status, body };
-}
-
-function ownerStatus({
-  ready = true,
-  latestAttempt = { state: 'COMPLETE' },
-  latestComplete = null,
-  actualCutoffAt = null,
-} = {}) {
-  return {
-    channelAccountId: 'account-1',
-    ready,
-    latestAttempt,
-    latestComplete,
-    actualCutoffAt,
-  };
 }
 
 function createPopupHarness({
@@ -122,7 +99,6 @@ function createPopupHarness({
     setInterval() { return 0; },
     clearInterval() {},
   });
-  vm.runInContext(sourceReadinessRuntime, context, { filename: 'source-readiness.js' });
   vm.runInContext(popupSource, context, { filename: 'popup.js' });
 
   async function nextApiRequest(path, environmentId) {
@@ -165,132 +141,25 @@ async function selectEnvironment(harness, environmentId) {
   await harness.flush();
 }
 
-async function completeStatusLoad(harness, environmentId, bodies, { actions = { items: [] } } = {}) {
+async function completeStatusLoad(harness, environmentId, { actions = { items: [] } } = {}) {
   const extension = await harness.nextApiRequest('/api/ads/extension/status', environmentId);
   await harness.reply(extension, response({ status: 'ok' }));
-  for (const path of OWNER_PATHS) {
-    const requestForPath = await harness.nextApiRequest(path, environmentId);
-    await harness.reply(requestForPath, bodies[path]);
-  }
   const actionsRequest = await harness.nextApiRequest(ACTIONS_PATH, environmentId);
   await harness.reply(actionsRequest, response(actions));
   await harness.flush();
 }
 
-test('owner reads render independently while the connection read is still pending', async () => {
+// 광고 수집은 새 런타임의 advertising.ad_report 실행 kind라 팝업은 수집 원천 상태를 읽지 않는다(KID-373).
+test('the popup reads only the server connection and the approved-action queue', async () => {
   const harness = createPopupHarness({ connected: ['local'] });
-  const connection = await harness.nextApiRequest('/api/ads/extension/status', 'local');
-  const ownerRequests = await Promise.all(OWNER_PATHS.map((path) => harness.nextApiRequest(path, 'local')));
-  const actions = await harness.nextApiRequest(ACTIONS_PATH, 'local');
+  await completeStatusLoad(harness, 'local', { actions: { items: [{ id: 'action-1' }] } });
 
-  for (const request of ownerRequests) {
-    await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 3, itemCount: 3, campaignCount: 3 },
-    })));
-  }
-  await harness.reply(actions, response({ items: [] }));
-  assert.equal(harness.document.getElementById('serverStatus').textContent, '확인중...');
-  assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
-  assert.match(harness.document.getElementById('adsSyncDetail').textContent, /3캠페인/);
-
-  await harness.reply(connection, response({ status: 'ok' }));
-  assert.equal(harness.document.getElementById('serverStatus').textContent, '연결됨 ✅');
-});
-
-test('renders the campaign owner status with failed-attempt details beside prior complete evidence and reads no retired Wing source', async () => {
-  const harness = createPopupHarness({ connected: ['local'] });
-  const failureMessage = '<img src=x onerror=alert(1)>';
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/ad-campaigns/source': response(ownerStatus({
-      ready: false,
-      latestAttempt: { state: 'FAILED', errorCode: 'AD_TIMEOUT', errorMessage: failureMessage },
-      latestComplete: { state: 'COMPLETE', campaignCount: 12, actualCutoffAt: '2026-09-06T08:30:00.000Z' },
-    })),
-  });
-
-  const value = harness.document.getElementById('adsSync');
-  const detail = harness.document.getElementById('adsSyncDetail');
-  assert.equal(value.textContent, '갱신 필요');
-  assert.match(detail.textContent, /현재 실패: AD_TIMEOUT/);
-  assert.match(detail.textContent, /12캠페인/);
-  assert.match(detail.textContent, /2026-09-06 17:30 KST/);
-  assert.match(detail.textContent, /<img src=x onerror=alert\(1\)>/);
-  assert.equal(detail.querySelector('img'), null);
-
-  const requestedPaths = harness.requests
-    .filter((request) => request.message.action === 'kiditemApiRequest')
-    .map((request) => request.message.path);
-  assert.ok(requestedPaths.includes('/api/ads/ad-campaigns/source'));
-  assert.ok(requestedPaths.every((path) => !path.includes('/api/ads/traffic') && !path.includes('wing-itemwinner')));
-  assert.equal(harness.document.getElementById('trafficSync'), null);
-  assert.equal(harness.document.getElementById('winnerSync'), null);
-});
-
-test('a failed owner read shows 조회 실패 and invents no zero count', async () => {
-  const harness = createPopupHarness({ connected: ['local'] });
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/ad-campaigns/source': response({ error: '<b>server down</b>' }, { ok: false, status: 503 }),
-  });
-  assert.equal(harness.document.getElementById('adsSync').textContent, '조회 실패');
-  assert.doesNotMatch(harness.document.getElementById('adsSyncDetail').textContent, /0캠페인/);
-});
-
-test('clearing the selector fences older owner callbacks and clears the cards', async () => {
-  const harness = createPopupHarness({ connected: ['local', 'office'] });
-  await selectEnvironment(harness, 'local');
-  const localExtension = await harness.nextApiRequest('/api/ads/extension/status', 'local');
-  await harness.reply(localExtension, response({ status: 'ok' }));
-  const localRequests = await Promise.all([
-    ...OWNER_PATHS.map((path) => harness.nextApiRequest(path, 'local')),
-    harness.nextApiRequest(ACTIONS_PATH, 'local'),
-  ]);
-
-  const select = harness.document.getElementById('environmentSelect');
-  select.value = '';
-  select.dispatchEvent(new harness.dom.window.Event('change', { bubbles: true }));
-  await harness.flush();
-  assert.equal(harness.document.getElementById('serverStatus').textContent, '환경을 선택해주세요.');
-  assert.equal(harness.document.getElementById('adsSync').textContent, '-');
-
-  for (const request of localRequests) {
-    await harness.reply(request, response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', itemCount: 999, rowCount: 999, campaignCount: 999 },
-    })));
-  }
-  await harness.flush();
-  assert.equal(harness.document.getElementById('serverStatus').textContent, '환경을 선택해주세요.');
-  assert.equal(harness.document.getElementById('adsSync').textContent, '-');
-  assert.equal(harness.document.getElementById('adsSyncDetail').textContent, '');
-});
-
-test('out-of-order environment owner responses cannot overwrite the newer environment', async () => {
-  const harness = createPopupHarness({ connected: ['local', 'office'] });
-  await selectEnvironment(harness, 'local');
-  const localExtension = await harness.nextApiRequest('/api/ads/extension/status', 'local');
-  await harness.reply(localExtension, response({ status: 'ok' }));
-  const localRequests = await Promise.all([
-    ...OWNER_PATHS.map((path) => harness.nextApiRequest(path, 'local')),
-    harness.nextApiRequest(ACTIONS_PATH, 'local'),
-  ]);
-
-  await selectEnvironment(harness, 'office');
-  await completeStatusLoad(harness, 'office', {
-    '/api/ads/ad-campaigns/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', campaignCount: 7, actualCutoffAt: '2026-09-08T01:00:00.000Z' },
-    })),
-  });
-
-  for (const request of localRequests) {
-    await harness.reply(request, response(ownerStatus({
-      latestAttempt: { state: 'FAILED', errorCode: 'OLD_ENVIRONMENT', errorMessage: 'old callback' },
-      latestComplete: { state: 'COMPLETE', itemCount: 999, rowCount: 999, campaignCount: 999 },
-    })));
-  }
-  await harness.flush();
-
-  assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
-  assert.match(harness.document.getElementById('adsSyncDetail').textContent, /7캠페인/);
-  assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 3);
+  assert.deepEqual(
+    harness.requests.map((request) => request.message.path),
+    ['/api/ads/extension/status', ACTIONS_PATH],
+  );
+  assert.match(harness.document.getElementById('serverStatus').textContent, /연결됨/);
+  assert.match(harness.document.getElementById('approvedActions').textContent, /1개 대기/);
 });
 
 test('a Run whose done report was lost warns to check the ad center instead of showing plain success', async () => {
@@ -299,11 +168,7 @@ test('a Run whose done report was lost warns to check the ad center instead of s
     connected: ['local'],
     runApprovedResponse: { success: true, executed: 0, executedUnrecorded: 1, skipped: 0, warning },
   });
-  await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus()),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-    '/api/ads/ad-campaigns/source': response(ownerStatus()),
-  });
+  await completeStatusLoad(harness, 'local');
 
   harness.document.getElementById('btnRunApproved').click();
   const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
@@ -340,11 +205,7 @@ test('a Run with an action refused at its claim or stopped at a confirmation sho
   ];
   for (const { runApprovedResponse, shown } of runs) {
     const harness = createPopupHarness({ connected: ['local'], runApprovedResponse });
-    await completeStatusLoad(harness, 'local', {
-      '/api/ads/traffic/source': response(ownerStatus()),
-      '/api/ads/wing-itemwinner/source': response(ownerStatus()),
-      '/api/ads/ad-campaigns/source': response(ownerStatus()),
-    });
+    await completeStatusLoad(harness, 'local');
 
     harness.document.getElementById('btnRunApproved').click();
     const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');

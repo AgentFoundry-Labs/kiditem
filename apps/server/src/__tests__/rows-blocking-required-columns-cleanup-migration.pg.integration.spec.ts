@@ -143,11 +143,13 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     await seedOrganization(prisma, OTHER_ORGANIZATION_ID, ['crayon'], 2);
     // 014 runs before 030 (KID-360): the schema it meets still names the run and holds its foreign keys.
     await toPre030Shape(prisma);
+    await toPre373Shape(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
     try {
+      await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
     } finally {
       await resetDb(prisma);
@@ -501,11 +503,13 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await toPre030Shape(prisma);
+    await toPre373Shape(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
     try {
+      await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
     } finally {
       await resetDb(prisma);
@@ -679,6 +683,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     const db = survey!;
     await seedBaseFixture(db);
     await seedOrganization(db, TEST_ORGANIZATION_ID, ['pencil'], 2);
+    await toPre373Shape(db);
     const definitions = await indexDefinitions(db, [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]);
     await db.$transaction(async (tx) => {
       await toPre030Shape(tx);
@@ -693,8 +698,8 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     expect(before.status, before.stderr).toBe(1);
     expect(before.report.blockers.map(describeItem).sort()).toEqual([
       ...ROW_TABLES.map((table) => `not-null ${table}.${headColumn(table)}`),
-      'unique source_import_runs_ad_keyword_running_key',
-      'unique source_import_runs_ads_daily_running_key',
+      // The head schema no longer creates the old advertising collection keys
+      // (KID-373), so their duplicates stop no push; 014 still removes them.
       'unique source_import_runs_rocket_po_generation_key',
       'unique source_import_runs_sellpia_sales_running_key',
       'unique source_import_runs_shipment_summary_generation_key',
@@ -1393,6 +1398,113 @@ async function toPre030Shape(db: Pick<Prisma.TransactionClient, '$executeRaw'>) 
       FOREIGN KEY (ingestion_run_id, organization_id) REFERENCES sourcing_evidence_ingestion_runs (id, organization_id)
       ON DELETE ${Prisma.raw(key.onDelete)} ON UPDATE CASCADE
     `;
+  }
+}
+
+/**
+ * KID-372 and KID-373 dropped the old advertising ledgers, the source_import_runs
+ * keys of their collections, the ad-action pointer into the target-day ledger,
+ * and the ABC advertising provenance columns. 014 runs before that schema, on a
+ * database that still has them, so this restores them: each key exactly as 014
+ * declares it, each ledger with the columns its keys index, and every foreign
+ * key 014 declares into them or from them into import runs.
+ */
+const PRE_373_KEYS = UNIQUE_KEY_CLEANUPS.filter(({ index }) => [
+  'source_import_runs_ad_keyword_running_key',
+  'source_import_runs_ad_keyword_generation_key',
+  'source_import_runs_ad_campaign_running_key',
+  'source_import_runs_ad_campaign_generation_key',
+  'source_import_runs_ads_daily_running_key',
+  'source_import_runs_ads_daily_generation_key',
+  'source_import_runs_coupang_ad_profitability_running_key',
+].includes(index));
+const AD_TARGET_DAYS = 'channel_ad_target_daily_snapshots';
+const AD_MONTHLY_FACTS = 'channel_ad_listing_product_monthly_facts';
+/** The ABC advertising provenance columns, each a key into source_import_runs. */
+const PRE_373_ABC_COLUMNS = [
+  { table: 'master_product_abc_formula_states', column: 'published_advertising_source_import_run_id' },
+  { table: 'master_product_abc_evaluations', column: 'advertising_source_import_run_id' },
+  { table: 'master_product_abc_grade_histories', column: 'previous_advertising_source_import_run_id' },
+  { table: 'master_product_abc_grade_histories', column: 'next_advertising_source_import_run_id' },
+] as const;
+
+async function toPre373Shape(db: Pick<Prisma.TransactionClient, '$executeRaw'>) {
+  expect(PRE_373_KEYS).toHaveLength(7);
+  for (const cleanup of PRE_373_KEYS) {
+    const columns = cleanup.columns.map((column) => `"${column}"`).join(', ');
+    await db.$executeRaw`
+      CREATE UNIQUE INDEX ${Prisma.raw(`"${cleanup.index}"`)} ON ${Prisma.raw(cleanup.table)} (${Prisma.raw(columns)})
+      WHERE ${Prisma.raw(uniqueKeyPredicateText(cleanup))}
+    `;
+  }
+  await db.$executeRaw`
+    CREATE TABLE channel_ad_target_daily_snapshots (
+      id uuid PRIMARY KEY,
+      organization_id uuid NOT NULL,
+      channel_account_id uuid NOT NULL,
+      channel text NOT NULL,
+      business_date date NOT NULL,
+      target_type text NOT NULL,
+      target_key text NOT NULL,
+      ad_group_id text,
+      raw_snapshot_id uuid,
+      source_import_run_id uuid,
+      CONSTRAINT channel_ad_target_daily_snapshots_id_org_key UNIQUE (id, organization_id),
+      CONSTRAINT channel_ad_target_daily_snapshots_source_import_run_id_organization_id_fkey
+        FOREIGN KEY (source_import_run_id, organization_id)
+        REFERENCES source_import_runs (id, organization_id) ON DELETE RESTRICT
+    )
+  `;
+  await db.$executeRaw`
+    CREATE UNIQUE INDEX channel_ad_target_daily_legacy_key ON channel_ad_target_daily_snapshots
+      (organization_id, channel_account_id, channel, business_date, target_type, target_key)
+      WHERE source_import_run_id IS NULL
+  `;
+  await db.$executeRaw`
+    CREATE UNIQUE INDEX channel_ad_target_daily_generation_key ON channel_ad_target_daily_snapshots
+      (organization_id, source_import_run_id, channel_account_id, channel, business_date, target_type, target_key)
+      WHERE source_import_run_id IS NOT NULL AND (target_type <> 'keyword' OR ad_group_id IS NULL)
+  `;
+  await db.$executeRaw`
+    CREATE UNIQUE INDEX channel_ad_target_keyword_group_generation_key ON channel_ad_target_daily_snapshots
+      (organization_id, source_import_run_id, channel_account_id, channel, business_date, target_type, ad_group_id, target_key)
+      WHERE source_import_run_id IS NOT NULL AND target_type = 'keyword' AND ad_group_id IS NOT NULL
+  `;
+  await db.$executeRaw`
+    CREATE TABLE channel_ad_listing_product_monthly_facts (
+      id uuid PRIMARY KEY,
+      organization_id uuid NOT NULL,
+      source_import_run_id uuid NOT NULL,
+      CONSTRAINT channel_ad_listing_product_monthly_facts_source_import_run_id_organization_id_fkey
+        FOREIGN KEY (source_import_run_id, organization_id)
+        REFERENCES source_import_runs (id, organization_id) ON DELETE RESTRICT
+    )
+  `;
+  await db.$executeRaw`
+    ALTER TABLE ad_actions ADD COLUMN ad_target_daily_id uuid,
+      ADD CONSTRAINT ad_actions_ad_target_daily_id_organization_id_fkey
+        FOREIGN KEY (ad_target_daily_id, organization_id)
+        REFERENCES channel_ad_target_daily_snapshots (id, organization_id) ON DELETE SET NULL (ad_target_daily_id)
+  `;
+  for (const { table, column } of PRE_373_ABC_COLUMNS) {
+    await db.$executeRaw`
+      ALTER TABLE ${Prisma.raw(table)} ADD COLUMN ${Prisma.raw(column)} uuid,
+        ADD CONSTRAINT ${Prisma.raw(`"${table}_${column}_fkey"`)}
+          FOREIGN KEY (${Prisma.raw(column)}, organization_id)
+          REFERENCES source_import_runs (id, organization_id) ON DELETE RESTRICT
+    `;
+  }
+}
+
+async function fromPre373Shape(db: Pick<Prisma.TransactionClient, '$executeRaw'>) {
+  for (const { table, column } of PRE_373_ABC_COLUMNS) {
+    await db.$executeRaw`ALTER TABLE ${Prisma.raw(table)} DROP COLUMN IF EXISTS ${Prisma.raw(column)}`;
+  }
+  await db.$executeRaw`ALTER TABLE ad_actions DROP COLUMN IF EXISTS ad_target_daily_id`;
+  await db.$executeRaw`DROP TABLE IF EXISTS ${Prisma.raw(AD_MONTHLY_FACTS)}`;
+  await db.$executeRaw`DROP TABLE IF EXISTS ${Prisma.raw(AD_TARGET_DAYS)}`;
+  for (const cleanup of PRE_373_KEYS) {
+    await db.$executeRaw`DROP INDEX IF EXISTS ${Prisma.raw(`"${cleanup.index}"`)}`;
   }
 }
 

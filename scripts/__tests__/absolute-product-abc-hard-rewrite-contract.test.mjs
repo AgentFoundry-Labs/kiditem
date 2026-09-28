@@ -39,7 +39,6 @@ test("absolute ABC persistence keeps only publication-ready current state", asyn
     "publicationRevision",
     "officialCutoffDate",
     "publishedSellpiaSourceImportRunId",
-    "publishedAdvertisingSourceImportRunId",
     "publishedMappingGeneration",
     "mappingGeneration",
     "publishedAt",
@@ -53,7 +52,6 @@ test("absolute ABC persistence keeps only publication-ready current state", asyn
     "abcGrade",
     "weightedRevenue",
     "weightedOrderTimeSupplyCost",
-    "weightedAdvertisingSpend",
     "weightedOperatingProfit",
     "operatingProfitVelocity30",
     "operatingMargin",
@@ -66,9 +64,7 @@ test("absolute ABC persistence keeps only publication-ready current state", asyn
     "formulaRevision",
     "publicationRevision",
     "sellpiaSourceImportRunId",
-    "advertisingSourceImportRunId",
     "sellpiaGeneration",
-    "advertisingGeneration",
     "mappingGeneration",
     "gradeBasisCutoffDate",
     "calculatedAt",
@@ -87,8 +83,6 @@ test("absolute ABC persistence keeps only publication-ready current state", asyn
     "operatingMargin",
     "previousSellpiaSourceImportRunId",
     "nextSellpiaSourceImportRunId",
-    "previousAdvertisingSourceImportRunId",
-    "nextAdvertisingSourceImportRunId",
     "formulaRevision",
     "publicationRevision",
     "sourceCutoffDate",
@@ -98,6 +92,10 @@ test("absolute ABC persistence keeps only publication-ready current state", asyn
   assert.doesNotMatch(history, /calculationStatus|adjustedScore|weightedContribution/);
   assert.match(history, /@@index\(\[formulaVersionId, organizationId\]\)/);
   assert.doesNotMatch(core, /MasterProductAbcPolicy|ABC_V2|quantile|calibration/i);
+  // ABC grades without advertising (KID-373): no advertising spend or provenance column.
+  for (const model of [formulaState, evaluation, history]) {
+    assert.doesNotMatch(model, /Advertising|advertising/);
+  }
 });
 
 test("the 0.1.31 reset is followed only by un-published current installation", async () => {

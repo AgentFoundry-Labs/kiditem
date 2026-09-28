@@ -1,9 +1,6 @@
 import { z } from 'zod';
 
 export const BROWSER_COLLECTION_PRODUCERS = [
-  'advertising.ad_keyword',
-  'advertising.ad_sync',
-  'advertising.profitability_import',
   'channels.coupang_catalog',
   'dashboard.coupang_products',
   'orders.mall',

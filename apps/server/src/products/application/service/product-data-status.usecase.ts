@@ -44,7 +44,6 @@ export class ProductDataStatusUseCase {
         traffic: facts.traffic,
         orders: facts.orders,
         sellpia: facts.sellpia,
-        advertising: facts.advertising,
         mapping: {
           ready: facts.mappingReady,
           generation: facts.formulaState.mappingGeneration,

@@ -11,8 +11,6 @@ export type PublishedProductAbcFacts = Readonly<{
   officialCutoffDate: string;
   publishedAt: string;
   sellpiaOperationId: string;
-  /** Null under a formula that excludes advertising. */
-  advertisingSourceImportRunId: string | null;
   mappingGeneration: string;
   formulaRevision: number | null;
   formula: ProductAbcFormulaPayload | null;
@@ -53,7 +51,6 @@ export async function readProductAbcPublication(
       officialCutoffDate: true,
       publishedAt: true,
       publishedSellpiaOperationId: true,
-      publishedAdvertisingSourceImportRunId: true,
       publishedMappingGeneration: true,
       mappingGeneration: true,
     },
@@ -164,19 +161,16 @@ function publicationEnvelope(state: Readonly<{
   officialCutoffDate: Date | null;
   publishedAt: Date | null;
   publishedSellpiaOperationId: string | null;
-  publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: bigint | null;
 }> | null): Omit<PublishedProductAbcFacts, 'formulaRevision' | 'formula'> | null {
   if (!state || state.publicationRevision <= 0 || !state.officialCutoffDate
     || !state.publishedAt || !state.publishedSellpiaOperationId
-    // Advertising is absent under a formula that excludes it.
     || state.publishedMappingGeneration === null) return null;
   return {
     publicationRevision: state.publicationRevision,
     officialCutoffDate: calendarDate(state.officialCutoffDate),
     publishedAt: state.publishedAt.toISOString(),
     sellpiaOperationId: state.publishedSellpiaOperationId,
-    advertisingSourceImportRunId: state.publishedAdvertisingSourceImportRunId,
     mappingGeneration: state.publishedMappingGeneration.toString(),
   };
 }
@@ -190,21 +184,18 @@ function matchesPublication(
     publicationRevision: number;
     gradeBasisCutoffDate: Date;
     sellpiaOperationId: string | null;
-    advertisingSourceImportRunId: string | null;
     mappingGeneration: bigint;
   }>,
   state: Readonly<{
     publicationRevision: number;
     officialCutoffDate: Date | null;
     publishedSellpiaOperationId: string | null;
-    publishedAdvertisingSourceImportRunId: string | null;
     publishedMappingGeneration: bigint | null;
   }>,
 ): boolean {
   return evaluation.publicationRevision === state.publicationRevision
     && evaluation.gradeBasisCutoffDate.getTime() === state.officialCutoffDate?.getTime()
     && evaluation.sellpiaOperationId === state.publishedSellpiaOperationId
-    && evaluation.advertisingSourceImportRunId === state.publishedAdvertisingSourceImportRunId
     && evaluation.mappingGeneration === state.publishedMappingGeneration;
 }
 

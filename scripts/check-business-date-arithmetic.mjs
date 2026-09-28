@@ -15,10 +15,6 @@ const DAY_MS = 86_400_000;
 const EXCLUDED_DIRECTORIES = new Set(['__tests__', 'test-helpers', 'node_modules', 'dist']);
 
 export const RECORDED_DAY_ARITHMETIC = Object.freeze({
-  'apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts':
-    { lines: 1, reason: 'campaign sweep attempt lease expiry (now + 24h)' },
-  'apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts':
-    { lines: 1, reason: 'keyword attempt lease expiry (now + 24h)' },
   'apps/server/src/content/application/service/thumbnail-generation.service.ts':
     { lines: 1, reason: '7-day auto-batch cooldown from now' },
   'apps/server/src/orders/application/service/order-collection.service.ts':

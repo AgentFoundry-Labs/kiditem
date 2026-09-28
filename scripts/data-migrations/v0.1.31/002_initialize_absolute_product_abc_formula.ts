@@ -27,7 +27,6 @@ export const initializeAbsoluteProductAbcFormula: DataMigration = {
           publicationRevision: true,
           officialCutoffDate: true,
           publishedSellpiaSourceImportRunId: true,
-          publishedAdvertisingSourceImportRunId: true,
           publishedMappingGeneration: true,
           publishedAt: true,
         },
@@ -43,7 +42,6 @@ export const initializeAbsoluteProductAbcFormula: DataMigration = {
             publicationRevision: 0,
             officialCutoffDate: null,
             publishedSellpiaSourceImportRunId: null,
-            publishedAdvertisingSourceImportRunId: null,
             publishedMappingGeneration: null,
             mappingGeneration: 0n,
             publishedAt: null,
@@ -68,7 +66,6 @@ export const initializeAbsoluteProductAbcFormula: DataMigration = {
           publicationRevision: 0,
           officialCutoffDate: null,
           publishedSellpiaSourceImportRunId: null,
-          publishedAdvertisingSourceImportRunId: null,
           publishedMappingGeneration: null,
           publishedAt: null,
         },
@@ -120,7 +117,6 @@ function isMappingOnlyState(state: {
   publicationRevision: number;
   officialCutoffDate: Date | null;
   publishedSellpiaSourceImportRunId: string | null;
-  publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: bigint | null;
   publishedAt: Date | null;
 }): boolean {
@@ -129,7 +125,6 @@ function isMappingOnlyState(state: {
     && state.publicationRevision === 0
     && state.officialCutoffDate === null
     && state.publishedSellpiaSourceImportRunId === null
-    && state.publishedAdvertisingSourceImportRunId === null
     && state.publishedMappingGeneration === null
     && state.publishedAt === null;
 }
@@ -143,7 +138,6 @@ function isBaselineState(
     && state.publicationRevision === 0
     && state.officialCutoffDate === null
     && state.publishedSellpiaSourceImportRunId === null
-    && state.publishedAdvertisingSourceImportRunId === null
     && state.publishedMappingGeneration === null
     && state.publishedAt === null;
 }

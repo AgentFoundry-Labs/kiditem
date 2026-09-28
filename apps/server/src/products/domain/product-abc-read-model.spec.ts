@@ -24,14 +24,8 @@ describe('buildProductAbcReadModel', () => {
     expect(productAbcDisplayStatus(abc)).toBe('INSUFFICIENT_EVIDENCE');
   });
 
-  it("publishes each source's owner readiness from its own cutoff, not the other source's", () => {
-    // Finance reports the Sellpia generation complete through the cutoff while
-    // advertising has no complete generation, so no pair exists. Sellpia is
-    // still ready and advertising is the source to refresh.
-    const abc = buildProductAbcReadModel(input({
-      sellpia: sourceEvidence(),
-      advertising: { requiredCutoff: '2026-08-31', actualCutoff: null, latestAttemptState: null },
-    }));
+  it("publishes the Sellpia owner's readiness from its own cutoff, and no advertising source (KID-373)", () => {
+    const abc = buildProductAbcReadModel(input({ sellpia: sourceEvidence() }));
 
     expect(abc.sources.sellpia).toEqual({
       ready: true,
@@ -40,12 +34,8 @@ describe('buildProductAbcReadModel', () => {
       latestAttempt: { state: 'COMPLETE' },
       latestComplete: { actualCutoff: '2026-08-31' },
     });
-    expect(abc.sources.advertising).toMatchObject({
-      ready: false,
-      actualCutoff: null,
-      latestComplete: null,
-    });
-    expect(productAbcDisplayStatus(abc)).toBe('AD_SOURCE_STALE');
+    expect(abc.sources).not.toHaveProperty('advertising');
+    expect(productAbcDisplayStatus(abc)).toBe('INSUFFICIENT_EVIDENCE');
   });
 
   it('keeps a complete source that lags the cutoff visible as stale, not missing', () => {
@@ -64,7 +54,6 @@ describe('buildProductAbcReadModel', () => {
 
 function input(sources: Partial<{
   sellpia: ProductAbcSourceEvidence;
-  advertising: ProductAbcSourceEvidence;
 }> = {}) {
   return {
     evaluation: null,
@@ -74,7 +63,6 @@ function input(sources: Partial<{
       actualCutoff: '2026-08-31',
       mappingGeneration: '7',
       sellpia: sources.sellpia ?? sourceEvidence(),
-      advertising: sources.advertising ?? sourceEvidence(),
     },
     formulaState: {
       formulaRevision: 2,

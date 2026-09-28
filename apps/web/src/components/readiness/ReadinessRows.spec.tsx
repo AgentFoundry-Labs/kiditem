@@ -114,7 +114,7 @@ beforeEach(() => {
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true, collectionStartV1: true },
+      capabilities: { kiditemEnvironmentProfilesV1: true },
     }),
     setAuthToken: () => ({ success: true }),
     // A web-opened attempt shows as taken once the extension holds its session.

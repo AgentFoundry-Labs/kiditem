@@ -11,8 +11,6 @@
 #
 # Format per non-comment line: <count> <repo-relative-path>
 2 apps/server/src/__tests__/application-roots.architecture.spec.ts
-2 apps/server/src/advertising/__tests__/ad-campaign-source.pg.integration.spec.ts
-2 apps/server/src/advertising/__tests__/ad-keyword-source.pg.integration.spec.ts
 1 apps/server/src/advertising/__tests__/competitor-catalog-exclusion.pg.integration.spec.ts
 1 apps/server/src/advertising/__tests__/keyword-rank-ingest.handler.spec.ts
 1 apps/server/src/advertising/__tests__/seller-identity-source.pg.integration.spec.ts

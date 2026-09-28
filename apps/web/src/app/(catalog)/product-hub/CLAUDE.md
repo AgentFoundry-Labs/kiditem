@@ -69,7 +69,7 @@ This folder owns four surfaces:
   projections. Unclassified is not C. The explicit grade-refresh command reads
   the latest `COMPLETE` source snapshots and invokes the Products-owned ABC
   recalculation; source collection never triggers it.
-- Missing or stale Sellpia, mapping, or advertising evidence is shown as the
+- Missing or stale Sellpia or mapping evidence is shown as the
   source status, never as zero cost or C. Revenue/profit contribution, rank,
   and cumulative share are separate reporting metrics and do not affect the
   absolute ABC grade.

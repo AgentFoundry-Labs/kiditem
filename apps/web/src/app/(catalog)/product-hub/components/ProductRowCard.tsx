@@ -20,7 +20,6 @@ import { PROFIT_AD_COST_LABEL } from '@/lib/ad-spend-labels';
 const GRADE_ABSENCE_WORD: Record<Exclude<ProductAbcDisplayStatus, 'READY'>, string> = {
   SOURCE_UNMAPPED: '미연결',
   SELLPIA_SOURCE_STALE: '수집 전',
-  AD_SOURCE_STALE: '광고 전',
   INSUFFICIENT_EVIDENCE: '관찰 중',
 };
 

@@ -71,7 +71,6 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
                 <DetailRow label="경제 점수" value={evaluation.economicScore.toFixed(1)} />
                 <DetailRow label="계산 시각" value={formatDateTime(evaluation.calculatedAt)} />
                 <DetailRow label="Sellpia 원천" value={sourceValue(product.abc.sources.sellpia)} />
-                <DetailRow label="광고비 원천" value={sourceValue(product.abc.sources.advertising)} />
                 <DetailRow label="상품 매핑" value={mappingValue(product.abc.sources.mapping)} />
               </dl>
 

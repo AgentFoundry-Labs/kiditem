@@ -44,13 +44,6 @@ const state = vi.hoisted(() => ({
             latestAttempt: null,
             latestComplete: null,
           },
-          advertising: {
-            ready: false,
-            requiredCutoff: '2026-07-31',
-            actualCutoff: null,
-            latestAttempt: null,
-            latestComplete: null,
-          },
           mapping: { valid: false, currentMappingGeneration: '0', evidenceMappingGeneration: null },
         },
       },

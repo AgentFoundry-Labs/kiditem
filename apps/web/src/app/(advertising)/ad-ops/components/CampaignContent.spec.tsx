@@ -142,12 +142,6 @@ describe("CampaignContent", () => {
       if (url.startsWith("/api/ads/campaigns/trends")) {
         return Promise.resolve(unavailableTrends);
       }
-      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
-        return Promise.resolve({
-          channelAccountId: "11111111-1111-4111-8111-111111111111",
-          reports: [],
-        });
-      }
       if (url === "/api/ads/campaigns?period=14d") {
         return Promise.resolve([snapshot("14일 캠페인", 1400)]);
       }
@@ -238,12 +232,6 @@ describe("CampaignContent", () => {
       }
       if (url === "/api/ads/campaigns?period=7d") {
         return Promise.resolve([]);
-      }
-      if (url.startsWith("/api/ads/ad-campaigns/reports?")) {
-        return Promise.resolve({
-          channelAccountId: "11111111-1111-4111-8111-111111111111",
-          reports: [],
-        });
       }
       if (url.startsWith("/api/ads/products?")) {
         return Promise.resolve([]);

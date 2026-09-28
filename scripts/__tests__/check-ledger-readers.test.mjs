@@ -41,9 +41,9 @@ test('allows owner persistence reads without registering each file', () => {
           {
             name: 'Advertising target day',
             owner: 'advertising',
-            table: 'channel_ad_target_daily_snapshots',
-            prismaModel: 'channelAdTargetDailySnapshot',
-            prismaType: 'ChannelAdTargetDailySnapshot',
+            table: 'example_ledger_daily_snapshots',
+            prismaModel: 'exampleLedgerDailySnapshot',
+            prismaType: 'ExampleLedgerDailySnapshot',
             relationNames: [],
             ownerPublications: [
               {
@@ -59,7 +59,7 @@ test('allows owner persistence reads without registering each file', () => {
     write(
       root,
       'prisma/models/channels.prisma',
-      `model ChannelAdTargetDailySnapshot {
+      `model ExampleLedgerDailySnapshot {
   id String @id
 }
 `,
@@ -67,42 +67,42 @@ test('allows owner persistence reads without registering each file', () => {
     write(
       root,
       'apps/server/src/advertising/adapter/out/persistence/new-query.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/shipments/read/nested-query.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/adapter/out/repository/registered-publication.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/adapter/out/repository/unregistered-query.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/application/direct-query.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/application/read/nested-application-query.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/channels/adapter/out/persistence/wrong-owner-query.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/adapter/out/persistence/unregistered-write.ts',
-      "await tx.channelAdTargetDailySnapshot.create({ data: { id: 'new' } });\n",
+      "await tx.exampleLedgerDailySnapshot.create({ data: { id: 'new' } });\n",
     );
 
     const rejected = runScanner(root);
@@ -168,13 +168,13 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
           {
             name: 'Advertising target day',
             owner: 'advertising',
-            table: 'channel_ad_target_daily_snapshots',
-            prismaModel: 'channelAdTargetDailySnapshot',
-            prismaType: 'ChannelAdTargetDailySnapshot',
+            table: 'example_ledger_daily_snapshots',
+            prismaModel: 'exampleLedgerDailySnapshot',
+            prismaType: 'ExampleLedgerDailySnapshot',
             relationNames: [
               'adTargetDaily',
               'adTargetDailySnapshots',
-              'channelAdTargetDailySnapshots',
+              'exampleLedgerDailySnapshots',
             ],
             ownerPublications: [
               {
@@ -199,21 +199,21 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
       'prisma/models/advertising.prisma',
       `model Organization {
   id                            String                         @id
-  channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+  exampleLedgerDailySnapshots ExampleLedgerDailySnapshot[]
 }
 
 model ChannelScrapeSnapshot {
   id                     String                         @id
-  adTargetDailySnapshots ChannelAdTargetDailySnapshot[] @relation("AdTargetDailyRawSnapshot")
+  adTargetDailySnapshots ExampleLedgerDailySnapshot[] @relation("AdTargetDailyRawSnapshot")
 }
 
 model AdAction {
   id              String                        @id
   adTargetDailyId String?
-  adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id])
+  adTargetDaily   ExampleLedgerDailySnapshot? @relation(fields: [adTargetDailyId], references: [id])
 }
 
-model ChannelAdTargetDailySnapshot {
+model ExampleLedgerDailySnapshot {
   id             String                 @id
   organizationId String
   rawSnapshotId  String?
@@ -226,117 +226,117 @@ model ChannelAdTargetDailySnapshot {
     write(
       root,
       'apps/server/src/advertising/read/ad-target-reader.ts',
-      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner.ts',
-      "const ledger = tx.channelAdTargetDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { create: { id: 'owned' } } } });\ntx.channelScrapeSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { set: [{ id: 'owned' }] } } });\nsql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE channel_ad_target_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM channel_ad_target_daily_snapshots WHERE id = 'owned'`;\n",
+      "const ledger = tx.exampleLedgerDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { exampleLedgerDailySnapshots: { create: { id: 'owned' } } } });\ntx.channelScrapeSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { set: [{ id: 'owned' }] } } });\nsql`INSERT INTO example_ledger_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE example_ledger_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM example_ledger_daily_snapshots WHERE id = 'owned'`;\n",
     );
     write(
       root,
       'apps/server/src/advertising/read/legacy-keyword-reader.ts',
-      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/example.spec.ts',
-      'tx.channelAdTargetDailySnapshot.findFirst({});\n',
+      'tx.exampleLedgerDailySnapshot.findFirst({});\n',
     );
     write(
       root,
       'apps/server/src/seed/ad-target.seed.ts',
-      'sql`SELECT * FROM channel_ad_target_daily_snapshots`;\n',
+      'sql`SELECT * FROM example_ledger_daily_snapshots`;\n',
     );
     write(
       root,
       'apps/server/src/prisma-consumer.ts',
-      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/advertising/application/unregistered-consumer.ts',
-      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-consumer.ts',
-      'sql`SELECT *\nFROM "channel_ad_target_daily_snapshots"`;\n',
+      'sql`SELECT *\nFROM "example_ledger_daily_snapshots"`;\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-fragment-consumer.ts',
-      'const table = Prisma.raw(\'"channel_ad_target_daily_snapshots"\');\nawait tx.$queryRaw(Prisma.sql`SELECT * FROM ${table}`);\n',
+      'const table = Prisma.raw(\'"example_ledger_daily_snapshots"\');\nawait tx.$queryRaw(Prisma.sql`SELECT * FROM ${table}`);\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-fragment-delete-consumer.ts',
-      'const table = Prisma.raw(\'"channel_ad_target_daily_snapshots"\');\nawait tx.$executeRaw(Prisma.sql`DELETE FROM ${table} WHERE id = ${targetId}`);\n',
+      'const table = Prisma.raw(\'"example_ledger_daily_snapshots"\');\nawait tx.$executeRaw(Prisma.sql`DELETE FROM ${table} WHERE id = ${targetId}`);\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-tagged-fragment-consumer.ts',
-      'const table = Prisma.raw(\'"channel_ad_target_daily_snapshots"\');\nawait tx.$queryRaw`SELECT * FROM ${table}`;\n',
+      'const table = Prisma.raw(\'"example_ledger_daily_snapshots"\');\nawait tx.$queryRaw`SELECT * FROM ${table}`;\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-tagged-fragment-delete-consumer.ts',
-      'const table = Prisma[\'raw\'](\'"channel_ad_target_daily_snapshots"\');\nawait tx.$executeRaw`DELETE FROM ${table} WHERE id = ${targetId}`;\n',
+      'const table = Prisma[\'raw\'](\'"example_ledger_daily_snapshots"\');\nawait tx.$executeRaw`DELETE FROM ${table} WHERE id = ${targetId}`;\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-insert-consumer.ts',
-      'sql`INSERT INTO "channel_ad_target_daily_snapshots" (id) VALUES (\'unowned\')`;\n',
+      'sql`INSERT INTO "example_ledger_daily_snapshots" (id) VALUES (\'unowned\')`;\n',
     );
     write(
       root,
       'apps/server/src/raw-sql-update-consumer.ts',
-      "sql`UPDATE public.channel_ad_target_daily_snapshots SET id = 'unowned'`;\n",
+      "sql`UPDATE public.example_ledger_daily_snapshots SET id = 'unowned'`;\n",
     );
     write(
       root,
       'apps/server/src/raw-sql-delete-consumer.ts',
-      'sql`DELETE FROM "public"."channel_ad_target_daily_snapshots" WHERE id = \'unowned\'`;\n',
+      'sql`DELETE FROM "public"."example_ledger_daily_snapshots" WHERE id = \'unowned\'`;\n',
     );
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner-helper.ts',
-      "sql`INSERT INTO channel_ad_target_daily_snapshots (id) VALUES ('lookalike')`;\n",
+      "sql`INSERT INTO example_ledger_daily_snapshots (id) VALUES ('lookalike')`;\n",
     );
     write(
       root,
       'apps/server/src/alias-consumer.ts',
-      'const ledger = tx.channelAdTargetDailySnapshot;\nawait ledger.findMany({});\n',
+      'const ledger = tx.exampleLedgerDailySnapshot;\nawait ledger.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/destructure-consumer.ts',
-      'const { channelAdTargetDailySnapshot: ledger } = tx;\nawait ledger.findMany({});\n',
+      'const { exampleLedgerDailySnapshot: ledger } = tx;\nawait ledger.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/bracket-consumer.ts',
-      "await tx['channelAdTargetDailySnapshot'].findFirst({});\n",
+      "await tx['exampleLedgerDailySnapshot'].findFirst({});\n",
     );
     write(
       root,
       'apps/server/src/computed-bracket-consumer.ts',
-      "const model = 'channelAdTargetDailySnapshot' as const;\nawait tx[model].findMany({});\n",
+      "const model = 'exampleLedgerDailySnapshot' as const;\nawait tx[model].findMany({});\n",
     );
     write(
       root,
       'apps/server/src/mutation-consumer.ts',
-      'await tx.channelAdTargetDailySnapshot.createMany({ data: [] });\n',
+      'await tx.exampleLedgerDailySnapshot.createMany({ data: [] });\n',
     );
     write(
       root,
       'apps/server/src/seed/runtime-consumer.ts',
-      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'await tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       'apps/server/src/relation-include-consumer.ts',
-      'await tx.organization.findMany({ include: { channelAdTargetDailySnapshots: true } });\n',
+      'await tx.organization.findMany({ include: { exampleLedgerDailySnapshots: true } });\n',
     );
     write(
       root,
@@ -371,7 +371,7 @@ model ChannelAdTargetDailySnapshot {
     write(
       root,
       'apps/server/src/detached-relation-include-consumer.ts',
-      'const include = { channelAdTargetDailySnapshots: true };\nawait tx.organization.findMany({ include });\n',
+      'const include = { exampleLedgerDailySnapshots: true };\nawait tx.organization.findMany({ include });\n',
     );
     write(
       root,
@@ -386,17 +386,17 @@ model ChannelAdTargetDailySnapshot {
     write(
       root,
       'apps/server/src/documented-ledger-dto.ts',
-      '/** channelAdTargetDailySnapshot is supplied by the ledger reader. */\nconst response = { channelAdTargetDailySnapshot: null };\nexport function describeChannelAdTargetDailySnapshot() {\n  return response.channelAdTargetDailySnapshot;\n}\n',
+      '/** exampleLedgerDailySnapshot is supplied by the ledger reader. */\nconst response = { exampleLedgerDailySnapshot: null };\nexport function describeExampleLedgerDailySnapshot() {\n  return response.exampleLedgerDailySnapshot;\n}\n',
     );
     write(
       root,
       'apps/server/src/documented-sql-source.ts',
-      '// Values come from channel_ad_target_daily_snapshots through the reader.\n/** Never DELETE FROM channel_ad_target_daily_snapshots in consumers. */\nexport interface DailySummary { spend: number | null }\n',
+      '// Values come from example_ledger_daily_snapshots through the reader.\n/** Never DELETE FROM example_ledger_daily_snapshots in consumers. */\nexport interface DailySummary { spend: number | null }\n',
     );
     write(
       root,
       'apps/server/src/raw-ledger-query.sql',
-      'SELECT *\nFROM channel_ad_target_daily_snapshots;\n',
+      'SELECT *\nFROM example_ledger_daily_snapshots;\n',
     );
     write(
       root,
@@ -582,47 +582,47 @@ model ChannelAdTargetDailySnapshot {
     const directMutationCases = [
       [
         'create',
-        "await tx.channelAdTargetDailySnapshot.create({ data: { id: 'target-1' } });\n",
+        "await tx.exampleLedgerDailySnapshot.create({ data: { id: 'target-1' } });\n",
         canonicalReader,
       ],
       [
         'createMany',
-        'const ledger = tx.channelAdTargetDailySnapshot;\nawait ledger.createMany({ data: [] });\n',
+        'const ledger = tx.exampleLedgerDailySnapshot;\nawait ledger.createMany({ data: [] });\n',
         legacyReader,
       ],
       [
         'createManyAndReturn',
-        "await tx['channelAdTargetDailySnapshot'].createManyAndReturn({ data: [] });\n",
+        "await tx['exampleLedgerDailySnapshot'].createManyAndReturn({ data: [] });\n",
         canonicalReader,
       ],
       [
         'delete',
-        "const { channelAdTargetDailySnapshot: ledger } = tx;\nawait ledger.delete({ where: { id: 'target-1' } });\n",
+        "const { exampleLedgerDailySnapshot: ledger } = tx;\nawait ledger.delete({ where: { id: 'target-1' } });\n",
         canonicalReader,
       ],
       [
         'deleteMany',
-        "const model = 'channelAdTargetDailySnapshot' as const;\nawait tx[model].deleteMany({ where: {} });\n",
+        "const model = 'exampleLedgerDailySnapshot' as const;\nawait tx[model].deleteMany({ where: {} });\n",
         legacyReader,
       ],
       [
         'update',
-        "const ledger = tx.channelAdTargetDailySnapshot;\nawait ledger.update({ where: { id: 'target-1' }, data: { id: 'target-2' } });\n",
+        "const ledger = tx.exampleLedgerDailySnapshot;\nawait ledger.update({ where: { id: 'target-1' }, data: { id: 'target-2' } });\n",
         canonicalReader,
       ],
       [
         'updateMany',
-        "await tx['channelAdTargetDailySnapshot'].updateMany({ data: { id: 'target-2' } });\n",
+        "await tx['exampleLedgerDailySnapshot'].updateMany({ data: { id: 'target-2' } });\n",
         legacyReader,
       ],
       [
         'updateManyAndReturn',
-        "const { channelAdTargetDailySnapshot: ledger } = tx;\nawait ledger.updateManyAndReturn({ data: { id: 'target-2' } });\n",
+        "const { exampleLedgerDailySnapshot: ledger } = tx;\nawait ledger.updateManyAndReturn({ data: { id: 'target-2' } });\n",
         canonicalReader,
       ],
       [
         'upsert',
-        "await tx.channelAdTargetDailySnapshot.upsert({ where: { id: 'target-1' }, create: { id: 'target-1' }, update: { id: 'target-2' } });\n",
+        "await tx.exampleLedgerDailySnapshot.upsert({ where: { id: 'target-1' }, create: { id: 'target-1' }, update: { id: 'target-2' } });\n",
         legacyReader,
       ],
     ];
@@ -636,7 +636,7 @@ model ChannelAdTargetDailySnapshot {
         new RegExp(`${path.basename(target)}.*Prisma delegate mutation`),
         method,
       );
-      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+      write(root, target, 'tx.exampleLedgerDailySnapshot.findMany({});\n');
     }
 
     const nestedMutationCases = [
@@ -664,13 +664,13 @@ model ChannelAdTargetDailySnapshot {
         new RegExp(`${path.basename(target)}.*Prisma relation mutation`),
         operation,
       );
-      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+      write(root, target, 'tx.exampleLedgerDailySnapshot.findMany({});\n');
     }
 
     const reverseRelationMutationCases = [
       [
         'connect',
-        "await tx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { connect: [{ id: 'target-1' }] } } });\n",
+        "await tx.organization.update({ where: { id: 'org-1' }, data: { exampleLedgerDailySnapshots: { connect: [{ id: 'target-1' }] } } });\n",
         canonicalReader,
       ],
       [
@@ -680,7 +680,7 @@ model ChannelAdTargetDailySnapshot {
       ],
       [
         'set',
-        "await tx.organization.update({ where: { id: 'org-1' }, data: { channelAdTargetDailySnapshots: { set: [{ id: 'target-1' }] } } });\n",
+        "await tx.organization.update({ where: { id: 'org-1' }, data: { exampleLedgerDailySnapshots: { set: [{ id: 'target-1' }] } } });\n",
         legacyReader,
       ],
     ];
@@ -694,7 +694,7 @@ model ChannelAdTargetDailySnapshot {
         new RegExp(`${path.basename(target)}.*Prisma relation mutation`),
         operation,
       );
-      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+      write(root, target, 'tx.exampleLedgerDailySnapshot.findMany({});\n');
     }
 
     const readOnlyRelationCases = [
@@ -722,18 +722,18 @@ model ChannelAdTargetDailySnapshot {
           stdio: 'pipe',
         });
       }, label);
-      write(root, target, 'tx.channelAdTargetDailySnapshot.findMany({});\n');
+      write(root, target, 'tx.exampleLedgerDailySnapshot.findMany({});\n');
     }
 
     write(
       root,
       canonicalReader,
-      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
     write(
       root,
       legacyReader,
-      'tx.channelAdTargetDailySnapshot.findMany({});\n',
+      'tx.exampleLedgerDailySnapshot.findMany({});\n',
     );
 
     const legacyGate = spawnSync(
@@ -767,10 +767,10 @@ test('rejects relation names that drift from the Prisma schema', () => {
           {
             name: 'Advertising target day',
             owner: 'advertising',
-            table: 'channel_ad_target_daily_snapshots',
-            prismaModel: 'channelAdTargetDailySnapshot',
-            prismaType: 'ChannelAdTargetDailySnapshot',
-            relationNames: ['channelAdTargetDailySnapshots'],
+            table: 'example_ledger_daily_snapshots',
+            prismaModel: 'exampleLedgerDailySnapshot',
+            prismaType: 'ExampleLedgerDailySnapshot',
+            relationNames: ['exampleLedgerDailySnapshots'],
             ownerPublications: [],
           },
         ],
@@ -781,16 +781,16 @@ test('rejects relation names that drift from the Prisma schema', () => {
       'prisma/schema.prisma',
       `model Organization {
   id                            String                         @id
-  channelAdTargetDailySnapshots ChannelAdTargetDailySnapshot[]
+  exampleLedgerDailySnapshots ExampleLedgerDailySnapshot[]
 }
 
 model AdAction {
   id              String                        @id
   adTargetDailyId String?
-  adTargetDaily   ChannelAdTargetDailySnapshot? @relation(fields: [adTargetDailyId], references: [id])
+  adTargetDaily   ExampleLedgerDailySnapshot? @relation(fields: [adTargetDailyId], references: [id])
 }
 
-model ChannelAdTargetDailySnapshot {
+model ExampleLedgerDailySnapshot {
   id             String       @id
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id])

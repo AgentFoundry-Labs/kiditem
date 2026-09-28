@@ -27,12 +27,9 @@ export type ProductAbcSourceEvidence = Readonly<{
 export type ProductAbcEvidenceView = Readonly<{
   /** Cutoff the evidence actually reached; `null` when it has none. */
   actualCutoff: string | null;
-  /** Mapping generation the selected sources agree on; `null` when none does. */
+  /** Mapping generation of the selected Sellpia generation; `null` when none. */
   mappingGeneration: string | null;
   sellpia: ProductAbcSourceEvidence;
-  advertising: ProductAbcSourceEvidence;
-  /** False when the active formula excludes advertising. */
-  advertisingRequired?: boolean;
 }>;
 
 export type ProductAbcFormulaStateView = Readonly<{
@@ -78,8 +75,6 @@ export function buildProductAbcReadModel(
     actualCutoffDate: evidence.actualCutoff,
     sources: {
       sellpia: sourceReadiness(evidence.sellpia),
-      advertising: sourceReadiness(evidence.advertising),
-      ...(evidence.advertisingRequired === false ? { advertisingRequired: false } : {}),
       mapping: {
         valid: input.mappingValid,
         currentMappingGeneration: formulaState.mappingGeneration,
@@ -90,10 +85,9 @@ export function buildProductAbcReadModel(
 }
 
 /**
- * The owner's readiness for one source. The latest complete generation is the
- * one the owner reported a cutoff for, whether or not a compatible pair
- * selected it, so the published `ready` is the owner's and a complete source
- * never reads as missing because the other source has nothing to pair with.
+ * The owner's readiness for the Sellpia source. The latest complete generation
+ * is the one the owner reported a cutoff for, whether or not it was selected,
+ * so the published `ready` is the owner's.
  */
 function sourceReadiness(source: ProductAbcSourceEvidence) {
   const latestAttempt: SourceReadinessAttempt | null = source.latestAttemptState

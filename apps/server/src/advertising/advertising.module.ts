@@ -6,7 +6,6 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
 import { AiModule } from "../content/ai.module";
 import { ChannelsModule } from "../channels/channels.module";
-import { AdvertisingProfitabilityReadModule } from "./advertising-profitability-read.module";
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
 import { AdExportController } from "./adapter/in/http/ad-export.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
@@ -17,8 +16,6 @@ import { AdvertisingOverviewController } from "./adapter/in/http/advertising-ove
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
-import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
-import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
 import { WingItemwinnerOperationOwner, WingTrafficOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
 import { WingItemwinnerOperationRepository } from "./adapter/out/repository/wing-itemwinner-operation.repository";
 import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-itemwinner-operation.repository.port";
@@ -43,8 +40,6 @@ import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.re
 import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
 import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel-scrape.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
-import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
-import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
@@ -145,7 +140,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AlertsModule,
     AiModule,
     ChannelsModule,
-    AdvertisingProfitabilityReadModule,
     OperationModule,
     AdvertisingLedgerReadModule,
   ],
@@ -160,8 +154,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdExportController,
     AdKeywordAgentController,
     KeywordRankController,
-    AdKeywordSourceController,
-    AdCampaignSourceController,
     CompetitorTrackingController,
     WingTrackedProductController,
   ],
@@ -175,8 +167,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdStrategyContextRepositoryAdapter,
     ChannelScrapeRepositoryAdapter,
     KeywordRankRepositoryAdapter,
-    AdKeywordSourceRepository,
-    AdCampaignSourceRepository,
     // Wing 일별 사실 실행 kind(ADR-0025, KID-362)
     WingItemwinnerOperationRepository,
     {

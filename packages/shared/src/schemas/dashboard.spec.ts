@@ -21,7 +21,6 @@ function contributionBasis(denominator: number | null) {
     officialCutoffDate: '2026-08-31',
     publishedAt: '2026-09-01T00:00:00.000Z',
     sellpiaOperationId: '00000000-0000-4000-8000-000000000001',
-    advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000002',
     mappingGeneration: '1',
     includedProductCount: 3,
     withheldProductCount: 0,
@@ -241,7 +240,6 @@ describe('dashboard schemas', () => {
         INSUFFICIENT_EVIDENCE: 1,
         SOURCE_UNMAPPED: 0,
         SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
       },
       abcContributionProfit: {
         amountByGrade: { A: 200_000, B: 80_000, C: -20_000 },
@@ -273,7 +271,6 @@ describe('dashboard schemas', () => {
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
         SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
       },
       abcContributionProfit: {
         amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
@@ -313,7 +310,6 @@ describe('dashboard schemas', () => {
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
         SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
       },
       abcContributionProfit: {
         amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
@@ -365,7 +361,6 @@ describe('dashboard schemas', () => {
         INSUFFICIENT_EVIDENCE: 0,
         SOURCE_UNMAPPED: 0,
         SELLPIA_SOURCE_STALE: 0,
-        AD_SOURCE_STALE: 0,
         CALIBRATION_PENDING: 0,
       },
       abcContributionProfit: {

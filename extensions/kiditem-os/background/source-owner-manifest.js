@@ -1,9 +1,6 @@
 // Build-time source ownership contract for browser collection producers.
 // This manifest is intentionally not loaded by the extension runtime.
 export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
-  "advertising.ad_keyword": "advertising",
-  "advertising.ad_sync": "advertising",
-  "advertising.profitability_import": "advertising",
   "channels.coupang_catalog": "channels",
   "dashboard.coupang_products": "analytics",
   "orders.mall": "orders",

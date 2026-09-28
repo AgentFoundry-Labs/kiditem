@@ -201,10 +201,10 @@ whatever `--release-version` selects, and runs none in `pre-schema`.
   and creates it wherever v0.1.31:012 has not. It fails while a run holds a
   status outside `SOURCE_IMPORT_RUN_STATUSES`: add a pre-schema cleanup
   migration before changing the set.
-- `ensure:absolute_product_abc_formula` gives every organization the current
-  absolute ABC formula version and a formula state attached to it, the rows
-  v0.1.31:002 writes, under the server's product-mapping and ABC publication
-  locks. It keeps a mapping-only state's `mappingGeneration` and never changes
+- `ensure:absolute_product_abc_formula` gives every organization the
+  advertising-free absolute ABC formula (version 3) and a formula state
+  attached to it, the end state v0.1.31:016 produces, under the server's
+  product-mapping and ABC publication locks. It keeps a mapping-only state's `mappingGeneration` and never changes
   a state that already names a formula. It fails, naming every such
   organization, when a stored formula with the current key and version has
   another checksum, or when a state without a formula is not mapping-only.
@@ -283,3 +283,16 @@ a generated detail page (`pending`/`processing`) whose old job was still
 records `failed` with the operator sentence "실행 계약 이관으로 중단됐습니다. 다시
 생성해 주세요." for the same organization, leaves the job rows for the table
 drop (KID-365), and changes nothing on re-run.
+
+### ABC formula states still counting advertising (0.1.31)
+
+`034_move_ad_counting_abc_formula_states` runs post-schema. `016` moved the
+organizations that existed when it ran to the advertising-free formula
+(version 3), but until KID-373 the ensure step still installed version 2 for
+organizations created later, and recalculation refuses a formula that counts
+advertising (`PRODUCTS_ABC_FORMULA_RETIRED`). It moves every unpublished state
+not on version 3 to version 3, taking the row from
+`ensureAbsoluteProductAbcFormulaForOrganization` under the same locks, raises
+its formula revision, and keeps its mapping generation. A published state is
+left alone and counted as `publishedStateLeftCount`. It changes nothing on
+re-run.

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import type { PrismaClient } from '@prisma/client';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeTestPrisma, resetDb } from '../test-helpers/real-prisma';
 import {
@@ -272,8 +272,8 @@ function installedFormula(slug: string) {
       publishedAt: null,
       activeFormulaVersion: {
         formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-        version: 2,
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        version: 3,
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
     },
   };

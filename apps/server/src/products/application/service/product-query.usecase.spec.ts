@@ -2,7 +2,7 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { buildPeriodBasis, enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   type ProductAbcContributionAnalytics,
   type ProductAbcEvaluation,
 } from '@kiditem/shared/product-abc';
@@ -715,7 +715,6 @@ function officialEvaluation() {
     abcGrade: 'B' as const,
     weightedRevenue: 1_000_000,
     weightedOrderTimeSupplyCost: 600_000,
-    weightedAdvertisingSpend: 150_000,
     weightedOperatingProfit: 250_000,
     operatingProfitVelocity30: 100_000,
     operatingMargin: 0.25,
@@ -725,15 +724,13 @@ function officialEvaluation() {
     consistencyScore: 100,
     economicScore: 57,
     validObservationDays: 180,
-    formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+    formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
     formulaRevision: 2,
     publicationRevision: 4,
     gradeBasisCutoffDate: '2026-07-31',
     saleStartDate: '2026-06-01',
     sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
-    advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
     sellpiaGeneration: '4',
-    advertisingGeneration: '5',
     mappingGeneration: '8',
     calculatedAt: '2026-08-01T01:00:00.000Z',
   };

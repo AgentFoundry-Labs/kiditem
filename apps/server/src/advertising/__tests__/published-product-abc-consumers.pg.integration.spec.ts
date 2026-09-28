@@ -4,8 +4,8 @@ import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports'
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -91,20 +91,13 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         status: 'completed',
       },
     });
-    const advertisingRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_ad_profitability',
-        status: 'completed',
-      },
-    });
     const formula = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: ORG,
-        formulaKey: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.formulaKey,
+        formulaKey: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.formulaKey,
         version: 1,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
     });
     const cutoff = new Date('2026-08-31T00:00:00.000Z');
@@ -117,7 +110,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         officialCutoffDate: cutoff,
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
         publishedSellpiaOperationId: sellpiaRun.id,
-        publishedAdvertisingSourceImportRunId: advertisingRun.id,
         publishedMappingGeneration: 0n,
         mappingGeneration: 0n,
       },
@@ -130,7 +122,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         abcGrade: 'A',
         weightedRevenue: 10_000_000,
         weightedOrderTimeSupplyCost: 6_000_000,
-        weightedAdvertisingSpend: 1_000_000,
         weightedOperatingProfit: 3_000_000,
         operatingProfitVelocity30: 3_000_000,
         operatingMargin: 0.3,
@@ -145,9 +136,7 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         gradeBasisCutoffDate: cutoff,
         saleStartDate: new Date('2026-01-01T00:00:00.000Z'),
         sellpiaOperationId: sellpiaRun.id,
-        advertisingSourceImportRunId: advertisingRun.id,
         sellpiaGeneration: 1n,
-        advertisingGeneration: 1n,
         mappingGeneration: 0n,
       },
     });

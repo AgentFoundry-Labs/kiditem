@@ -3,7 +3,6 @@ import { recordRocketReadModelRelease } from "./v0.1.6/001_record_rocket_read_mo
 import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sellpia_rocket_inventory_sync_release";
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { dedupeDetailPageArtifacts } from "./v0.1.24/001_dedupe_detail_page_artifacts";
-import { repairAdCampaignTargetConversions } from "./v0.1.25/003_repair_ad_campaign_target_conversions";
 import { moveVariantRecipesToChannelOptions } from "./v0.1.30/003_move_variant_recipes_to_channel_options";
 import { resetSourcingDisplayState } from "./v0.1.30/005_reset_sourcing_display_state";
 import { resetAbsoluteProductAbc } from "./v0.1.31/001_reset_absolute_product_abc";
@@ -34,6 +33,7 @@ import { renameSourcingIngestionRunIdsMigration } from './v0.1.31/030_rename_sou
 import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_complete_sourcing_runs';
 import { removeRetiredSourceFailureAlertsMigration } from './v0.1.31/032_remove_retired_source_failure_alerts';
 import { removeRetiredMallAdminListingAlertsMigration } from './v0.1.31/033_remove_retired_mall_admin_listing_alerts';
+import { moveAdCountingAbcFormulaStatesMigration } from './v0.1.31/034_move_ad_counting_abc_formula_states';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -52,7 +52,6 @@ export const dataMigrations: readonly DataMigration[] = [
   recordSellpiaRocketInventorySyncRelease,
   migrateRepresentativeKeywordOverrides,
   dedupeDetailPageArtifacts,
-  repairAdCampaignTargetConversions,
   moveVariantRecipesToChannelOptions,
   resetSourcingDisplayState,
   resetAbsoluteProductAbc,
@@ -86,6 +85,7 @@ export const dataMigrations: readonly DataMigration[] = [
   publishCompleteSourcingRunsMigration,
   removeRetiredSourceFailureAlertsMigration,
   removeRetiredMallAdminListingAlertsMigration,
+  moveAdCountingAbcFormulaStatesMigration,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

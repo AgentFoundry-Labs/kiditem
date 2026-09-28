@@ -13,17 +13,12 @@ test('persists exact source provenance for absolute ABC publication', () => {
   for (const field of [
     'officialCutoffDate',
     'publishedSellpiaSourceImportRunId',
-    'publishedAdvertisingSourceImportRunId',
     'publishedMappingGeneration',
     'gradeBasisCutoffDate',
     'sellpiaSourceImportRunId',
-    'advertisingSourceImportRunId',
     'sellpiaGeneration',
-    'advertisingGeneration',
     'previousSellpiaSourceImportRunId',
     'nextSellpiaSourceImportRunId',
-    'previousAdvertisingSourceImportRunId',
-    'nextAdvertisingSourceImportRunId',
   ]) {
     assert.match(coreSchema, new RegExp(`\\b${field}\\b`));
   }

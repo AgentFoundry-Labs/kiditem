@@ -199,7 +199,7 @@ describe('AdKeywordAgentService', () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain('광고 키워드 수집');
+    expect(result.reason).toContain('광고 보고서 수집');
     expect(judge.judge).not.toHaveBeenCalled();
   });
 

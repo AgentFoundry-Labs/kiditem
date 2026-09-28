@@ -9,9 +9,11 @@ describe('ProductOperationsDataStatusDialog', () => {
     renderDialog(readyStatus(), { onRefresh });
 
     expect(screen.getByRole('dialog', { name: '상품 운영 데이터 현황' })).toBeInTheDocument();
-    for (const label of ['방문·조회', '주문·판매·매출', '광고비', 'Sellpia 이익', '상품 매핑']) {
+    for (const label of ['방문·조회', '주문·판매·매출', 'Sellpia 이익', '상품 매핑']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
+    // ABC grades without advertising (KID-373): no advertising source row.
+    expect(screen.queryByText('광고비')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '등급 새로고침' }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
@@ -44,7 +46,7 @@ describe('ProductOperationsDataStatusDialog', () => {
     expect(screen.getByText('표시 데이터 기준일 2026-08-31')).toBeInTheDocument();
     expect(screen.getByText('갱신 필요')).toBeInTheDocument();
     expect(screen.getByText(
-      '필수 원천이 최신이 아니면 셀피아 상품 손익과 광고 손익의 끝 날짜가 같은 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.',
+      '필수 원천이 최신이 아니면 셀피아 상품 손익의 가장 최근 수집본으로 발행합니다. 그런 수집본이 없으면 기존 공식 등급을 유지합니다.',
     )).toBeInTheDocument();
     // The server publishes the newest pair that ends together, as the dashboard's refresh does.
     expect(screen.getByRole('button', { name: '등급 새로고침' })).toBeEnabled();
@@ -95,7 +97,6 @@ function readyStatus(): ProductOperationsDataStatus {
     sources: {
       traffic: source(true),
       orders: source(true),
-      advertising: source(true),
       sellpia: source(true),
       mapping: { ready: true, generation: '7' },
     },

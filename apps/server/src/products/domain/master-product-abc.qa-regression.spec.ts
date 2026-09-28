@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
+import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD } from '@kiditem/shared/product-abc';
 import {
   evaluateMasterProductAbc,
   type MasterProductAbcFormulaReadyFacts,
 } from './master-product-abc';
 
 describe('absolute ABC QA regressions', () => {
-  it('uses the canonical shared current payload reference', () => {
-    expect(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD).toMatchObject({
+  it('uses the canonical shared advertising-free payload reference', () => {
+    expect(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD).toMatchObject({
       formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-      version: 2,
+      version: 3,
+      historicalAdvertisingPolicy: 'EXCLUDED_V1',
       halfLifeDays: 90,
       weights: { profit: 0.5, margin: 0.3, consistency: 0.2 },
       minimumSaleAgeDays: 30,
@@ -30,7 +31,6 @@ describe('absolute ABC QA regressions', () => {
         coveredDays: 31,
         recognizedRevenue: 1_000_000,
         orderTimeSupplyCost: 100_000,
-        advertisingSpend: 0,
         provenance: {
           costBasis: 'ORDER_TIME_SUPPLY_COST',
           vatIncluded: true,
@@ -39,7 +39,7 @@ describe('absolute ABC QA regressions', () => {
     };
     const candidate = evaluateMasterProductAbc({
       facts: input,
-      formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
+      formula: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
     });
 
     expect(candidate).toHaveProperty('abcGrade');

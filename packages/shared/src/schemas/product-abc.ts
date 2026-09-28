@@ -28,7 +28,6 @@ export type ProductAbcGrade = z.infer<typeof ProductAbcGradeSchema>;
 export const ProductAbcDisplayStatusSchema = z.enum([
   'SOURCE_UNMAPPED',
   'SELLPIA_SOURCE_STALE',
-  'AD_SOURCE_STALE',
   'INSUFFICIENT_EVIDENCE',
   'READY',
 ]);
@@ -387,23 +386,14 @@ export type ProductAbcMappingFacts = z.infer<typeof ProductAbcMappingFactsSchema
 export const ProductAbcSourceFreshnessSchema = z.object({
   evaluationCutoffDate: CalendarDateSchema,
   sellpia: SourceReadinessSchema,
-  advertising: SourceReadinessSchema,
   mapping: ProductAbcMappingFactsSchema,
-  /**
-   * False under a formula that excludes advertising: its readiness is still
-   * reported, but a grade no longer waits on it. Absent means required.
-   */
-  advertisingRequired: z.boolean().optional(),
 }).strict();
 export type ProductAbcSourceFreshness = z.infer<typeof ProductAbcSourceFreshnessSchema>;
 
 export const ProductAbcEvaluationProvenanceSchema = z.object({
   gradeBasisCutoffDate: CalendarDateSchema,
   sellpiaOperationId: UuidSchema,
-  /** Null only under a formula that excludes advertising. */
-  advertisingSourceImportRunId: UuidSchema.nullable(),
   sellpiaGeneration: GenerationSchema,
-  advertisingGeneration: GenerationSchema.nullable(),
   mappingGeneration: GenerationSchema,
 }).strict();
 export type ProductAbcEvaluationProvenance = z.infer<
@@ -416,7 +406,6 @@ export const ProductAbcEvaluationSchema = z.object({
   abcGrade: ProductAbcGradeSchema,
   weightedRevenue: EvaluationMetricSchema,
   weightedOrderTimeSupplyCost: EvaluationMetricSchema,
-  weightedAdvertisingSpend: EvaluationMetricSchema,
   weightedOperatingProfit: EvaluationMetricSchema,
   operatingProfitVelocity30: EvaluationMetricSchema,
   operatingMargin: EvaluationMetricSchema.nullable(),
@@ -432,20 +421,16 @@ export const ProductAbcEvaluationSchema = z.object({
   gradeBasisCutoffDate: CalendarDateSchema,
   saleStartDate: CalendarDateSchema.nullable(),
   sellpiaOperationId: UuidSchema,
-  /** Null only under a formula that excludes advertising. */
-  advertisingSourceImportRunId: UuidSchema.nullable(),
   sellpiaGeneration: GenerationSchema,
-  advertisingGeneration: GenerationSchema.nullable(),
   mappingGeneration: GenerationSchema,
   calculatedAt: zIsoDate,
 }).strict().superRefine((evaluation, context) => {
-  const adFree = evaluation.formula.historicalAdvertisingPolicy === 'EXCLUDED_V1';
-  if (adFree !== (evaluation.advertisingSourceImportRunId === null)
-    || adFree !== (evaluation.advertisingGeneration === null)) {
+  // ABC grades without advertising (KID-373): only the advertising-free formula publishes.
+  if (evaluation.formula.historicalAdvertisingPolicy !== 'EXCLUDED_V1') {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['advertisingSourceImportRunId'],
-      message: 'advertising provenance is absent exactly when the formula excludes advertising',
+      path: ['formula', 'historicalAdvertisingPolicy'],
+      message: 'an evaluation is graded by the advertising-free formula',
     });
   }
   if (
@@ -520,8 +505,6 @@ export const ProductAbcGradeHistorySchema = z.object({
   sourceCutoffDate: CalendarDateSchema,
   previousSellpiaOperationId: UuidSchema.nullable(),
   nextSellpiaOperationId: UuidSchema.nullable(),
-  previousAdvertisingSourceImportRunId: UuidSchema.nullable(),
-  nextAdvertisingSourceImportRunId: UuidSchema.nullable(),
   reason: z.string().trim().min(1).max(100),
   calculatedAt: zIsoDate,
 }).strict().superRefine((history, context) => {

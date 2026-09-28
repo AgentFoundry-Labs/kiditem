@@ -10,7 +10,6 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { AlertsModule } from '../../alerts/alerts.module';
 import { AiModule } from '../../content/ai.module';
 import { ChannelsModule } from '../../channels/channels.module';
-import { AdvertisingProfitabilityReadModule } from '../advertising-profitability-read.module';
 import { OperationModule } from '../../common/operation/operation.module';
 import { AdvertisingLedgerReadModule } from '../advertising-ledger-read.module';
 
@@ -25,7 +24,6 @@ describe('AdvertisingModule retained wiring', () => {
       AlertsModule,
       AiModule,
       ChannelsModule,
-      AdvertisingProfitabilityReadModule,
       OperationModule,
       AdvertisingLedgerReadModule,
     ]);

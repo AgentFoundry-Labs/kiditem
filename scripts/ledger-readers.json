@@ -33,36 +33,6 @@
   },
   "ledgers": [
     {
-      "name": "Advertising target day",
-      "owner": "advertising",
-      "table": "channel_ad_target_daily_snapshots",
-      "prismaModel": "channelAdTargetDailySnapshot",
-      "prismaType": "ChannelAdTargetDailySnapshot",
-      "relationNames": [
-        "adTargetDailySnapshots",
-        "channelAdTargetDailySnapshots"
-      ],
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
-          "reason": "Merges namespaced metadata into target-day rows for registered owner publication adapters."
-        },
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
-          "reason": "Stages campaign and product target rows during capture; the owner's later completed source-import gate makes those rows eligible for publication reads."
-        },
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
-          "reason": "Counts keyword rows immediately after inserting them in the source owner's terminal publication."
-        },
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
-          "reason": "Validates newly inserted target rows and publishes the matching profitability generation in the same owner workflow."
-        }
-      ],
-      "legacyReaders": []
-    },
-    {
       "name": "Advertising product day",
       "owner": "advertising",
       "table": "channel_ad_product_daily_snapshots",
@@ -165,10 +135,6 @@
         {
           "path": "apps/server/src/advertising/adapter/out/repository/wing-itemwinner-operation.repository.ts",
           "reason": "Publishes verified Item Winner listing-day state into the canonical listing fact row inside the advertising.wing_itemwinner operation's finish transaction."
-        },
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
-          "reason": "Merges namespaced metadata into listing-day rows for the registered source publication adapters."
         }
       ],
       "legacyReaders": []
@@ -800,7 +766,6 @@
       "relationNames": [
         "masterProductAbcEvaluations",
         "sellpiaAbcEvaluations",
-        "advertisingAbcEvaluations",
         "abcEvaluation",
         "evaluations"
       ],
@@ -808,24 +773,6 @@
         {
           "path": "apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts",
           "reason": "Publishes, carries forward, and reads Products-owned official ABC evaluation rows inside the explicit publication boundary."
-        }
-      ],
-      "legacyReaders": []
-    },
-    {
-      "name": "Advertising listing-product monthly allocations",
-      "owner": "advertising",
-      "table": "channel_ad_listing_product_monthly_facts",
-      "prismaModel": "channelAdListingProductMonthlyFact",
-      "prismaType": "ChannelAdListingProductMonthlyFact",
-      "relationNames": [
-        "channelAdListingProductMonthlyFacts",
-        "adListingProductMonthlyFacts"
-      ],
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
-          "reason": "Stages, verifies, allocates, and publishes immutable monthly advertising facts within the source owner's fenced terminal workflow."
         }
       ],
       "legacyReaders": []
@@ -897,18 +844,6 @@
     }
   ],
   "importExceptions": [
-    {
-      "from": "apps/server/src/advertising/adapter/in/http/ad-campaign-source.controller.ts",
-      "to": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
-      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/advertising/adapter/in/http/ad-keyword-source.controller.ts",
-      "to": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
-      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-324"
-    },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",

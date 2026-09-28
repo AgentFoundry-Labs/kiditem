@@ -3,10 +3,10 @@ import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persis
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD } from '@kiditem/shared/product-abc';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
+import {
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
+} from '@kiditem/shared/product-abc';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { readExactSellpiaProfitabilityGeneration } from '../../analytics/sellpia-product-sales/read/sellpia-product-monthly-facts';
@@ -23,9 +23,7 @@ import type {
 } from '../application/port/out/persistence/master-product-abc.repository.port';
 
 const CUTOFF = latestClosedKstDate();
-type FixtureSourceFences = Omit<ProductAbcPublicationInput['sourceFences'], 'advertising'> & {
-  advertising: NonNullable<ProductAbcPublicationInput['sourceFences']['advertising']>;
-};
+type FixtureSourceFences = ProductAbcPublicationInput['sourceFences'];
 
 describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -352,7 +350,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
     const mismatched = {
       ...candidate(productId, sources, 'A'),
-      sellpiaOperationId: sources.advertising.selectedComplete.sourceImportRunId!,
+      sellpiaOperationId: randomUUID(),
     };
 
     await expect(repository.publish(publication({
@@ -412,17 +410,12 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   it('publishes evaluated generations a newer complete publication has superseded', async () => {
     const { productId, skuCode, formulaVersionId, sources } = await fixture(prisma);
     const newer = await publishSources(prisma, skuCode);
-    const [newerSellpia, newerAdvertising] = await Promise.all([
-      prisma.$transaction((tx) => readExactSellpiaProfitabilityGeneration(tx, {
-        organizationId: TEST_ORGANIZATION_ID,
-        operationId: newer.sellpiaRunId,
-      })).then((generation) => generation!),
-      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: newer.advertisingRunId } }),
-    ]);
+    const newerSellpia = await prisma.$transaction((tx) => readExactSellpiaProfitabilityGeneration(tx, {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationId: newer.sellpiaRunId,
+    })).then((generation) => generation!);
     expect(newerSellpia.publicationSequence)
       .toBeGreaterThan(BigInt(sources.sellpia.selectedComplete.publicationSequence!));
-    expect(newerAdvertising.publicationSequence)
-      .toBeGreaterThan(BigInt(sources.advertising.selectedComplete.publicationSequence!));
 
     await expect(repository.publish(publication({
       formulaVersionId,
@@ -437,13 +430,11 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toMatchObject({
       publishedSellpiaOperationId: sources.sellpia.selectedComplete.sourceImportRunId,
-      publishedAdvertisingSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId,
     });
     await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
     })).resolves.toMatchObject({
       sellpiaOperationId: sources.sellpia.selectedComplete.sourceImportRunId,
-      advertisingSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId,
     });
   });
 
@@ -532,9 +523,9 @@ async function fixture(prisma: PrismaClient): Promise<{
     data: {
       organizationId: TEST_ORGANIZATION_ID,
       formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-      version: 2,
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-      formulaChecksum: '230d35436ffd2fd42bf4eb4ea3f0c99bd7474dcf5b7cf11f6ed235aff84cc64f',
+      version: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
     },
   });
   await prisma.masterProductAbcFormulaState.create({
@@ -547,18 +538,15 @@ async function fixture(prisma: PrismaClient): Promise<{
     },
   });
   const product = await seedSellingProduct(prisma);
-  const { sellpiaRunId, advertisingRunId } = await publishSources(prisma, product.skuCode);
-  const [sellpiaRun, advertisingRun] = await Promise.all([
-    // 셀피아 세대 = 성공한 상품 손익 실행(KID-361 J3) — 세대 리더가 내는 모양 그대로 쓴다.
-    prisma.$transaction((tx) => readExactSellpiaProfitabilityGeneration(tx, {
-      organizationId: TEST_ORGANIZATION_ID,
-      operationId: sellpiaRunId,
-    })).then((generation) => {
-      if (!generation) throw new Error('sellpia generation missing');
-      return generation;
-    }),
-    prisma.sourceImportRun.findUniqueOrThrow({ where: { id: advertisingRunId } }),
-  ]);
+  const { sellpiaRunId } = await publishSources(prisma, product.skuCode);
+  // 셀피아 세대 = 성공한 상품 손익 실행(KID-361 J3) — 세대 리더가 내는 모양 그대로 쓴다.
+  const sellpiaRun = await prisma.$transaction((tx) => readExactSellpiaProfitabilityGeneration(tx, {
+    organizationId: TEST_ORGANIZATION_ID,
+    operationId: sellpiaRunId,
+  })).then((generation) => {
+    if (!generation) throw new Error('sellpia generation missing');
+    return generation;
+  });
   return {
     productId: product.productId,
     skuCode: product.skuCode,
@@ -566,7 +554,6 @@ async function fixture(prisma: PrismaClient): Promise<{
     formulaVersionId: formulaVersion.id,
     sources: {
       sellpia: { selectedComplete: sourceView(sellpiaRun) },
-      advertising: { selectedComplete: sourceView(advertisingRun) },
     },
   };
 }
@@ -574,7 +561,6 @@ async function fixture(prisma: PrismaClient): Promise<{
 function publication(overrides: Partial<ProductAbcPublicationInput>): ProductAbcPublicationInput {
   const sourceFences = overrides.sourceFences ?? {
     sellpia: { selectedComplete: sourceViewById('00000000-0000-0000-0000-000000000001') },
-    advertising: { selectedComplete: sourceViewById('00000000-0000-0000-0000-000000000002') },
   };
   return {
     organizationId: TEST_ORGANIZATION_ID,
@@ -607,7 +593,6 @@ function candidate(
     gradeBasisCutoffDate: CUTOFF,
     weightedRevenue: 1_000_000,
     weightedOrderTimeSupplyCost: 200_000,
-    weightedAdvertisingSpend: 100_000,
     weightedOperatingProfit: 700_000,
     operatingProfitVelocity30: 700_000,
     operatingMargin: 0.7,
@@ -617,9 +602,7 @@ function candidate(
     consistencyScore: 100,
     economicScore: abcGrade === 'A' ? 85 : abcGrade === 'B' ? 75 : 20,
     sellpiaOperationId: sources.sellpia.selectedComplete.sourceImportRunId!,
-    advertisingSourceImportRunId: sources.advertising.selectedComplete.sourceImportRunId!,
     sellpiaGeneration: sources.sellpia.selectedComplete.publicationSequence!,
-    advertisingGeneration: sources.advertising.selectedComplete.publicationSequence!,
     mappingGeneration: '0',
   };
 }
@@ -731,17 +714,7 @@ async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: st
 
 async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
   sellpiaRunId: string;
-  advertisingRunId: string;
 }> {
-  const alerts = new SourceFailureAlerts(prisma as never);
-  const channelFacts = channelFactTestPorts(prisma as never);
-  const advertising = new ProfitabilityAdImportRepositoryAdapter(
-    channelFacts.accounts,
-    channelFacts.recipes,
-    channelFacts.listings,
-    prisma as never,
-    alerts,
-  );
   const published = await publishSellpiaProfitability(prisma, {
     organizationId: TEST_ORGANIZATION_ID,
     products: (plan) => [{
@@ -763,18 +736,7 @@ async function publishSources(prisma: PrismaClient, skuCode: string): Promise<{
       }],
     }],
   });
-  // This Rocket-only selling fixture has no retained Coupang advertising
-  // account, so an empty COMPLETE generation is genuine NOT_APPLIED proof.
-  const advertisingAttempt = await advertising.beginAttempt({
-    organizationId: TEST_ORGANIZATION_ID,
-    idempotencyKey: `abc-ad-${randomUUID()}`,
-  });
-  await advertising.finalizeAttempt({
-    organizationId: TEST_ORGANIZATION_ID,
-    attemptId: advertisingAttempt.attemptId,
-    attemptToken: advertisingAttempt.attemptToken,
-  });
-  return { sellpiaRunId: published.operationId, advertisingRunId: advertisingAttempt.attemptId };
+  return { sellpiaRunId: published.operationId };
 }
 
 function latestClosedKstDate(now = new Date()): string {

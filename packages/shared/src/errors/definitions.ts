@@ -112,7 +112,6 @@ export const ERROR_DEFINITIONS = {
   OPERATION_FENCE_LOST: def('common', 'conflict', '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.', { retryable: true }),
   OPERATION_NOT_FOUND: def('common', 'not_found', '실행을 찾을 수 없습니다.'),
   COLLECTION_CANCELLED: def('common', 'cancelled', '수집이 중단됐습니다.'),
-  COLLECTION_WINDOW_OWNER_CONFLICT: def('extension', 'in_progress', '다른 수집이 브라우저 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.'),
   SOURCE_OWNER_UNAVAILABLE: def('extension', 'external', '확장 프로그램이 수집을 시작하지 못했습니다. 확장 프로그램이 켜져 있는지 확인해 주세요.', { retryable: true }),
   OPERATOR_ACTION_REQUIRED: def('extension', 'precondition', '운영자가 직접 처리해야 하는 단계가 있습니다. 열린 탭을 확인해 주세요.'),
   MALL_LOGIN_REQUIRED: def('extension', 'precondition', '몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
@@ -189,6 +188,7 @@ export const ERROR_DEFINITIONS = {
   PRODUCTS_SOURCE_REFERENCE_INVALID: def('products', 'precondition', '상품 원천 정보가 이 조직의 상품과 맞지 않습니다.'),
   PRODUCTS_MAPPING_CONFLICT: def('products', 'conflict', '상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
   PRODUCTS_SELLPIA_BINDING_REQUIRED: def('products', 'precondition', '셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.'),
+  PRODUCTS_ABC_FORMULA_RETIRED: def('products', 'precondition', '광고를 세는 옛 ABC 공식은 더 계산하지 않습니다. 광고를 빼는 새 공식으로 옮긴 뒤 다시 계산해 주세요.'),
 
   // inventory · supply
   INVENTORY_NOT_FOUND: def('inventory', 'not_found', '재고 항목을 찾을 수 없습니다.'),
@@ -294,7 +294,6 @@ export const EXTENSION_CODE_ALIASES: Readonly<Record<string, KiditemErrorCode>> 
   login_page_not_reachable: 'MALL_LOGIN_PAGE_UNREACHABLE',
   operator_action_required: 'OPERATOR_ACTION_REQUIRED',
   provider_contract_changed: 'SOURCING_PROVIDER_CONTRACT_CHANGED',
-  collection_window_owner_conflict: 'COLLECTION_WINDOW_OWNER_CONFLICT',
   search_extraction_failed: 'SOURCING_SEARCH_EXTRACTION_FAILED',
   gateway_provider_unavailable: 'AGENT_OS_GATEWAY_UNAVAILABLE',
   SOURCE_ATTEMPT_TERMINAL: 'ATTEMPT_TERMINAL',

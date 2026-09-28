@@ -91,16 +91,6 @@
     .dot-gray { background: #cbd5e1; }
     .dot-orange { background: #f59e0b; }
     .dot-red { background: #ef4444; }
-    .source-meta {
-      margin-top: 7px;
-      color: #64748b;
-      font-size: 11px;
-      font-weight: 500;
-      line-height: 1.45;
-      min-height: 16px;
-      white-space: pre-line;
-      overflow-wrap: anywhere;
-    }
 
     /* ─── Buttons ─── */
     .actions { padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
@@ -194,11 +184,6 @@
         <div class="label">승인 액션</div>
         <div class="value" id="approvedActions"><span class="dot dot-gray"></span>-</div>
       </div>
-      <div class="status-card" style="grid-column: span 2;">
-        <div class="label">광고 캠페인</div>
-        <div class="value" id="adsSync"><span class="dot dot-gray"></span>-</div>
-        <div class="source-meta" id="adsSyncDetail"></div>
-      </div>
     </div>
   </div>
 
@@ -249,7 +234,6 @@
     <a href="#" id="footerLink">선택한 KidItem 대시보드 열기</a>
   </div>
 
-  <script src="../shared/source-readiness.js"></script>
   <script src="popup.js"></script>
   <script src="sourcing-panel.js"></script>
 </body>

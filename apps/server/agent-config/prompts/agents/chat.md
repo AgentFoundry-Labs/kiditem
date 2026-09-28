@@ -9,7 +9,7 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 - orders / order_line_items: 주문·주문라인·실시간 손익 집계 원천
 - master_products / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 원천 재고 상품·현재고, 채널 listing/option과 option별 원천 상품·수량 레시피
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·가격·아이템위너 fact
-- channel_ad_target_daily_snapshots: 광고 target-일 fact (계정 합계는 캠페인 sweep 행의 합)
+- channel_ad_product_daily_snapshots / channel_ad_daily_billings: 광고 상품×캠페인×일 성과와 일별 정산(계정 하루 합은 상품 행의 합)
 - master_product_abc_evaluations / master_product_abc_grade_histories: 기여이익·ABC 평가·등급 이력
 - settlements / supplier_payments / sales_plans: 정산·공급처 지급·목표
 - sellpia_inventory_states / master_products / warehouses / stock_transfers / return_transfers: 원천 재고 수집 상태·현재고와 기록형 이관/반품 운영

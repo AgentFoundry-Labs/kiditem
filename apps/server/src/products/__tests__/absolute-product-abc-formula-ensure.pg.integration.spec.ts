@@ -1,7 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { lockProductMapping } from '../transaction/product-mapping-lock';
@@ -24,6 +24,7 @@ import {
   ensureAbsoluteProductAbcFormulaForOrganization,
 } from '../../../../../scripts/data-migrations/ensure/absolute-product-abc-formula';
 import { initializeAbsoluteProductAbcFormula } from '../../../../../scripts/data-migrations/v0.1.31/002_initialize_absolute_product_abc_formula';
+import { activateAdFreeProductAbcFormula } from '../../../../../scripts/data-migrations/v0.1.31/016_activate_ad_free_product_abc_formula';
 
 /** Sorts after TEST_ORGANIZATION_ID and OTHER_ORGANIZATION_ID. */
 const THIRD_ORGANIZATION_ID = 'c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f';
@@ -31,8 +32,9 @@ const WRONG_CHECKSUM = '0'.repeat(64);
 
 /**
  * `ensure:absolute_product_abc_formula` runs after every post-schema
- * `data:migrate -- up` and inside organization-creating scripts. It must write
- * what v0.1.31:002 writes, keep a mapping-only state's generation, leave any
+ * `data:migrate -- up` and inside organization-creating scripts. It must install
+ * the advertising-free formula v0.1.31:016 activates (ABC grades without
+ * advertising, KID-373), keep a mapping-only state's generation, leave any
  * state with a formula alone, and roll back whole when an organization cannot
  * take the formula, naming every such organization.
  */
@@ -74,9 +76,9 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
       expect(versions).toEqual([{
         id: expect.any(String),
         formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-        version: 2,
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        version: 3,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       }]);
       await expect(readState(organizationId)).resolves.toEqual({
         activeFormulaVersionId: versions[0]!.id,
@@ -84,7 +86,6 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         publicationRevision: 0,
         officialCutoffDate: null,
         publishedSellpiaOperationId: null,
-        publishedAdvertisingSourceImportRunId: null,
         publishedMappingGeneration: null,
         mappingGeneration: 0n,
         publishedAt: null,
@@ -115,7 +116,6 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
       publicationRevision: 0,
       officialCutoffDate: null,
       publishedSellpiaOperationId: null,
-      publishedAdvertisingSourceImportRunId: null,
       publishedMappingGeneration: null,
       mappingGeneration: 5n,
       publishedAt: null,
@@ -132,7 +132,6 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         publicationRevision: 2,
         officialCutoffDate: new Date('2026-09-15T00:00:00.000Z'),
         publishedSellpiaOperationId: sellpiaRun.id,
-        publishedAdvertisingSourceImportRunId: advertisingRun.id,
         publishedMappingGeneration: 0n,
         publishedAt: new Date('2026-09-16T00:00:00.000Z'),
       },
@@ -174,7 +173,7 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
     expect(afterThird.states.filter((state) => state.organizationId !== THIRD_ORGANIZATION_ID))
       .toEqual(afterFirst.states);
     expect(afterThird.states.find((state) => state.organizationId === THIRD_ORGANIZATION_ID))
-      .toMatchObject({ activeFormula: { formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: 2 }, formulaRevision: 1 });
+      .toMatchObject({ activeFormula: { formulaKey: 'PRODUCT_ABC_ABSOLUTE', version: 3 }, formulaRevision: 1 });
   });
 
   it('refuses stored formulas with another checksum, names every organization, and writes nothing until they are fixed', async () => {
@@ -184,7 +183,7 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         data: {
           organizationId,
           formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-          version: 2,
+          version: 3,
           formulaJson: { changed: true },
           formulaChecksum: WRONG_CHECKSUM,
         },
@@ -206,8 +205,8 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
 
     await prisma.masterProductAbcFormulaVersion.updateMany({
       data: {
-        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
-        formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+        formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
+        formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
       },
     });
     await expect(runStep()).resolves.toMatchObject({
@@ -225,7 +224,7 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-        version: 2,
+        version: 3,
         formulaJson: { changed: true },
         formulaChecksum: WRONG_CHECKSUM,
       },
@@ -266,7 +265,7 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
     });
   });
 
-  it('writes exactly what v0.1.31:002 writes, and 002 then finds nothing to do', async () => {
+  it('installs the advertising-free formula v0.1.31:016 activates, and finds nothing to do after 002 and 016', async () => {
     const arrange = async () => {
       await prisma.$transaction(async (tx) => {
         for (let generation = 0; generation < 5; generation += 1) {
@@ -276,24 +275,16 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
     };
 
     await arrange();
-    await expect(prisma.$transaction((tx) => initializeAbsoluteProductAbcFormula.run(tx, { target: 'local' })))
-      .resolves.toMatchObject({ affectedRows: 4 });
-    const written002 = withoutTimestamps(await snapshot());
+    await prisma.$transaction((tx) => initializeAbsoluteProductAbcFormula.run(tx, { target: 'local' }));
+    await prisma.$transaction((tx) => activateAdFreeProductAbcFormula.run(tx, { target: 'local' }));
+    const migrated = withoutTimestamps(await snapshot());
+    expect(migrated.states.map((state) => state.activeFormula))
+      .toEqual(migrated.states.map(() => expect.objectContaining({ version: 3 })));
 
-    await resetDb(prisma);
-    await seedBaseFixture(prisma);
-    await arrange();
-    await expect(runStep()).resolves.toMatchObject({ affectedRows: 4 });
-    const writtenByStep = withoutTimestamps(await snapshot());
-
-    expect(writtenByStep).toEqual(written002);
-    expect(writtenByStep.states.find((state) => state.organizationId === OTHER_ORGANIZATION_ID))
+    await expect(runStep()).resolves.toMatchObject({ affectedRows: 0 });
+    await expect(snapshot().then(withoutTimestamps)).resolves.toEqual(migrated);
+    expect(migrated.states.find((state) => state.organizationId === OTHER_ORGANIZATION_ID))
       .toMatchObject({ mappingGeneration: 5n });
-    await expect(prisma.$transaction((tx) => initializeAbsoluteProductAbcFormula.run(tx, { target: 'local' })))
-      .resolves.toEqual({
-        affectedRows: 0,
-        details: { createdFormulaVersionCount: 0, initializedFormulaStateCount: 0 },
-      });
   });
 
   it('holds the same ABC lock as server publication', async () => {
@@ -379,7 +370,6 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         publicationRevision: true,
         officialCutoffDate: true,
         publishedSellpiaOperationId: true,
-        publishedAdvertisingSourceImportRunId: true,
         publishedMappingGeneration: true,
         mappingGeneration: true,
         publishedAt: true,
@@ -393,7 +383,7 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
         organizationId_formulaKey_version: {
           organizationId,
           formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-          version: 2,
+          version: 3,
         },
       },
       select: { id: true },
@@ -462,7 +452,7 @@ function publicationInput(): ProductAbcPublicationInput {
     targetCutoff: '2026-09-16',
     actualCutoff: '2026-09-16',
     mappingGeneration: '0',
-    sourceFences: { sellpia: noSelection, advertising: noSelection },
+    sourceFences: { sellpia: noSelection },
     saleAgeInputs: [],
     targetProductIds: [],
     candidates: [],

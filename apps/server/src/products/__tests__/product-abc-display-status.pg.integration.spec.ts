@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
-  PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
+  PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
   productAbcDisplayStatus,
 } from '@kiditem/shared/product-abc';
 import { snapshotStatusOf } from '../../test-helpers/dashboard-basis-assertions';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../../analytics/adapter/out/repository/dashboard/dashboard-inventory.repository.adapter';
 import { DashboardInventoryService } from '../../analytics/application/service/dashboard/dashboard-inventory.service';
 import { buildDashboardContext } from '../../analytics/domain/dashboard/context';
@@ -51,7 +50,6 @@ import type { PrismaClient } from '@prisma/client';
 describe('Products publishes one ABC display status (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let sellpia: SellpiaProfitabilitySourceService;
-  let advertising: ProfitabilityAdImportRepositoryAdapter;
   let evidence: MasterProductProfitabilityReadService;
   let productAbc: ProductAbcReadUseCase;
   let dashboard: DashboardInventoryService;
@@ -77,14 +75,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     const channelAccounts = channelFacts.accounts;
     const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService);
-    advertising = new ProfitabilityAdImportRepositoryAdapter(
-      channelFacts.accounts,
-      channelFacts.recipes,
-      channelFacts.listings,
-      prismaService,
-      alerts,
-    );
-    evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService, new ProductTransactionalReadRepositoryAdapter());
+    evidence = new MasterProductProfitabilityReadService(sellpia, prismaService, new ProductTransactionalReadRepositoryAdapter());
     inventory = new ProductAvailabilityUseCase(
       new ProductAvailabilityRepositoryAdapter(prismaService),
     );
@@ -178,7 +169,6 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       sources: {
         mapping: { valid: product?.mappingValid ?? false },
         sellpia: easier.sources.sellpia,
-        advertising: easier.sources.advertising,
       },
     })).toBe('READY');
   });
@@ -317,17 +307,11 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         }];
       },
     });
-    const ad = await advertising.beginAttempt({
-      organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'abc-display-status-ad',
-    });
-    await advertising.finalizeAttempt({
-      organizationId: TEST_ORGANIZATION_ID, attemptId: ad.attemptId, attemptToken: ad.attemptToken,
-    });
     const formula = await prisma.masterProductAbcFormulaVersion.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, formulaKey: 'PRODUCT_ABC_ABSOLUTE',
-      version: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD.version,
-      formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
-      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD)),
+      version: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD.version,
+      formulaChecksum: PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
+      formulaJson: JSON.parse(JSON.stringify(PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD)),
     } });
     await prisma.masterProductAbcFormulaState.upsert({
       where: { organizationId: TEST_ORGANIZATION_ID },

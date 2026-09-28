@@ -22,7 +22,6 @@ describe('recalculateProductAbc', () => {
       changedProductCount: 3,
       sources: {
         sellpia: sourceEndingOn('2026-08-31'),
-        advertising: sourceEndingOn('2026-08-31'),
       },
     });
 
@@ -37,7 +36,7 @@ describe('recalculateProductAbc', () => {
     );
   });
 
-  it('keeps each source end on a publication, so a source newer than the official cutoff can be named', async () => {
+  it('keeps the Sellpia end on a publication, so a collection newer than the official cutoff can be named', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({
       outcome: 'PUBLISHED',
       publicationRevision: 2,
@@ -48,7 +47,6 @@ describe('recalculateProductAbc', () => {
       changedProductCount: 0,
       sources: {
         sellpia: sourceEndingOn('2026-09-13'),
-        advertising: sourceEndingOn('2026-09-12', '2026-09-13'),
       },
     });
 
@@ -57,7 +55,6 @@ describe('recalculateProductAbc', () => {
       officialCutoff: '2026-09-12',
       sources: {
         sellpia: { ready: true, actualCutoff: '2026-09-13' },
-        advertising: { ready: false, actualCutoff: '2026-09-12' },
       },
     });
   });
@@ -70,7 +67,6 @@ describe('recalculateProductAbc', () => {
       actualCutoff: '2026-07-31',
       sources: {
         sellpia: source(false),
-        advertising: source(true),
       },
     });
 
@@ -80,31 +76,17 @@ describe('recalculateProductAbc', () => {
     });
   });
 
-  it('accepts the pairing detail that names the source ending earlier', async () => {
+  // ABC grades without advertising (KID-373): a response naming an advertising source is not the contract.
+  it('rejects a response that still names an advertising source', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({
       outcome: 'SOURCE_NOT_READY',
       publicationRevision: 4,
       officialCutoff: '2026-07-31',
       actualCutoff: null,
-      sources: {
-        sellpia: source(true),
-        advertising: source(true),
-      },
-      pairing: {
-        lateSource: 'advertising',
-        sellpiaEndDate: '2026-09-06',
-        advertisingEndDate: '2026-09-05',
-      },
+      sources: { sellpia: source(true), advertising: source(true) },
     });
 
-    await expect(recalculateProductAbc()).resolves.toMatchObject({
-      outcome: 'SOURCE_NOT_READY',
-      pairing: {
-        lateSource: 'advertising',
-        sellpiaEndDate: '2026-09-06',
-        advertisingEndDate: '2026-09-05',
-      },
-    });
+    await expect(recalculateProductAbc()).rejects.toThrow();
   });
 
   it('preserves INPUT_CHANGED 409 for the Product Hub retry message', async () => {

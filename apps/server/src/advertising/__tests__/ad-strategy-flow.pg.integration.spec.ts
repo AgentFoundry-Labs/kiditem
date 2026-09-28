@@ -18,11 +18,7 @@ import {
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import type { AdWeeklyPlan } from '@kiditem/shared/advertising';
-import {
-  seedAd as seedAdTargetDay,
-  seedCompletedAdSweepRun,
-  seedCompletedOrderCoverageRun,
-} from '../../test-helpers/finance-seeds';
+import { seedCompletedOrderCoverageRun } from '../../test-helpers/finance-seeds';
 import { seedAdListingDay } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
 import { seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
@@ -188,8 +184,17 @@ describe('AdStrategy flow (PG integration)', () => {
     return { master, option, listing, listingOption };
   }
 
-  /** One listing-day in the ad report ledger (plan ad sums) and the old target-day ledger (profit window until KID-372 ①b). */
-  async function seedAdBothLedgers(opts: Parameters<typeof seedAdTargetDay>[1]) {
+  /** One listing-day in the ad report ledger. */
+  async function seedAdListingLedgerDay(opts: {
+    organizationId: string;
+    listingId: string;
+    date: string;
+    spend: number;
+    revenue: number;
+    clicks?: number;
+    impressions?: number;
+    conversions?: number;
+  }) {
     await seedAdListingDay(prisma, {
       organizationId: opts.organizationId,
       listingId: opts.listingId,
@@ -200,7 +205,6 @@ describe('AdStrategy flow (PG integration)', () => {
       impressions: opts.impressions,
       orders: opts.conversions,
     });
-    await seedAdTargetDay(prisma, opts);
   }
 
   /**
@@ -222,9 +226,7 @@ describe('AdStrategy flow (PG integration)', () => {
     conversions?: number;
   }) {
     const date = septemberDay(19 - (params.daysAgo ?? 0));
-    // The ad sums of the plan come from the ad report ledger (KID-372). The
-    // profit window still reads the old target-day ledger through
-    // common/per-listing-profit until KID-372 ①b moves it, so both are seeded.
+    // The plan's ad sums and profit window come from the ad report ledger (KID-372).
     await seedAdListingDay(prisma, {
       organizationId: params.organizationId,
       listingId: params.listingId,
@@ -234,16 +236,6 @@ describe('AdStrategy flow (PG integration)', () => {
       clicks: params.clicks ?? 0,
       impressions: params.impressions ?? 0,
       orders: params.conversions ?? 0,
-    });
-    await seedAdTargetDay(prisma, {
-      organizationId: params.organizationId,
-      listingId: params.listingId,
-      date,
-      spend: params.spend,
-      revenue: params.revenue,
-      clicks: params.clicks ?? 0,
-      impressions: params.impressions ?? 0,
-      conversions: params.conversions ?? 0,
     });
   }
 
@@ -266,19 +258,14 @@ describe('AdStrategy flow (PG integration)', () => {
   }
 
   /**
-   * The campaign sweep measured the clock's month from the 1st through its
-   * last closed day, the most a real sweep can have reached — the window the
+   * The ad report measured the clock's month from the 1st through its
+   * last closed day, the most a real collection can have reached — the window the
    * strategy context reads per-listing profit over. Per-listing profit is
    * withheld for the whole window unless every date in it was measured
    * (ADR-0006), so a test that expects a measured profit rate has to declare
-   * the sweep's coverage.
+   * the ad report's coverage.
    */
   async function measureClosedDays(organizationId: string) {
-    await seedCompletedAdSweepRun(prisma, {
-      organizationId,
-      generation: 1,
-      window: { startDate: septemberDay(1), endDate: septemberDay(19) },
-    });
     const account = await prisma.channelAccount.findFirstOrThrow({
       where: { organizationId, channel: 'coupang' },
       orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
@@ -666,7 +653,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
   /**
    * KID-136 — profit rates evaluate the current KST month clipped to its closed
-   * days (ADR-0001): the only dates an Orders collection and the campaign sweep
+   * days (ADR-0001): the only dates an Orders collection and the ad report
    * can have covered. A Rocket direct-purchase sale carries no commission or
    * other per-sale cost, so its listing's profit is measurable once both
    * sources cover that window.
@@ -706,7 +693,6 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10_000,
       };
       await seedAdListingDay(prisma, { ...adDay, orders: 10 });
-      await seedAdTargetDay(prisma, { ...adDay, conversions: 10 });
       return listing.listing.id;
     }
 
@@ -714,7 +700,7 @@ describe('AdStrategy flow (PG integration)', () => {
       return plan.actions.find((action) => action.listing.listingId === listingId)?.proposedValue ?? null;
     }
 
-    it('proposes a rate from the closed days once orders and the sweep cover them', async () => {
+    it('proposes a rate from the closed days once orders and the ad report cover them', async () => {
       const listingId = await seedRocketSale('ROCKET-COVERED', septemberDay(15));
       await measureClosedDays(TEST_ORGANIZATION_ID);
       await collectOrders(TEST_ORGANIZATION_ID);
@@ -745,10 +731,16 @@ describe('AdStrategy flow (PG integration)', () => {
       // day. August is collected, swept and holds a measurable 30% sale.
       vi.setSystemTime(new Date('2026-09-01T03:00:00.000Z'));
       const listingId = await seedRocketSale('ROCKET-FIRST', '2026-08-25');
-      await seedCompletedAdSweepRun(prisma, {
+      const augustAccount = await prisma.channelAccount.findFirstOrThrow({
+        where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' },
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
+        select: { id: true },
+      });
+      await seedAdReportRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: 1,
-        window: { startDate: '2026-08-01', endDate: '2026-08-31' },
+        channelAccountId: augustAccount.id,
+        start: '2026-08-01',
+        end: '2026-08-31',
       });
       await seedCompletedOrderCoverageRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1170,7 +1162,7 @@ describe('AdStrategy flow (PG integration)', () => {
           winnerGapPrice: -500,
         },
       });
-      await seedAdBothLedgers({
+      await seedAdListingLedgerDay({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         date: latestBusinessDate.toISOString().slice(0, 10),
@@ -1241,7 +1233,7 @@ describe('AdStrategy flow (PG integration)', () => {
         businessDate: latestBusinessDateText,
         isOfferWinner: true,
       });
-      await seedAdBothLedgers({
+      await seedAdListingLedgerDay({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         date: latestBusinessDateText,

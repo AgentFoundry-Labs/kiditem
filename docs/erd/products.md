@@ -44,7 +44,6 @@ erDiagram
     String abcGrade
     Decimal weightedRevenue
     Decimal weightedOrderTimeSupplyCost
-    Decimal weightedAdvertisingSpend
     Decimal weightedOperatingProfit
     Decimal operatingProfitVelocity30
     Decimal operatingMargin
@@ -60,9 +59,7 @@ erDiagram
     DateTime saleStartDate
     String sellpiaSourceImportRunId FK
     String sellpiaOperationId
-    String advertisingSourceImportRunId FK
     BigInt sellpiaGeneration
-    BigInt advertisingGeneration
     BigInt mappingGeneration
     DateTime calculatedAt
   }
@@ -74,7 +71,6 @@ erDiagram
     DateTime officialCutoffDate
     String publishedSellpiaSourceImportRunId FK
     String publishedSellpiaOperationId
-    String publishedAdvertisingSourceImportRunId FK
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
     DateTime publishedAt
@@ -104,8 +100,6 @@ erDiagram
     String nextSellpiaSourceImportRunId FK
     String previousSellpiaOperationId
     String nextSellpiaOperationId
-    String previousAdvertisingSourceImportRunId FK
-    String nextAdvertisingSourceImportRunId FK
     Int formulaRevision
     Int publicationRevision
     DateTime sourceCutoffDate
@@ -139,17 +133,13 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | MasterProduct | organization | references external | Core | Organization |
-| MasterProductAbcEvaluation | advertisingSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcEvaluation | organization | references external | Core | Organization |
 | MasterProductAbcEvaluation | sellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcFormulaState | organization | references external | Core | Organization |
-| MasterProductAbcFormulaState | publishedAdvertisingSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcFormulaState | publishedSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcFormulaVersion | organization | references external | Core | Organization |
-| MasterProductAbcGradeHistory | nextAdvertisingSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcGradeHistory | nextSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcGradeHistory | organization | references external | Core | Organization |
-| MasterProductAbcGradeHistory | previousAdvertisingSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcGradeHistory | previousSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |

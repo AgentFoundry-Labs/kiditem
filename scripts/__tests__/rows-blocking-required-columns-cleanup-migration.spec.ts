@@ -693,6 +693,23 @@ describe('v0.1.31:014 remove rows blocking required columns and unique keys', ()
     }
   });
 
+  /**
+   * Keys and indexes 014 still handles on an Office 0.1.30 database whose
+   * tables and collections KID-373 later dropped from the schema.
+   */
+  const RETIRED_BY_KID_373 = new Set([
+    'source_import_runs_ad_keyword_running_key',
+    'source_import_runs_ad_keyword_generation_key',
+    'source_import_runs_ad_campaign_running_key',
+    'source_import_runs_ad_campaign_generation_key',
+    'source_import_runs_ads_daily_running_key',
+    'source_import_runs_ads_daily_generation_key',
+    'source_import_runs_coupang_ad_profitability_running_key',
+    'channel_ad_target_daily_generation_key',
+    'channel_ad_target_keyword_group_generation_key',
+    'channel_ad_target_daily_legacy_key',
+  ]);
+
   it('pins every unique-key entry to the index core.prisma declares', () => {
     const model = prismaModelsByTable().get(IMPORT_RUNS)!;
     const columns = columnByField(model);
@@ -707,6 +724,10 @@ describe('v0.1.31:014 remove rows blocking required columns and unique keys', ()
     expect(UNIQUE_KEY_CLEANUPS).toHaveLength(16);
     for (const cleanup of UNIQUE_KEY_CLEANUPS) {
       expect(cleanup.table).toBe(IMPORT_RUNS);
+      if (RETIRED_BY_KID_373.has(cleanup.index)) {
+        expect(declared.has(cleanup.index), cleanup.index).toBe(false);
+        continue;
+      }
       expect(declared.get(cleanup.index), cleanup.index).toEqual({
         columns: [...cleanup.columns],
         where: uniqueKeyPredicateText(cleanup),
@@ -734,7 +755,8 @@ describe('v0.1.31:014 remove rows blocking required columns and unique keys', ()
       // The six snapshot keys carry Prisma's generated names; the PostgreSQL
       // spec finds every name on the pushed schema.
       const generated = SOURCING_TABLES.some((table) => index.startsWith(`${table}_organization_id_`));
-      if (!generated) expect(schema, index).toContain(`map: "${index}"`);
+      if (RETIRED_BY_KID_373.has(index)) expect(schema, index).not.toContain(`map: "${index}"`);
+      else if (!generated) expect(schema, index).toContain(`map: "${index}"`);
       expect(UNIQUE_KEY_CLEANUPS.map((cleanup) => cleanup.index), index).not.toContain(index);
       expect(UNIQUE_KEYS_WITHOUT_CLEANUP[index]!.length, index).toBeGreaterThan(40);
     }

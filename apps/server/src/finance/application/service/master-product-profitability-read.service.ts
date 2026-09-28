@@ -4,19 +4,11 @@ import {
   Injectable,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import {
   deriveSourceReadiness,
   type SourceReadiness,
 } from '@kiditem/shared/source-readiness';
 import { Prisma } from '@prisma/client';
-import {
-  ADVERTISING_PROFITABILITY_READ_PORT,
-  type AdvertisingProfitabilityGeneration,
-  type AdvertisingProfitabilityGenerationSummary,
-  type AdvertisingProfitabilityReadPort,
-} from '../../../advertising/application/port/in/profitability-ad-import.port';
-import { adReportEvidenceCutoff } from '../../../advertising/domain/ad-report-confirmation';
 import {
   SELLPIA_PROFITABILITY_SOURCE_READ_PORT,
   type SellpiaProfitabilityFact,
@@ -54,15 +46,9 @@ type SellpiaGeneration = Readonly<{
   view: SourceGenerationView;
 }>;
 
-type AdvertisingGeneration = Readonly<{
-  metadata: AdvertisingProfitabilityGenerationSummary;
-  view: SourceGenerationView;
-}>;
-
-type SelectedPair = Readonly<{
+/** The Sellpia generation ABC and contribution read; ABC has no advertising source (KID-373). */
+type SelectedGeneration = Readonly<{
   sellpia: SellpiaGeneration;
-  /** Null when advertising is excluded: the pair is Sellpia alone. */
-  advertising: AdvertisingGeneration | null;
   actualCutoff: string;
   mappingGeneration: string;
 }>;
@@ -87,14 +73,6 @@ type SellpiaMonth = Readonly<{
   orderTimeSupplyCost: number;
 }>;
 
-type AdvertisingMonth = Readonly<{
-  coverageStartDate: string;
-  coverageEndDate: string;
-  coveredDays: number;
-  coverageValid: boolean;
-  allocatedSpend: number;
-}>;
-
 type EvaluationBucket = Readonly<{
   yearMonth: string;
   coverageStartDate: string;
@@ -109,8 +87,6 @@ export class MasterProductProfitabilityReadService
   constructor(
     @Inject(SELLPIA_PROFITABILITY_SOURCE_READ_PORT)
     private readonly sellpia: SellpiaProfitabilitySourceReadPort,
-    @Inject(ADVERTISING_PROFITABILITY_READ_PORT)
-    private readonly advertising: AdvertisingProfitabilityReadPort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
@@ -119,42 +95,28 @@ export class MasterProductProfitabilityReadService
   async load(input: {
     organizationId: string;
     targetCutoff: string;
-    advertising?: 'required' | 'excluded';
   }): Promise<ProfitabilityEvidenceSnapshot> {
-    const advertisingExcluded = input.advertising === 'excluded';
     const organizationId = requiredOrganizationId(input.organizationId);
     const targetCutoff = parseClosedCutoff(input.targetCutoff);
     const months = calendarMonthRange(targetCutoff, MAX_CALENDAR_MONTHS);
 
-    // Keep the repeatable product snapshot isolated from the two source-catalog
-    // transactions. This bounds peak pool usage when Product Operations and
+    // Keep the repeatable product snapshot isolated from the source-catalog
+    // transaction. This bounds peak pool usage when Product Operations and
     // profitability are requested together; the snapshot remains the sole
     // authority for products and mapping generation.
     const productSnapshot = await this.readProductSnapshot(organizationId, targetCutoff);
-    const [sellpiaCatalog, advertisingSnapshot] = await Promise.all([
-      this.sellpia.readGenerationCatalog({ organizationId, limit: MAX_CALENDAR_MONTHS }),
-      this.advertising.readSourceSnapshot({ organizationId, limit: MAX_CALENDAR_MONTHS }),
-    ]);
+    const sellpiaCatalog = await this.sellpia.readGenerationCatalog({
+      organizationId,
+      limit: MAX_CALENDAR_MONTHS,
+    });
     const { products, mappingGeneration } = productSnapshot;
 
     const sellpiaGenerations = sellpiaCatalog.completeGenerations.map(normalizeSellpiaGeneration);
-    const advertisingGenerations = advertisingSnapshot.completeGenerations
-      .map(normalizeAdvertisingGeneration);
-    const selected = advertisingExcluded
-      ? selectSellpiaAlone(sellpiaGenerations, targetCutoff, mappingGeneration)
-      : selectCompatiblePair(
-        sellpiaGenerations,
-        advertisingGenerations,
-        targetCutoff,
-        mappingGeneration,
-      );
+    const selected = selectSellpiaGeneration(sellpiaGenerations, targetCutoff, mappingGeneration);
     const latestSellpia = sellpiaGenerations[0] ?? null;
-    const latestAdvertising = advertisingGenerations[0] ?? null;
     // Readiness is each source's own: its newest generation on the current
     // mapping, whether or not that is the generation paired for publication.
     const currentSellpia = sellpiaGenerations.find((generation) =>
-      generation.metadata.mappingGeneration === mappingGeneration) ?? null;
-    const currentAdvertising = advertisingGenerations.find((generation) =>
       generation.metadata.mappingGeneration === mappingGeneration) ?? null;
     const sources = {
       sellpia: sourceReadiness(
@@ -163,24 +125,6 @@ export class MasterProductProfitabilityReadService
         currentSellpia,
         targetCutoff,
         sellpiaCatalog.latestAttempt?.errorCode ?? null,
-      ),
-      advertising: sourceReadiness(
-        advertisingSnapshot.latestAttempt?.state ?? null,
-        advertisingSnapshot.latestAttempt?.sourceImportRunId
-          ?? advertisingSnapshot.latestAttempt?.attemptId
-          ?? null,
-        currentAdvertising,
-        // Advertising is due only through the days Coupang has reported.
-        adReportEvidenceCutoff({
-          closedDay: targetCutoff,
-          collections: [currentAdvertising
-            ? {
-              requestedEnd: currentAdvertising.metadata.requestedThrough,
-              confirmedEnd: currentAdvertising.metadata.coveredThrough,
-            }
-            : null],
-        }),
-        advertisingSnapshot.latestAttempt?.errorCode ?? null,
       ),
     } satisfies ProfitabilityEvidenceSnapshot['sources'];
 
@@ -192,7 +136,6 @@ export class MasterProductProfitabilityReadService
         contributionBasis: null,
         sourceVector: {
           sellpia: latestSellpia?.view ?? emptyGeneration(),
-          advertising: latestAdvertising?.view ?? emptyGeneration(),
         },
         sources,
         products: products.map((product) => emptyProduct(product)),
@@ -212,44 +155,20 @@ export class MasterProductProfitabilityReadService
       yearMonths: evidenceMonths,
     });
     assertSelectedSellpiaGeneration(sellpiaFacts, selected.sellpia.metadata);
-    const selectedAdvertising = selected.advertising;
-    const advertisingGeneration = selectedAdvertising
-      ? await this.advertising.readGeneration({
-        organizationId,
-        sourceImportRunId: selectedAdvertising.metadata.sourceImportRunId,
-      })
-      : null;
-    if (selectedAdvertising) {
-      if (!advertisingGeneration) {
-        throw new UnprocessableEntityException('SOURCE_GENERATION_NOT_FOUND');
-      }
-      assertSelectedAdvertisingGeneration(advertisingGeneration, selectedAdvertising.metadata);
-    }
-
     const sellpiaByProduct = aggregateSellpiaFacts(
       sellpiaFacts.facts,
       selected,
       evidenceMonths,
       products.filter((product) => product.mappingValid).map((product) => product.id),
     );
-    const advertisingByProduct = advertisingGeneration
-      ? aggregateAdvertisingFacts(advertisingGeneration, selected, evidenceMonths)
-      : new Map<string, Map<string, AdvertisingMonth>>();
     const productEvidence = products.map((product) => buildProductEvidence({
       product,
       sellpia: sellpiaByProduct.get(product.id) ?? new Map(),
-      advertising: advertisingByProduct.get(product.id) ?? new Map(),
       cutoff: selected.actualCutoff,
       costEvidenceValid: selected.sellpia.metadata.quality.correctedCostEvidence === true,
       expectedBuckets: evaluationBuckets(
         evidenceMonths,
         selected,
-      ),
-      // Without advertising the Sellpia coverage is the whole requirement.
-      advertisingCoverageStartDate: (selected.advertising ?? selected.sellpia).view.coverageStartDate,
-      advertisingCoverageEndDate: minDate(
-        (selected.advertising ?? selected.sellpia).view.coverageEndDate,
-        selected.actualCutoff,
       ),
     }));
 
@@ -260,7 +179,6 @@ export class MasterProductProfitabilityReadService
       contributionBasis: fullMonthContributionBasis(selected),
       sourceVector: {
         sellpia: selected.sellpia.view,
-        advertising: selected.advertising?.view ?? emptyGeneration(),
       },
       sources,
       products: productEvidence,
@@ -318,11 +236,8 @@ function requiredOrganizationId(value: string): string {
 
 // Display contribution uses the selected source interval, including a partial
 // cutoff month. It is independent from ABC eligibility.
-function fullMonthContributionBasis(selected: SelectedPair) {
-  const from = maxDate(
-    selected.sellpia.view.coverageStartDate,
-    selected.advertising?.view.coverageStartDate ?? null,
-  );
+function fullMonthContributionBasis(selected: SelectedGeneration) {
+  const from = selected.sellpia.view.coverageStartDate;
   if (!from || from > selected.actualCutoff) return null;
   const windowStart = calendarMonthRange(selected.actualCutoff, MAX_CALENDAR_MONTHS)[0]!;
   return {
@@ -388,71 +303,10 @@ function normalizeSellpiaGeneration(
   };
 }
 
-function normalizeAdvertisingGeneration(
-  generation: AdvertisingProfitabilityGenerationSummary,
-): AdvertisingGeneration {
-  const from = parseDate(generation.coverageStartDate, 'SOURCE_COVERAGE_MALFORMED');
-  const to = parseDate(generation.coveredThrough, 'SOURCE_COVERAGE_MALFORMED');
-  const requested = parseDate(generation.requestedThrough, 'SOURCE_COVERAGE_MALFORMED');
-  if (from > to || to > requested
-    || generation.adSourcePolicyHash !== PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH
-    || generation.mappingGeneration !== generation.frozenRecipePolicy.mappingGeneration
-    || generation.frozenRecipePolicy.adSourcePolicyHash
-      !== PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH) {
-    throw new UnprocessableEntityException('SOURCE_GENERATION_PROVENANCE_MALFORMED');
-  }
-  return {
-    metadata: generation,
-    view: {
-      sourceImportRunId: generation.sourceImportRunId,
-      publicationSequence: generation.publicationSequence,
-      mappingGeneration: generation.mappingGeneration,
-      coverageStartDate: from,
-      coverageEndDate: to,
-      capturedAt: generation.capturedAt,
-    },
-  };
-}
-
-function selectCompatiblePair(
-  sellpia: readonly SellpiaGeneration[],
-  advertising: readonly AdvertisingGeneration[],
-  targetCutoff: string,
-  currentMappingGeneration: string,
-): SelectedPair | null {
-  const pairs: (SelectedPair & { advertising: AdvertisingGeneration })[] = [];
-  for (const sellpiaGeneration of sellpia) {
-    for (const advertisingGeneration of advertising) {
-      if (sellpiaGeneration.metadata.mappingGeneration
-        !== advertisingGeneration.metadata.mappingGeneration
-        || sellpiaGeneration.metadata.mappingGeneration !== currentMappingGeneration) continue;
-      const actualCutoff = minDate(
-        targetCutoff,
-        sellpiaGeneration.view.coverageEndDate,
-        advertisingGeneration.view.coverageEndDate,
-      );
-      if (!actualCutoff || !coversCutoffMonth(actualCutoff, sellpiaGeneration, advertisingGeneration)) {
-        continue;
-      }
-      pairs.push({
-        sellpia: sellpiaGeneration,
-        advertising: advertisingGeneration,
-        actualCutoff,
-        mappingGeneration: sellpiaGeneration.metadata.mappingGeneration,
-      });
-    }
-  }
-  return pairs.sort((left, right) =>
-    right.actualCutoff.localeCompare(left.actualCutoff)
-    || compareSequence(right.sellpia.metadata.publicationSequence, left.sellpia.metadata.publicationSequence)
-    || compareSequence(right.advertising.metadata.publicationSequence, left.advertising.metadata.publicationSequence),
-  )[0] ?? null;
-}
-
 function sourceReadiness(
   latestAttemptState: 'RUNNING' | 'COMPLETE' | 'FAILED' | null,
   latestAttemptId: string | null,
-  selected: SellpiaGeneration | AdvertisingGeneration | null,
+  selected: SellpiaGeneration | null,
   requiredCutoff: string,
   errorCode: string | null = null,
 ): SourceReadiness {
@@ -505,7 +359,7 @@ function emptyProduct(product: ProductRow): ProductProfitabilityEvidence {
 
 function aggregateSellpiaFacts(
   facts: readonly SellpiaProfitabilityFact[],
-  selected: SelectedPair,
+  selected: SelectedGeneration,
   months: readonly string[],
   mappedProductIds: readonly string[],
 ): Map<string, Map<string, SellpiaMonth>> {
@@ -548,55 +402,12 @@ function aggregateSellpiaFacts(
   return result;
 }
 
-function aggregateAdvertisingFacts(
-  generation: AdvertisingProfitabilityGeneration,
-  selected: SelectedPair,
-  months: readonly string[],
-): Map<string, Map<string, AdvertisingMonth>> {
-  if (generation.summary.sourceImportRunId !== selected.advertising?.metadata.sourceImportRunId) {
-    throw new UnprocessableEntityException('SOURCE_GENERATION_MISMATCH');
-  }
-  const allowedMonths = new Set(months);
-  const result = new Map<string, Map<string, AdvertisingMonth>>();
-  for (const fact of generation.allocations) {
-    if (!allowedMonths.has(fact.month)) continue;
-    if (fact.mappingGeneration !== selected.mappingGeneration
-      || !nonNegativeInteger(fact.allocatedSpend)
-      || !Number.isInteger(fact.observedTargetDayCount)
-      || fact.observedTargetDayCount < 0) {
-      throw new UnprocessableEntityException('SOURCE_FACT_PROVENANCE_MALFORMED');
-    }
-    const start = parseDate(fact.coveredStartDate, 'SOURCE_COVERAGE_MALFORMED');
-    const end = parseDate(fact.coveredEndDate, 'SOURCE_COVERAGE_MALFORMED');
-    const coveredDays = calendarDaysInclusive(start, end);
-    if (start > end || `${fact.month}-01` > start || kstMonthEnd(fact.month) < end) {
-      throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
-    }
-    const byMonth = result.get(fact.masterProductId) ?? new Map<string, AdvertisingMonth>();
-    const previous = byMonth.get(fact.month);
-    byMonth.set(fact.month, {
-      coverageStartDate: previous?.coverageStartDate ?? start,
-      coverageEndDate: previous?.coverageEndDate ?? end,
-      coveredDays: previous?.coveredDays ?? coveredDays,
-      coverageValid: (previous?.coverageValid ?? true)
-        && (!previous || (previous.coverageStartDate === start && previous.coverageEndDate === end))
-        && fact.observedTargetDayCount === coveredDays,
-      allocatedSpend: addMoney(previous?.allocatedSpend ?? 0, fact.allocatedSpend),
-    });
-    result.set(fact.masterProductId, byMonth);
-  }
-  return result;
-}
-
 function buildProductEvidence(input: {
   product: ProductRow;
   sellpia: ReadonlyMap<string, SellpiaMonth>;
-  advertising: ReadonlyMap<string, AdvertisingMonth>;
   cutoff: string;
   costEvidenceValid: boolean;
   expectedBuckets: readonly EvaluationBucket[];
-  advertisingCoverageStartDate: string | null;
-  advertisingCoverageEndDate: string | null;
 }): ProductProfitabilityEvidence {
   if (input.sellpia.size === 0) return emptyProduct(input.product);
   const monthlyFacts: MasterProductAbcFormulaReadyMonthlyFact[] = [];
@@ -614,21 +425,6 @@ function buildProductEvidence(input: {
       || !sellpia.coverageValid) {
       evaluationPeriodComplete = false;
     }
-    const advertising = input.advertising.get(yearMonth);
-    if (advertising && (
-      advertising.coverageStartDate !== expected.coverageStartDate
-      || advertising.coverageEndDate !== expected.coverageEndDate
-      || advertising.coveredDays !== expected.coveredDays
-      || !advertising.coverageValid
-    )) {
-      evaluationPeriodComplete = false;
-    }
-    if (!advertising && (!input.advertisingCoverageStartDate
-      || !input.advertisingCoverageEndDate
-      || expected.coverageStartDate < input.advertisingCoverageStartDate
-      || expected.coverageEndDate > input.advertisingCoverageEndDate)) {
-      evaluationPeriodComplete = false;
-    }
     monthlyFacts.push({
       yearMonth,
       coverageStartDate: sellpia.coverageStartDate,
@@ -636,7 +432,6 @@ function buildProductEvidence(input: {
       coveredDays: sellpia.coveredDays,
       recognizedRevenue: sellpia.revenue,
       orderTimeSupplyCost: sellpia.orderTimeSupplyCost,
-      advertisingSpend: advertising?.allocatedSpend ?? 0,
       provenance: {
         costBasis: 'ORDER_TIME_SUPPLY_COST',
         vatIncluded: true,
@@ -666,17 +461,10 @@ function buildProductEvidence(input: {
 
 function evaluationBuckets(
   evidenceMonths: readonly string[],
-  selected: SelectedPair,
+  selected: SelectedGeneration,
 ): EvaluationBucket[] {
-  const sourceStart = maxDate(
-    selected.sellpia.view.coverageStartDate,
-    selected.advertising?.view.coverageStartDate ?? null,
-  );
-  const sourceEnd = minDate(
-    selected.sellpia.view.coverageEndDate,
-    selected.advertising?.view.coverageEndDate ?? null,
-    selected.actualCutoff,
-  );
+  const sourceStart = selected.sellpia.view.coverageStartDate;
+  const sourceEnd = minDate(selected.sellpia.view.coverageEndDate, selected.actualCutoff);
   if (!sourceStart || !sourceEnd || sourceStart > sourceEnd) return [];
   return evidenceMonths.flatMap((yearMonth) => {
     const start = maxDate(`${yearMonth}-01`, sourceStart);
@@ -705,17 +493,6 @@ function assertSelectedSellpiaGeneration(
   }
 }
 
-function assertSelectedAdvertisingGeneration(
-  generation: AdvertisingProfitabilityGeneration,
-  selected: AdvertisingProfitabilityGenerationSummary,
-): void {
-  if (generation.summary.sourceImportRunId !== selected.sourceImportRunId
-    || generation.summary.mappingGeneration !== selected.mappingGeneration
-    || generation.summary.adSourcePolicyHash !== selected.adSourcePolicyHash) {
-    throw new UnprocessableEntityException('SOURCE_GENERATION_MISMATCH');
-  }
-}
-
 function parseDate(value: string, code: string): string {
   if (typeof value !== 'string' || !DATE_PATTERN.test(value)) {
     throw new UnprocessableEntityException(code);
@@ -727,38 +504,29 @@ function parseDate(value: string, code: string): string {
 }
 
 /**
- * Whether both generations end on the pair's cutoff, or the cutoff closes its
- * month. Sellpia and advertising facts are month totals, so a source that runs
- * past a cutoff inside its month cannot be cut back to it, and that month would
- * be incomplete for every product the source has facts for.
+ * Whether the generation ends on the cutoff, or the cutoff closes its month.
+ * Sellpia facts are month totals, so a generation that runs past a cutoff
+ * inside its month cannot be cut back to it, and that month would be
+ * incomplete for every product it has facts for.
  */
-function coversCutoffMonth(
-  actualCutoff: string,
-  sellpia: SellpiaGeneration,
-  advertising: AdvertisingGeneration | null,
-): boolean {
+function coversCutoffMonth(actualCutoff: string, sellpia: SellpiaGeneration): boolean {
   return actualCutoff === kstMonthEnd(actualCutoff.slice(0, 7))
-    || (sellpia.view.coverageEndDate === actualCutoff
-      && (advertising === null || advertising.view.coverageEndDate === actualCutoff));
+    || sellpia.view.coverageEndDate === actualCutoff;
 }
 
-/**
- * The newest Sellpia generation on the current mapping, alone — for a formula
- * that excludes advertising. Same cutoff rule as a pair, with one source.
- */
-function selectSellpiaAlone(
+/** The newest Sellpia generation on the current mapping that reaches a usable cutoff. */
+function selectSellpiaGeneration(
   sellpia: readonly SellpiaGeneration[],
   targetCutoff: string,
   currentMappingGeneration: string,
-): SelectedPair | null {
-  const candidates: SelectedPair[] = [];
+): SelectedGeneration | null {
+  const candidates: SelectedGeneration[] = [];
   for (const generation of sellpia) {
     if (generation.metadata.mappingGeneration !== currentMappingGeneration) continue;
     const actualCutoff = minDate(targetCutoff, generation.view.coverageEndDate);
-    if (!actualCutoff || !coversCutoffMonth(actualCutoff, generation, null)) continue;
+    if (!actualCutoff || !coversCutoffMonth(actualCutoff, generation)) continue;
     candidates.push({
       sellpia: generation,
-      advertising: null,
       actualCutoff,
       mappingGeneration: generation.metadata.mappingGeneration,
     });
