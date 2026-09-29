@@ -61,10 +61,8 @@ test('loads the canonical session manager and focus owners before collector runt
     'utf8',
   );
   assert.match(globals, /storageKey:\s*["']kiditem_collection_sessions["']/);
-  assert.match(
-    globals,
-    /const KIDITEM_WEB_URL_PATTERNS = \[[\s\S]*?["']http:\/\/localhost:3000\/\*["'][\s\S]*?["']http:\/\/kiditem-office\/\*["'][\s\S]*?\]/,
-  );
+  // KidItem 웹 origin 표는 새 런타임 core 한 곳이다(KID-366, `extensions/src/core/environment.ts`).
+  assert.doesNotMatch(globals, /KIDITEM_WEB_URL_PATTERNS/);
   // 쿠팡 도메인은 requiresAuth 가 달라 자기 환경 컨텍스트를 따로 만든다.
   assert.match(worker, /const adsEnvironmentContext = KidItemEnvironmentContext\.create\(/);
 

@@ -131,4 +131,23 @@ describe('서플라이어 읽기 다리 — 메시지·출처·fetch', () => {
 
     expect(await response).toEqual({ ok: false, error: 'network down' });
   });
+
+  it('PDF 읽기는 같은 출처만, 본문을 base64로 돌려주고 PDF가 아니면 pdf:false로 알린다', async () => {
+    const bytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]);
+    const fetch = vi.fn(async (url: string) => (url.endsWith('Seq=1')
+      ? { status: 200, arrayBuffer: async () => bytes.buffer }
+      : url.endsWith('seq=2')
+        ? { status: 200, arrayBuffer: async () => new Uint8Array([0x3c, 0x68]).buffer }
+        : { status: 400, arrayBuffer: async () => new ArrayBuffer(0) }));
+    vi.stubGlobal('fetch', fetch);
+    const listener = loadListener();
+
+    const ok = send(listener, { type: 'KIDITEM_COUPANG_SUPPLIER_FETCH_PDF', url: '/ibs/shipment/parcel/pdf-label/generate?parcelShipmentSeq=1' });
+    expect(ok.keepsChannel).toBe(true);
+    expect(await ok.response).toEqual({ ok: true, status: 200, pdf: true, bytes: 5, b64: 'JVBERi0=' });
+    expect(fetch).toHaveBeenCalledWith(`${page.location.origin}/ibs/shipment/parcel/pdf-label/generate?parcelShipmentSeq=1`, { credentials: 'include' });
+    expect(await send(listener, { type: 'KIDITEM_COUPANG_SUPPLIER_FETCH_PDF', url: '/p?seq=2' }).response).toEqual({ ok: true, status: 200, pdf: false, bytes: 2, b64: null });
+    expect(await send(listener, { type: 'KIDITEM_COUPANG_SUPPLIER_FETCH_PDF', url: '/p?seq=3' }).response).toEqual({ ok: true, status: 400, pdf: false, bytes: 0, b64: null });
+    expect(await send(listener, { type: 'KIDITEM_COUPANG_SUPPLIER_FETCH_PDF', url: 'https://evil.example.com/x' }).response).toEqual({ ok: false, error: 'cross_origin' });
+  });
 });

@@ -108,27 +108,79 @@ import '../sites/wing/reviews';
 import '../sites/wing/traffic';
 import { ADVERTISING_AD_ACTION_OPERATION_CAPABILITY, ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
 import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
+import {
+  CHECK_MALL_LOGIN_ACTION,
+  CLEAR_AUTH_TOKEN_ACTION,
+  CLEAR_COUPANG_COOKIES_ACTION,
+  COUPANG_SHIPMENT_ACTIONS_CAPABILITY,
+  EXPORT_WING_INVENTORY_WORKBOOK_ACTION,
+  EXTENSION_RUNTIME_CAPABILITY,
+  FETCH_COUPANG_SHIPMENT_PDF_BATCH_ACTION,
+  HOST_PUBLIC_IMAGES_ACTION,
+  LIST_MALL_CATEGORIES_ACTION,
+  MALL_CATEGORY_READ_CAPABILITY,
+  MALL_IMAGE_HOST_CAPABILITY,
+  MALL_LOGIN_ACTIONS_CAPABILITY,
+  OPEN_COUPANG_SHIPMENT_PAGE_ACTION,
+  SET_AUTH_TOKEN_ACTION,
+  TEST_MALL_LOGIN_ACTION,
+  WING_INVENTORY_EXPORT_CAPABILITY,
+} from '@kiditem/shared/extension-actions';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { collectorFor } from '../collectors';
+import { createAuthStore, type ProfileStorage } from '../core/auth-store';
+import { createApiClient } from '../core/authed-fetch';
 import { createBrowserResources } from '../core/browser';
+import { createExternalDispatch, createInternalDispatch, type ActionTable, type EntryAction, type LegacyExternalActions } from '../core/dispatch';
+import { createKeepAlive } from '../core/keep-alive';
 import { createOperationClient } from '../core/operation-client';
 import { createRunner, type OperationRunner } from '../core/runner';
-import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, sweepDialogGuards } from '../sites/tab-page';
+import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, requestWebAuth, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
+import { OPERATION_CANCEL_ACTION, OPERATION_START_ACTION } from './actions';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
-import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
-import { createOperationActions } from './operation-actions';
+import { checkMallLoginAction } from './actions/check-mall-login';
+import { clearAuthTokenAction } from './actions/clear-auth-token';
+import { clearCoupangCookiesAction } from './actions/clear-coupang-cookies';
+import { exportWingInventoryWorkbookAction } from './actions/export-wing-inventory-workbook';
+import { fetchCoupangShipmentPdfBatchAction } from './actions/fetch-coupang-shipment-pdf-batch';
+import { hostPublicImagesAction } from './actions/host-public-images';
+import { KIDITEM_API_REQUEST_ACTION, kiditemApiRequestAction } from './actions/kiditem-api-request';
+import { listMallCategoriesAction } from './actions/list-mall-categories';
+import { openCoupangShipmentPageAction } from './actions/open-coupang-shipment-page';
+import { setAuthTokenAction } from './actions/set-auth-token';
+import { testMallLoginAction } from './actions/test-mall-login';
+import { createOperationActions, type ExternalAction } from './operation-actions';
 import { installPreparedOperations } from './prepared-operations';
 import { installProductCollect } from './sourcing-product-collect';
 import { mallSiteCapabilities, mallWriteCapabilities } from './mall-site-capabilities';
 
+/** 입구가 서비스워커에 건 것. 옛 워커 표는 서비스워커가 번들을 실은 뒤 `attachLegacy`로 넘긴다(과도기). */
+export interface InstalledEntry {
+  attachLegacy(table: LegacyExternalActions): void;
+}
+
 /**
- * 새 런타임을 옛 워커의 외부 메시지 표(`KidItemDomains`)에 건다. 옛 전역이 없으면(Vitest·번들 스펙) 아무것도 하지 않고
- * false. 수집기와 사이트는 위 import로 스스로 등록되고(kind 하나·사이트 하나 = 줄 하나), 입구는 이름으로 조립한다.
+ * 새 런타임의 입구(KID-366): 외부 메시지 dispatch(유일한 `onMessageExternal` 리스너)·내부 메시지 dispatch·토큰 저장소·
+ * KidItem API·keep-alive를 조립한다. `chrome.runtime`이 없으면(Vitest·번들 스펙) 아무것도 하지 않고 null.
+ * 수집기와 사이트는 위 import로 스스로 등록되고(kind 하나·사이트 하나 = 줄 하나), 입구는 이름으로 조립한다.
  */
-export function installEntry(): boolean {
-  if (!legacyGlobalsPresent()) return false;
+export function installEntry(): InstalledEntry | null {
+  if (typeof chrome === 'undefined' || !chrome.runtime?.onMessageExternal?.addListener) return null;
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+  const keepAlive = createKeepAlive({
+    ping: () => chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError),
+    setInterval: (fn, ms) => setInterval(fn, ms),
+    clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
+  });
+  const holdUntil = (work: Promise<unknown>) => void keepAlive.during(work).catch(() => undefined);
+  const store = createAuthStore({ storage: chrome.storage.local as unknown as ProfileStorage, now: () => Date.now() });
+  const api = createApiClient({
+    store,
+    fetch: (input, init) => fetch(input, init),
+    requestAuth: (environment) => requestWebAuth(chrome, environment.webUrlPattern),
+  });
+  const apiFor = (environmentId: string) => api.apiPort(environmentId);
   const site: SiteDeps = {
     fetch: (input, init) => fetch(input, init),
     cookies: { get: (details) => chrome.cookies.get(details) },
@@ -140,32 +192,63 @@ export function installEntry(): boolean {
   // 서비스워커가 다시 떴다 — 지난 실행이 남긴 알림 창 가드 등록을 지운다(KID-380 D4).
   void sweepDialogGuards(chrome);
   // 가드 짝이 묻는 "이 탭이 수집 탭인가"에 답한다(실기기 R1).
-  if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
+  if (chrome.runtime.onMessage) installDialogGuardAnswer(chrome, site.tabs);
   // 쓰기 탭 처리기의 실제 입력 부탁(Wing 카테고리 검색칸, KID-256)에 답한다 — 이 런타임이 쥔 탭에서 온 것만.
-  if (chrome.runtime?.onMessage) installTrustedInputAnswer(chrome, site.tabs);
+  if (chrome.runtime.onMessage) installTrustedInputAnswer(chrome, site.tabs);
   const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
-  const externalActions = createOperationActions({
-    apiFor: legacyApiPort,
+  const operationActions = createOperationActions({
+    apiFor,
     // `account:<id>` 잠금은 그 계정의 Wing 탭을 쓴다(KID-354). 로그인 확인은 사이트 호출기의 SITE_LOGIN_REQUIRED.
     // DOM을 읽는 소싱 사이트는 탭을 스스로 열고 닫는다(KID-360).
     browser,
     siteFor: channelSites,
-    keepAlive: legacyKeepAlive,
+    keepAlive: holdUntil,
   });
-  // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
-  // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
-  // channelsOperationKindsV1: Channels 기타 kind(사방넷 몰 목록·몰 관리자 목록·셀피아 수동매칭)를 돈다(KID-363).
-  // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
-  // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
-  // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
-  // sellpiaOperationKindsV1: 셀피아 재고·매출·상품 손익 kind를 돈다(KID-361).
-  // advertisingAdReportOperationKindV1: 광고센터 보고서 kind `advertising.ad_report`를 돈다(KID-371).
-  // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드가 사이트를 가진 몰(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
-  registerWithLegacyDomains({
-    externalActions,
+  const swFetch = (url: string, init?: RequestInit) => fetch(url, init);
+  // 한 번에 끝나는 entry 액션(KID-366, `@kiditem/shared/extension-actions`) — 서버 사실을 쓰지 않고 결과를 부른 쪽에 바로 준다.
+  const externalActions: ActionTable = {
+    [OPERATION_START_ACTION]: validated(operationActions[OPERATION_START_ACTION]),
+    [OPERATION_CANCEL_ACTION]: validated(operationActions[OPERATION_CANCEL_ACTION]),
+    [SET_AUTH_TOKEN_ACTION]: setAuthTokenAction(store),
+    [CLEAR_AUTH_TOKEN_ACTION]: clearAuthTokenAction(store),
+    [TEST_MALL_LOGIN_ACTION]: testMallLoginAction({ tabs: site.tabs, now: site.now, sleep }),
+    [CHECK_MALL_LOGIN_ACTION]: checkMallLoginAction({
+      fetch: swFetch,
+      tabs: site.tabs,
+      sleep,
+      hasPermission: (origin) => chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false),
+    }),
+    [OPEN_COUPANG_SHIPMENT_PAGE_ACTION]: openCoupangShipmentPageAction(site.tabs),
+    [FETCH_COUPANG_SHIPMENT_PDF_BATCH_ACTION]: fetchCoupangShipmentPdfBatchAction({ tabs: site.tabs, now: site.now, sleep }),
+    [CLEAR_COUPANG_COOKIES_ACTION]: clearCoupangCookiesAction({
+      getAll: (details) => chrome.cookies.getAll(details),
+      remove: (details) => chrome.cookies.remove(details),
+    }),
+    [HOST_PUBLIC_IMAGES_ACTION]: hostPublicImagesAction({ fetch: swFetch }),
+    [LIST_MALL_CATEGORIES_ACTION]: listMallCategoriesAction({ fetch: swFetch }),
+  };
+  const external = createExternalDispatch({
+    actions: externalActions,
+    version: () => chrome.runtime.getManifest().version,
+    keepAlive,
+    // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
+    // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
+    // channelsOperationKindsV1: Channels 기타 kind(사방넷 몰 목록·몰 관리자 목록·셀피아 수동매칭)를 돈다(KID-363).
+    // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
+    // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
+    // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
+    // sellpiaOperationKindsV1: 셀피아 재고·매출·상품 손익 kind를 돈다(KID-361).
+    // advertisingAdReportOperationKindV1: 광고센터 보고서 kind `advertising.ad_report`를 돈다(KID-371).
+    // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드가 사이트를 가진 몰(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
     capabilities: {
-      operationRuntime: true,
+      [EXTENSION_RUNTIME_CAPABILITY]: true,
+      // entry 액션 묶음(KID-366): 몰 로그인 테스트·확인 · 쿠팡 쉽먼트 화면·PDF·쿠키 · 몰 사진 호스팅 · 몰 분류 · Wing 재고 내보내기.
+      [MALL_LOGIN_ACTIONS_CAPABILITY]: true,
+      [COUPANG_SHIPMENT_ACTIONS_CAPABILITY]: true,
+      [MALL_IMAGE_HOST_CAPABILITY]: true,
+      [MALL_CATEGORY_READ_CAPABILITY]: true,
+      [WING_INVENTORY_EXPORT_CAPABILITY]: true,
       sourcingOperationKindsV1: true,
       orderCaptureOperationKindsV1: true,
       [CHANNELS_OPERATION_CAPABILITY]: true,
@@ -185,21 +268,41 @@ export function installEntry(): boolean {
       ...mallWriteCapabilities(),
     },
   });
+  chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => external.handleMessage(message, sender, sendResponse));
+  const internal = createInternalDispatch({
+    runtimeId: chrome.runtime.id,
+    // 팝업의 API 요청과 Wing 상품목록 콘텐츠 스크립트의 재고 내보내기.
+    actions: {
+      [KIDITEM_API_REQUEST_ACTION]: kiditemApiRequestAction({ apiFor }),
+      [EXPORT_WING_INVENTORY_WORKBOOK_ACTION]: exportWingInventoryWorkbookAction({ apiFor, now: () => new Date() }),
+    },
+    keepAlive,
+    storage: chrome.storage.local as unknown as ProfileStorage,
+  });
+  if (chrome.runtime.onMessage) chrome.runtime.onMessage.addListener((message, sender, sendResponse) => internal.handleMessage(message, sender, sendResponse));
   // 팝업 "승인된 광고 액션 실행" — 서버가 준비한 실행을 claim해 돌린다(KID-386). 환경마다 runner 하나.
   const preparedRunners = new Map<string, OperationRunner>();
-  if (chrome.runtime?.onMessage) {
+  if (chrome.runtime.onMessage) {
     installPreparedOperations(chrome, {
       runnerFor(environmentId) {
         let runner = preparedRunners.get(environmentId);
         if (!runner) {
-          runner = createRunner({ client: createOperationClient(legacyApiPort(environmentId)), browser, siteFor: channelSites }, collectorFor);
+          runner = createRunner({ client: createOperationClient(apiFor(environmentId)), browser, siteFor: channelSites }, collectorFor);
           preparedRunners.set(environmentId, runner);
         }
         return runner;
       },
-      keepAlive: legacyKeepAlive,
+      keepAlive: holdUntil,
     });
   }
-  installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
-  return true;
+  installProductCollect(chrome, { apiFor, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: holdUntil });
+  return { attachLegacy: (table) => external.attachLegacy(table) };
+}
+
+/** `operation.start`·`operation.cancel`은 실패도 값으로 돌려주는 모양이라(검증 실패 답에 칸 사유를 싣는다) 그대로 넘긴다. */
+function validated<T>(action: ExternalAction<T>): EntryAction {
+  return {
+    schema: { safeParse: (message: unknown) => ({ success: true as const, data: action.validate(message) }) },
+    handle: async (input, context) => (await action.handle(input as ReturnType<ExternalAction<T>['validate']>, context.environmentId)) as object,
+  };
 }

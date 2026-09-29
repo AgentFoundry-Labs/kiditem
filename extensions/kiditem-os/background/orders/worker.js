@@ -130,7 +130,6 @@ const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 const SELLPIA_STOCKMATCH_URL = "https://kiditem.sellpia.com/order_stockmatch.html";
 const SELLPIA_INVOICE_URL = "https://kiditem.sellpia.com/order_delivery_link.html";
 const COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
-const COUPANG_SUPPLIER_TAB_MATCHES = ["https://supplier.coupang.com/*"];
 
 // Read-only one-shot actions do not have server attempts. Keep their local
 // lifetime explicit instead of inventing a second canonical session: each
@@ -496,16 +495,6 @@ const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/managemen
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
 const KAKAO_ORDER_URL = "https://shopping-seller.kakao.com/order/seller/store-order/integrate/list";
 const KAKAO_TAB_MATCHES = ["https://shopping-seller.kakao.com/*"];
-// 몰 등록 보조 웹 액션(온채널 분류 목록 · 몰 대량등록 사진 올리기, KID-256). 몰 폼 채우기·제출·품절·재개·가격·지금 재고는
-// 확장 런타임 실행 kind(`channels.registration` · `channels.mall_availability_read`)로 옮겼다. 첫 호출에서 만든다.
-let mallUtilityActionsInstance = null;
-function mallUtilityActions() {
-  if (!mallUtilityActionsInstance) {
-    mallUtilityActionsInstance = KidItemMallUtilityActions.create({ fetch: (...args) => fetch(...args) });
-  }
-  return mallUtilityActionsInstance;
-}
-
 // 몰 세션 — 로그인 주소·로그인 표시·폼 채움은 하나의 세션 모듈이 소유한다.
 let mallSessionDriverInstance = null;
 function mallSessionDriver() {
@@ -522,16 +511,12 @@ function mallSession() {
 }
 
 /**
- * 몰 세션 모듈의 드라이버 — 탭 열기 · 프레임에 스크립트 넣기 · 알림 창 삼키기 · 조용히 한 번
- * 읽기. 어느 몰을 어떻게 볼지는 `mall-session.js` 가 알고, 여기서는 Chrome 경계를 연결한다.
- * 수집 시도의 탭 소유권은 Orders가 확인한다.
+ * 몰 세션 모듈의 드라이버 — 탭 열기 · 프레임에 스크립트 넣기 · 알림 창 삼키기. 어느 몰에 어떻게
+ * 로그인할지는 `mall-session.js` 가 알고, 여기서는 Chrome 경계를 연결한다. 수집 시도의 탭 소유권은
+ * Orders가 확인한다. 로그인 확인·테스트는 새 런타임(`extensions/src/sites/mall-session`, KID-366)이다 —
+ * 여기 남은 로그인은 카카오 attempt 경로와 셀피아·송장 업로드(wave8b·wave9에서 삭제)가 쓴다.
  */
 function createMallSessionDriver() {
-  const passiveProbe = KidItemMallSessionProbe.create({
-    fetch: (...args) => fetch(...args),
-    specs: KidItemMallSession.SPECS,
-    reasons: KidItemMallSession.REASONS,
-  });
   return {
     now: () => Date.now(),
     delay: (ms) => delay(ms),
@@ -539,8 +524,6 @@ function createMallSessionDriver() {
     waitReady: (tabId) => waitForTabReady(tabId),
     ensureActive: (collection) => assertOrderCollectionActive(collection),
     cancelledResult: (error) => orderCollectionCancelledResult(error),
-    hasPermission: (origin) =>
-      chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false),
 
     async openTab(url, collection) {
       if (collection) await assertOrderCollectionActive(collection);
@@ -598,43 +581,16 @@ function createMallSessionDriver() {
         return { unreachable: true };
       }
     },
-
-    async inspectScreen(tabId) {
-      const tab = await chrome.tabs.get(tabId).catch(() => null);
-      const href = String(tab?.url || tab?.pendingUrl || "");
-      try {
-        const injected = await withTimeout(
-          chrome.scripting.executeScript({
-            target: { tabId, allFrames: true },
-            func: inspectMallLoginScreen,
-          }),
-          5000,
-          "login-screen-no-answer",
-        );
-        return { href, frames: (injected || []).map((item) => item.result).filter(Boolean) };
-      } catch {
-        return { href, frames: null };
-      }
-    },
-
-    probe: (mallKey) => passiveProbe.probe(mallKey),
   };
 }
 
-chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
-  const rawMessage = msg;
-  const senderEnvironment = ordersEnvironmentContext.resolveSender(sender);
-  if (!senderEnvironment) {
-    sendResponse({ success: false, error: "Untrusted KidItem web origin" });
-    return false;
-  }
-  const environmentId = senderEnvironment.environmentId;
+// 웹앱 메시지는 새 런타임 dispatch가 받고(KID-366, 유일한 onMessageExternal 리스너), 이 워커가 아직 가진 액션만 과도기
+// 위임으로 넘어온다 — 환경은 dispatch가 보내는 창 origin으로 정해 넘기고, 응답할 때까지 서비스워커도 dispatch가 붙든다.
+// 아래 액션은 wave8b(셀피아·배송 목록·송장 업로드 kind)와 wave9(카카오 KID-379)에서 사라진다.
+function handleOrdersExternalMessage(msg, environmentId, sendResponse) {
   msg = { ...msg, environmentId };
-  ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
   const respond = (operation) => {
-    // 응답이 갈 때까지 서비스워커를 살려 둔다. 수집기마다 keepAlive 를 복붙하지
-    // 않아도 이 경로를 지나는 모든 액션이 유휴 종료로부터 보호된다.
-    KidItemWorkerKeepAlive.during(operation)
+    Promise.resolve(operation)
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -649,17 +605,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // 서비스워커가 처리한다. 도메인 워커가 각자 응답하면 세 리스너가 같은
   // 메시지에 경쟁 응답하게 된다. 이 도메인의 cancellation 구현과
   // capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
-
-  // 몰 대량등록 사진 올리기 — 우리 저장소 사진을 우리 상점 첨부 저장소(키즈노트)에 올려 공개 주소를 받는다.
-  // 상품을 만들지도 몰에 등록하지도 않는다. 사람이 [사진 올리기]를 누를 때만 온다.
-  if (msg?.action === "hostPublicImages") {
-    return respond(mallUtilityActions().hostPublicImages(msg));
-  }
-
-  // 몰 분류 목록 한 단. 읽기만 한다 — 폼을 열지도, 값을 넣지도 않는다.
-  if (msg?.action === "listMallCategories") {
-    return respond(mallUtilityActions().listCategories(msg));
-  }
 
   if (msg?.action === "sendOrderFileToSellpia") {
     sendOrderFileToSellpia({
@@ -721,34 +666,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.action === "openCoupangShipmentPage") {
-    openCoupangShipmentPage()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 쉽먼트 화면 열기 실패",
-        });
-      });
-    return true;
-  }
-
-  if (msg?.action === "clickCoupangShipmentDownloads") {
-    clickCoupangShipmentDownloads({
-      date: typeof msg.date === "string" ? msg.date : null,
-      labels: msg.labels !== false,
-      statements: msg.statements !== false,
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 쉽먼트 다운로드 실행 실패",
-        });
-      });
-    return true;
-  }
-
   // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
   if (msg?.action === "collectCoupangShipmentList") {
     collectCoupangShipmentList({
@@ -759,32 +676,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
         sendResponse({
           success: false,
           error: error?.message || "쿠팡 쉽먼트 목록 수집 실패",
-        });
-      });
-    return true;
-  }
-
-  if (msg?.action === "fetchCoupangShipmentPdfBatch") {
-    fetchCoupangShipmentPdfBatch({
-      items: Array.isArray(msg.items) ? msg.items : [],
-    }, environmentId)
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 쉽먼트 PDF 수집 실패",
-        });
-      });
-    return true;
-  }
-
-  if (msg?.action === "clearCoupangCookies") {
-    clearCoupangSupplierCookies()
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({
-          success: false,
-          error: error?.message || "쿠팡 쿠키 정리 실패",
         });
       });
     return true;
@@ -808,19 +699,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.action === "uploadDomeggookTracking") {
-    uploadDomeggookTracking({
-      fileBase64: typeof msg.fileBase64 === "string" ? msg.fileBase64 : "",
-      fileName: typeof msg.fileName === "string" ? msg.fileName : "도매꾹_송장.xls",
-      orderNos: Array.isArray(msg.orderNos) ? msg.orderNos : [],
-    })
-      .then((result) => sendResponse(result))
-      .catch((error) => {
-        sendResponse({ success: false, error: error?.message || "도매꾹 송장 업로드 실패" });
-      });
-    return true;
-  }
-
   // 수집이 끝난 몰의 탭을 닫는다. 우리가 연 탭만 닫고, 사람이 열어 둔 탭은 건드리지 않는다.
   if (msg?.action === "closeOrderCollectionTabs") {
     const attemptIds = Array.isArray(msg.attemptIds)
@@ -829,42 +707,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return respond(closeOrderCollectionTabs(attemptIds));
   }
 
-  // 로그인 상태를 셋 중 하나로 답한다. 조용히 읽어 모르면 화면을 열어 본다 — 로그인은 하지 않는다.
-  // 주소는 고정 목록 · 사장님이 저장한 사이트 주소에서만 나오고, 확장 권한 안의 주소만 연다.
-  if (msg?.action === "checkMallLogin") {
-    return respond(checkMallLogin(
-      typeof msg.mallKey === "string" ? msg.mallKey : "",
-      typeof msg.siteUrl === "string" ? msg.siteUrl : "",
-    ));
-  }
-
   if (msg?.action === "ensureMallLoggedIn") {
     return respond(ensureMallLoginWithLifecycle(msg));
-  }
-
-  // 쇼핑몰 계정 화면의 로그인 테스트. 수집이 아니어서 수집 시도 없이 돈다 — 백그라운드 탭에서
-  // 저장된 계정으로 로그인만 해 보고 닫는다. 서버로는 아무것도 보내지 않는다.
-  if (msg?.action === "testMallLogin") {
-    const credentials = msg.credentials;
-    const validRequest = typeof msg.mallKey === "string"
-      && typeof credentials?.loginId === "string"
-      && typeof credentials?.password === "string"
-      && (credentials.supplierLoginId === undefined || typeof credentials.supplierLoginId === "string")
-      && (credentials.siteUrl === undefined || typeof credentials.siteUrl === "string");
-    if (!validRequest) {
-      sendResponse({ success: false, errorCode: "invalid_request", error: "로그인 테스트 요청이 올바르지 않습니다." });
-      return true;
-    }
-    return respond(mallSession().ensureLoggedIn(
-      msg.mallKey,
-      {
-        loginId: credentials.loginId,
-        password: credentials.password,
-        ...(credentials.supplierLoginId ? { supplierLoginId: credentials.supplierLoginId } : {}),
-        ...(credentials.siteUrl ? { siteUrl: credentials.siteUrl } : {}),
-      },
-      {},
-    ));
   }
 
   // KID-379: 옛 몰 소유자 경로에 남은 유일한 수집기.
@@ -880,7 +724,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   return false;
-});
+}
 
 // ── 공통: 몰 미로그인 / 페이지 접근불가 에러 처리 ──
 // 미로그인 상태로 수집하면 백그라운드 탭이 로그인 페이지로 리다이렉트되고, 그 순간 executeScript 는
@@ -1310,48 +1154,6 @@ async function findOrCreateSellpiaTab() {
   });
 }
 
-async function openCoupangShipmentPage() {
-  const tab = await findOrCreateInteractiveCoupangSupplierTab(
-    INTERACTIVE_TAB_REASONS.SHIPMENT_PAGE,
-  );
-  if (!tab.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await waitForTabReady(tab.id);
-  const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
-  return {
-    success: true,
-    tabId: tab.id,
-    url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
-  };
-}
-
-async function clickCoupangShipmentDownloads(options) {
-  const tab = await findOrCreateInteractiveCoupangSupplierTab(
-    INTERACTIVE_TAB_REASONS.SHIPMENT_DOWNLOAD,
-  );
-  if (!tab?.id) return { success: false, error: "쿠팡 supplier 탭을 열 수 없습니다." };
-  await waitForTabReady(tab.id);
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: clickCoupangShipmentDownloadButtons,
-      args: [options],
-    }),
-    90000,
-    "쿠팡 쉽먼트 다운로드 버튼 실행 시간이 초과되었습니다.",
-  );
-
-  const result = injected[0]?.result ?? {
-    success: false,
-    error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
-  };
-  const currentTab = await chrome.tabs.get(tab.id).catch(() => tab);
-  return {
-    ...result,
-    url: currentTab.url || tab.url || COUPANG_SHIPMENT_URL,
-  };
-}
-
 // 백그라운드 쿠팡 supplier 탭: 기존 supplier 탭이 있으면 그대로 재사용(포커스를 뺏지 않음),
 // 없을 때만 active:false 로 새 탭을 만든다. 목록/라벨/내역서는 same-origin fetch 라
 // supplier.coupang.com 의 어떤 경로(로켓 발주 화면 등)에서도 동작한다 → 사용자 화면 그대로 유지.
@@ -1380,8 +1182,8 @@ async function findOrCreateBackgroundCoupangSupplierTab(attemptId, additionalCon
 }
 
 // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록 (직접 목록 API HTML 파싱) ──
-// clickCoupangShipmentDownloads 는 화면 버튼을 눌러 파일명 없는 PDF 를 Downloads 로 흘리지만,
-// 이쪽은 목록/라벨/내역서 엔드포인트를 세션 fetch 로 직접 받아 발송일·센터를 정확히 붙인다.
+// 목록 엔드포인트를 세션 fetch 로 직접 받아 발송일·센터를 정확히 붙인다. Label·내역서 PDF 는 새 런타임
+// entry 액션(`fetchCoupangShipmentPdfBatch`, KID-366)이다.
 async function collectCoupangShipmentList(options, environmentId) {
   requireOrdersCollectionEnvironment(environmentId);
   return runOrdersAdditionalCollection(
@@ -1415,79 +1217,6 @@ async function collectCoupangShipmentList(options, environmentId) {
       }
     },
   );
-}
-
-async function fetchCoupangShipmentPdfBatch(options, environmentId) {
-  requireOrdersCollectionEnvironment(environmentId);
-  const items = (options?.items || [])
-    .filter((it) => it && it.seq && (it.kind === "label" || it.kind === "manifest"))
-    .map((it) => ({ seq: String(it.seq), kind: it.kind }));
-  if (items.length === 0) return { success: false, error: "요청한 PDF 항목이 없습니다." };
-
-  return runOrdersAdditionalCollection(
-    environmentId,
-    "Coupang shipment PDFs",
-    async (context) => {
-      if (!context.isActive()) return additionalCollectionCancelled(context);
-      const tab = await findOrCreateBackgroundCoupangSupplierTab(null, context);
-      if (!tab?.id) return additionalCollectionCancelled(context);
-      await waitForTabReady(tab.id);
-      if (!context.isActive()) return additionalCollectionCancelled(context);
-
-      try {
-        const injected = await withTimeout(
-          chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            func: fetchCoupangShipmentPdfsInPage,
-            args: [items],
-          }),
-          120000,
-          "쿠팡 쉽먼트 PDF 수집 시간이 초과되었습니다.",
-        );
-        if (!context.isActive()) return additionalCollectionCancelled(context);
-        return injected[0]?.result ?? {
-          success: false,
-          error: "쿠팡 쉽먼트 PDF 화면에 접근하지 못했습니다.",
-        };
-      } catch (error) {
-        if (!context.isActive()) return additionalCollectionCancelled(context);
-        throw error;
-      }
-    },
-  );
-}
-
-// ── 쿠키 과다(400 Bad Request) 복구: supplier.coupang.com 에 적용되는 쿠키를 정리 ──
-// 헤비하게 쓰면 쿠키가 누적돼 요청 헤더가 서버 상한을 넘고 Tomcat 이 400 을 뱉는다.
-// 재시도로는 안 풀리므로 도메인 쿠키를 지워 초기화한다(정리 후 재로그인 필요).
-// 주의: 쿠키 "값"은 읽어서 반환/전달/저장하지 않는다(이름만으로 remove). 파괴적이라 웹에서 확인 후 호출.
-async function clearCoupangSupplierCookies() {
-  if (!chrome.cookies || typeof chrome.cookies.getAll !== "function") {
-    return {
-      success: false,
-      error: "쿠키 정리 권한이 없습니다. 확장프로그램을 최신 버전으로 다시 로드해주세요.",
-    };
-  }
-  const url = "https://supplier.coupang.com/";
-  let cookies;
-  try {
-    cookies = await chrome.cookies.getAll({ url });
-  } catch (e) {
-    return { success: false, error: "쿠팡 쿠키를 읽지 못했습니다: " + String((e && e.message) || e) };
-  }
-  let cleared = 0;
-  for (const c of cookies) {
-    // 호스트 권한을 가진 supplier 호스트 + 각 쿠키의 path 로 remove(값은 다루지 않음).
-    // path 별 쿠키까지 지우려 supplier 호스트에 쿠키 path 를 붙인다(.coupang.com 도메인 쿠키 포함).
-    const removeUrl = "https://supplier.coupang.com" + (c.path || "/");
-    try {
-      await chrome.cookies.remove({ url: removeUrl, name: c.name, storeId: c.storeId });
-      cleared += 1;
-    } catch (_) {
-      /* 개별 실패는 무시하고 계속 */
-    }
-  }
-  return { success: true, cleared, total: cookies.length };
 }
 
 // [페이지 주입] 발송일(YYYY-MM-DD) 로 쉽먼트 목록을 페이지네이션하며 전량 수집.
@@ -1573,64 +1302,6 @@ async function scrapeCoupangShipmentList(targetDate) {
   }
 }
 
-// [페이지 주입] 주어진 (seq, kind) 목록의 Label/내역서 PDF 를 세션 fetch → base64.
-// kind: "label" → pdf-label/generate, "manifest" → pdf-manifest/generate. parcelShipmentSeq = 쉽먼트 번호.
-async function fetchCoupangShipmentPdfsInPage(items) {
-  function toBase64(buf) {
-    const bytes = new Uint8Array(buf);
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < bytes.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-    }
-    return btoa(bin);
-  }
-  const files = [];
-  for (const it of items) {
-    const path = it.kind === "label" ? "pdf-label" : "pdf-manifest";
-    try {
-      const r = await fetch(
-        `/ibs/shipment/parcel/${path}/generate?parcelShipmentSeq=${it.seq}`,
-        { credentials: "include" },
-      );
-      if (!r.ok) {
-        // 쿠키 과다(400/413/431)는 모든 PDF 에 동일하게 발생 → 즉시 중단하고 안내로 치환.
-        if (r.status === 400 || r.status === 413 || r.status === 431) {
-          return {
-            success: false,
-            errorCode: "coupang_cookie_bloat",
-            error: "쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) PDF 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 다시 시도하세요.",
-          };
-        }
-        files.push({ seq: it.seq, kind: it.kind, ok: false, error: `HTTP ${r.status}` });
-        continue;
-      }
-      const buf = await r.arrayBuffer();
-      const b = new Uint8Array(buf);
-      const isPdf = b[0] === 0x25 && b[1] === 0x50; // %P
-      if (!isPdf) {
-        files.push({ seq: it.seq, kind: it.kind, ok: false, error: "PDF 아님" });
-        continue;
-      }
-      files.push({ seq: it.seq, kind: it.kind, ok: true, bytes: buf.byteLength, b64: toBase64(buf) });
-    } catch (e) {
-      files.push({ seq: it.seq, kind: it.kind, ok: false, error: String((e && e.message) || e) });
-    }
-  }
-  return { success: true, files };
-}
-
-async function findOrCreateInteractiveCoupangSupplierTab(reason) {
-  const tabs = await chrome.tabs.query({ url: COUPANG_SUPPLIER_TAB_MATCHES });
-  const shipmentTab = tabs.find((tab) => (tab.url || "").includes("/ibs/asn/active"));
-  if (shipmentTab?.id) return interactiveTabs.focusTab(shipmentTab.id, reason);
-  if (tabs[0]?.id) {
-    await chrome.tabs.update(tabs[0].id, { url: COUPANG_SHIPMENT_URL });
-    return interactiveTabs.focusTab(tabs[0].id, reason);
-  }
-  return interactiveTabs.createTab({ url: COUPANG_SHIPMENT_URL, reason });
-}
-
 // ── 온채널(onch3) 탭: 송장 업로드가 쓴다. 주문 수집은 실행 kind `orders.mall_orders`의 sites/onch(KID-380). ──
 async function findOrCreateOnchannelTab(collection) {
   if (!collection) {
@@ -1664,156 +1335,6 @@ async function findOrCreateKidkidsTab(collection) {
 // ⚠️품목 상세(/scm/purchase/order/get)는 po-web 컨텍스트서 fetch 하면 로그인페이지 → /scm 페이지로
 // 이동한 뒤 그 컨텍스트에서 fetch 해야 인증됨. 목록/센터(po-web API)는 같은 origin이라 /scm 서도 됨.
 // ── 도매꾹 탭: 송장 업로드가 쓴다. 주문 수집은 실행 kind `orders.mall_orders`의 sites/domeggook(KID-359 H3). ──
-const DOMEGGOOK_INPROCESS_URL = "https://domeggook.com/sc/order/lstInprocess";
-
-async function findOrCreateDomeggookTab(navUrl, collection) {
-  if (!collection) {
-    const tabs = await chrome.tabs.query({ url: "https://domeggook.com/*" });
-    const listTab = tabs.find((t) => (t.url || "").includes("/sc/order/lstAll"));
-    if (listTab?.id) {
-      await chrome.tabs.update(listTab.id, { url: navUrl });
-      return { tab: await chrome.tabs.get(listTab.id), created: false };
-    }
-  }
-  return createFreshOrderCollectionTab(collection, navUrl);
-}
-
-async function clickCoupangShipmentDownloadButtons(options) {
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const targetDate = compactDate(options?.date || "");
-  const wantLabels = options?.labels !== false;
-  const wantStatements = options?.statements !== false;
-
-  const table = findShipmentTable();
-  if (!table) {
-    return {
-      success: false,
-      error: "쿠팡 쉽먼트 조회 결과 표를 찾지 못했습니다.",
-    };
-  }
-
-  const headerMap = buildHeaderMap(table);
-  const rowElements = Array.from(table.querySelectorAll("tbody tr")).filter((row) => {
-    const cells = Array.from(row.querySelectorAll("td"));
-    return cells.length >= 6 && row.offsetParent !== null;
-  });
-
-  const rows = [];
-  let labelCount = 0;
-  let statementCount = 0;
-
-  for (const row of rowElements) {
-    const cells = Array.from(row.querySelectorAll("td"));
-    const shipmentId = textAt(cells, headerMap, ["쉽먼트 번호", "shipment"]);
-    const outboundAt = textAt(cells, headerMap, ["발송일"]);
-    const inboundDate = textAt(cells, headerMap, ["입고예정일", "입고 예정일"]);
-    const center = textAt(cells, headerMap, ["센터"]);
-    const candidateDate = compactDate(inboundDate || outboundAt);
-    if (targetDate && candidateDate !== targetDate) continue;
-
-    let labelClicked = false;
-    let statementClicked = false;
-
-    if (wantLabels) {
-      const button = findRowButton(row, ["label", "라벨"]);
-      if (button) {
-        button.click();
-        labelClicked = true;
-        labelCount += 1;
-        await delay(450);
-      }
-    }
-    if (wantStatements) {
-      const button = findRowButton(row, ["내역서"]);
-      if (button) {
-        button.click();
-        statementClicked = true;
-        statementCount += 1;
-        await delay(450);
-      }
-    }
-
-    rows.push({
-      shipmentId,
-      outboundAt,
-      inboundDate,
-      center,
-      labelClicked,
-      statementClicked,
-    });
-  }
-
-  if (rows.length === 0) {
-    return {
-      success: false,
-      error: targetDate
-        ? "선택한 날짜에 해당하는 쉽먼트 행을 찾지 못했습니다."
-        : "다운로드할 쉽먼트 행을 찾지 못했습니다.",
-    };
-  }
-
-  return {
-    success: true,
-    rows,
-    labelCount,
-    statementCount,
-    url: location.href,
-  };
-
-  function findShipmentTable() {
-    const tables = Array.from(document.querySelectorAll("table"));
-    return tables.find((candidate) => {
-      const text = (candidate.textContent || "").replace(/\s+/g, "");
-      return text.includes("쉽먼트번호") && text.includes("입고예정일") && text.includes("센터");
-    }) || null;
-  }
-
-  function buildHeaderMap(tableElement) {
-    const headers = Array.from(tableElement.querySelectorAll("thead th, tr:first-child th"));
-    const map = new Map();
-    headers.forEach((header, index) => {
-      const text = normalizeText(header.textContent || "");
-      if (text) map.set(text, index);
-    });
-    return map;
-  }
-
-  function textAt(cells, map, names) {
-    for (const name of names) {
-      const normalized = normalizeText(name);
-      const exact = map.get(normalized);
-      if (typeof exact === "number" && cells[exact]) {
-        return normalizeText(cells[exact].textContent || "");
-      }
-      const fuzzy = Array.from(map.entries()).find(([header]) => header.includes(normalized));
-      if (fuzzy && cells[fuzzy[1]]) return normalizeText(cells[fuzzy[1]].textContent || "");
-    }
-    return "";
-  }
-
-  function findRowButton(row, labels) {
-    const targets = labels.map((label) => label.toLowerCase());
-    return Array.from(row.querySelectorAll("button, a, input[type='button']")).find((element) => {
-      const text = normalizeText(
-        element.tagName === "INPUT"
-          ? element.value || element.getAttribute("aria-label") || ""
-          : element.textContent || element.getAttribute("aria-label") || element.getAttribute("title") || "",
-      ).toLowerCase();
-      return targets.some((target) => text.includes(target));
-    }) || null;
-  }
-
-  function compactDate(value) {
-    const digits = String(value || "").replace(/[^\d]/g, "");
-    if (digits.length >= 8) return digits.slice(0, 8);
-    return "";
-  }
-
-  function normalizeText(value) {
-    return String(value || "").replace(/\s+/g, " ").trim();
-  }
-}
-
 async function injectSellpiaOrderFile(payload) {
   const shopName = payload.shopName;
   const fileName = payload.fileName;
@@ -2395,43 +1916,10 @@ async function loginFormRemainsAfterSubmit(tabId) {
  * 탭 안에서 본다 — 로그인 폼(보이는 비밀번호 칸 + 아이디 칸)인가, 인증 화면(인증번호 · OTP 칸)인가.
  * 값을 넣거나 누르지 않는다.
  */
-function inspectMallLoginScreen() {
-  const visible = (el) => {
-    const rect = el.getBoundingClientRect();
-    const style = getComputedStyle(el);
-    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none";
-  };
-  const typeOf = (input) => String(input.type || "text").toLowerCase();
-  const inputs = Array.from(document.querySelectorAll("input")).filter((input) => visible(input) && !input.disabled);
-  const password = inputs.some((input) => typeOf(input) === "password");
-  const idField = inputs.some((input) => ["", "text", "email", "tel"].includes(typeOf(input)));
-  const describe = (input) => [input.name, input.id, input.placeholder, input.getAttribute("aria-label")]
-    .filter(Boolean)
-    .join(" ");
-  const codeField = inputs.some((input) =>
-    ["", "text", "tel", "number"].includes(typeOf(input)) && /인증|otp|code|auth|번호/i.test(describe(input)));
-  const text = String((document.body && document.body.innerText) || "").slice(0, 8000);
-  const verificationText = /본인\s*인증|본인\s*확인|인증\s*번호|OTP|SMS\s*인증|2단계\s*인증|추가\s*인증|휴대폰\s*인증/i.test(text);
-  return {
-    loginForm: password && idField,
-    verification: !password && codeField && verificationText,
-  };
-}
-
 /**
  * 몰 로그인 상태 — 로그인됨 · 인증 필요 · 로그인 필요 중 하나. 조용히 읽는 확인이 확실하면
  * 그 답을 쓰고, 아니면 화면을 열어 본다. 로그인은 하지 않는다.
  */
-async function checkMallLogin(mallKey, siteUrl) {
-  const found = await mallSession().checkLogin(mallKey, siteUrl);
-  const state = found.verdict === "in"
-    ? "signed_in"
-    : found.verdict === "out" && found.reason === "verification_required"
-      ? "verification_required"
-      : "signed_out";
-  return { success: true, mallKey, state, reason: found.reason };
-}
-
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
 // KID-379: 시도를 싣고 오는 로그인은 옛 몰 소유자 경로(카카오)뿐이다 — 그 시도 안에서 로그인한다.
@@ -3157,98 +2645,44 @@ async function scrapeKidkidsTrackingUpload(rows) {
   }
 }
 
-async function uploadDomeggookTracking(options = {}) {
-  const fileBase64 = typeof options.fileBase64 === "string" ? options.fileBase64 : "";
-  const fileName = typeof options.fileName === "string" ? options.fileName : "도매꾹_송장.xls";
-  const tar = Array.isArray(options.orderNos) ? options.orderNos.join(",") : "";
-  if (!fileBase64) return { success: false, error: "도매꾹 송장 파일이 없습니다." };
-  const { tab, created } = await findOrCreateDomeggookTab(DOMEGGOOK_INPROCESS_URL);
-  if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
-  await interactiveTabs.focusTab(tab.id, INTERACTIVE_TAB_REASONS.TRACKING_MUTATION);
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN", // 로그인 세션 쿠키로 same-origin POST
-        func: scrapeDomeggookShipUpload,
-        args: [fileBase64, fileName, tar],
-      }),
-      60000,
-      "도매꾹 송장 업로드 시간이 초과되었습니다.",
-    );
-    return injected[0]?.result ?? { success: false, error: "도매꾹 화면에 접근하지 못했습니다." };
-  } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("도매꾹"); }
-    return mallGenericErrorResult("도매꾹", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
-    }
-  }
-}
-
-async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
-  try {
-    const bin = atob(fileBase64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i += 1) bytes[i] = bin.charCodeAt(i);
-    const file = new File([bytes], fileName, { type: "application/vnd.ms-excel" });
-    const fd = new FormData();
-    fd.append("deliXls", file); // 폼 file input 이름
-    fd.append("tar", tar || ""); // 대상 주문번호 목록(콤마조인)
-    const res = await fetch("/sc/order/shipXls", { method: "POST", credentials: "include", body: fd });
-    const text = await res.text();
-    if (!res.ok) {
-      return { success: false, error: "도매꾹 송장 업로드 실패 (HTTP " + res.status + "). 로그인을 확인하세요.", snippet: text.slice(0, 300) };
-    }
-    // 응답(HTML/JSON)에서 성공 여부 추정. 확정 못 하면 원문 스니펫을 프론트로 넘겨 사용자가 확인.
-    let uploaded = /완료|성공|반영|success/i.test(text) && !/실패|오류|불가/.test(text);
-    try {
-      const j = JSON.parse(text);
-      if (j && (j.res === true || j.result === true || j.success === true)) uploaded = true;
-      if (j && (j.res === false || j.result === false)) uploaded = false;
-    } catch { /* not json */ }
-    const snippet = text.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 400);
-    return { success: true, uploaded, httpStatus: res.status, snippet };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
+const ORDERS_EXTERNAL_ACTIONS = [
+  "sendOrderFileToSellpia",
+  "collectSellpiaOrderSnapshot",
+  "sellpiaPostTransfer",
+  "sellpiaAutoInvoice",
+  "collectCoupangShipmentList",
+  "uploadOnchTracking",
+  "uploadKidkidsTracking",
+  "closeOrderCollectionTabs",
+  "ensureMallLoggedIn",
+  "collectKakaoOrders",
+];
 KidItemDomains.register({
   producerPrefixes: ["orders"],
   // 몰 관리자 목록 가져오기는 실행 kind `channels.mall_admin_listings`다(KID-363·381) — 옛 `collectMallAdminListings`는 없다.
-  externalActions: {},
+  externalActions: Object.fromEntries(ORDERS_EXTERNAL_ACTIONS.map((action) => [action, {
+    validate: (msg) => msg,
+    handle: (msg, environmentId) => new Promise((resolve) => {
+      if (handleOrdersExternalMessage(msg, environmentId, resolve) === false) {
+        resolve({ success: false, error: "Unsupported orders action" });
+      }
+    }),
+  }])),
   capabilities: {
     orderCollectionIcecreamMall: true,
-    coupangShipmentDownloads: true,
-    collectCoupangShipmentFiles: true,
-    clearCoupangCookies: true,
     collectKakaoOrders: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,
     orderCollectionSourceOwnerV1: true,
-    kiditemEnvironmentProfilesV1: true,
     sellpiaOrderFileUploadEvidenceV1: true,
     sellpiaScopedAutoInvoiceV1: true,
-    uploadDomeggookTracking: true,
     uploadOnchTracking: true,
     uploadKidkidsTracking: true,
-    // 몰 상품등록 폼 채우기·[등록]·품절·재개·가격·지금 재고는 런타임 실행 kind다(KID-256) — 입구 `ping`의
-    // `channelsRegistrationOperationKindV1` · `mallWriteSite.<몰>`이 알린다.
-    // 몰 대량등록 사진 올리기(1.2.27) — 우리 저장소 사진을 키즈노트 첨부 저장소에 올려 공개 주소를 받는다.
-    publicImageHostV1: true,
-    // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
-    mallCategoryLookup: true,
-    mallCategoryLookupMalls: KidItemMallUtilityActions.CATEGORY_MALL_KEYS,
-    mallLoginTestV1: true,
-    // 로그인됨 · 인증 필요 · 로그인 필요 셋으로 답하는 확인(모르면 화면을 열어 본다).
-    mallLoginCheckV2: true,
+    // 몰 상품등록·품절·재개·가격은 런타임 실행 kind(KID-256), 몰 로그인 테스트·확인·사진 호스팅·분류·쿠팡 쉽먼트 화면·PDF·
+    // 쿠키 정리는 새 런타임 entry 액션(KID-366)이다 — 입구 `ping`이 그 capability를 알린다.
     // 수집이 끝나면 우리가 연 몰 탭을 닫는다.
     orderCollectionTabCloseV1: true,
     sellpiaPostTransfer: true,

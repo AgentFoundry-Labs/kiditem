@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../core/errors';
-import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, leftForOperator, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
+import { AUTH_REQUIRED_EVENT_FILE, createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, leftForOperator, requestWebAuth, sweepDialogGuards, type PageGuard, type TabPageChrome } from './tab-page';
 
 function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
@@ -592,5 +592,34 @@ describe('문서가 뜨기 전 스크립트와 실제 입력(KID-256 — 옛 Win
     await expect(ask(4, '열쇠고리/키홀더')).resolves.toMatchObject({ ok: false });
     await expect(ask(page.tabId, 'a\nb')).resolves.toMatchObject({ ok: false });
     expect(log.filter((line) => line.startsWith('Input.'))).toEqual(['Input.insertText {"text":"열쇠고리/키홀더"}']);
+  });
+});
+
+describe('requestWebAuth — 웹 탭에 재로그인 힌트(옛 AUTH_REQUIRED_EVENT)', () => {
+  it('그 환경 웹 탭마다 힌트 파일을 넣고, 잠든·얼린 탭과 주입 실패는 건너뛴다', async () => {
+    const injected: Array<{ tabId: number; files: string[] }> = [];
+    const queried: string[] = [];
+    await requestWebAuth({
+      tabs: {
+        async query({ url }) {
+          queried.push(url);
+          return [{ id: 1 }, { id: 2, discarded: true }, { id: 3, frozen: true }, { id: 4 }, {}];
+        },
+      },
+      scripting: {
+        async executeScript({ target, files }) {
+          injected.push({ tabId: target.tabId, files });
+          if (target.tabId === 4) throw new Error('Cannot access contents');
+          return [];
+        },
+      },
+    }, 'http://kiditem-office/*');
+    expect(queried).toEqual(['http://kiditem-office/*']);
+    expect(injected).toEqual([{ tabId: 1, files: [AUTH_REQUIRED_EVENT_FILE] }, { tabId: 4, files: [AUTH_REQUIRED_EVENT_FILE] }]);
+    expect(AUTH_REQUIRED_EVENT_FILE).toBe('content/page-call/auth-required-event.js');
+  });
+
+  it('탭을 찾지 못해도 던지지 않는다', async () => {
+    await expect(requestWebAuth({ tabs: { query: async () => { throw new Error('no tabs'); } }, scripting: { executeScript: async () => [] } }, 'http://localhost:3000/*')).resolves.toBeUndefined();
   });
 });

@@ -20,9 +20,10 @@ domain guide owns marketplace-specific behavior.
   edit it; regenerate with `npm run extension:build`.
 - Every script shares one global scope. Keep top-level names unique and prefix
   domain instances.
-- `external-dispatch.js` is the sole responder for extension health and source
-  attempt transport actions. Validate each action at this boundary before it
-  reaches a domain worker.
+- The runtime dispatch (`src/core/dispatch.ts`) is the only
+  `onMessageExternal` listener: it answers `ping` and the entry actions, and
+  hands actions it does not own to the old `KidItemDomains` table. Old workers
+  register actions there instead of adding listeners.
 - Domain workers register exact browser-operation handlers and disjoint producer
   prefixes through `KidItemDomains.register`. Do not add generic action or URL
   execution.
@@ -30,8 +31,7 @@ domain guide owns marketplace-specific behavior.
   keys are explicitly documented; every other storage/alarm name is
   domain-unique.
 - `kiditem_environment_profiles_v1` intentionally shares one KidItem session
-  per environment. Connection merges profile fields rather than replacing
-  another domain's state.
+  per environment; `src/core/auth-store.ts` is its only writer.
 - Capability responses are merged into one ping result so the web app can
   distinguish missing, stale, and supported extension versions.
 

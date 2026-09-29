@@ -117,9 +117,17 @@ function createHarness({
     now: () => 1234,
     legacyStorageKeys: ['kiditem_auth_token', 'apiBase'],
   });
+  // 토큰은 새 런타임 저장소(`extensions/src/core/auth-store.ts`)만 쓴다(KID-366) — 같은 키·모양으로 쓰고 onChanged가 난다.
+  const writeToken = async (environmentId, token) => {
+    const current = (await chrome.storage.local.get('kiditem_environment_profiles_v1')).kiditem_environment_profiles_v1 ?? {};
+    await chrome.storage.local.set({
+      kiditem_environment_profiles_v1: { ...current, [environmentId]: { accessToken: token, updatedAt: 1234 } },
+    });
+  };
   return {
     chrome,
     environmentContext,
+    writeToken,
     fetchCalls,
     scriptCalls,
     storage,
@@ -332,11 +340,11 @@ test('keeps a successful 401 token resync bounded when auth notification injecti
     responses: [401],
     executeScriptImpl: () => new Promise(() => {}),
   });
-  await harness.environmentContext.setAccessToken('local', 'local-token');
+  await harness.writeToken('local', 'local-token');
 
   const pending = harness.environmentContext.authedFetch('local', '/api/orders');
   await waitForCount(harness.fetchCalls, 1);
-  await harness.environmentContext.setAccessToken('local', 'rotated-local-token');
+  await harness.writeToken('local', 'rotated-local-token');
 
   const result = await settleWithin(pending);
   assert.equal(result.status, 'resolved');
@@ -349,7 +357,7 @@ test('keeps a timed-out token resync bounded when auth notification injection ne
     responses: [401],
     executeScriptImpl: () => new Promise(() => {}),
   });
-  await harness.environmentContext.setAccessToken('local', 'local-token');
+  await harness.writeToken('local', 'local-token');
 
   const pending = harness.environmentContext.authedFetch('local', '/api/orders');
   await waitForCount(harness.fetchCalls, 1);
@@ -360,10 +368,10 @@ test('keeps a timed-out token resync bounded when auth notification injection ne
   assert.equal(harness.scriptCalls.length, 1);
 });
 
-test('stores and clears authenticated profiles independently', async () => {
-  const { environmentContext, storage } = createHarness();
-  await environmentContext.setAccessToken('local', 'local-token');
-  await environmentContext.setAccessToken('office', 'office-token');
+test('reads profiles the runtime auth store wrote and exports no token writer', async () => {
+  const { environmentContext, writeToken } = createHarness();
+  await writeToken('local', 'local-token');
+  await writeToken('office', 'office-token');
 
   assert.equal(await environmentContext.getAccessToken('local'), 'local-token');
   assert.equal(await environmentContext.getAccessToken('office'), 'office-token');
@@ -371,17 +379,16 @@ test('stores and clears authenticated profiles independently', async () => {
     Array.from(await environmentContext.connectedEnvironmentIds()),
     ['local', 'office'],
   );
-
-  await environmentContext.clearAccessToken('local');
-  assert.equal(await environmentContext.getAccessToken('local'), null);
-  assert.equal(await environmentContext.getAccessToken('office'), 'office-token');
-  assert.deepEqual(Object.keys(storage.kiditem_environment_profiles_v1), ['office']);
+  // 옛 워커가 다른 줄로 프로필을 쓰면 새 저장소의 쓰기와 겹쳐 토큰이 지워진다 — 쓰는 길은 새 런타임 하나다.
+  for (const writer of ['setAccessToken', 'clearAccessToken', 'connect']) {
+    assert.equal(environmentContext[writer], undefined, writer);
+  }
 });
 
 test('routes concurrent requests to fixed environment API origins', async () => {
-  const { environmentContext, fetchCalls } = createHarness();
-  await environmentContext.setAccessToken('local', 'local-token');
-  await environmentContext.setAccessToken('office', 'office-token');
+  const { environmentContext, fetchCalls, writeToken } = createHarness();
+  await writeToken('local', 'local-token');
+  await writeToken('office', 'office-token');
 
   await Promise.all([
     environmentContext.authedFetch('local', '/api/health'),
@@ -419,7 +426,7 @@ test('composes a caller abort with the request timeout and removes its listener 
       });
     }),
   });
-  await harness.environmentContext.setAccessToken('local', 'local-token');
+  await harness.writeToken('local', 'local-token');
 
   const pending = harness.environmentContext.authedFetch(
     'local',
@@ -439,7 +446,7 @@ test('rejects an already-aborted caller before starting a network request', asyn
   const callerReason = new Error('operation_deadline_exceeded');
   caller.abort(callerReason);
   const harness = createHarness();
-  await harness.environmentContext.setAccessToken('office', 'office-token');
+  await harness.writeToken('office', 'office-token');
 
   await assert.rejects(
     harness.environmentContext.authedFetch('office', '/api/heartbeat', {
@@ -454,7 +461,7 @@ test('caller abort interrupts a 401 token-resync wait with the original reason',
   const caller = new AbortController();
   const callerReason = new Error('operation_deadline_exceeded');
   const harness = createHarness({ responses: [401], requestTimeoutMs: 1_000 });
-  await harness.environmentContext.setAccessToken('local', 'local-token');
+  await harness.writeToken('local', 'local-token');
 
   const pending = harness.environmentContext.authedFetch(
     'local',
@@ -486,12 +493,12 @@ test('caller abort interrupts an initial missing-token resync wait', async () =>
 
 test('resyncs a 401 through only the owning environment and retries once when the token changed', async () => {
   const harness = createHarness({ responses: [401, 200] });
-  await harness.environmentContext.setAccessToken('local', 'local-token');
-  await harness.environmentContext.setAccessToken('office', 'office-token');
+  await harness.writeToken('local', 'local-token');
+  await harness.writeToken('office', 'office-token');
 
   const pending = harness.environmentContext.authedFetch('local', '/api/orders');
   await waitForCount(harness.fetchCalls, 1);
-  await harness.environmentContext.setAccessToken('local', 'rotated-local-token');
+  await harness.writeToken('local', 'rotated-local-token');
   const response = await pending;
 
   assert.equal(response.status, 200);
@@ -517,7 +524,7 @@ test('recovers a missing local token through only the local environment', async 
     [10],
   );
 
-  await harness.environmentContext.setAccessToken('local', 'recovered-local-token');
+  await harness.writeToken('local', 'recovered-local-token');
   const response = await pending;
 
   assert.equal(response.status, 200);
@@ -566,13 +573,8 @@ test('removes ambiguous legacy auth and API values without migration', async () 
   assert.equal(harness.storage.kiditem_environment_profiles_v1, undefined);
 });
 
-test('tracks connected environments without tokens for order collector', async () => {
+test('a context without auth never makes authenticated requests', async () => {
   const { environmentContext } = createHarness({ requiresAuth: false });
-  await environmentContext.connect('office');
-  assert.deepEqual(
-    Array.from(await environmentContext.connectedEnvironmentIds()),
-    ['office'],
-  );
   await assert.rejects(
     environmentContext.authedFetch('office', '/api/orders'),
     /Authenticated fetch is unavailable/,

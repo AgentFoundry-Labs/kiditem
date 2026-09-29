@@ -136,13 +136,14 @@
   function requestServerWorkbook(products) {
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage(
-        { action: "exportWingInventoryWorkbook", products },
+        // 새 런타임 내부 메시지(KID-366, `@kiditem/shared/extension-actions`): 행을 보내고 xls(base64)를 받는다.
+        { action: "exportWingInventoryWorkbook", rows: products },
         (response) => {
           if (chrome.runtime.lastError) {
             reject(new Error(chrome.runtime.lastError.message));
             return;
           }
-          if (!response?.success || typeof response.fileBase64 !== "string") {
+          if (!response?.success || typeof response.b64 !== "string") {
             reject(new Error(response?.error || "Wing 상품목록 엑셀 변환 실패"));
             return;
           }
@@ -152,12 +153,12 @@
     });
   }
 
-  function downloadServerWorkbook(file) {
-    const binary = atob(file.fileBase64);
+  function downloadServerWorkbook(file, total) {
+    const binary = atob(file.b64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
     const blob = new Blob([bytes], {
-      type: file.contentType || "application/vnd.ms-excel;charset=utf-8",
+      type: "application/vnd.ms-excel;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -167,7 +168,7 @@
     anchor.click();
     document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
-    console.log(`[KIDITEM] 서버 엑셀 다운로드 완료: ${file.total || 0}개 상품`);
+    console.log(`[KIDITEM] 서버 엑셀 다운로드 완료: ${total}개 상품`);
   }
 
   // ── 메인: 전체 페이지 크롤링 ──
@@ -221,7 +222,7 @@
       // Raw rows stay in the content script; only authenticated server output
       // crosses back as a file. The browser never builds the workbook.
       const file = await requestServerWorkbook(allProducts);
-      downloadServerWorkbook(file);
+      downloadServerWorkbook(file, allProducts.length);
       return { success: true, total: allProducts.length };
     } catch (error) {
       return { success: false, error: error?.message || "Wing 상품목록 엑셀 변환 실패" };

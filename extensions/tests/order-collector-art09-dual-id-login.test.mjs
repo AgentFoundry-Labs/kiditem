@@ -186,12 +186,11 @@ function loadMallSessionWithWorkerDriver(overrides = {}) {
     takeMallLoginDialog: async () => null,
     loginFormRemainsAfterSubmit: async () => true,
     autoSubmitIcecreamMallLogin: () => undefined,
-    inspectMallLoginScreen: () => undefined,
     ...overrides,
   };
   context.globalThis = context;
   vm.createContext(context);
-  for (const file of ["mall-session-probe.js", "mall-session.js"]) {
+  for (const file of ["mall-session.js"]) {
     vm.runInContext(
       readFileSync(new URL(`../kiditem-os/background/orders/${file}`, import.meta.url), "utf8"),
       context,

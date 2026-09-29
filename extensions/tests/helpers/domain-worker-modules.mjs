@@ -5,7 +5,7 @@ import vm from 'node:vm';
 // 세 확장을 kiditem-os 하나로 합치면서, 도메인 워커는 더 이상 스스로
 // importScripts 를 호출하지 않는다. 통합 서비스워커(background/service-worker.js)
 // 가 공용 모듈과 도메인 모듈을 순서대로 싣고, 마지막에 도메인 워커를 싣는다.
-// ping 과 수집 세션 공통 액션은 external-dispatch.js 가 단독으로 처리한다.
+// 웹앱 메시지는 새 런타임 dispatch 하나가 받는다(KID-366).
 //
 // 테스트 하니스는 그 배선을 그대로 재현해야 하므로 목록과 설치 절차를 여기에
 // 한 번만 둔다.
@@ -78,6 +78,10 @@ export const ORDERS_WORKER_MODULES = domainWorkerModules(
 // 통합 서비스워커가 하는 배선과 동일하다. 도메인 워커를 실행한 뒤에 호출해야
 // 도메인이 KidItemDomains 에 등록된 상태로 dispatch 가 설치된다.
 //
+// 웹앱 메시지는 새 런타임 dispatch(`extensions/src/core/dispatch.ts`, KID-366)가 유일한 리스너로 받고 옛 워커 액션을
+// `KidItemDomains`로 넘긴다. 옛 워커만 싣는 하니스는 번들 대신 그 과도기 위임(보내는 창 origin → 환경 → validate →
+// handle → 답, 던지면 실패 봉투)만 같은 규칙으로 건다. 새 dispatch 자체는 vitest 스펙이 본다.
+//
 // 공용 인스턴스는 worker-globals.js 가 만든 것을 그대로 쓴다. 최상위 `const` 는
 // 전역 렉시컬 스코프에만 들어가고 컨텍스트 객체의 프로퍼티가 되지 않으므로,
 // 실제 서비스워커와 같이 컨텍스트 안에서 식으로 평가해 배선한다.
@@ -88,7 +92,27 @@ export function installExternalDispatch(context, chrome) {
       environmentContext: sharedEnvironmentContext,
       sessions: collectionSessions,
       domains: KidItemDomains,
-    }).install();`,
+    }).install();
+    chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+      const environment = sharedEnvironmentContext.resolveSender(sender);
+      const action = environment ? KidItemDomains.forExternalAction(message?.action) : null;
+      if (!action) return false;
+      let input;
+      try {
+        input = action.validate(message);
+      } catch (error) {
+        sendResponse({ success: false, errorCode: "VALIDATION_FAILED", error: error?.message });
+        return false;
+      }
+      Promise.resolve()
+        .then(() => action.handle(input, environment.environmentId))
+        .then(sendResponse, (error) => sendResponse({
+          success: false,
+          errorCode: typeof error?.code === "string" ? error.code : "EXTENSION_UNKNOWN_FAILURE",
+          error: error?.message,
+        }));
+      return true;
+    });`,
     context,
     { filename: 'kiditem-os/background/service-worker.js (test wiring)' },
   );

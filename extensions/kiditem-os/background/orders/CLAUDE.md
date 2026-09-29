@@ -22,37 +22,22 @@ summary, Rocket PO and directship are operation kinds collected by
   Coupang cookie recovery is limited to named/path cookies for the supplier
   origin and must warn that shared Coupang sessions will be signed out; never
   read or return cookie values.
-- Mall login and session checks go through `mall-session.js` only: `ensureLoggedIn`
-  (`ok` · `rejected` · `unknown`) and `checkLogin` (`in` · `out` · `unknown`),
-  answering from one shared set of reason codes. Its one-row-per-mall spec
-  (`entryUrl` · `loginUrl` · `loggedInSignal` · `fields` · `headers`) is the only
-  place a mall's login address and logged-in signal are written. Tabs, frame
-  injection, dialog swallowing, and the one quiet read are its driver seam
-  (`worker.js`, `mall-session-probe.js`). Retry spacing and blocking a rejected
-  mall stay in the web.
-- A `loggedInSignal` answers `in` only on a positive admin marker and `out` only
-  on a login signal; anything else stays `unknown`. When the quiet read cannot
-  tell, the module opens the admin screen — the spec's `entryUrl` or the
-  operator's saved site address, and only when that origin is inside
-  `host_permissions` — in an inactive tab, and closes it. Never add export,
-  audit-logging, or mutating URLs to a spec.
-- The check the web sees (`checkMallLogin`) answers one of `signed_in`,
-  `verification_required`, or `signed_out` — never `unknown`; a mall the module
-  could not tell about is `signed_out` with its reason. It never fills, types,
-  clicks, or returns a URL, body, or header, and never runs the login path. A
-  frozen page counts as signed in only by a per-mall signed-in tab title (never
-  returned).
+- Old-path logins (Kakao attempt, Sellpia and tracking uploads) go through
+  `mall-session.js` `ensureLoggedIn` (`ok` · `rejected` · `unknown`); its
+  one-row-per-mall spec is `loginUrl` · `fields`, and tabs, frame injection,
+  and dialog swallowing are its driver seam in `worker.js`. Retry spacing and
+  blocking a rejected mall stay in the web.
 - Stored-credential login reports what it did, not a verdict: `submitted` for
   the click and `verified` for whether the login form was gone afterwards. A
-  form that stays, or a page that stops answering (a dialog), is `verified:
-  false` — not a wrong password. The web decides what to do with that and
-  limits how often the same mall is tried. The account screen's login test uses
-  `testMallLogin`, which runs outside a collection attempt and sends nothing to
-  KidItem.
-- Mall registration, sold-out/resume, price, and thumbnail writes are runtime
-  kinds in `extensions/src/sites/<mall>/` (KID-256), not this worker. Only the
-  two web helper actions stay here, in `mall-utility-actions.js`
-  (`listMallCategories`, `hostPublicImages`).
+  form that stays, or a page that stops answering, is `verified: false` — not
+  a wrong password.
+- The login check (`checkMallLogin`), the account screen's login test
+  (`testMallLogin`), Coupang shipment page/PDF/cookie recovery, and the mall
+  helpers (`hostPublicImages`, `listMallCategories`) are runtime entry actions
+  (KID-366, `extensions/src/entry/actions`); `src/sites/mall-session/check-specs.ts`
+  holds each mall's check address and logged-in signal. Mall writes are
+  runtime kinds in `extensions/src/sites/<mall>/` (KID-256). Add none of these
+  back to this worker.
 ## Collection Contract
 
 - Success with zero rows requires authenticated evidence. Missing/unloaded
