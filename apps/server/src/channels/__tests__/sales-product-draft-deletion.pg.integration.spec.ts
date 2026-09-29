@@ -31,17 +31,13 @@ const SOURCE_URL = 'https://detail.1688.com/offer/5550001.html';
 
 const hash = () => randomUUID().replace(/-/g, '').padEnd(64, '0');
 
-/** 원본 기록을 근거로 든 출시 후보 하나. 공급 제안 스냅숏 · 증거 관측 · 수집 실행을 최소 칸으로 만든다. */
+/** 원본 기록을 근거로 든 출시 후보 하나. 공급 제안 스냅숏 · 증거 관측을 최소 칸으로 만든다. */
 async function seedLaunchCandidate(prisma: PrismaClient, sourceRecordId: string): Promise<string> {
   const capturedAt = new Date('2026-09-01T00:00:00.000Z');
-  const run = await prisma.sourcingEvidenceIngestionRun.create({ data: {
-    organizationId: TEST_ORGANIZATION_ID, sourceKey: '1688.offer', scopeKey: 'default', targetKey: 'toys',
-    idempotencyKey: randomUUID(), requestHash: hash(), collectorKey: 'draft-deletion-test', collectorVersion: 'v1',
-    triggerKind: 'manual', triggeredByUserId: TEST_USER_ID, status: 'COMPLETE', isCurrentComplete: true,
-    generation: 1, discoveredCount: 1, acceptedCount: 1, coverageNumerator: 1, coverageDenominator: 1, completedAt: capturedAt,
-  } });
+  // 관측은 수집 실행을 스칼라 id로만 가리킨다(KID-360); 초안 삭제는 실행을 읽지 않는다.
+  const operationId = randomUUID();
   const observation = await prisma.sourcingEvidenceObservation.create({ data: {
-    organizationId: TEST_ORGANIZATION_ID, operationId: run.id, sourceKey: '1688.offer', platform: '1688',
+    organizationId: TEST_ORGANIZATION_ID, operationId, sourceKey: '1688.offer', platform: '1688',
     evidenceFamily: 'supplier_offer', signalRole: 'supply', conceptKey: 'toys', supportsCandidate: true,
     observationKey: hash(), revision: 1, sourceEntityType: 'supplier_offer_sku', sourceEntityKey: 'sku-1',
     observationType: 'offer_snapshot', schemaVersion: '1688-offer/v1', evidenceClass: 'measured',
