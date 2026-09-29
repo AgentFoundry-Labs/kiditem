@@ -21,7 +21,7 @@ import { publishWingCatalogWorkbook } from '../adapter/out/repository/channel-ca
 import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import type { ParsedWingCatalogRow } from '../application/port/out/documents/channel-document.models';
-import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
+import { listingRawSaleStatus } from '../domain/listing/listing-sale-state';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 
@@ -183,10 +183,8 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
     await writeExcel([excelRow('P-LEGACY', { skuStatus: '판매중' })]);
     const raw = (await listingRow('P-LEGACY')).rawJson as Record<string, unknown>;
     expect(raw).toMatchObject({ saleStatus: '판매중', 판매상태: '판매중지' });
-    // Products·Analytics·매칭의 판매상태 읽기는 이 순서의 첫 키를 본다.
-    const readerKeys = ['saleStatus', 'salesStatus', 'sale_status', '판매상태'];
-    const rawStatus = readerKeys.map((key) => raw[key]).find((value) => typeof value === 'string' && value.trim());
-    expect(resolveChannelListingSaleStatus({ rawStatus: rawStatus as string, isActive: true })).toBe('판매중');
+    // 판매중 정본 판정의 원본 판매상태 파서(Channels domain 하나)는 엑셀이 쓴 saleStatus를 먼저 본다.
+    expect(listingRawSaleStatus(raw)).toBe('판매중');
   });
 
   it('목록은 list 구역에, 상세는 detail 구역에 쓰고 평면 modifiedOn·detailDocuments는 쓰지 않는다', async () => {

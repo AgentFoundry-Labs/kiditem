@@ -57,11 +57,6 @@ export function classifyChannelListingSaleStatus(status: string | null | undefin
   return 'unknown';
 }
 
-/** 옛 이름 호환: 판매중 상태 글자인가(정본 판정은 `resolveChannelListingSaleState`). */
-export function isChannelListingOnSale(status: string | null | undefined): boolean {
-  return classifyChannelListingSaleStatus(status) === 'on_sale';
-}
-
 /** 정본 판정 — 위 세 조건. `unknown`은 판매중이 아니지만 화면이 "모름"으로 따로 보일 수 있게 구분해 돌려준다. */
 export function resolveChannelListingSaleState(input: ChannelListingSaleStatusInput): ChannelListingSaleState {
   if (!input.isActive) return 'off_sale';
@@ -78,12 +73,4 @@ export function resolveChannelListingSaleState(input: ChannelListingSaleStatusIn
 
 export function isChannelListingSelling(input: ChannelListingSaleStatusInput): boolean {
   return resolveChannelListingSaleState(input) === 'on_sale';
-}
-
-/**
- * @deprecated 옛 호출부 호환(PR B 트랙이 `resolveChannelListingSaleState`/포트로 바꾸며 지운다). 판매중이면 `'active'`, 아니면 null —
- * 옛 반환값(원문 상태 글자)을 쓰던 곳은 `isChannelListingOnSale`로 판정만 했으므로 이 모양이면 같은 결과다.
- */
-export function resolveChannelListingSaleStatus(input: ChannelListingSaleStatusInput & { latestSnapshotStatus?: string | null }): string | null {
-  return isChannelListingSelling(input) ? 'active' : null;
 }
