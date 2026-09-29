@@ -240,7 +240,7 @@ export function MallAccountTable({
                       )}
                       <span className="line-clamp-3">
                         {result.outcome === 'verified'
-                          ? `폼 제출됨${result.detail ? ` · ${result.detail}` : ''}`
+                          ? `${result.submitted ? '폼 제출됨' : '로그인 확인됨'}${result.detail ? ` · ${result.detail}` : ''}`
                           : result.outcome === 'unverified'
                             ? `확인 못 함 — ${result.detail}`
                             : result.detail}

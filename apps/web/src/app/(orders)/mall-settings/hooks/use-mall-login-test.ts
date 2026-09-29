@@ -36,6 +36,8 @@ const COULD_NOT_CHECK_CODES: ReadonlySet<string> = new Set([
 export interface MallLoginTestResult {
   outcome: MallLoginTestOutcome;
   detail: string | null;
+  /** 저장된 아이디·비밀번호를 넣고 로그인 버튼을 눌렀는가(`verified`일 때만 참). */
+  submitted?: boolean;
   at: number;
 }
 
@@ -113,16 +115,22 @@ export function useMallLoginTest() {
         toast.warning(`${mallName} 확인 못 함`, { description: detail });
         return;
       }
-      // 로그인 폼을 보내고 로그인 화면이 사라졌거나, 브라우저가 이미 로그인돼 있다.
-      if (result.success && result.verified && code === null) {
-        record(mallKey, { outcome: 'verified', detail: null, at: Date.now() });
+      // 로그인 폼을 보내고 로그인 화면이 사라졌다.
+      if (result.success && result.submitted && result.verified && code === null) {
+        record(mallKey, { outcome: 'verified', detail: null, submitted: true, at: Date.now() });
         clearMallAutoLoginBlock(mallKey);
         clearMallAutoLoginAttempt(mallKey);
         toast.success(`${mallName} 로그인됨`, {
-          description: result.submitted
-            ? '아이디·비밀번호를 넣고 로그인 버튼을 누른 뒤 로그인 화면이 사라졌습니다. 어드민이 열리는지 한 번 확인하세요.'
-            : '브라우저가 이미 이 몰에 로그인되어 있습니다.',
+          description: '아이디·비밀번호를 넣고 로그인 버튼을 누른 뒤 로그인 화면이 사라졌습니다. 어드민이 열리는지 한 번 확인하세요.',
         });
+        return;
+      }
+      // 브라우저가 이미 로그인돼 있다 — 저장된 비밀번호를 넣어 보지 않았으니 막아 둔 자동 로그인을 풀지 않는다
+      // (같은 값으로 다시 두드리면 계정이 잠긴다).
+      if (result.success && result.verified && code === null) {
+        const detail = '브라우저가 이미 로그인되어 있어 저장된 비밀번호를 확인하지 못했습니다.';
+        record(mallKey, { outcome: 'unverified', detail, submitted: false, at: Date.now() });
+        toast.warning(`${mallName} 확인 못 함`, { description: detail });
         return;
       }
       if (result.success) {

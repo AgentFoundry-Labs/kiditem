@@ -9,6 +9,7 @@ vi.mock('../../order-collection/lib/order-collection-extension', () => extension
 vi.mock('@/lib/order-mall-account-api', () => ({ orderMallAccountApi: accounts }));
 
 import {
+  blockMallAutoLogin,
   getMallLoginBlocks,
   isMallAutoLoginBlocked,
   resetMallLoginBlocksForTest,
@@ -125,14 +126,18 @@ describe('useMallLoginTest', () => {
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
 
-  it('counts a browser already signed in as a login that works', async () => {
+  /** 이미 로그인된 브라우저는 저장된 비밀번호를 넣어 보지 않았다 — 막아 둔 자동 로그인을 풀 근거가 아니다. */
+  it('⭐ keeps a login block when the browser was already signed in, since no password was tried', async () => {
+    blockMallAutoLogin('kidsnote', '몰이 아이디·비밀번호를 거부했습니다.');
     extension.testMallLoginViaExtension.mockResolvedValue({
       success: true, submitted: false, verified: true, errorCode: null,
     });
 
     const result = await runTest();
 
-    expect(result?.outcome).toBe('verified');
+    expect(result?.outcome).toBe('unverified');
+    expect(result?.detail).toBe('브라우저가 이미 로그인되어 있어 저장된 비밀번호를 확인하지 못했습니다.');
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
   });
 
   /**
