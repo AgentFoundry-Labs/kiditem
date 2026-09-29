@@ -3,7 +3,6 @@ import {
   isChannelListingOnSale,
   resolveChannelListingSaleStatus,
 } from '@kiditem/shared/channel-listing';
-import { readLatestListingSaleStatusFacts } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import type { ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 
 const SELLING_CHANNELS = ['coupang', 'rocket'];
@@ -55,14 +54,6 @@ export async function listSellingMasterProductIds(
       },
     },
   });
-  const statusFacts = await readLatestListingSaleStatusFacts(transaction, {
-    organizationId,
-    listingIds: listings.map((listing) => listing.id),
-  });
-  const saleStatusByListing = new Map(statusFacts.map((fact) => [
-    fact.listingId,
-    fact.saleStatus,
-  ]));
   const masterProductIdsToRead = [...new Set(listings.flatMap((listing) =>
     listing.options.flatMap((option) => option.inventoryComponents.map(
       (component) => component.masterProductId,
@@ -82,7 +73,6 @@ export async function listSellingMasterProductIds(
   const masterProductIds = new Set<string>();
   for (const listing of listings) {
     const saleStatus = resolveChannelListingSaleStatus({
-      latestSnapshotStatus: saleStatusByListing.get(listing.id) ?? null,
       rawStatus: rawSaleStatus(listing.rawJson),
       optionStatuses: listing.options.map((option) => option.status),
       listingStatus: listing.status,

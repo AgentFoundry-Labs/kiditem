@@ -5,7 +5,6 @@ import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   ListingTrafficWindowFacts,
   ListingStateFact,
-  ListingSaleStatusFact,
 } from '../../../../domain/listing/observation-facts';
 import type { StoredListingAttribute } from '../../../../domain/collection/channel-listing-attributes';
 export const CHANNEL_LISTING_QUERY_PORT = Symbol('CHANNEL_LISTING_QUERY_PORT');
@@ -265,10 +264,6 @@ export interface ChannelListingFactQueries {
     transaction: OwnerTransaction,
     input: { organizationId: string; listingIds: readonly string[] },
   ): Promise<readonly ListingStateFact[]>;
-  readLatestSaleStatus(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; listingIds: readonly string[] },
-  ): Promise<readonly ListingSaleStatusFact[]>;
   lockActiveOwner(
     transaction: OwnerTransaction,
     input: { organizationId: string; listingId: string },

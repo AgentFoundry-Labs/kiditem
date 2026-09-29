@@ -54,10 +54,6 @@ export class ChannelListingQueryService implements ChannelListingQueryPort {
     return this.persistence.readLatestState(transaction, input);
   }
 
-  readLatestSaleStatus(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readLatestSaleStatus']>[1]) {
-    return this.persistence.readLatestSaleStatus(transaction, input);
-  }
-
   lockActiveOwner(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['lockActiveOwner']>[1]) {
     return this.persistence.lockActiveOwner(transaction, input);
   }

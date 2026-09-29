@@ -11,7 +11,6 @@ import {
   seedBaseFixture,
 } from '../../test-helpers/real-prisma';
 import {
-  readLatestListingSaleStatusFacts,
   readLatestListingStateFacts,
   readListingTrafficWindowFacts,
 } from '../adapter/out/persistence/channel-listing-daily-facts';
@@ -533,35 +532,11 @@ describe('listing daily facts reader (PG integration)', () => {
     }
   }, 20_000);
 
-  it('reads the latest listing sale status without applying the traffic evidence gate', async () => {
-    const listingId = await seedListing(TEST_ORGANIZATION_ID, 'STATUS-TEST');
-    const otherListingId = await seedListing(OTHER_ORGANIZATION_ID, 'STATUS-OTHER');
-    await prisma.channelListingDailySnapshot.createMany({
-      data: [
-        statusRow(TEST_ORGANIZATION_ID, listingId, '2026-09-01', '판매중'),
-        statusRow(TEST_ORGANIZATION_ID, listingId, '2026-09-02', '판매중지'),
-        statusRow(OTHER_ORGANIZATION_ID, otherListingId, '2026-09-03', '판매중'),
-      ],
-    });
-
-    const result = await readLatestListingSaleStatusFacts(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      listingIds: [listingId, otherListingId],
-    });
-
-    expect(result).toEqual([{
-      listingId,
-      businessDate: '2026-09-02',
-      saleStatus: '판매중지',
-      observedAt: new Date('2026-09-02T06:00:00.000Z'),
-    }]);
-  });
-
   it('reads the latest listing state past a later row that observed only traffic', async () => {
     const listingId = await seedListing(TEST_ORGANIZATION_ID, 'STATE-BEHIND-TRAFFIC');
     await prisma.channelListingDailySnapshot.createMany({
       data: [
-        statusRow(TEST_ORGANIZATION_ID, listingId, '2026-09-01', '판매중'),
+        stateRow(TEST_ORGANIZATION_ID, listingId, '2026-09-01', 12000),
         trafficRow({
           organizationId: TEST_ORGANIZATION_ID,
           listingId,
@@ -584,7 +559,7 @@ describe('listing daily facts reader (PG integration)', () => {
     expect(result).toMatchObject([{
       listingId,
       businessDate: new Date('2026-09-01T00:00:00.000Z'),
-      saleStatus: '판매중',
+      myPrice: 12000,
     }]);
   });
 
@@ -888,11 +863,11 @@ function wingMetadata(sourceAttemptId?: string) {
   };
 }
 
-function statusRow(
+function stateRow(
   organizationId: string,
   listingId: string,
   date: string,
-  saleStatus: string,
+  myPrice: number,
 ) {
   return {
     id: randomUUID(),
@@ -901,7 +876,7 @@ function statusRow(
     channel: 'coupang',
     externalId: listingId,
     businessDate: new Date(`${date}T00:00:00.000Z`),
-    saleStatus,
+    myPrice,
     lastObservedAt: new Date(`${date}T06:00:00.000Z`),
   };
 }

@@ -246,16 +246,10 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         const listingRows = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, channels: ['coupang', 'rocket'], activeAccountsOnly: true }).then(rows => rows.map(row => ({ ...row, options: row.options.map(option => ({ ...option, inventoryComponents: option.components })) })));
         const listings = listingRows.map(withListingProductSummary);
         const inventoryContext = { client: tx };
-        const [statusFacts, identities] = await Promise.all([
-          this.channelListings.readLatestSaleStatus(ownerTransaction(tx), {
-            organizationId,
-            listingIds: listings.map((listing) => listing.id),
-          }),
-          this.inventoryTransactionalRead.readSourceIdentities(inventoryContext, {
-            organizationId,
-            selector: { kind: "all" },
-          }),
-        ]);
+        const identities = await this.inventoryTransactionalRead.readSourceIdentities(inventoryContext, {
+          organizationId,
+          selector: { kind: "all" },
+        });
         const inventoryLock = await this.inventoryTransactionalRead.lock(
           inventoryContext,
           organizationId,
@@ -281,16 +275,12 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           identities.every((product) =>
             availabilityBySkuId.has(product.masterProductId),
           );
-        const saleStatusByListing = new Map(
-          statusFacts.map((fact) => [fact.listingId, fact.saleStatus]),
-        );
         let unmatched = 0;
         let needsReview = 0;
         let matched = 0;
         const linkedMasterProductIds = new Set<string>();
         for (const listing of listings) {
           const saleStatus = resolveChannelListingSaleStatus({
-            latestSnapshotStatus: saleStatusByListing.get(listing.id) ?? null,
             rawStatus: rawSaleStatus(listing.rawJson),
             optionStatuses: listing.options.map((option) => option.status),
             listingStatus: listing.status,

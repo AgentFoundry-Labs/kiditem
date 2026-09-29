@@ -28,7 +28,6 @@ import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { addDays, businessDateKey, kstDayStart, parseBusinessDate } from '../../../../common/kst';
 import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
-  readLatestListingSaleStatusFacts,
   readListingTrafficWindowFacts,
   type ListingTrafficDailyFact,
 } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
@@ -326,17 +325,8 @@ implements ProductOperationsRepositoryPort {
         },
       },
     });
-    const statusFacts = await readLatestListingSaleStatusFacts(tx, {
-      organizationId,
-      listingIds: rows.map((row) => row.id),
-    });
-    const saleStatusByListing = new Map(statusFacts.map((fact) => [
-      fact.listingId,
-      fact.saleStatus,
-    ]));
     return rows.flatMap((row) => isChannelListingOnSale(
       resolveChannelListingSaleStatus({
-        latestSnapshotStatus: saleStatusByListing.get(row.id) ?? null,
         rawStatus: rawSaleStatus(row.rawJson),
         optionStatuses: row.options.map((option) => option.status),
         listingStatus: row.status,

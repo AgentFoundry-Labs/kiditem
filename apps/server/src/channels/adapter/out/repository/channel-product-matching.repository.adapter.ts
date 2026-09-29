@@ -10,7 +10,6 @@ import {
   PUBLISHED_CATALOG_LISTING_WHERE,
   publishedCatalogOptionWhere,
 } from './published-catalog-listing';
-import { readLatestListingSaleStatusFacts } from '../persistence/channel-listing-daily-facts';
 import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -123,9 +122,6 @@ type ListingRow = Omit<RawListingRow, 'options'> & {
     }>;
   }>;
 };
-type ListingWithSaleStatus = ListingRow & {
-  latestSnapshotSaleStatus: string | null;
-};
 type OptionRow = ListingRow['options'][number];
 type InventorySellpiaSku = ProductMatchingCandidate;
 
@@ -155,19 +151,7 @@ implements ChannelProductMatchingRepositoryPort {
     query: { channelAccountId?: string; search?: string },
   ) {
     const rawListings = await this.prisma.$transaction(async (tx) => {
-      const listingRows = await this.loadListings(tx, organizationId, query, 'matching');
-      const statusFacts = await readLatestListingSaleStatusFacts(tx, {
-        organizationId,
-        listingIds: listingRows.map((listing) => listing.id),
-      });
-      const latestStatus = new Map(statusFacts.map((fact) => [
-        fact.listingId,
-        fact.saleStatus,
-      ]));
-      return listingRows.map((listing): ListingWithSaleStatus => ({
-        ...listing,
-        latestSnapshotSaleStatus: latestStatus.get(listing.id) ?? null,
-      }));
+      return this.loadListings(tx, organizationId, query, 'matching');
     }, READ_TRANSACTION_OPTIONS);
     const listings = await this.hydrateListings(organizationId, rawListings);
     const products = listings.map(toProductQueueRow);
@@ -734,7 +718,7 @@ function availabilityListingWhere(organizationId: string): Prisma.ChannelListing
   };
 }
 
-function toProductQueueRow(listing: ListingWithSaleStatus): ChannelProductMatchingQueueRow {
+function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow {
   return {
     channelAccount: listing.channelAccount,
     listing: {
@@ -795,10 +779,9 @@ function optionRecipeIdentity(option: OptionRow) {
   };
 }
 
-function saleStatusFromListing(listing: ListingWithSaleStatus): string | null {
+function saleStatusFromListing(listing: ListingRow): string | null {
   const raw = asRecord(listing.rawJson);
   return resolveChannelListingSaleStatus({
-    latestSnapshotStatus: listing.latestSnapshotSaleStatus,
     rawStatus: firstString(raw, [
       'saleStatus',
       'salesStatus',
