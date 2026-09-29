@@ -15,8 +15,8 @@ import { readOrderCountsByChannelAccount } from '../../../../orders/adapter/out/
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { MALL_ACCOUNT_ROW_ORDER, mallAccountRowsWhere } from './mall-account-rows';
 import { readMallListingProfile } from '../../../domain/account/mall-listing-profile';
-import { PUBLISHED_LISTING_STATUSES } from '../../../domain/listing/mall-listing-state';
-import { withListingProductSummary } from '../../../domain/listing/listing-product-summary';
+import { listingProductIdFromRecipes, withListingProductSummary } from '../../../domain/listing/listing-product-summary';
+import { readSellingListingFacts } from '../persistence/channel-selling-listings';
 import type {
   MallAccountRow,
   MallListingAccountRow,
@@ -222,16 +222,15 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     });
     if (grouped.length === 0) return [];
 
-    const onSaleStatus = { in: [...PUBLISHED_LISTING_STATUSES] };
-    const [accounts, onSaleListings, productCounts, optionCounts] = await Promise.all([
+    // 판매중은 Channels 정본 판정 하나로 센다(KID-333 ②) — 리스팅 상태만 보던 셈은 원본 판매중지(쿠팡 승인완료)도 판매중으로 쳤다.
+    const sellingListings = (await readSellingListingFacts(this.prisma, {
+      organizationId,
+      channelAccountIds: grouped.map((row) => row.channelAccountId),
+    })).filter((listing) => listing.saleState === 'on_sale');
+    const [accounts, productCounts, optionCounts] = await Promise.all([
       this.prisma.channelAccount.findMany({
         where: { organizationId, id: { in: grouped.map((row) => row.channelAccountId) } },
         select: { id: true, channel: true, name: true },
-      }),
-      this.prisma.channelListing.groupBy({
-        by: ['channelAccountId'],
-        where: { organizationId, isActive: true, status: onSaleStatus },
-        _count: { _all: true },
       }),
       Promise.all(grouped.map(async (row) => {
         const listings = await this.prisma.channelListing.findMany({
@@ -241,10 +240,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             isActive: true,
           },
           select: {
-            status: true,
             options: {
               select: {
-                isActive: true,
                 inventoryComponents: {
                   where: { organizationId },
                   select: { masterProductId: true },
@@ -253,27 +250,10 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             },
           },
         });
-        const summaries = listings.map((listing) => withListingProductSummary(listing));
-        const productIds = summaries
-          .map((listing) => listing.masterProductId)
+        const productIds = listings
+          .map((listing) => withListingProductSummary(listing).masterProductId)
           .filter((id): id is string => id !== null);
-        const onSaleProductIds = summaries
-          .filter((listing) => PUBLISHED_LISTING_STATUSES.includes(listing.status ?? ''))
-          .map((listing) => listing.masterProductId)
-          .filter((id): id is string => id !== null);
-        const uniqueCount = (ids: readonly string[]) => new Set(ids).size;
-        const onSaleLinkedListingCount = listings.filter((listing) => {
-          if (!PUBLISHED_LISTING_STATUSES.includes(listing.status ?? '')) return false;
-          const activeOptions = listing.options.filter((option) => option.isActive);
-          return activeOptions.length > 0
-            && activeOptions.every((option) => option.inventoryComponents.length > 0);
-        }).length;
-        return {
-          channelAccountId: row.channelAccountId,
-          productCount: uniqueCount(productIds),
-          onSaleProductCount: uniqueCount(onSaleProductIds),
-          onSaleLinkedListingCount,
-        };
+        return { channelAccountId: row.channelAccountId, productCount: new Set(productIds).size };
       })),
       Promise.all(grouped.map(async (row) => {
         const scope = {
@@ -285,49 +265,50 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             isActive: true,
           },
         } satisfies Prisma.ChannelListingOptionWhereInput;
-        const onSale = {
-          ...scope,
-          listing: { ...scope.listing, status: onSaleStatus },
-        } satisfies Prisma.ChannelListingOptionWhereInput;
-        const matched = { inventoryComponents: { some: {} } };
-        const [optionCount, matchedOptionCount, onSaleOptionCount, onSaleMatchedOptionCount] =
-          await Promise.all([
-            this.prisma.channelListingOption.count({ where: scope }),
-            this.prisma.channelListingOption.count({ where: { ...scope, ...matched } }),
-            this.prisma.channelListingOption.count({ where: onSale }),
-            this.prisma.channelListingOption.count({ where: { ...onSale, ...matched } }),
-          ]);
-        return {
-          channelAccountId: row.channelAccountId,
-          optionCount,
-          matchedOptionCount,
-          onSaleOptionCount,
-          onSaleMatchedOptionCount,
-        };
+        const [optionCount, matchedOptionCount] = await Promise.all([
+          this.prisma.channelListingOption.count({ where: scope }),
+          this.prisma.channelListingOption.count({ where: { ...scope, inventoryComponents: { some: {} } } }),
+        ]);
+        return { channelAccountId: row.channelAccountId, optionCount, matchedOptionCount };
       })),
     ]);
 
     const countByAccount = new Map(grouped.map((row) => [row.channelAccountId, row._count._all]));
-    const onSaleListingByAccount = new Map(
-      onSaleListings.map((row) => [row.channelAccountId, row._count._all]),
-    );
     const productByAccount = new Map(productCounts.map((row) => [row.channelAccountId, row]));
     const optionsByAccount = new Map(optionCounts.map((row) => [row.channelAccountId, row]));
+    const sellingByAccount = new Map<string, {
+      listingCount: number; productIds: Set<string>; linkedListingCount: number; optionCount: number; matchedOptionCount: number;
+    }>();
+    for (const listing of sellingListings) {
+      const counts = sellingByAccount.get(listing.channelAccountId)
+        ?? { listingCount: 0, productIds: new Set<string>(), linkedListingCount: 0, optionCount: 0, matchedOptionCount: 0 };
+      const activeOptions = listing.options.filter((option) => option.isActive);
+      const productId = listingProductIdFromRecipes(listing.options.map((option) => ({ inventoryComponents: option.components })));
+      counts.listingCount += 1;
+      if (productId) counts.productIds.add(productId);
+      if (activeOptions.length > 0 && activeOptions.every((option) => option.components.length > 0)) counts.linkedListingCount += 1;
+      counts.optionCount += activeOptions.length;
+      counts.matchedOptionCount += activeOptions.filter((option) => option.components.length > 0).length;
+      sellingByAccount.set(listing.channelAccountId, counts);
+    }
 
-    return accounts.map((account) => ({
-      channelAccountId: account.id,
-      channel: account.channel,
-      name: account.name,
-      listingCount: countByAccount.get(account.id) ?? 0,
-      onSaleListingCount: onSaleListingByAccount.get(account.id) ?? 0,
-      productCount: productByAccount.get(account.id)?.productCount ?? 0,
-      onSaleProductCount: productByAccount.get(account.id)?.onSaleProductCount ?? 0,
-      onSaleLinkedListingCount: productByAccount.get(account.id)?.onSaleLinkedListingCount ?? 0,
-      optionCount: optionsByAccount.get(account.id)?.optionCount ?? 0,
-      matchedOptionCount: optionsByAccount.get(account.id)?.matchedOptionCount ?? 0,
-      onSaleOptionCount: optionsByAccount.get(account.id)?.onSaleOptionCount ?? 0,
-      onSaleMatchedOptionCount: optionsByAccount.get(account.id)?.onSaleMatchedOptionCount ?? 0,
-    }));
+    return accounts.map((account) => {
+      const selling = sellingByAccount.get(account.id);
+      return {
+        channelAccountId: account.id,
+        channel: account.channel,
+        name: account.name,
+        listingCount: countByAccount.get(account.id) ?? 0,
+        onSaleListingCount: selling?.listingCount ?? 0,
+        productCount: productByAccount.get(account.id)?.productCount ?? 0,
+        onSaleProductCount: selling?.productIds.size ?? 0,
+        onSaleLinkedListingCount: selling?.linkedListingCount ?? 0,
+        optionCount: optionsByAccount.get(account.id)?.optionCount ?? 0,
+        matchedOptionCount: optionsByAccount.get(account.id)?.matchedOptionCount ?? 0,
+        onSaleOptionCount: selling?.optionCount ?? 0,
+        onSaleMatchedOptionCount: selling?.matchedOptionCount ?? 0,
+      };
+    });
   }
   /**
    * 매트릭스 한 페이지.

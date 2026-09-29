@@ -22,6 +22,10 @@ export class ChannelListingQueryService implements ChannelListingQueryPort {
     return this.persistence.readOptionCandidates(transaction, input);
   }
 
+  readSellingListings(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readSellingListings']>[1]) {
+    return this.persistence.readSellingListings(transaction, input);
+  }
+
   readCatalogFacts(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readCatalogFacts']>[1]) {
     return this.persistence.readCatalogFacts(transaction, input);
   }
