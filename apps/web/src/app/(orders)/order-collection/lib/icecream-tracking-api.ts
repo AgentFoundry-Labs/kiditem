@@ -4,6 +4,12 @@ import { downloadBlob } from '@/lib/browser-download';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
+/**
+ * 온채널·키드키즈 송장 업로드는 아직 옛 주문 워커가 답한다. wave8b가 kind로 옮기며 이 옛 표시와 함께 지운다
+ * (새 런타임 감지 기본값 `operationRuntime`로는 옛 워커가 없는 빌드를 가려내지 못한다).
+ */
+const LEGACY_ORDER_WORKER_CAPABILITY = 'orderCollectionIcecreamMall';
+
 // ── 도매꾹 송장 업로드(발송처리): 셀피아 송장 → 도매꾹 엑셀양식 → 확장이 shipXls 업로드 ──
 
 export interface DomeggookShipBuild {
@@ -77,7 +83,7 @@ export async function uploadOnchTrackingViaExtension(rows: SellpiaTrackingRow[])
   listSize: number;
   results: OnchUploadResultRow[];
 }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, LEGACY_ORDER_WORKER_CAPABILITY);
   if (!extensionId) {
     throw new Error('주문수집 확장프로그램이 필요합니다. www.onch3.co.kr 로그인 후 다시 시도하세요.');
   }
@@ -117,7 +123,7 @@ export async function uploadKidkidsTrackingViaExtension(rows: SellpiaTrackingRow
   submitted: boolean;
   results: KidkidsTrackingUploadResultRow[];
 }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, LEGACY_ORDER_WORKER_CAPABILITY);
   if (!extensionId) {
     throw new Error('주문수집 확장프로그램이 필요합니다. partner.kidkids.net 로그인 후 다시 시도하세요.');
   }

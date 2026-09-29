@@ -53,7 +53,8 @@ export async function collectSellpiaOrderSnapshot(): Promise<{
   rows: SellpiaOrderSnapshotRow[];
   partial: boolean;
 }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  // 셀피아 주문 스냅샷은 아직 옛 주문 워커가 답한다 — wave8b가 kind로 옮기며 이 옛 표시를 지운다.
+  const extensionId = await detectOrderCollectionExtensionId(1200, 'orderCollectionIcecreamMall');
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. 확장을 로드하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도하세요.',

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EXTENSION_RUNTIME_CAPABILITY } from '@kiditem/shared/extension-actions';
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
@@ -136,8 +137,14 @@ type DetectExtensionOptions = {
   accepts: (response: ExtensionPingResponse) => boolean;
 };
 
+/**
+ * 확장이 보내는 창의 origin으로 환경(`local`·`office`)을 가르는지. 새 런타임 `ping`도 계속 낸다(KID-366).
+ * shared `extension-actions` 골격에 상수가 없어 여기 둔다.
+ */
+export const EXTENSION_ENVIRONMENT_PROFILES_CAPABILITY = 'kiditemEnvironmentProfilesV1';
+
 function supportsEnvironmentProfiles(response: ExtensionPingResponse): boolean {
-  return response.capabilities?.kiditemEnvironmentProfilesV1 === true;
+  return response.capabilities?.[EXTENSION_ENVIRONMENT_PROFILES_CAPABILITY] === true;
 }
 
 function requestExtensionIdFromHandshake(
@@ -266,7 +273,7 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
 
 export async function detectOrderCollectionExtensionId(
   timeoutMs = 1200,
-  requiredCapability: string | null = 'orderCollectionIcecreamMall',
+  requiredCapability: string | null = EXTENSION_RUNTIME_CAPABILITY,
 ): Promise<string | null> {
   return detectExtensionIdWithHandshake({
     storageKey: KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
@@ -282,7 +289,7 @@ export async function detectOrderCollectionExtensionId(
 
 export async function detectOrderCollectionExtensionRuntime(
   timeoutMs = 1200,
-  requiredCapabilities: string[] = ['orderCollectionIcecreamMall'],
+  requiredCapabilities: string[] = [EXTENSION_RUNTIME_CAPABILITY],
   /**
    * How long the extension this browser already knows gets to answer. A worker
    * busy with other malls answers a ping late; late is not missing. Discovery
@@ -292,7 +299,7 @@ export async function detectOrderCollectionExtensionRuntime(
 ): Promise<ExtensionRuntimeStatus> {
   if (typeof window === 'undefined') return { status: 'not_found' };
   const capabilities = [...new Set([
-    'kiditemEnvironmentProfilesV1',
+    EXTENSION_ENVIRONMENT_PROFILES_CAPABILITY,
     ...requiredCapabilities,
   ])];
   const probe = async (

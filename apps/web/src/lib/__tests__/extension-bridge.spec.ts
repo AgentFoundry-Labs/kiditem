@@ -96,17 +96,18 @@ describe('universal extension discovery', () => {
     );
   });
 
-  it('requires both the requested order and environment profile capabilities', async () => {
+  it('finds the order extension by the new runtime capability by default, not the old worker flag', async () => {
     window.localStorage.setItem(
       KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
       'order-extension',
     );
     installChrome({
       success: true,
-      capabilities: { orderCollectionIcecreamMall: true },
+      capabilities: { operationRuntime: true },
     });
     await expect(detectOrderCollectionExtensionId(5)).resolves.toBeNull();
 
+    // 옛 워커 표시만 있는 확장은 새 런타임이 없으면 기본 감지에 잡히지 않는다(KID-366).
     installChrome({
       success: true,
       capabilities: {
@@ -114,9 +115,28 @@ describe('universal extension discovery', () => {
         kiditemEnvironmentProfilesV1: true,
       },
     });
+    await expect(detectOrderCollectionExtensionId(5)).resolves.toBeNull();
+    await expect(detectOrderCollectionExtensionRuntime(5)).resolves.toMatchObject({
+      status: 'incompatible',
+      missingCapabilities: ['operationRuntime'],
+    });
+
+    installChrome({
+      success: true,
+      version: '1.3.0',
+      capabilities: {
+        operationRuntime: true,
+        kiditemEnvironmentProfilesV1: true,
+      },
+    });
     await expect(detectOrderCollectionExtensionId(5)).resolves.toBe(
       'order-extension',
     );
+    await expect(detectOrderCollectionExtensionRuntime(5)).resolves.toEqual({
+      status: 'ready',
+      extensionId: 'order-extension',
+      version: '1.3.0',
+    });
   });
 
   it('distinguishes an installed but incompatible order extension from a missing one', async () => {
