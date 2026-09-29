@@ -149,15 +149,17 @@ already collected keep their published facts.
 
 ## Failure, Retry, And Attention
 
-A source that reports its own failure, which is every source except the two 1688
-searches, commits a bounded code and a durable Alert in the owner's terminal
-transaction. The Alert is a human notification, not execution state.
+Every source, the two 1688 searches included, finishes a failed collection as a
+FAILED operation with a bounded code, and the owner records a durable Alert in
+the same finish transaction. A 1688 unit with a failed item closes FAILED with
+`SOURCE_PLAN_INCOMPLETE` and keeps its unit result on the operation; nothing is
+published. The Alert is a human notification, not execution state.
 
 | Situation | Safe action | Never do |
 | --- | --- | --- |
 | A running collection is no longer wanted | Let the lease expire, or complete the human step the collector is waiting on. | Delete or edit the attempt row, or start a second collection for the same source. |
 | The browser needs login, OTP, CAPTCHA, or account selection | Keep the provider tab, finish the human action, then use the screen CTA again. | Treat authentication as a transient error, or bypass it with a copied session. |
-| Provider outage or timeout | Keep the previous COMPLETE snapshot, record the bounded code from the attempt or the unit result, restore provider readiness, then start a new collection. | Replace the snapshot with empty data, or read a COMPLETE 1688 attempt as a successful collection without checking its unit. |
+| Provider outage or timeout | Keep the previous COMPLETE snapshot, record the bounded code from the attempt or the unit result, restore provider readiness, then start a new collection. | Replace the snapshot with empty data, or read a FAILED 1688 search as an empty result without checking its unit. |
 | The frozen plan no longer matches the targets | Start a new collection so the owner freezes the current plan. | Edit the stored plan or its checksum. |
 | Fence or token lost | Stop the collector, close the tabs it owns, and read the source status. | Send a late terminal report, or reuse a token from an earlier attempt. |
 
