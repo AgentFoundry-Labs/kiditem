@@ -76,10 +76,21 @@ Action, collection, transmission, and reconciliation behavior is executable in
   finishes in one request (the Rocket matching CSV shape). An encrypted
   workbook is decrypted before begin, so the stored capture converts without
   the password; the password is never stored.
-- Today's order count is one Orders capability
-  (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
-  operation's `rowCount`; legacy attempt runs are not counted. The order
-  screen and the dashboard both read it.
+- Mall order finalize writes `result.orderNumbers` from the converted Sellpia
+  file with `sellpiaOrderNumbersFromFile` (the transfer-target rule), capped at
+  2,000 with `orderNumbersTruncated: true`; manual uploads too. Directship
+  writes none: its file numbers restart at `_0001` per file and finalize has no
+  operator selection.
+- Today's orders and `신규` are one Orders capability
+  (`ORDER_COLLECTION_TODAY_ORDERS_PORT`, KID-234): per mall the union of today's
+  succeeded runs' `orderNumbers`, minus the `acceptedOrderNumbers` of succeeded
+  transfers whose plan `sourceOperationId` is one of those runs. Directship:
+  per account the latest run's `rowCount` (purchase orders), new = the
+  purchase orders of transports with no succeeded transfer. Kidkids numbers are
+  synthesized per file (order date + sequence), so incremental runs can
+  undercount until its converter uses the mall's `om`. Legacy attempt runs and
+  Rocket PO are not counted. The order screen and the dashboard (`total`) both
+  read it.
 - Order facts are orders an operation converted (`Order.operationId`), observed
   at that operation's finish; a window's coverage is the succeeded
   `orders.mall_orders` operations' `result.coverage`. Orders and coverage only
