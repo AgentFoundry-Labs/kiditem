@@ -1,4 +1,4 @@
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
@@ -7,11 +7,6 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
 import { CorrectProductSourceBindingUseCase } from '../application/service/correct-product-source-binding.usecase';
 import type { ProductQueryPort } from '../application/port/in/product-query.port';
-import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
-import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
-import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository";
 
 describe('product source correction (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -24,10 +19,7 @@ describe('product source correction (PostgreSQL)', () => {
       prisma as unknown as PrismaService,
       {} as never,
       {} as never,
-      new ChannelAccountService(
-        new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
-        new ChannelCredentialsAdapter(),
-      ), {} as never,
+      orderFactsTestReader(prisma as unknown as PrismaService), {} as never,
       channelFactTestPorts(prisma as never).listings,
     );
     const query = {

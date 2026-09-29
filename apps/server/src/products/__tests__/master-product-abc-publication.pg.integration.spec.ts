@@ -22,7 +22,7 @@ import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/per
 import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
 import { ProductAbcReadUseCase } from '../application/service/product-abc-read.usecase';
 import { ProductDataStatusUseCase } from '../application/service/product-data-status.usecase';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 
 /**
  * KID-46 — which cutoff ABC may publish is a database question: it depends on
@@ -197,7 +197,7 @@ function productOperationsDataStatus(prisma: PrismaClient): ProductDataStatusUse
     new ProductOperationsDataStatusRepositoryAdapter(
       prisma as never,
       profitabilityEvidence(prisma),
-      channelFactTestPorts(prisma as never).accounts,
+      orderFactsTestReader(prisma as never),
       channelFactTestPorts(prisma as never).listings,
     ),
   );

@@ -12,7 +12,6 @@ import { buildPeriodBasis, periodBasisStatus, WING_TRAFFIC_SOURCE } from '@kidit
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
 import { ProductStateException } from '../../../application/exception/product-state.exception';
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { listingProductIdFromRecipes } from '../../../../channels/domain/listing/listing-product-summary';
 import {
   ADVERTISING_LEDGER_READ_PORT,
@@ -22,7 +21,7 @@ import {
 import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { addDays, businessDateKey, kstDayStart, parseBusinessDate } from '../../../../common/kst';
-import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import { ORDER_FACTS_PORT, type ListingOptionOrderFacts, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
 import {
   readListingTrafficWindowFacts,
   type ListingTrafficDailyFact,
@@ -139,8 +138,8 @@ implements ProductOperationsRepositoryPort {
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(PRODUCT_SOURCE_READ_PORT)
     private readonly inventorySkuRead: ProductSourceReadPort,
-    @Inject(CHANNEL_ACCOUNT_PORT)
-    private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ORDER_FACTS_PORT)
+    private readonly orderFacts: OrderFactsPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT)
     private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readListingAdWindowFacts' | 'readAdEvidenceCutoff'>,
     @Inject(CHANNEL_LISTING_QUERY_PORT)
@@ -236,8 +235,8 @@ implements ProductOperationsRepositoryPort {
           listingIds: rows.flatMap((row) => row.channelListings.map((listing) => listing.id)),
         });
         const orderWindow = { organizationId, from: kstDayStart(periodStart), to: kstDayStart(periodEnd) };
-        const orders = await readOrderWindowFacts(tx, orderWindow, this.channelAccounts);
-        const orderLines = await readListingOptionOrderFacts(tx, orderWindow);
+        const orders = await this.orderFacts.readOrderWindowFacts(transaction, orderWindow);
+        const orderLines = await this.orderFacts.readListingOptionOrderFacts(transaction, orderWindow);
         return {
           sellingMasterProductIds,
           sellingInStockMasterProductIds,

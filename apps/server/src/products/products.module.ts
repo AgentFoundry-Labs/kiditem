@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../orders/order-facts.module';
 import { AdvertisingLedgerReadModule } from '../advertising/advertising-ledger-read.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { PRODUCT_SOURCE_BINDING_PORT } from './application/port/in/product-source-binding.port';
@@ -36,6 +37,7 @@ import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
     FinanceModule,
     AiModule,
     ProductAbcReadModule,
+    OrderFactsModule,
   ],
   controllers: [ProductAbcController, ProductOperationsController],
   providers: [
