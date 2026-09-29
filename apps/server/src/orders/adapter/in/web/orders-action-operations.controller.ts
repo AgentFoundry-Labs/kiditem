@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { OrdersActionOperationService } from '../../../application/service/orders-action-operation.service';
 import { SellpiaOrderTransferService } from '../../../application/service/sellpia-order-transfer.service';
+import { contentDispositionAttachment } from './operation-conversion';
 
 /**
  * Orders 작업 실행(KID-355 wave8b)의 owner 라우트. 시작·진행·읽기는 실행 계약(`/api/operations`)이 맡고, 여기는
@@ -24,8 +25,7 @@ export class OrdersActionOperationsController {
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     const file = await this.transfers.readSource(organizationId, operationId);
-    const asciiFallback = file.fileName.replace(/[^\x20-\x7E]/g, '_');
-    response.setHeader('Content-Disposition', `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+    response.setHeader('Content-Disposition', contentDispositionAttachment(file.fileName));
     response.setHeader('Content-Type', file.contentType);
     response.setHeader('Cache-Control', 'private, no-store');
     return new StreamableFile(file.bytes);

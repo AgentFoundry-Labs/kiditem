@@ -35,15 +35,17 @@ export function conversionFile(response: Response, converted: MallOrdersOperatio
     response.status(204);
     return new StreamableFile(Buffer.alloc(0));
   }
-  const asciiFallback = conversion.fileName.replace(/[^\x20-\x7E]/g, '_');
-  response.setHeader(
-    'Content-Disposition',
-    `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(conversion.fileName)}`,
-  );
-  response.setHeader('Content-Type', converted.mallKey === 'art09' ? 'text/csv;charset=utf-8' : 'application/vnd.ms-excel');
+  response.setHeader('Content-Disposition', contentDispositionAttachment(conversion.fileName));
+  response.setHeader('Content-Type', converted.contentType);
   response.setHeader('X-Order-Collection-Source-Rows', String(conversion.sourceRows));
   response.setHeader('X-Order-Collection-Product-Rows', String(conversion.productRows));
   response.setHeader('X-Order-Collection-Output-Rows', String(conversion.outputRows));
   response.setHeader('X-Order-Collection-Skipped-Rows', String(conversion.skippedRows));
   return new StreamableFile(conversion.buffer);
+}
+
+/** 한글 파일 이름을 담는 `Content-Disposition` 첨부 머리(ASCII 대체 이름 + RFC 5987 UTF-8 이름). */
+export function contentDispositionAttachment(fileName: string): string {
+  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
