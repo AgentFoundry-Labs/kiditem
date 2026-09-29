@@ -116,7 +116,20 @@ describe('판매중 리스팅 리더 readSellingListings (PG integration)', () =
     const [row] = await read();
 
     expect(row).toMatchObject({ listingId: id, saleState: 'off_sale' });
-    expect(row!.options.map((option) => option.isActive).sort()).toEqual([false, true]);
+  });
+
+  it('꺼진 옵션은 판매중 리더 출력에 없다', async () => {
+    const wing = await account('coupang');
+    const masterProductId = randomUUID();
+    await listing({
+      accountId: wing.id, externalId: 'P-OFF-OPTION', status: '승인완료',
+      options: [{ status: null }, { status: null, isActive: false, masterProductIds: [masterProductId] }],
+    });
+
+    const [row] = await read();
+
+    expect(row!.options).toHaveLength(1);
+    expect(row!.options[0]).toMatchObject({ isActive: true, components: [] });
   });
 
   it('옵션 레시피 구성품을 싣고, 채널·계정·쓸 수 있는 계정 상태·조직으로 거른다', async () => {

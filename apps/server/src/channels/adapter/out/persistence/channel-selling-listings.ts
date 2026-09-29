@@ -4,7 +4,7 @@ import { listingSaleState } from '../../../domain/listing/listing-sale-state';
 import type { ChannelSellingListingFact, ChannelSellingListingFilter } from '../../../application/port/in/listing/channel-listing-query.port';
 
 /**
- * 판매중 정본 리더(KID-333 ②). 켜진 리스팅마다 판정(`saleState`)과 옵션 레시피를 싣는다 — 판매중만 세는 쪽은
+ * 판매중 정본 리더(KID-333 ②). 켜진 리스팅마다 판정(`saleState`)과 켜진 옵션의 레시피를 싣는다 — 판매중만 세는 쪽은
  * `saleState === 'on_sale'`로 거른다. 꺼 둔 리스팅은 판정이 늘 판매중 아님이라 읽지 않는다.
  */
 export async function readSellingListingFacts(
@@ -27,8 +27,9 @@ export async function readSellingListingFacts(
     select: {
       id: true, isActive: true, status: true, rawJson: true, channelAccountId: true,
       channelAccount: { select: { channel: true, name: true } },
+      // 켜진 옵션만 — 판정과 세는 쪽(판매중 SKU·ABC·매칭 카드·/mall-channels)이 같은 옵션을 본다.
       options: {
-        where: { organizationId },
+        where: { organizationId, isActive: true },
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: {
           id: true, status: true, isActive: true,
