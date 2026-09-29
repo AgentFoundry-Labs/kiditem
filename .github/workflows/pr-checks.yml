@@ -40,7 +40,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git diff --name-only "${BASE_SHA}...HEAD" | grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|package-lock\.json$|\.github/workflows/pr-checks\.yml$)'; then
+          if git diff --name-only "${BASE_SHA}...HEAD" | grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\.json$|package\.json$|package-lock\.json$|\.github/workflows/pr-checks\.yml$)'; then
             echo "gateway=true" >> "$GITHUB_OUTPUT"
           else
             echo "gateway=false" >> "$GITHUB_OUTPUT"
@@ -66,7 +66,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
 
       - name: Install dependencies without repository lifecycle scripts
         run: npm ci --ignore-scripts
@@ -151,6 +150,9 @@ jobs:
       - name: Checkout pull request head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          # Full history with every branch: the cutover coverage check diffs against
+          # origin/release/office and check:schema-artifact-sync diffs against the PR base (KID-399).
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Use Node 22
@@ -171,9 +173,6 @@ jobs:
       - name: Build shared package JavaScript
         # Script specs import runtime JS only; the DTS build exhausts the hosted runner heap.
         run: npm exec --workspace=packages/shared tsup -- --no-dts
-
-      - name: Fetch the Office release schema
-        run: git fetch --no-tags --depth=1 origin +refs/heads/release/office:refs/remotes/origin/release/office
 
       - name: Check cutover blocker coverage
         # Diffs the schema against release/office offline; no database or secret is used.
