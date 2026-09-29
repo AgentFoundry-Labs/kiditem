@@ -11,6 +11,8 @@ import type { StoredOrderCollectionFile } from '../lib/order-generated-file-stor
 
 interface OrderCollectionDailyPanelProps {
   history: StoredOrderCollectionFile[];
+  /** Orders 서버 리더의 오늘 주문(`total`). 없거나 null이면 오늘 막대도 이 브라우저 기록이다. */
+  serverToday?: { key: string; orderRows: number } | null;
   className?: string;
 }
 
@@ -41,9 +43,9 @@ const RANGE_OPTIONS: { key: ChartRange; label: string; days: number | null }[] =
  * 수집 추이: 일자별 주문 막대 차트 + 기간 토글(1주/1달/전체).
  * 요약 지표는 page 상단 히어로 통계로, 몰별 관리는 '주문수집' 섹션으로 분리됨.
  */
-export function OrderCollectionDailyPanel({ history, className }: OrderCollectionDailyPanelProps) {
+export function OrderCollectionDailyPanel({ history, serverToday = null, className }: OrderCollectionDailyPanelProps) {
   const [range, setRange] = useState<ChartRange>('1w');
-  const stats = buildDailyStats(history);
+  const stats = buildDailyStats(history, serverToday);
   const days = RANGE_OPTIONS.find((option) => option.key === range)?.days ?? null;
   const chartStats = (days ? stats.slice(0, days) : [...stats]).reverse();
 
@@ -167,7 +169,14 @@ function niceAxis(max: number): { axisMax: number; ticks: number[] } {
   return { axisMax, ticks };
 }
 
-function buildDailyStats(items: StoredOrderCollectionFile[]): DailyCollectionStat[] {
+/**
+ * 일자별 주문 막대. 오늘 막대는 Orders 서버 리더의 오늘 주문(카드·머리와 같은 수, KID-234)이고, 지난 날은 서버가 날짜별로
+ * 세지 않으므로 이 브라우저의 파일 기록 그대로다(다른 PC에서 걷은 지난 날은 보이지 않는다).
+ */
+export function buildDailyStats(
+  items: StoredOrderCollectionFile[],
+  serverToday: { key: string; orderRows: number } | null,
+): DailyCollectionStat[] {
   const byDate = new Map<string, DailyCollectionAccumulator>();
 
   for (const item of items) {
@@ -198,14 +207,22 @@ function buildDailyStats(items: StoredOrderCollectionFile[]): DailyCollectionSta
     stat.latestAt = Math.max(stat.latestAt, item.convertedAt);
   }
 
-  return [...byDate.values()]
-    .map((stat) => ({
-      key: stat.key,
-      label: stat.label,
-      orderRows: stat.orderNumbers.size + sumMapValues(stat.fallbackByBucket),
-      latestAt: stat.latestAt,
-    }))
-    .sort((a, b) => b.key.localeCompare(a.key));
+  const stats = new Map<string, DailyCollectionStat>([...byDate.values()].map((stat) => [stat.key, {
+    key: stat.key,
+    label: stat.label,
+    orderRows: stat.orderNumbers.size + sumMapValues(stat.fallbackByBucket),
+    latestAt: stat.latestAt,
+  }]));
+  if (serverToday) {
+    const local = stats.get(serverToday.key);
+    stats.set(serverToday.key, {
+      key: serverToday.key,
+      label: dayLabel(serverToday.key),
+      orderRows: serverToday.orderRows,
+      latestAt: local?.latestAt ?? 0,
+    });
+  }
+  return [...stats.values()].sort((a, b) => b.key.localeCompare(a.key));
 }
 
 function sumMapValues(values: Map<string, number>): number {

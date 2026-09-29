@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildOrderCollectionPipelineSummary,
   buildOrderCollectionSummary,
+  mergeServerTodayOrders,
 } from "./order-collection-stats";
 import type { StoredOrderCollectionFile } from "./order-generated-file-store";
 
@@ -74,92 +75,12 @@ describe("buildOrderCollectionSummary", () => {
       malls: ["아이스크림몰"],
     });
     expect(summary.mallStats).toHaveLength(1);
-    expect(summary.mallStatsByKey.get("icecream-mall")).toMatchObject({
+    expect(summary.mallStatsByKey.get("icecream-mall")).toEqual({
+      key: "icecream-mall",
       name: "아이스크림몰",
       files: 1,
-      orderRows: 10,
-      newRows: 10,
       productRows: 5,
-    });
-  });
-
-  it("counts 신규 from today's collection only and drops orders already sent to Sellpia", () => {
-    const summary = buildOrderCollectionSummary(
-      [
-        historyItem({
-          id: "first",
-          mallKey: "kidkids",
-          mallName: "키드키즈",
-          collectionDate: "2026-07-14",
-          orderNumbers: ["ORDER-1", "ORDER-2"],
-          outputRows: 4,
-          productRows: 2,
-          convertedAt: Date.UTC(2026, 6, 14, 1, 0),
-        }),
-        historyItem({
-          id: "second",
-          mallKey: "kidkids",
-          mallName: "키드키즈",
-          collectionDate: "2026-07-14",
-          orderNumbers: ["ORDER-2", "ORDER-3"],
-          outputRows: 4,
-          productRows: 2,
-          transmissionRequestedAt: Date.UTC(2026, 6, 14, 2, 0),
-          convertedAt: Date.UTC(2026, 6, 14, 2, 0),
-        }),
-        historyItem({
-          id: "yesterday",
-          mallKey: "kidkids",
-          mallName: "키드키즈",
-          collectionDate: "2026-07-13",
-          orderNumbers: ["ORDER-OLD"],
-          outputRows: 2,
-          productRows: 1,
-        }),
-      ],
-      "2026-07-14",
-    );
-
-    expect(summary.mallStatsByKey.get("kidkids")).toMatchObject({
-      files: 2,
-      orderRows: 3,
-      // 오늘 수집분 중 미전송인 ORDER-1 만. 전송한 ORDER-2/3, 어제 수집분 ORDER-OLD 는 제외.
-      newRows: 1,
-      productRows: 2,
-      latestAt: Date.UTC(2026, 6, 14, 2, 0),
-    });
-  });
-
-  it("uses the largest same-day collection when order numbers are unavailable", () => {
-    const summary = buildOrderCollectionSummary(
-      [
-        historyItem({
-          id: "smaller-collection",
-          mallKey: "onch",
-          mallName: "온채널",
-          collectionDate: "2026-07-14",
-          outputRows: 12,
-          productRows: 4,
-          convertedAt: Date.UTC(2026, 6, 14, 1, 0),
-        }),
-        historyItem({
-          id: "larger-collection",
-          mallKey: "onch",
-          mallName: "온채널",
-          collectionDate: "2026-07-14",
-          outputRows: 19,
-          productRows: 6,
-          convertedAt: Date.UTC(2026, 6, 14, 2, 0),
-        }),
-      ],
-      "2026-07-14",
-    );
-
-    expect(summary.mallStatsByKey.get("onch")).toMatchObject({
-      files: 2,
-      orderRows: 13,
-      newRows: 13,
-      productRows: 6,
+      latestAt: Date.UTC(2026, 5, 26, 8, 0),
     });
   });
 
@@ -176,7 +97,6 @@ describe("buildOrderCollectionSummary", () => {
     );
 
     expect(summary.totals.orders).toBe(0);
-    expect(summary.mallStatsByKey.get("kidkids")?.orderRows).toBe(0);
   });
 
   it("excludes tracking artifacts from order collection totals", () => {
@@ -196,6 +116,55 @@ describe("buildOrderCollectionSummary", () => {
     expect(summary.totals).toEqual({ orders: 0, products: 0 });
     expect(summary.dailyStats).toEqual([]);
     expect(summary.mallStats).toEqual([]);
+  });
+});
+
+describe("mergeServerTodayOrders (KID-234)", () => {
+  const local = buildOrderCollectionSummary(
+    [
+      historyItem({
+        id: "kidkids-local",
+        mallKey: "kidkids",
+        mallName: "키드키즈",
+        collectionDate: "2026-07-14",
+        orderNumbers: ["ORDER-1", "ORDER-2", "ORDER-3"],
+        outputRows: 6,
+        productRows: 3,
+        convertedAt: Date.UTC(2026, 6, 14, 1, 0),
+      }),
+      historyItem({
+        id: "onch-local",
+        mallKey: "onch",
+        mallName: "온채널",
+        collectionDate: "2026-07-14",
+        orderNumbers: ["OC-1"],
+        outputRows: 2,
+        productRows: 1,
+        convertedAt: Date.UTC(2026, 6, 14, 2, 0),
+      }),
+    ],
+    "2026-07-14",
+  ).mallStatsByKey;
+
+  it("takes 당일 and 신규 only from the Orders server reader — the browser's files and send records never change them", () => {
+    const cards = mergeServerTodayOrders(local, {
+      kidkids: { orderCount: 5, newCount: 2 },
+      art09: { orderCount: 4, newCount: 4 },
+    });
+
+    // 이 브라우저는 3건·미전송 3건으로 기억하지만 카드는 서버의 5건·2건이다.
+    expect(cards.get("kidkids")).toEqual({
+      key: "kidkids", name: "키드키즈", files: 1, productRows: 3, latestAt: Date.UTC(2026, 6, 14, 1, 0),
+      orderRows: 5, newRows: 2,
+    });
+    // 다른 PC에서 걷은 몰도 서버 값으로 보인다.
+    expect(cards.get("art09")).toMatchObject({ files: 0, orderRows: 4, newRows: 4 });
+    // 서버가 오늘 성공 수집을 모르는 몰은 로컬 파일이 있어도 0 — 파일 목록·수집 시각만 로컬이다.
+    expect(cards.get("onch")).toMatchObject({ files: 1, orderRows: 0, newRows: 0, latestAt: Date.UTC(2026, 6, 14, 2, 0) });
+  });
+
+  it("shows zeros until the server answers", () => {
+    expect(mergeServerTodayOrders(local, undefined).get("kidkids")).toMatchObject({ orderRows: 0, newRows: 0 });
   });
 });
 
