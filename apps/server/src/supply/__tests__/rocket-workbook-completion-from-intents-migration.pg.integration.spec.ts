@@ -35,6 +35,7 @@ describe('v0.1.31:035 stamp Rocket workbook completion from transmission intents
     lines: Array<{ confirmed: number; collected: boolean }>;
     transmissions: Array<{ transport: 'SHIPMENT' | 'MILKRUN'; intent: null | { status: 'prepared' | 'finalized' | 'aborted' | 'never_prepared'; finalizedAt?: Date } }>;
     completedAt?: Date;
+    releasedAt?: Date;
   }): Promise<string> {
     const organizationId = input.organizationId ?? ORG;
     const created = await prisma.rocketPurchaseConfirmation.create({
@@ -45,6 +46,7 @@ describe('v0.1.31:035 stamp Rocket workbook completion from transmission intents
         requestHash: 'a'.repeat(64),
         confirmedBy: USER,
         completedAt: input.completedAt ?? null,
+        releasedAt: input.releasedAt ?? null,
       },
       select: { id: true },
     });
@@ -112,6 +114,18 @@ describe('v0.1.31:035 stamp Rocket workbook completion from transmission intents
         { transport: 'MILKRUN', intent: { status: 'prepared' } },
       ],
     });
+    const aborted = await workbook({
+      lines: [{ confirmed: 1, collected: true }],
+      transmissions: [
+        { transport: 'SHIPMENT', intent: { status: 'finalized', finalizedAt: t(10) } },
+        { transport: 'MILKRUN', intent: { status: 'aborted' } },
+      ],
+    });
+    const released = await workbook({
+      lines: [{ confirmed: 1, collected: true }],
+      transmissions: [{ transport: 'SHIPMENT', intent: { status: 'finalized', finalizedAt: t(10) } }],
+      releasedAt: t(8),
+    });
     const intentNeverPrepared = await workbook({
       lines: [{ confirmed: 1, collected: true }],
       transmissions: [
@@ -140,6 +154,8 @@ describe('v0.1.31:035 stamp Rocket workbook completion from transmission intents
     expect(await completedAt(done)).toEqual(t(20));
     expect(await completedAt(emptyProbeToo)).toEqual(t(30));
     expect(await completedAt(stillSending)).toBeNull();
+    expect(await completedAt(aborted)).toBeNull();
+    expect(await completedAt(released)).toBeNull();
     expect(await completedAt(intentNeverPrepared)).toBeNull();
     expect(await completedAt(lineUncollected)).toBeNull();
     expect(await completedAt(noIntent)).toBeNull();
