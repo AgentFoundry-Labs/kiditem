@@ -12,8 +12,7 @@
   // 재시도 간격 · 실패한 몰 차단은 여기 없다. 그건 웹의 정책이고 웹에 남아 있다.
 
   /**
-   * 저장 자격 로그인의 이유 코드. 서버의 관찰 기록(`mall-operation-outcomes.ts`)이 `^[a-z][a-z0-9_]{0,63}$` 만
-   * 받으므로 그 모양을 지킨다. 로그인 확인의 이유 코드는 새 런타임(`sites/mall-session/check-specs.ts`)에 있다.
+   * 저장 자격 로그인의 이유 코드. 기계가 읽는 snake_case(`^[a-z][a-z0-9_]{0,63}$`) 모양을 지킨다. 로그인 확인의 이유 코드는 새 런타임(`sites/mall-session/check-specs.ts`)에 있다.
    */
   const REASONS = Object.freeze({
     ALREADY_SIGNED_IN: "already_signed_in",
