@@ -235,3 +235,27 @@ describe('createOperationClient — 실행 계약 HTTP 창구', () => {
     expect(error.code).toBe('RUNTIME_API_UNREACHABLE');
   });
 });
+
+describe('createOperationClient — 실행 원천 파일(KID-366 wave8b)', () => {
+  const PATH = '/api/orders/action-operations/11111111-1111-4111-8111-111111111111/source';
+
+  it('GET으로 받아 바이트를 돌려준다', async () => {
+    const { api, calls } = fakeApi(() => new Response(new Uint8Array([80, 75, 3, 4]), { status: 200 }));
+    await expect(createOperationClient(api).readSource!(PATH)).resolves.toEqual(new Uint8Array([80, 75, 3, 4]));
+    expect(calls.map((call) => [call.path, call.init?.method])).toEqual([[PATH, 'GET']]);
+  });
+
+  it('서버 오류 봉투는 그 코드의 RuntimeError', async () => {
+    const { api } = fakeApi(() => json(404, envelope(404, 'ORDERS_TRANSFER_SOURCE_UNAVAILABLE')));
+    const error = await rejection(createOperationClient(api).readSource!(PATH));
+    expect(error.code).toBe('ORDERS_TRANSFER_SOURCE_UNAVAILABLE');
+  });
+
+  it('`/api/` 밖·쿼리가 붙은 경로·`..` 구간은 묻지 않는다', async () => {
+    const { api, calls } = fakeApi(() => json(200, {}));
+    for (const path of ['https://evil.example/api/x', '/api/x?y=1', '../api/x', '/api/orders/../auth/token', '/api/..']) {
+      expect((await rejection(createOperationClient(api).readSource!(path))).code).toBe('RUNTIME_API_UNREACHABLE');
+    }
+    expect(calls).toEqual([]);
+  });
+});

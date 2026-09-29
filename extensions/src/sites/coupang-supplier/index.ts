@@ -147,4 +147,6 @@ export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs' | 'now' | 
 
 export type CoupangSupplierSite = ReturnType<typeof createCoupangSupplierSite>;
 
-registerSite({ name: 'coupang-supplier', origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+// `origin`: 발주의 `account:` 잠금이 여는 탭. `opensOwnTabs`: 쉽먼트 쪽은 사이트가 탭을 스스로 열므로 `resource:` 잠금
+// (배송 목록 `resource:coupang-supplier:login`)은 탭을 따로 잡지 않는다(KID-366 wave8b).
+registerSite({ name: 'coupang-supplier', origin: PO_BOOTSTRAP_URL, opensOwnTabs: true, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });

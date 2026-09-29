@@ -38,9 +38,21 @@ entry 액션(한 번에 끝나는 호출, 서버 사실 없음, 파일은 base64
 닫는다, `clearCoupangCookies` 값은 읽지 않음), `hostPublicImages`·`listMallCategories`, 내부 `exportWingInventoryWorkbook`·
 `kiditemApiRequest`. `ping`은 새 런타임 capability(`operationRuntime` + 묶음 5종)를 낸다.
 
-과도기(wave8b·wave9까지): 새 표가 모르는 액션은 서비스워커가 `KidItemRuntime.attachLegacyActions(KidItemDomains)`로 넘긴 옛
-워커 표(셀피아·송장 업로드·배송 목록·카카오·수집 세션)로 가고, `ping`은 그 표의 capability를 합친다(새 런타임이 이긴다).
+과도기(wave9까지): 새 표가 모르는 액션은 서비스워커가 `KidItemRuntime.attachLegacyActions(KidItemDomains)`로 넘긴 옛
+워커 표(카카오·수집 세션)로 가고, `ping`은 그 표의 capability를 합친다(새 런타임이 이긴다).
 옛 워커가 사라지면 이 한 줄과 `attachLegacy`도 지운다.
+
+Orders 작업 kind(KID-366 wave8b, `@kiditem/shared/orders-action-operations`, capability `orderActionOperationKindsV1`):
+셀피아 전송·후처리·자동송장·주문 스냅샷(`sites/sellpia` `transfer`·`post-transfer`·`invoice`·`snapshot`, 처리기
+`content/orders/sellpia-order-actions.js`), 쿠팡 배송 목록(`sites/coupang-supplier`), 몰 송장 업로드(라우터 `sites/mall-tracking`
+→ `sites/onch`·`sites/kidkids` `tracking-upload.ts`). 탭 규칙: 셀피아나 몰에 **쓰는** 단계는 운영자 탭을 쓴다 —
+`sites/operator-tab.ts`가 주소 무늬의 열린 탭을 찾아(없으면 연다) 업로드 화면으로 옮기고 `TabPage.focus`로 앞으로 가져온다.
+셀피아 탭은 끝나도 운영자에게 두고(`leave`), 몰 업로드는 우리가 연 탭을 몰이 모두 받았을 때만 닫는다. 읽는 단계(스냅샷·배송 목록)는
+`withFreshTab` 백그라운드 탭이고 한 화면도 못 읽으면 탭을 남긴다. 판정: 전송은 행 증가가 `submitted`, 모르면 두 화면 확인 —
+전부 찾으면 `submitted`, 두 화면을 다 읽고 0건이면 `SELLPIA_TRANSFER_NOT_SUBMITTED`, 그 밖은 `reconciling`. 자동송장은 plan
+대상 행만 고르고 일치 0이면 누르지 않고 성공, 누른 뒤 발급 행을 다 못 읽으면 `reconciling`. 키드키즈 출고완료는 성공 코드가 없어
+제출만 확인되므로 `reconciling`이다. 전송 파일은 수집기가 `sourcePath`로 선언하고 runner가 `OperationClient.readSource`로 받아
+`context.readSource`로 넘긴다(수집기는 서버를 모른다).
 
 사이트 자동 로그인(KID-377)은 `sites/site-login.ts` 한 곳이다. 저장 자격은 웹이 `operation.start`의 `credentials`로
 보내고 runner가 그 실행의 사이트 lease로만 넘긴다 — 서버·plan·progress·result·청크·로그·오류 details에 싣지 않는다.

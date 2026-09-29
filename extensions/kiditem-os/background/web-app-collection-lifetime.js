@@ -123,58 +123,11 @@
       return sessions.requestCancellation(session.attemptId, environmentId);
     }
 
-    async function runAdditionalCollectionsHook(environmentId, hookName) {
-      const results = await Promise.allSettled(
-        registeredDomains()
-          .filter((domain) => typeof domain?.[hookName] === "function")
-          .map((domain) => Promise.resolve().then(() =>
-            domain[hookName](environmentId),
-          )),
-      );
-      // `false` is a deliberate domain result: its local cancellation fence
-      // exists, but the owner could not finish cleanup yet (for example while
-      // auth/HTTP is unavailable). Do not turn that state into success.
-      return results.every((result) =>
-        result.status === "fulfilled" && result.value !== false,
-      );
-    }
-
-    async function cancelAdditionalCollections(environmentId) {
-      return runAdditionalCollectionsHook(environmentId, "cancelAdditionalCollections");
-    }
-
-    async function retryAdditionalCollections(environmentId) {
-      return runAdditionalCollectionsHook(environmentId, "retryAdditionalCollections");
-    }
-
-    async function beginAdditionalCancellation(environmentId) {
-      try {
-        return await cancelAdditionalCollections(environmentId);
-      } catch {
-        return false;
-      }
-    }
-
-    async function beginAdditionalRetry(environmentId) {
-      try {
-        return await retryAdditionalCollections(environmentId);
-      } catch {
-        return false;
-      }
-    }
-
     async function cancelSessions(
       environmentId,
       targetSessions,
-      includeAdditional,
-      { additionalSettledPromise, preFences } = {},
+      { preFences } = {},
     ) {
-      // Begin domain-owned non-session fencing before reading or closing any
-      // session tab. The hook must establish its local stop state before its
-      // own tab close or owner HTTP work can become slow.
-      const additionalPromise = includeAdditional
-        ? additionalSettledPromise || beginAdditionalCancellation(environmentId)
-        : Promise.resolve(true);
       const sessionsToCancel = Array.isArray(targetSessions)
         ? targetSessions.filter((session) => session?.environmentId === environmentId)
         : [];
@@ -208,28 +161,21 @@
         },
       );
 
-      const additionalSettled = await additionalPromise;
       return {
         settled:
           fenceResults.every((result) => result.status === "fulfilled") &&
-          ownerResults.every((result) => result.status === "fulfilled") &&
-          additionalSettled,
+          ownerResults.every((result) => result.status === "fulfilled"),
       };
     }
 
     async function cleanupEnvironmentNow(environmentId) {
-      // Start non-session fencing before the storage snapshot. A storage read
-      // or a managed-tab close must never postpone this domain-local fence.
-      const additionalSettledPromise = beginAdditionalCancellation(environmentId);
       let activeSessions;
       try {
         activeSessions = await sessions.list(environmentId);
       } catch {
         activeSessions = [];
       }
-      return cancelSessions(environmentId, activeSessions, true, {
-        additionalSettledPromise,
-      });
+      return cancelSessions(environmentId, activeSessions);
     }
 
     function cleanupEnvironment(environmentId) {
@@ -246,29 +192,21 @@
     }
 
     async function retryPendingCancellationsNow(environmentId) {
-      // This hook is intentionally separate from cancelAdditionalCollections:
-      // the latter fences every currently active non-session run, while this
-      // seam may run after a new run has started. Domains must retry only the
-      // non-session cleanup they fenced earlier.
-      const additionalRetryPromise = beginAdditionalRetry(environmentId);
       let requests;
       try {
         requests = await sessions.listCancellationRequests(environmentId);
       } catch {
-        await additionalRetryPromise;
         return { settled: false };
       }
       if (!Array.isArray(requests) || requests.length === 0) {
-        return { settled: await additionalRetryPromise };
+        return { settled: true };
       }
       const requested = await persistedCancellationSessions(environmentId, requests);
-      const result = await cancelSessions(environmentId, requested, false);
-      const additionalSettled = await additionalRetryPromise;
-      if (result.settled && additionalSettled &&
-        (await remainingCancellationRequests(environmentId)) > 0) {
+      const result = await cancelSessions(environmentId, requested);
+      if (result.settled && (await remainingCancellationRequests(environmentId)) > 0) {
         return { settled: false };
       }
-      return { ...result, settled: result.settled && additionalSettled };
+      return result;
     }
 
     function retryPendingCancellations(environmentId) {
@@ -323,7 +261,7 @@
       // a slow owner route. The new attempt is always fenced independently.
       const directFence = requestSessionCancellation(started, environmentId);
       cleanupEnvironment(environmentId);
-      await cancelSessions(environmentId, [started], false, {
+      await cancelSessions(environmentId, [started], {
         preFences: new Map([[started.attemptId, directFence]]),
       });
       throw cancellationError(environmentId);

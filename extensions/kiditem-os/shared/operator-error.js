@@ -659,6 +659,13 @@
       "text": "운영자가 처리되지 않았다고 확인해 닫았습니다. 필요하면 다시 실행해 주세요.",
       "retryable": false
     },
+    "ORDERS_TRANSFER_ALREADY_SENT": {
+      "owner": "orders",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 주문 파일은 이미 셀피아로 전송됐습니다. 다시 보내려면 재전송을 선택해 주세요.",
+      "retryable": false
+    },
     "PRODUCTS_NOT_FOUND": {
       "owner": "products",
       "kind": "not_found",

@@ -8,7 +8,7 @@ import {
   subscribeMallLoginBlocks,
 } from '@/lib/mall-login-block';
 import { cn, formatNumber } from '@/lib/utils';
-import { isTrackingSupportedMall } from '../lib/icecream-tracking-api';
+import { isSellpiaProviderMall as isTrackingSupportedMall } from '@kiditem/shared/sellpia-providers';
 import { hasMallAccountRow } from '../lib/mall-order';
 import {
   formatMallCollectionTime,

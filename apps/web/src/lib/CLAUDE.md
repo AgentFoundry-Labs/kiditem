@@ -64,6 +64,13 @@ multiple route groups.
   `coupang-shipment-summary-operation.ts` starts it through `operation-start.ts`,
   reads progress from `GET /api/operations` and the calendar from the owner;
   keep provider rows and terminal writes out of the page.
+- The Orders action kinds (`@kiditem/shared/orders-action-operations`: Sellpia
+  transfer, post-transfer, auto-invoice, order snapshot, Coupang shipment list,
+  mall tracking upload) start and wait through `order-action-operations.ts`
+  under `ORDERS_ACTION_OPERATION_CAPABILITY`. A `reconciling` run is
+  `needs_confirmation`; the screen resolves it only through that module's
+  confirm/close (`/api/orders/action-operations/:id/confirm|close`) after the
+  operator checks the mall or Sellpia. Results come from the run `result`.
 - Rocket PO is the operation kind `orders.coupang_rocket_po`: callers start
   and stop it through the account's shared control (`useRocketPoCollection`),
   and `use-rocket-po-source.ts` reads the operations reader per account. Supply

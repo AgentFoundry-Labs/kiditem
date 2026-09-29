@@ -13,7 +13,6 @@ import {
   detectOrderCollectionSessionExtension,
   detectOrderCollectionSessionExtensionStatus,
   ensureMallLoggedInViaExtension,
-  sendOrderFileToSellpiaViaExtension,
   testMallLoginViaExtension,
 } from './order-collection-extension';
 
@@ -207,104 +206,6 @@ describe('order collection extension session bridge', () => {
       pendingLogin: true,
       errorCode: 'login_required',
       failure: expect.objectContaining({ code: 'login_required' }),
-    });
-  });
-
-  it('classifies a missing extension as definitely not submitted', async () => {
-    bridge.detectOrderCollectionExtensionId.mockResolvedValue(null);
-
-    await expect(sendOrderFileToSellpiaViaExtension({
-      shopName: '키드키즈',
-      fileName: 'orders.xlsx',
-      blob: new Blob(['orders']),
-    })).resolves.toMatchObject({
-      success: false,
-      outcome: 'not_submitted',
-      error: expect.stringContaining('확장프로그램'),
-    });
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
-  });
-
-  it('requires the Sellpia upload-evidence capability before sending a file', async () => {
-    bridge.detectOrderCollectionExtensionId.mockResolvedValue(null);
-
-    await sendOrderFileToSellpiaViaExtension({
-      shopName: '키드키즈',
-      fileName: 'orders.xlsx',
-      blob: new Blob(['orders']),
-    });
-
-    expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(
-      1200,
-      'sellpiaScopedAutoInvoiceV1',
-    );
-  });
-
-  it('classifies a local file encoding failure as definitely not submitted', async () => {
-    class FailingFileReader {
-      result: string | ArrayBuffer | null = null;
-      error = new Error('encoding failed');
-      onload: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-
-      readAsDataURL() {
-        this.onerror?.();
-      }
-    }
-    vi.stubGlobal('FileReader', FailingFileReader);
-
-    await expect(sendOrderFileToSellpiaViaExtension({
-      shopName: '키드키즈',
-      fileName: 'orders.xlsx',
-      blob: new Blob(['orders']),
-      orderNumbers: ['ORDER-1'],
-    })).resolves.toMatchObject({
-      success: false,
-      outcome: 'not_submitted',
-      error: expect.stringContaining('encoding failed'),
-    });
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
-  });
-
-  it('classifies a lost extension response as unknown', async () => {
-    bridge.sendToExtension.mockRejectedValue(new Error('응답 시간이 초과되었습니다.'));
-
-    await expect(sendOrderFileToSellpiaViaExtension({
-      shopName: '키드키즈',
-      fileName: 'orders.xlsx',
-      blob: new Blob(['orders']),
-      orderNumbers: ['ORDER-1'],
-    })).resolves.toMatchObject({
-      success: false,
-      outcome: 'unknown',
-      error: expect.stringContaining('초과'),
-    });
-  });
-
-  it('preserves explicit worker outcomes without inferring from success', async () => {
-    bridge.sendToExtension
-      .mockResolvedValueOnce({
-        success: false,
-        outcome: 'not_submitted',
-        error: '판매처를 찾지 못했습니다.',
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        outcome: 'submitted',
-        shop: '키드키즈',
-      });
-    const params = {
-      shopName: '키드키즈',
-      fileName: 'orders.xlsx',
-      blob: new Blob(['orders']),
-      orderNumbers: ['ORDER-1'],
-    };
-
-    await expect(sendOrderFileToSellpiaViaExtension(params)).resolves.toMatchObject({
-      outcome: 'not_submitted',
-    });
-    await expect(sendOrderFileToSellpiaViaExtension(params)).resolves.toMatchObject({
-      outcome: 'submitted',
     });
   });
 });

@@ -45,7 +45,7 @@ export interface BrowserResourcesOptions {
   accountSite?: string;
   /**
    * 탭을 스스로 열고 닫는 사이트(몰 주문처럼 몰마다 다른 탭을 여는 사이트, KID-359 H3). 수집기가 이 사이트를 선언하면
-   * `account:` 키라도 기본 계정 사이트의 탭을 열지 않는다.
+   * `account:` 키라도 기본 계정 사이트의 탭을 열지 않고, 그 사이트의 `resource:` 키도 탭을 잡지 않는다(KID-366 wave8b).
    */
   ownTabSites?: ReadonlySet<string>;
 }
@@ -66,7 +66,13 @@ export function createBrowserResources(chromeApi: BrowserChrome, sites: BrowserS
       const accountSite = site !== null && site in sites
         ? site
         : site !== null && options.ownTabSites?.has(site) ? null : (options.accountSite ?? null);
-      const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name): name is string => name !== null && name in sites))];
+      // 탭을 스스로 여는 사이트의 `resource:` 잠금은 이름표일 뿐이다 — 탭을 따로 열지 않는다(쿠팡 배송 목록의
+      // `resource:coupang-supplier:login`, KID-366 wave8b). 같은 사이트의 `account:` 잠금(발주)은 그 origin 탭을 연다.
+      const ownsTabs = (key: string, name: string) => key.startsWith('resource:') && options.ownTabSites?.has(name) === true;
+      const siteNames = [...new Set(lockKeys.flatMap((key) => {
+        const name = siteOfLockKey(key, accountSite);
+        return name !== null && name in sites && !ownsTabs(key, name) ? [name] : [];
+      }))];
       if (siteNames.length > 1) {
         throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, '한 실행이 두 사이트의 탭을 함께 잡을 수 없습니다.', { sites: siteNames });
       }

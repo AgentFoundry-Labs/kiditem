@@ -1,7 +1,6 @@
 {
   "focusOwnerFiles": [
-    "extensions/kiditem-os/background/collection-session.js",
-    "extensions/kiditem-os/background/interactive-tabs.js"
+    "extensions/kiditem-os/background/collection-session.js"
   ],
   "legacyFocusCounts": {
     "extensions/kiditem-os/background/service-worker.js": 0,
