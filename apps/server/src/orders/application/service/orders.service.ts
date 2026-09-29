@@ -220,7 +220,6 @@ function toOrderStatsSourceCoverage(source: {
   sourceType: string;
   channelAccountId: string | null;
   mallKey: string | null;
-  factDates: string[];
   includedDates: string[];
   missingDates: string[];
 }) {
@@ -228,7 +227,6 @@ function toOrderStatsSourceCoverage(source: {
     sourceType: source.sourceType,
     channelAccountId: source.channelAccountId,
     mallKey: source.mallKey,
-    factDates: source.factDates,
     includedDates: source.includedDates,
     missingDates: source.missingDates,
   };
