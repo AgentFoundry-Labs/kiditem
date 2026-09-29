@@ -21,7 +21,7 @@ test('sites 는 core 의 site-caller·errors 와 sites 만 쓴다', () => {
 
 test('entry 는 무엇이든 import 하지만 옛 전역은 어느 파일도 참조하지 않는다(KID-366 — 옛 표는 서비스워커가 넘긴다)', () => {
   assert.deepEqual(violationsFor('entry/index.ts', "import { run } from '../core/runner';\nimport { c } from '../collectors/index';"), []);
-  assert.equal(violationsFor('entry/legacy-bridge.ts', 'declare const KidItemDomains: unknown;').length, 2);
+  assert.equal(violationsFor('entry/old-globals.ts', 'declare const KidItemDomains: unknown;').length, 2);
   assert.match(violationsFor('entry/index.ts', 'KidItemDomains.register({});')[0], /옛 전역/);
   assert.match(violationsFor('core/api.ts', 'sourceOwnerEnvironmentContext.authedFetch();')[0], /옛 전역/);
 });
@@ -66,7 +66,7 @@ test('declare const·let·var·function·global 은 어디서나 위반이다(�
   assert.equal(violationsFor('core/x.ts', 'declare const Foo: unknown;').length, 1);
   assert.equal(violationsFor('entry/index.ts', 'declare function legacy(): void;').length, 1);
   assert.equal(violationsFor('collectors/a/index.ts', 'declare global { interface X {} }').length, 1);
-  assert.equal(violationsFor('entry/legacy-bridge.ts', 'declare let Old: unknown;').length, 1);
+  assert.equal(violationsFor('entry/old-globals.ts', 'declare let Old: unknown;').length, 1);
 });
 
 test('동적 import()·require() 와 줄 중간 import 에도 층 규칙이 걸린다', () => {
