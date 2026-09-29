@@ -79,7 +79,7 @@ const MANUAL_ACTION_MESSAGE = '자동 실행하지 않는 액션입니다. 광�
 const KEYWORDS = [
   keyword('콩순이', proposal(ACTION.pending, 'pending_review', 'not_prepared')),
   keyword('쥬쥬', proposal(ACTION.otherPending, 'pending_review', 'not_prepared')),
-  // Approved before decision A: its attempt still waits in the extension queue.
+  // Approved: a keyword pause is applied by hand, so no run is prepared (`not_prepared`).
   keyword('타요', proposal(ACTION.queued, 'approved', 'not_prepared')),
   keyword('뽀로로', proposal(ACTION.running, 'approved', 'running')),
   keyword('핑크퐁', proposal(ACTION.failed, 'approved', 'failed', MANUAL_ACTION_MESSAGE)),
@@ -135,7 +135,7 @@ const ALREADY_RAN_REFUSAL = new ApiError(
   409,
   'ADVERTISING_AD_ACTION_ALREADY_APPLIED',
   '이미 광고센터에 반영한 광고 액션은 거절할 수 없습니다. 광고센터에서 직접 확인해 주세요.',
-  { actionId: '00000000-0000-4000-8000-0000000000aa' },
+  {},
 );
 
 async function renderExpandedProduct() {
