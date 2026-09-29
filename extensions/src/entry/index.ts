@@ -108,6 +108,24 @@ import '../sites/wing/reviews';
 import '../sites/wing/traffic';
 import { ADVERTISING_AD_ACTION_OPERATION_CAPABILITY, ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
 import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
+import {
+  CHECK_MALL_LOGIN_ACTION,
+  CLEAR_AUTH_TOKEN_ACTION,
+  CLEAR_COUPANG_COOKIES_ACTION,
+  COUPANG_SHIPMENT_ACTIONS_CAPABILITY,
+  EXPORT_WING_INVENTORY_WORKBOOK_ACTION,
+  EXTENSION_RUNTIME_CAPABILITY,
+  FETCH_COUPANG_SHIPMENT_PDF_BATCH_ACTION,
+  HOST_PUBLIC_IMAGES_ACTION,
+  LIST_MALL_CATEGORIES_ACTION,
+  MALL_CATEGORY_READ_CAPABILITY,
+  MALL_IMAGE_HOST_CAPABILITY,
+  MALL_LOGIN_ACTIONS_CAPABILITY,
+  OPEN_COUPANG_SHIPMENT_PAGE_ACTION,
+  SET_AUTH_TOKEN_ACTION,
+  TEST_MALL_LOGIN_ACTION,
+  WING_INVENTORY_EXPORT_CAPABILITY,
+} from '@kiditem/shared/extension-actions';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { collectorFor } from '../collectors';
 import { createAuthStore, type ProfileStorage } from '../core/auth-store';
@@ -121,6 +139,17 @@ import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, re
 import type { SiteDeps } from '../sites/registry';
 import { OPERATION_CANCEL_ACTION, OPERATION_START_ACTION } from './actions';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
+import { checkMallLoginAction } from './actions/check-mall-login';
+import { clearAuthTokenAction } from './actions/clear-auth-token';
+import { clearCoupangCookiesAction } from './actions/clear-coupang-cookies';
+import { exportWingInventoryWorkbookAction } from './actions/export-wing-inventory-workbook';
+import { fetchCoupangShipmentPdfBatchAction } from './actions/fetch-coupang-shipment-pdf-batch';
+import { hostPublicImagesAction } from './actions/host-public-images';
+import { KIDITEM_API_REQUEST_ACTION, kiditemApiRequestAction } from './actions/kiditem-api-request';
+import { listMallCategoriesAction } from './actions/list-mall-categories';
+import { openCoupangShipmentPageAction } from './actions/open-coupang-shipment-page';
+import { setAuthTokenAction } from './actions/set-auth-token';
+import { testMallLoginAction } from './actions/test-mall-login';
 import { createOperationActions, type ExternalAction } from './operation-actions';
 import { installPreparedOperations } from './prepared-operations';
 import { installProductCollect } from './sourcing-product-collect';
@@ -176,9 +205,28 @@ export function installEntry(): InstalledEntry | null {
     siteFor: channelSites,
     keepAlive: holdUntil,
   });
+  const swFetch = (url: string, init?: RequestInit) => fetch(url, init);
+  // 한 번에 끝나는 entry 액션(KID-366, `@kiditem/shared/extension-actions`) — 서버 사실을 쓰지 않고 결과를 부른 쪽에 바로 준다.
   const externalActions: ActionTable = {
     [OPERATION_START_ACTION]: validated(operationActions[OPERATION_START_ACTION]),
     [OPERATION_CANCEL_ACTION]: validated(operationActions[OPERATION_CANCEL_ACTION]),
+    [SET_AUTH_TOKEN_ACTION]: setAuthTokenAction(store),
+    [CLEAR_AUTH_TOKEN_ACTION]: clearAuthTokenAction(store),
+    [TEST_MALL_LOGIN_ACTION]: testMallLoginAction({ tabs: site.tabs, now: site.now, sleep }),
+    [CHECK_MALL_LOGIN_ACTION]: checkMallLoginAction({
+      fetch: swFetch,
+      tabs: site.tabs,
+      sleep,
+      hasPermission: (origin) => chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false),
+    }),
+    [OPEN_COUPANG_SHIPMENT_PAGE_ACTION]: openCoupangShipmentPageAction(site.tabs),
+    [FETCH_COUPANG_SHIPMENT_PDF_BATCH_ACTION]: fetchCoupangShipmentPdfBatchAction({ tabs: site.tabs, now: site.now, sleep }),
+    [CLEAR_COUPANG_COOKIES_ACTION]: clearCoupangCookiesAction({
+      getAll: (details) => chrome.cookies.getAll(details),
+      remove: (details) => chrome.cookies.remove(details),
+    }),
+    [HOST_PUBLIC_IMAGES_ACTION]: hostPublicImagesAction({ fetch: swFetch }),
+    [LIST_MALL_CATEGORIES_ACTION]: listMallCategoriesAction({ fetch: swFetch }),
   };
   const external = createExternalDispatch({
     actions: externalActions,
@@ -194,7 +242,13 @@ export function installEntry(): InstalledEntry | null {
     // advertisingAdReportOperationKindV1: 광고센터 보고서 kind `advertising.ad_report`를 돈다(KID-371).
     // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드가 사이트를 가진 몰(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
     capabilities: {
-      operationRuntime: true,
+      [EXTENSION_RUNTIME_CAPABILITY]: true,
+      // entry 액션 묶음(KID-366): 몰 로그인 테스트·확인 · 쿠팡 쉽먼트 화면·PDF·쿠키 · 몰 사진 호스팅 · 몰 분류 · Wing 재고 내보내기.
+      [MALL_LOGIN_ACTIONS_CAPABILITY]: true,
+      [COUPANG_SHIPMENT_ACTIONS_CAPABILITY]: true,
+      [MALL_IMAGE_HOST_CAPABILITY]: true,
+      [MALL_CATEGORY_READ_CAPABILITY]: true,
+      [WING_INVENTORY_EXPORT_CAPABILITY]: true,
       sourcingOperationKindsV1: true,
       orderCaptureOperationKindsV1: true,
       [CHANNELS_OPERATION_CAPABILITY]: true,
@@ -217,7 +271,11 @@ export function installEntry(): InstalledEntry | null {
   chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => external.handleMessage(message, sender, sendResponse));
   const internal = createInternalDispatch({
     runtimeId: chrome.runtime.id,
-    actions: {},
+    // 팝업의 API 요청과 Wing 상품목록 콘텐츠 스크립트의 재고 내보내기.
+    actions: {
+      [KIDITEM_API_REQUEST_ACTION]: kiditemApiRequestAction({ apiFor }),
+      [EXPORT_WING_INVENTORY_WORKBOOK_ACTION]: exportWingInventoryWorkbookAction({ apiFor, now: () => new Date() }),
+    },
     keepAlive,
     storage: chrome.storage.local as unknown as ProfileStorage,
   });

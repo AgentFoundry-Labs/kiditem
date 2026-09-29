@@ -12,6 +12,7 @@ import {
   readPurchaseOrderListPage,
   type PurchaseOrderListPage,
 } from './po';
+import { readShipmentPdf, type ShipmentPdfFile, type ShipmentPdfKind } from './shipment-files';
 import { COUPANG_SHIPMENT_URL, readParcelPage, type ParcelRow } from './shipments';
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -102,6 +103,10 @@ export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs' | 'now' | 
     /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
     parcelPage(pageNumber: number): Promise<ParcelRow[]> {
       return onShipments((page) => readParcelPage(page, pageNumber));
+    },
+    /** 쉽먼트 Label·내역서 PDF 하나(KID-366). 쉽먼트 목록과 같은 탭을 쓴다. */
+    shipmentPdf(seq: string, kind: ShipmentPdfKind): Promise<ShipmentPdfFile> {
+      return onShipments((page) => readShipmentPdf(page, seq, kind));
     },
     /** 발주 목록 한 쪽(1부터)의 JSON 본문. 첫 쪽이 JSON이 아니면 로그인 필요. */
     purchaseOrderListPage(query: PurchaseOrderListQuery, pageNumber: number): Promise<PurchaseOrderListPage> {

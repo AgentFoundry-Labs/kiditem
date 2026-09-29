@@ -126,6 +126,12 @@ describe('committed runtime bundle', () => {
     expect(kinds).toEqual({
       browserCollectionSessions: true,
       operationRuntime: true,
+      // entry 액션 묶음(KID-366).
+      mallLoginActionsV1: true,
+      coupangShipmentActionsV1: true,
+      mallImageHostV1: true,
+      mallCategoryReadV1: true,
+      wingInventoryExportV1: true,
       sourcingOperationKindsV1: true,
       orderCaptureOperationKindsV1: true,
       channelsOperationKindsV1: true,
