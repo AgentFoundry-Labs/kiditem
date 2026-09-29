@@ -37,7 +37,7 @@ function readBook(bytes: Buffer): XLSX.WorkBook {
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
   const isOle = bytes[0] === 0xd0 && bytes[1] === 0xcf;
   if (isZip || isOle) return XLSX.read(bytes, { type: 'buffer', cellDates: false });
-  return XLSX.read(bytes.toString('utf8').replace(/^﻿/, ''), { type: 'string', cellDates: false });
+  return XLSX.read(bytes.toString('utf8').replace(/^\uFEFF/, ''), { type: 'string', cellDates: false });
 }
 
 function findHeader(rows: unknown[][]): { rowIndex: number; columnIndex: number; header: string } | null {
@@ -50,6 +50,7 @@ function findHeader(rows: unknown[][]): { rowIndex: number; columnIndex: number;
   return null;
 }
 
+/** 공백·줄바꿈을 빼고 괄호 설명 앞부분만 본다 — 직배송 양식의 머리는 `판매처 주문번호\n(예,20221115_0001)`이다. */
 function normalizedHeader(value: unknown): string {
-  return String(value ?? '').replace(/\s+/g, '');
+  return String(value ?? '').replace(/\s+/g, '').split(/[(（]/)[0] ?? '';
 }

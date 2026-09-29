@@ -24,8 +24,13 @@ describe('셀피아 전송 대상 주문번호 — 변환 파일의 판매처주
 
   it('구형 xls와 UTF-8 CSV(아트공구)도 읽는다', () => {
     expect(sellpiaOrderNumbersFromFile(workbook([['주문코드'], ['K-1']], 'biff8'))).toEqual(['K-1']);
-    const csv = Buffer.from('﻿수취인,주문번호\n가,C-1\n나,C-2\n', 'utf8');
+    const csv = Buffer.from('\uFEFF수취인,주문번호\n가,C-1\n나,C-2\n', 'utf8');
     expect(sellpiaOrderNumbersFromFile(csv)).toEqual(['C-1', 'C-2']);
+  });
+
+  it('직배송 생성기의 머리 "판매처 주문번호\\n(예,20221115_0001)"처럼 괄호 설명이 붙어도 앞부분으로 찾는다', () => {
+    const bytes = workbook([['No', '판매처 주문번호\n(예,20221115_0001)', '주문번호메모'], ['1', '20260929_0001', 'x'], ['2', '20260929_0002', 'y']], 'biff8');
+    expect(sellpiaOrderNumbersFromFile(bytes)).toEqual(['20260929_0001', '20260929_0002']);
   });
 
   it('머리가 없으면 빈 목록이다', () => {
