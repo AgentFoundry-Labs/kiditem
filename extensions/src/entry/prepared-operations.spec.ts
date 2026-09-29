@@ -58,6 +58,34 @@ describe('서버 준비 실행 돌리기(팝업 버튼, KID-386)', () => {
     expect(summary).toEqual({ ok: false, errorCode: 'RUNTIME_API_UNREACHABLE', error: 'KidItem 서버에 연결하지 못했습니다.', ran: 0 });
   });
 
+  it('로그인 필요·업체 불일치·등록 화면 변경처럼 액션 하나와 무관한 실패면 멈추고 남은 준비 실행은 claim하지 않는다', async () => {
+    for (const [code, stopped] of [
+      ['SITE_LOGIN_REQUIRED', '쿠팡 광고센터에 로그인한 뒤 다시 실행해 주세요.'],
+      ['ADVERTISING_IDENTITY_MISMATCH', '광고 액션의 업체로 광고센터에 다시 로그인한 뒤 실행해 주세요.'],
+      ['ADVERTISING_AD_CENTER_FORM_CHANGED', '광고센터 등록 화면이 바뀌어 남은 액션을 멈췄습니다. 개발자에게 알려 주세요.'],
+    ] as const) {
+      const failed = finished('op-1', 'failed', { providerOutcome: 'not_attempted' }, '멈춘 까닭');
+      if (failed.kind === 'finished') failed.operation.errorCode = code;
+      const { runner, claims } = fakeRunner([failed, finished('op-2', 'succeeded', { providerOutcome: 'created' })]);
+
+      const summary = await runPreparedOperations(runner, { kinds: [KIND], workerId: 'popup', signal: new AbortController().signal });
+
+      expect(claims).toHaveLength(1);
+      expect(summary).toMatchObject({ ok: true, ran: 1, failed: 1, created: 0, stopped });
+    }
+  });
+
+  it('액션 하나의 실패(상품을 못 찾음)는 다음 액션으로 넘어간다', async () => {
+    const failed: RunOutcome = { kind: 'failed', operationId: 'op-1', errorCode: 'SITE_REQUEST_FAILED', errorMessage: '상품을 찾지 못했습니다' };
+    const { runner, claims } = fakeRunner([failed, finished('op-2', 'succeeded', { providerOutcome: 'created' })]);
+
+    const summary = await runPreparedOperations(runner, { kinds: [KIND], workerId: 'popup', signal: new AbortController().signal });
+
+    expect(claims).toHaveLength(3);
+    expect(summary).toMatchObject({ ok: true, ran: 2, created: 1, failed: 1 });
+    expect(summary).not.toHaveProperty('stopped');
+  });
+
   it('한 번 누름에 상한까지만 돈다', async () => {
     const { runner, claims } = fakeRunner(Array.from({ length: 30 }, (_, i) => finished(`op-${i}`, 'succeeded', { providerOutcome: 'created' })));
 

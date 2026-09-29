@@ -62,7 +62,13 @@ export interface AdCenterSite {
    * 캠페인 등록(KID-386). 누르기 전 실패는 던지고, 눌렀거나 눌렀을 수 있으면 증거를 돌려준다(`./campaign`). 계정 잠금 탭이
    * 없으면(광고 액션 실행은 광고센터 계정 키를 쥐지 않는다) 제 탭을 열어 쓰고, 끝나면 운영자에게 남긴다.
    */
-  createCampaign(input: AdCenterCampaignInput, options?: { signal?: AbortSignal }): Promise<AdCenterCampaignSubmission>;
+  createCampaign(input: AdCenterCampaignInput, options?: { signal?: AbortSignal; onFilled?(): Promise<void> }): Promise<AdCenterCampaignSubmission>;
+  /**
+   * 실행이 끝날 때 한 번(두 번째부터 no-op): 이 핸들이 연 제 탭을 넘기거나 닫는다. 로그인이 필요해 멈췄으면 앞으로 가져와
+   * 운영자에게 넘기고, 등록 폼을 채우기 시작했으면 운영자에게 남기고(눌렀든 아니든 사람이 본다), 그 밖에는 닫는다.
+   * 잠금 탭(보고서 수집)은 브라우저 자원이 푼다.
+   */
+  release(outcome: { error?: unknown }): Promise<void>;
 }
 
 /** 광고센터 핸들. 요청마다: 로그인 문턱(바깥) → 첫 500이면 탭을 다시 열고 한 번 다시(안) → 호출기. */
@@ -71,8 +77,15 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
   const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
   /** 잠금 탭이 없는 실행(광고 액션)이 연 제 탭. 한 번만 열고, 쓰기가 끝나면 운영자에게 남긴다. */
   let own: Promise<TabPage> | null = null;
-  const ownTab = (): Promise<TabPage> => page ? Promise.resolve(page) : (own ??= deps.tabs.open(AD_CENTER_HOME_URL));
-  const call = adCenterCall(deps, lease, page);
+  let ownPage: TabPage | null = null;
+  let wrote = false;
+  let released = false;
+  const ownTab = (): Promise<TabPage> => page ? Promise.resolve(page) : (own ??= deps.tabs.open(AD_CENTER_HOME_URL).then((opened) => {
+    ownPage = opened;
+    return opened;
+  }));
+  // 제 탭을 연 뒤의 호출은 그 탭에서 로그인·워밍업한다(새 로그인 탭을 또 열지 않는다).
+  const call = adCenterCall(deps, lease, () => page ?? ownPage);
 
   /** `write`: 보고서 생성처럼 두 번 보내면 안 되는 호출 — 첫 500에도 다시 묻지 않는다. */
   async function graphql(query: string, variables: Record<string, unknown>, options: { write?: boolean } = {}): Promise<Record<string, unknown>> {
@@ -198,11 +211,22 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
 
     async createCampaign(input, options) {
       const target = await ownTab();
-      try {
-        return await submitCampaign(target, input, options);
-      } finally {
-        if (target !== page) await target.leave().catch(() => undefined);
-      }
+      return submitCampaign(target, input, {
+        ...options,
+        onFillStarted: () => {
+          wrote = true;
+        },
+      });
+    },
+
+    async release({ error } = {}) {
+      if (released) return;
+      released = true;
+      const opened = own ? await own.catch(() => null) : null;
+      if (!opened) return;
+      if (isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED) await opened.focus().catch(() => undefined);
+      else if (wrote) await opened.leave().catch(() => undefined);
+      else await opened.close().catch(() => undefined);
     },
   };
 }
@@ -212,7 +236,7 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
  * 규칙, `../wing/login`). 로그인 직후 세션이 데워지지 않아 처음 500이 오면 탭을 `/marketing`으로 다시 열고 한 번 다시 묻는다 —
  * 한 실행에 한 번뿐이고, 읽기(캠페인 목록·보고서 목록·받기·정산·tetris-api)만이다. 보고서 생성은 두 번 생기지 않게 다시 묻지 않는다.
  */
-function adCenterCall(deps: SiteDeps, lease: SiteLease, page: TabPage | null) {
+function adCenterCall(deps: SiteDeps, lease: SiteLease, pageOf: () => TabPage | null) {
   const credentials = lease.credentials;
   const withLogin = createSiteLoginGate(credentials);
   const login = async (target: TabPage): Promise<LoginOutcome> => {
@@ -222,7 +246,7 @@ function adCenterCall(deps: SiteDeps, lease: SiteLease, page: TabPage | null) {
     return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
   };
   let warmed = false;
-  const warm = async <T>(request: () => Promise<T>, retry: boolean): Promise<T> => {
+  const warm = async <T>(request: () => Promise<T>, retry: boolean, page: TabPage | null): Promise<T> => {
     try {
       return await request();
     } catch (error) {
@@ -234,9 +258,10 @@ function adCenterCall(deps: SiteDeps, lease: SiteLease, page: TabPage | null) {
   };
   return <T>(request: () => Promise<T>, options: { retryAfterWarmUp?: boolean } = {}): Promise<T> => {
     const retry = options.retryAfterWarmUp !== false;
+    const page = pageOf();
     return page
-      ? withLogin(() => warm(request, retry), () => login(page))
-      : withLoginTab(withLogin, () => warm(request, retry), () => deps.tabs.open('about:blank'), login);
+      ? withLogin(() => warm(request, retry, page), () => login(page))
+      : withLoginTab(withLogin, () => warm(request, retry, null), () => deps.tabs.open('about:blank'), login);
   };
 }
 

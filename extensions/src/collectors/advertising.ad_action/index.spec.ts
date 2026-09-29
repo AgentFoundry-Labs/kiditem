@@ -34,6 +34,9 @@ function fakeSite(options: {
       rosterReads += 1;
       return pages[Math.min(rosterReads - 1, pages.length - 1)] ?? [];
     },
+    async release({ error }) {
+      log.push(`release ${error ? (error as RuntimeError).code : 'ok'}`);
+    },
     async createCampaign(input) {
       log.push(`create ${input.name} ${input.productIds.join(',')} ${input.dailyBudget} ${input.targetRoas}`);
       return options.submit ? options.submit() : { campaignId: '88123', message: '등록되었습니다', url: 'https://advertising.coupang.com/marketing/campaign/88123/detail' };
@@ -63,7 +66,7 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
 
     const { chunks, finish } = await drain(PLAN, site);
 
-    expect(log).toEqual(['vendor', 'roster 0', 'create 봄 신상 캠페인 70011 50000 350']);
+    expect(log).toEqual(['vendor', 'roster 0', 'create 봄 신상 캠페인 70011 50000 350', 'release ok']);
     expect(chunks).toHaveLength(1);
     expect(chunks[0].chunkKind).toBe(AD_ACTION_EVIDENCE_CHUNK_KIND);
     expect(AdActionEvidenceSchema.parse(chunks[0].payload[0])).toMatchObject({ campaignId: '88123', campaignName: '봄 신상 캠페인', message: '등록되었습니다' });
@@ -78,6 +81,7 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
     const { chunks, finish } = await drain(PLAN, site);
 
     expect(log).not.toContain(expect.stringMatching(/^create/));
+    expect(log.at(-1)).toBe('release ok');
     expect(chunks[0].payload[0]).toMatchObject({ campaignId: '777' });
     expect(finish.result).toMatchObject({ providerOutcome: 'created', campaignId: '777', message: '같은 이름의 캠페인이 이미 있어 새로 만들지 않았습니다.' });
   });
@@ -110,7 +114,8 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
 
     expect(error).toBeInstanceOf(RuntimeError);
     expect((error as RuntimeError).code).toBe('ADVERTISING_IDENTITY_MISMATCH');
-    expect(log).toEqual(['vendor']);
+    // 실패해도 사이트가 연 탭을 넘기거나 닫게 끝을 알린다.
+    expect(log).toEqual(['vendor', 'release ADVERTISING_IDENTITY_MISMATCH']);
   });
 
   it('계획이 계약과 다르면 광고센터에 가지 않는다', async () => {

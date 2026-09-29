@@ -42,13 +42,22 @@ export interface AdCenterCampaignSubmission {
   url: string | null;
 }
 
-export async function submitCampaign(page: TabPage, input: AdCenterCampaignInput, options: { signal?: AbortSignal } = {}): Promise<AdCenterCampaignSubmission> {
+export interface SubmitCampaignOptions {
+  signal?: AbortSignal;
+  /** 등록 폼을 채우기 시작한다(탭을 운영자에게 남길지 정한다). */
+  onFillStarted?(): void;
+  /** 다 채웠고 아직 누르지 않았다 — 수집기가 임대를 연장한다. */
+  onFilled?(): Promise<void>;
+}
+
+export async function submitCampaign(page: TabPage, input: AdCenterCampaignInput, options: SubmitCampaignOptions = {}): Promise<AdCenterCampaignSubmission> {
   const landed = await page.navigate(AD_CENTER_CAMPAIGN_TYPE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true, stopAt: isLoginUrl });
   if (isLoginUrl(landed)) throw new RuntimeError(SITE_LOGIN_REQUIRED, GUARD.loginMessage, { reason: 'login_unconfirmed' });
 
   const call = <T>(name: string, args: unknown, timeoutMs: number) =>
     callPage<T>(page, name, args, { timeoutMs, guard: GUARD, displayName: AD_CENTER_LOGIN.displayName, isolated: [AD_CENTER_CAMPAIGN_FILE] });
 
+  options.onFillStarted?.();
   const filled = await call<FillAnswer>('adCenter.campaignFill', input, FILL_TIMEOUT_MS);
   if (filled?.state === 'product_not_found') {
     const missing = Array.isArray(filled.productIds) ? filled.productIds.map(String) : [];
@@ -58,6 +67,8 @@ export async function submitCampaign(page: TabPage, input: AdCenterCampaignInput
     });
   }
   if (filled?.state !== 'filled') throw formChanged(filled);
+  options.signal?.throwIfAborted();
+  await options.onFilled?.();
   options.signal?.throwIfAborted();
 
   // 여기서부터는 눌렀을 수 있다. 누르기 호출은 한 번만, 파일 주입 없이 보낸다(채우기가 처리기를 이미 넣었다) — 주입·재전송 경로는

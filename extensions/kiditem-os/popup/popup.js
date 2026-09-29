@@ -170,7 +170,9 @@ function preparedRunText(summary) {
   }
   const counts = `${summary.created}개 등록, ${summary.uncertain}개는 광고센터에서 등록 여부 확인 필요, ${summary.failed}개 실패`;
   const reasons = Array.isArray(summary.messages) && summary.messages.length > 0 ? ` ${summary.messages.join(' / ')}` : '';
-  return { text: `⚠️ ${counts}.${reasons}`, error: summary.failed > 0 };
+  // 로그인·업체·등록 화면처럼 액션 하나와 무관한 실패면 런타임이 남은 준비 실행을 건드리지 않고 멈췄다.
+  const stopped = summary.stopped ? ` 남은 액션은 실행하지 않았습니다. ${summary.stopped}` : '';
+  return { text: `⚠️ ${counts}.${reasons}${stopped}`, error: summary.failed > 0 || Boolean(summary.stopped) };
 }
 
 async function loadEnvironmentConnection(request, sequence) {

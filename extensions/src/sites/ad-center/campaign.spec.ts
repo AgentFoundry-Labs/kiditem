@@ -41,7 +41,7 @@ async function rejection(promise: Promise<unknown>): Promise<RuntimeError> {
 }
 
 describe('sites/ad-center createCampaign — 캠페인 등록 쓰기(KID-386)', () => {
-  it('제 탭을 광고 목표 화면으로 열어 채우기 → 완료·확인 → 결과 읽기 순서로 부르고, 캠페인 번호를 증거로 돌려준 뒤 탭을 운영자에게 남긴다', async () => {
+  it('제 탭을 광고 목표 화면으로 열어 채우기 → 완료·확인 → 결과 읽기 순서로 부르고, 캠페인 번호를 증거로 돌려준다', async () => {
     const { site, calls, log } = writer({
       'adCenter.campaignFill': { state: 'filled', selected: ['70011'] },
       'adCenter.campaignSubmit': { state: 'pressed', confirmed: true },
@@ -54,7 +54,6 @@ describe('sites/ad-center createCampaign — 캠페인 등록 쓰기(KID-386)', 
     expect(log[0]).toBe(`open ${AD_CENTER_HOME_URL}`);
     expect(log).toContain(`navigate ${AD_CENTER_CAMPAIGN_TYPE_URL} (continue on timeout)`);
     expect(log).toContain(`inject content/page-call/bridge.js,${AD_CENTER_CAMPAIGN_FILE}`);
-    expect(log.at(-1)).toBe('leave 7');
     expect(submission).toEqual({ campaignId: '88123', message: '등록되었습니다', url: PRESSED_RESULT.url });
   });
 
@@ -66,7 +65,7 @@ describe('sites/ad-center createCampaign — 캠페인 등록 쓰기(KID-386)', 
     expect(error.code).toBe(ADVERTISING_AD_CENTER_FORM_CHANGED);
     expect(error.details).toMatchObject({ missing: '광고 그룹 이름 입력칸' });
     expect(calls).toEqual(['adCenter.campaignFill']);
-    expect(log.at(-1)).toBe('leave 7');
+    expect(log).not.toContain('leave 7');
   });
 
   it('광고센터에서 상품을 못 찾으면 누르지 않고 그 상품 번호로 던진다', async () => {
@@ -163,5 +162,50 @@ describe('sites/ad-center createCampaign — 캠페인 등록 쓰기(KID-386)', 
     expect(sent.filter((call) => call === 'adCenter.campaignSubmit')).toHaveLength(1);
     expect(injected).toEqual([]);
     expect(submission.campaignId).toBe('88123');
+  });
+
+  describe('release — 제 탭을 모든 종료 경로에서 넘기거나 닫는다', () => {
+    it('등록 폼을 채우기 시작했으면(눌렀든 아니든) 운영자에게 남긴다', async () => {
+      const { site, log } = writer({ 'adCenter.campaignFill': { state: 'form_changed', missing: '완료 버튼' } });
+      const error = await rejection(site.createCampaign(INPUT));
+
+      await site.release({ error });
+
+      expect(log.filter((line) => /^(leave|close|focus) /.test(line))).toEqual(['leave 7']);
+    });
+
+    it('쓰지 않고 끝났으면(같은 이름 캠페인·업체 불일치·목록 실패) 닫는다', async () => {
+      const { site, log } = writer({});
+      await site.readVendorId();
+
+      await site.release({ error: new RuntimeError('ADVERTISING_IDENTITY_MISMATCH', '업체 다름', null) });
+
+      expect(log.filter((line) => /^(leave|close|focus) /.test(line))).toEqual(['close 7']);
+    });
+
+    it('로그인이 필요해 멈췄으면 그 탭을 앞으로 가져와 운영자에게 넘긴다', async () => {
+      const { site, log } = writer({}, { landAt: (url) => (url.includes('/campaign/type') ? 'https://xauth.coupang.com/auth/realms/seller' : url) });
+      const error = await rejection(site.createCampaign(INPUT));
+
+      await site.release({ error });
+
+      expect(log.filter((line) => /^(leave|close|focus) /.test(line))).toEqual(['focus 7']);
+    });
+
+    it('탭을 열지 않았으면 할 일이 없다', async () => {
+      const { site, log } = writer({});
+      await site.release({});
+
+      expect(log).toEqual([]);
+    });
+
+    it('두 번 불러도 한 번만 처리한다', async () => {
+      const { site, log } = writer({});
+      await site.readVendorId();
+      await site.release({});
+      await site.release({});
+
+      expect(log.filter((line) => /^(leave|close|focus) /.test(line))).toEqual(['close 7']);
+    });
   });
 });

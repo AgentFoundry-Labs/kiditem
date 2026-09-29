@@ -7,7 +7,7 @@ import {
   type AdActionResult,
 } from '@kiditem/shared/advertising-operations';
 import { RuntimeError } from '../../core/errors';
-import type { Collector } from '../collector';
+import type { CollectFinish, CollectedChunk, Collector } from '../collector';
 import { registerCollector } from '../index';
 
 /**
@@ -28,6 +28,8 @@ export interface AdActionSite {
     input: { name: string; adGroupName?: string; productIds: string[]; dailyBudget: number; targetRoas: number | null },
     options?: { signal?: AbortSignal },
   ): Promise<{ campaignId: string | null; message: string | null; url: string | null }>;
+  /** 실행 끝(성공·실패·중단 모두)에 한 번 — 사이트가 연 탭을 넘기거나 닫는다. */
+  release(outcome: { error?: unknown }): Promise<void>;
 }
 
 const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
@@ -45,50 +47,15 @@ export const adActionCollector: Collector<AdActionPlan, AdActionResult, AdAction
     if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, '광고 액션 실행 계획이 올바르지 않습니다.', { kind: AD_ACTION_KIND });
     if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, '광고센터 사이트를 쓸 수 없습니다.', { kind: AD_ACTION_KIND });
     const plan = parsed.data;
-    const campaign = plan.createCampaign;
-
-    // 다른 광고센터 계정이면 쓰지 않는다(보고서 수집과 같은 업체코드 대조).
-    if (plan.vendorId !== null) {
-      const vendorId = await site.readVendorId();
-      if (vendorId !== plan.vendorId) {
-        throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, '광고센터 업체코드가 광고 액션의 계정과 일치하지 않습니다. 그 계정으로 다시 로그인한 뒤 실행해 주세요.', {
-          plannedVendorId: plan.vendorId,
-          observedVendorId: vendorId,
-        });
-      }
+    let failure: unknown = null;
+    try {
+      return yield* apply(plan, site, signal);
+    } catch (error) {
+      failure = error;
+      throw error;
+    } finally {
+      await site.release({ error: failure }).catch(() => undefined);
     }
-    signal.throwIfAborted();
-
-    // 앞선 실행이 캠페인을 만들고 보고를 잃었을 수 있다 — 같은 이름이 있으면 만들지 않는다. 목록을 끝까지 못 읽으면 던진다.
-    const existing = findByName(await readRoster(site), campaign.name);
-    let submission: { campaignId: string | null; message: string | null };
-    if (existing) {
-      submission = { campaignId: existing, message: EXISTING_MESSAGE };
-    } else {
-      signal.throwIfAborted();
-      const pressed = await site.createCampaign(campaign, { signal });
-      let campaignId = pressed.campaignId;
-      // 눌렀지만 번호를 못 읽었다 — 목록에서 이름으로 찾는다. 읽기 실패는 uncertain으로 남긴다(다시 누르지 않는다).
-      if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
-      submission = { campaignId, message: pressed.message };
-    }
-
-    const evidence: AdActionEvidence = {
-      campaignId: submission.campaignId,
-      campaignName: campaign.name,
-      observedAt: new Date().toISOString(),
-      message: submission.message?.slice(0, 500) ?? null,
-    };
-    yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: 'submitted' } };
-    return {
-      result: {
-        actionId: plan.actionId,
-        actionType: plan.actionType,
-        providerOutcome: submission.campaignId ? 'created' : 'uncertain',
-        campaignId: submission.campaignId,
-        message: evidence.message,
-      },
-    };
   },
 
   failureResult(rawPlan, error) {
@@ -103,6 +70,52 @@ export const adActionCollector: Collector<AdActionPlan, AdActionResult, AdAction
     };
   },
 };
+
+async function* apply(plan: AdActionPlan, site: AdActionSite, signal: AbortSignal): AsyncGenerator<CollectedChunk, CollectFinish<AdActionResult>, undefined> {
+  const campaign = plan.createCampaign;
+  // 다른 광고센터 계정이면 쓰지 않는다(보고서 수집과 같은 업체코드 대조).
+  if (plan.vendorId !== null) {
+    const vendorId = await site.readVendorId();
+    if (vendorId !== plan.vendorId) {
+      throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, '광고센터 업체코드가 광고 액션의 계정과 일치하지 않습니다. 그 계정으로 다시 로그인한 뒤 실행해 주세요.', {
+        plannedVendorId: plan.vendorId,
+        observedVendorId: vendorId,
+      });
+    }
+  }
+  signal.throwIfAborted();
+
+  // 앞선 실행이 캠페인을 만들고 보고를 잃었을 수 있다 — 같은 이름이 있으면 만들지 않는다. 목록을 끝까지 못 읽으면 던진다.
+  const existing = findByName(await readRoster(site), campaign.name);
+  let submission: { campaignId: string | null; message: string | null };
+  if (existing) {
+    submission = { campaignId: existing, message: EXISTING_MESSAGE };
+  } else {
+    signal.throwIfAborted();
+    const pressed = await site.createCampaign(campaign, { signal });
+    let campaignId = pressed.campaignId;
+    // 눌렀지만 번호를 못 읽었다 — 목록에서 이름으로 찾는다. 읽기 실패는 uncertain으로 남긴다(다시 누르지 않는다).
+    if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
+    submission = { campaignId, message: pressed.message };
+  }
+
+  const evidence: AdActionEvidence = {
+    campaignId: submission.campaignId,
+    campaignName: campaign.name,
+    observedAt: new Date().toISOString(),
+    message: submission.message?.slice(0, 500) ?? null,
+  };
+  yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: 'submitted' } };
+  return {
+    result: {
+      actionId: plan.actionId,
+      actionType: plan.actionType,
+      providerOutcome: submission.campaignId ? 'created' : 'uncertain',
+      campaignId: submission.campaignId,
+      message: evidence.message,
+    },
+  };
+}
 
 async function readRoster(site: AdActionSite): Promise<Array<{ id: string; name: string }>> {
   const campaigns: Array<{ id: string; name: string }> = [];

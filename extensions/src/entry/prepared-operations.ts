@@ -14,8 +14,18 @@ export const PREPARED_OPERATION_KINDS: readonly OperationKind[] = [AD_ACTION_KIN
 export const MAX_PREPARED_RUNS = 20;
 const WORKER_ID = 'kiditem-extension-popup';
 
+/**
+ * 액션 하나가 아니라 광고센터 세션·화면 전체의 문제인 실패 — 이어서 claim하면 남은 준비 실행을 모두 같은 까닭으로 태운다.
+ * 그 실행에서 멈추고 남은 것은 손대지 않는다(운영자가 고친 뒤 다시 누른다).
+ */
+const STOPPING_FAILURES: Readonly<Record<string, string>> = {
+  SITE_LOGIN_REQUIRED: '쿠팡 광고센터에 로그인한 뒤 다시 실행해 주세요.',
+  ADVERTISING_IDENTITY_MISMATCH: '광고 액션의 업체로 광고센터에 다시 로그인한 뒤 실행해 주세요.',
+  ADVERTISING_AD_CENTER_FORM_CHANGED: '광고센터 등록 화면이 바뀌어 남은 액션을 멈췄습니다. 개발자에게 알려 주세요.',
+};
+
 export type PreparedRunSummary =
-  | { ok: true; ran: number; created: number; uncertain: number; failed: number; messages: string[] }
+  | { ok: true; ran: number; created: number; uncertain: number; failed: number; messages: string[]; stopped?: string }
   | { ok: false; error: string; errorCode?: string; ran: number };
 
 export async function runPreparedOperations(
@@ -36,8 +46,16 @@ export async function runPreparedOperations(
     const { bucket, message } = classify(outcome);
     counts[bucket] += 1;
     if (message) messages.push(message);
+    const stopped = STOPPING_FAILURES[failureCode(outcome) ?? ''];
+    if (stopped) return { ok: true, ...counts, messages, stopped };
   }
   return { ok: true, ...counts, messages };
+}
+
+function failureCode(outcome: RunOutcome): string | null {
+  if (outcome.kind === 'failed') return outcome.errorCode;
+  if (outcome.kind === 'finished' && outcome.operation.status === 'failed') return outcome.operation.errorCode;
+  return null;
 }
 
 function classify(outcome: RunOutcome): { bucket: 'created' | 'uncertain' | 'failed'; message: string | null } {

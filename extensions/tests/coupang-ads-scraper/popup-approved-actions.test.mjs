@@ -233,3 +233,25 @@ test('a Run with nothing prepared or a refused claim says so', async () => {
   await refused.flush();
   assert.equal(refused.document.getElementById('syncResult').textContent, '❌ KidItem 서버에 연결하지 못했습니다.');
 });
+
+test('a Run stopped by a session-wide failure tells the operator what to do before running again', async () => {
+  const harness = createPopupHarness({
+    connected: ['local'],
+    runPreparedResponse: {
+      ok: true, ran: 1, created: 0, uncertain: 0, failed: 1,
+      messages: ['쿠팡 광고센터 로그인이 필요합니다.'],
+      stopped: '쿠팡 광고센터에 로그인한 뒤 다시 실행해 주세요.',
+    },
+  });
+  await completeStatusLoad(harness, 'local', { operations: [{ id: 'op-1' }, { id: 'op-2' }] });
+
+  harness.document.getElementById('btnRunApproved').click();
+  await harness.flush();
+
+  const result = harness.document.getElementById('syncResult');
+  assert.equal(
+    result.textContent,
+    '⚠️ 0개 등록, 0개는 광고센터에서 등록 여부 확인 필요, 1개 실패. 쿠팡 광고센터 로그인이 필요합니다. 남은 액션은 실행하지 않았습니다. 쿠팡 광고센터에 로그인한 뒤 다시 실행해 주세요.',
+  );
+  assert.equal(result.className, 'sync-result error');
+});

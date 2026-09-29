@@ -4918,44 +4918,15 @@ var KidItemRuntime = (() => {
       if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uC561\uC158 \uC2E4\uD589 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_ACTION_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_ACTION_KIND });
       const plan = parsed3.data;
-      const campaign = plan.createCampaign;
-      if (plan.vendorId !== null) {
-        const vendorId2 = await site.readVendorId();
-        if (vendorId2 !== plan.vendorId) {
-          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uAD11\uACE0 \uC561\uC158\uC758 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uADF8 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.", {
-            plannedVendorId: plan.vendorId,
-            observedVendorId: vendorId2
-          });
-        }
+      let failure2 = null;
+      try {
+        return yield* apply(plan, site, signal);
+      } catch (error) {
+        failure2 = error;
+        throw error;
+      } finally {
+        await site.release({ error: failure2 }).catch(() => void 0);
       }
-      signal.throwIfAborted();
-      const existing = findByName(await readRoster(site), campaign.name);
-      let submission;
-      if (existing) {
-        submission = { campaignId: existing, message: EXISTING_MESSAGE };
-      } else {
-        signal.throwIfAborted();
-        const pressed = await site.createCampaign(campaign, { signal });
-        let campaignId = pressed.campaignId;
-        if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
-        submission = { campaignId, message: pressed.message };
-      }
-      const evidence = {
-        campaignId: submission.campaignId,
-        campaignName: campaign.name,
-        observedAt: (/* @__PURE__ */ new Date()).toISOString(),
-        message: submission.message?.slice(0, 500) ?? null
-      };
-      yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: "submitted" } };
-      return {
-        result: {
-          actionId: plan.actionId,
-          actionType: plan.actionType,
-          providerOutcome: submission.campaignId ? "created" : "uncertain",
-          campaignId: submission.campaignId,
-          message: evidence.message
-        }
-      };
     },
     failureResult(rawPlan, error) {
       const parsed3 = AdActionPlanSchema.safeParse(rawPlan);
@@ -4969,6 +4940,46 @@ var KidItemRuntime = (() => {
       };
     }
   };
+  async function* apply(plan, site, signal) {
+    const campaign = plan.createCampaign;
+    if (plan.vendorId !== null) {
+      const vendorId2 = await site.readVendorId();
+      if (vendorId2 !== plan.vendorId) {
+        throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uAD11\uACE0 \uC561\uC158\uC758 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uADF8 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.", {
+          plannedVendorId: plan.vendorId,
+          observedVendorId: vendorId2
+        });
+      }
+    }
+    signal.throwIfAborted();
+    const existing = findByName(await readRoster(site), campaign.name);
+    let submission;
+    if (existing) {
+      submission = { campaignId: existing, message: EXISTING_MESSAGE };
+    } else {
+      signal.throwIfAborted();
+      const pressed = await site.createCampaign(campaign, { signal });
+      let campaignId = pressed.campaignId;
+      if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
+      submission = { campaignId, message: pressed.message };
+    }
+    const evidence = {
+      campaignId: submission.campaignId,
+      campaignName: campaign.name,
+      observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      message: submission.message?.slice(0, 500) ?? null
+    };
+    yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: "submitted" } };
+    return {
+      result: {
+        actionId: plan.actionId,
+        actionType: plan.actionType,
+        providerOutcome: submission.campaignId ? "created" : "uncertain",
+        campaignId: submission.campaignId,
+        message: evidence.message
+      }
+    };
+  }
   async function readRoster(site) {
     const campaigns = [];
     for (let page = 0; ; page += 1) {
@@ -12332,6 +12343,7 @@ var KidItemRuntime = (() => {
     const landed = await page.navigate(AD_CENTER_CAMPAIGN_TYPE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
     if (isLoginUrl(landed)) throw new RuntimeError(SITE_LOGIN_REQUIRED, GUARD2.loginMessage, { reason: "login_unconfirmed" });
     const call2 = (name, args, timeoutMs) => callPage(page, name, args, { timeoutMs, guard: GUARD2, displayName: AD_CENTER_LOGIN.displayName, isolated: [AD_CENTER_CAMPAIGN_FILE] });
+    options.onFillStarted?.();
     const filled = await call2("adCenter.campaignFill", input, FILL_TIMEOUT_MS2);
     if (filled?.state === "product_not_found") {
       const missing = Array.isArray(filled.productIds) ? filled.productIds.map(String) : [];
@@ -12341,6 +12353,8 @@ var KidItemRuntime = (() => {
       });
     }
     if (filled?.state !== "filled") throw formChanged(filled);
+    options.signal?.throwIfAborted();
+    await options.onFilled?.();
     options.signal?.throwIfAborted();
     const submitted = await page.ask({ type: PAGE_CALL_MESSAGE, call: "adCenter.campaignSubmit", args: {}, world: "isolated" }, { timeoutMs: SUBMIT_TIMEOUT_MS }).catch(() => null);
     if (submitted?.ok === true && submitted.value?.state === "form_changed") throw formChanged(submitted.value);
@@ -12404,8 +12418,14 @@ var KidItemRuntime = (() => {
     const caller = createSiteCaller(AD_CENTER_CALLER, deps);
     const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
     let own = null;
-    const ownTab = () => page ? Promise.resolve(page) : own ??= deps.tabs.open(AD_CENTER_HOME_URL);
-    const call2 = adCenterCall(deps, lease, page);
+    let ownPage = null;
+    let wrote = false;
+    let released = false;
+    const ownTab = () => page ? Promise.resolve(page) : own ??= deps.tabs.open(AD_CENTER_HOME_URL).then((opened) => {
+      ownPage = opened;
+      return opened;
+    });
+    const call2 = adCenterCall(deps, lease, () => page ?? ownPage);
     async function graphql(query, variables, options = {}) {
       const body = record2(await call2(() => caller.json(AD_CENTER_GRAPHQL_URL, {
         method: "POST",
@@ -12517,15 +12537,25 @@ var KidItemRuntime = (() => {
       pause: (ms) => deps.sleep(ms),
       async createCampaign(input, options) {
         const target = await ownTab();
-        try {
-          return await submitCampaign(target, input, options);
-        } finally {
-          if (target !== page) await target.leave().catch(() => void 0);
-        }
+        return submitCampaign(target, input, {
+          ...options,
+          onFillStarted: () => {
+            wrote = true;
+          }
+        });
+      },
+      async release({ error } = {}) {
+        if (released) return;
+        released = true;
+        const opened = own ? await own.catch(() => null) : null;
+        if (!opened) return;
+        if (isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED) await opened.focus().catch(() => void 0);
+        else if (wrote) await opened.leave().catch(() => void 0);
+        else await opened.close().catch(() => void 0);
       }
     };
   }
-  function adCenterCall(deps, lease, page) {
+  function adCenterCall(deps, lease, pageOf) {
     const credentials = lease.credentials;
     const withLogin = createSiteLoginGate(credentials);
     const login = async (target) => {
@@ -12534,7 +12564,7 @@ var KidItemRuntime = (() => {
       return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
     };
     let warmed = false;
-    const warm = async (request, retry) => {
+    const warm = async (request, retry, page) => {
       try {
         return await request();
       } catch (error) {
@@ -12546,7 +12576,8 @@ var KidItemRuntime = (() => {
     };
     return (request, options = {}) => {
       const retry = options.retryAfterWarmUp !== false;
-      return page ? withLogin(() => warm(request, retry), () => login(page)) : withLoginTab(withLogin, () => warm(request, retry), () => deps.tabs.open("about:blank"), login);
+      const page = pageOf();
+      return page ? withLogin(() => warm(request, retry, page), () => login(page)) : withLoginTab(withLogin, () => warm(request, retry, null), () => deps.tabs.open("about:blank"), login);
     };
   }
   function parseReportNdjson(body) {
@@ -18430,9 +18461,9 @@ var KidItemRuntime = (() => {
     return { rows };
   }
   function shopbyWord(row) {
-    const apply = String(row.applyStatusType ?? "");
-    if (/REJECTION$/.test(apply)) return "\uC2B9\uC778\uAC70\uBD80";
-    if (/READY$/.test(apply)) return "\uC2B9\uC778\uB300\uAE30";
+    const apply2 = String(row.applyStatusType ?? "");
+    if (/REJECTION$/.test(apply2)) return "\uC2B9\uC778\uAC70\uBD80";
+    if (/READY$/.test(apply2)) return "\uC2B9\uC778\uB300\uAE30";
     if (row.saleSettingStatusType === "PROHIBITION_SALE") return "\uD310\uB9E4\uAE08\uC9C0";
     if (row.saleSettingStatusType === "STOP_SELLING") return "\uD310\uB9E4\uC911\uC9C0";
     if (row.saleStatusType === "END_SALE") return "\uD310\uB9E4\uC885\uB8CC";
@@ -20855,6 +20886,11 @@ var KidItemRuntime = (() => {
   var PREPARED_OPERATION_KINDS = [AD_ACTION_KIND];
   var MAX_PREPARED_RUNS = 20;
   var WORKER_ID = "kiditem-extension-popup";
+  var STOPPING_FAILURES = {
+    SITE_LOGIN_REQUIRED: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.",
+    ADVERTISING_IDENTITY_MISMATCH: "\uAD11\uACE0 \uC561\uC158\uC758 \uC5C5\uCCB4\uB85C \uAD11\uACE0\uC13C\uD130\uC5D0 \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.",
+    ADVERTISING_AD_CENTER_FORM_CHANGED: "\uAD11\uACE0\uC13C\uD130 \uB4F1\uB85D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uB0A8\uC740 \uC561\uC158\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. \uAC1C\uBC1C\uC790\uC5D0\uAC8C \uC54C\uB824 \uC8FC\uC138\uC694."
+  };
   async function runPreparedOperations(runner, input) {
     const counts = { ran: 0, created: 0, uncertain: 0, failed: 0 };
     const messages = [];
@@ -20869,8 +20905,15 @@ var KidItemRuntime = (() => {
       const { bucket, message } = classify(outcome);
       counts[bucket] += 1;
       if (message) messages.push(message);
+      const stopped = STOPPING_FAILURES[failureCode(outcome) ?? ""];
+      if (stopped) return { ok: true, ...counts, messages, stopped };
     }
     return { ok: true, ...counts, messages };
+  }
+  function failureCode(outcome) {
+    if (outcome.kind === "failed") return outcome.errorCode;
+    if (outcome.kind === "finished" && outcome.operation.status === "failed") return outcome.operation.errorCode;
+    return null;
   }
   function classify(outcome) {
     if (outcome.kind === "finished") {
