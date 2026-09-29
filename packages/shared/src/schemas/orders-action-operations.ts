@@ -55,16 +55,26 @@ export const SELLPIA_INVOICE_TARGET_TTL_MS = 24 * 60 * 60 * 1000;
  * 전송: 원천 실행(몰 주문 `orders.mall_orders`·직배송 `orders.coupang_directship`, 수동 업로드 포함)의 변환 파일을 셀피아
  * 주문서수집 화면에 주입하고 [주문접수]를 누른다. owner plan이 파일을 다시 만들어 보관 캡처로 두고 주문번호를 xlsx에서 읽는다.
  */
+export const SELLPIA_TRANSFER_TRANSPORTS = ['SHIPMENT', 'MILKRUN'] as const;
+export const SellpiaTransferTransportSchema = z.enum(SELLPIA_TRANSFER_TRANSPORTS);
+export type SellpiaTransferTransport = z.infer<typeof SellpiaTransferTransportSchema>;
+
 export const SellpiaOrderTransferScopeSchema = z.object({
   sourceOperationId: z.string().uuid(),
   /** 셀피아 판매처 이름(화면의 판매처 선택에 쓴다; 별칭은 site 어댑터가 푼다). */
   shopName: z.string().trim().min(1).max(200),
+  /**
+   * 직배송 원천(`orders.coupang_directship`)일 때 필수 — 한 실행이 운송유형마다 파일 하나를 낸다(소비 기록·Python 생성기).
+   * 몰 주문 원천에는 없어야 한다. owner plan이 원천 kind에 맞춰 검증한다.
+   */
+  transport: SellpiaTransferTransportSchema.optional(),
 }).strict();
 export type SellpiaOrderTransferScope = z.infer<typeof SellpiaOrderTransferScopeSchema>;
 
 export const SellpiaOrderTransferPlanSchema = z.object({
   sourceOperationId: z.string().uuid(),
   shopName: z.string().trim().min(1).max(200),
+  transport: SellpiaTransferTransportSchema.nullable(),
   fileName: z.string().trim().min(1).max(300),
   /** 서버가 변환 파일에서 읽은 대상 주문번호(판매처주문번호|주문번호|주문코드 머리). 0개면 plan이 거절한다. */
   targetOrderNumbers: z.array(orderNumber).min(1).max(SELLPIA_TRANSFER_TARGETS_MAX),
