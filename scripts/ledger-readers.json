@@ -1073,7 +1073,7 @@
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
-      "to": "apps/server/src/channels/adapter/out/repository/completed-catalog-run.ts",
+      "to": "apps/server/src/channels/adapter/out/repository/published-catalog-listing.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
