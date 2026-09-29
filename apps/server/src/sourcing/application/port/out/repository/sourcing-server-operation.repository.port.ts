@@ -41,8 +41,8 @@ export interface SourcingSourceTarget {
  * 쓰기는 없다 — 실행 행은 계약이, 원장·발행은 owner finalize가 쓴다.
  */
 export interface SourcingServerOperationRepositoryPort {
-  /** 이 원천·대상의 가장 최근 실행(실패·진행 중 포함). */
-  latestForTarget(input: SourcingSourceTarget & { kinds: readonly string[] }): Promise<SourcingServerOperationRecord | null>;
+  /** 이 원천·범위(대상을 주면 그 대상)의 가장 최근 실행(실패·진행 중 포함). */
+  latestForTarget(input: Omit<SourcingSourceTarget, 'targetKey'> & { targetKey?: string; kinds: readonly string[] }): Promise<SourcingServerOperationRecord | null>;
   /** 같은 요청 멱등 키로 이미 연 실행(재전송이면 같은 실행을 돌려준다). */
   findByRequestKey(input: { organizationId: string; kind: string; sourceKey: string; requestIdempotencyKey: string }): Promise<SourcingServerOperationRecord | null>;
   currentPublication(input: SourcingSourceTarget): Promise<SourcingCurrentSourcePublication | null>;

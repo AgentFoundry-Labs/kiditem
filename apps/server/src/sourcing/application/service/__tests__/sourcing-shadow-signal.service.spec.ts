@@ -3,10 +3,7 @@ import {
   type MarketShadowSnapshotPayload,
   SourcingShadowSignalService,
 } from '../sourcing-shadow-signal.service';
-import type {
-  SourcingBrowserSourceAttemptRepositoryPort,
-  SourcingBrowserSourceAttempt,
-} from '../../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import type { SourcingSourceAttempt } from '../sourcing-server-operation.runner';
 import type {
   LinkfoxEchotikShadowPort,
   MarketShadowSignalPort,
@@ -26,7 +23,8 @@ describe('SourcingShadowSignalService', () => {
   let snapshots: MarketShadowSnapshotRepositoryPort;
   let trends: TrendCollectionRepositoryPort;
   let linkfox: LinkfoxEchotikShadowPort;
-  let attempts: SourcingBrowserSourceAttemptRepositoryPort;
+  // 실행 계약 runner 자리: 이 스펙은 입장 순서·공급자 IO·문서 모양을 본다(실행·발행·하루 1회는 PG 스펙).
+  let runs: Record<'replay' | 'latest' | 'begin' | 'complete' | 'fail' | 'read', ReturnType<typeof vi.fn>>;
   const input = { organizationId: ORGANIZATION_ID, idempotencyKey: 'shadow-key' };
   let service: SourcingShadowSignalService;
 
@@ -54,9 +52,8 @@ describe('SourcingShadowSignalService', () => {
     };
     vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '0');
     let snapshot: MarketShadowSnapshotRow | null = null;
-    let attempt: SourcingBrowserSourceAttempt;
+    let attempt: SourcingSourceAttempt;
     snapshots = {
-      findAttemptIdByKey: vi.fn(async () => null),
       findByAttempt: vi.fn(async () => snapshot),
       readLatest: vi.fn(async () => ({
         latestAttempt: null,
@@ -65,50 +62,32 @@ describe('SourcingShadowSignalService', () => {
       })),
       listRecent: vi.fn(async () => []),
     };
-    attempts = {
-      beginAttempt: vi.fn(
-        async (
-          admission: Parameters<SourcingBrowserSourceAttemptRepositoryPort['beginAttempt']>[0],
-        ) => {
-          attempt = {
-            ...admission,
-            attemptId: 'attempt-1',
-            attemptToken: 'secret',
-            state: 'RUNNING',
-            expiresAt: new Date(NOW.getTime() + 900_000),
-            errorCode: null,
-            errorMessage: null,
-          } as SourcingBrowserSourceAttempt;
-          return { created: true, attempt };
-        },
-      ),
-      readAttempt: vi.fn(async () => attempt),
-      completeAttempt: vi.fn(
-        async (
-          terminal: Parameters<SourcingBrowserSourceAttemptRepositoryPort['completeAttempt']>[0],
-        ) => {
-          snapshot = row(terminal.output.observations[0].rawPayload);
-          attempt = { ...attempt, state: 'COMPLETE' };
-          return attempt;
-        },
-      ),
-      failAttempt: vi.fn(
-        async (
-          terminal: Parameters<SourcingBrowserSourceAttemptRepositoryPort['failAttempt']>[0],
-        ) => {
-          attempt = {
-            ...attempt,
-            state: 'FAILED',
-            errorCode: terminal.code,
-            errorMessage: terminal.message,
-          };
-          return attempt;
-        },
-      ),
-    } as unknown as SourcingBrowserSourceAttemptRepositoryPort;
+    runs = {
+      replay: vi.fn(async () => null),
+      latest: vi.fn(async () => null),
+      begin: vi.fn(async (admission: { scope: { sourceKey: string; scopeKey: string; targetKey: string; attemptPlan: Record<string, unknown> } }) => {
+        attempt = {
+          attemptId: 'attempt-1', sourceKey: admission.scope.sourceKey, scopeKey: admission.scope.scopeKey,
+          targetKey: admission.scope.targetKey, plan: admission.scope.attemptPlan, planChecksum: '', contentChecksum: null,
+          acceptedCount: 0, completedAt: null, state: 'RUNNING', expiresAt: new Date(NOW.getTime() + 900_000),
+          errorCode: null, errorMessage: null,
+        };
+        return { created: true, attempt, token: 'secret' };
+      }),
+      read: vi.fn(async () => attempt),
+      complete: vi.fn(async (_organizationId: string, _run: unknown, output: { observations: Array<{ rawPayload: unknown }> }) => {
+        snapshot = row(output.observations[0].rawPayload);
+        attempt = { ...attempt, state: 'COMPLETE' };
+        return attempt;
+      }),
+      fail: vi.fn(async (_organizationId: string, _run: unknown, code: string, message: string) => {
+        attempt = { ...attempt, state: 'FAILED', errorCode: code, errorMessage: message };
+        return attempt;
+      }),
+    };
     trends = trendRepository();
     linkfox = linkfoxProvider();
-    service = new SourcingShadowSignalService(provider, snapshots, trends, attempts, linkfox);
+    service = new SourcingShadowSignalService(provider, snapshots, trends, runs as never, linkfox);
   });
 
   afterEach(() => {
@@ -117,16 +96,19 @@ describe('SourcingShadowSignalService', () => {
 
   it('admits the KST day before provider IO and retains disabled Google/baseline evaluation', async () => {
     const result = await service.collect(input, NOW);
-    expect(attempts.beginAttempt).toHaveBeenCalledWith(
+    expect(runs.begin).toHaveBeenCalledWith(
       expect.objectContaining({
-        sourceKey: 'market_shadow_signals',
-        scopeKey: 'day',
-        targetKey: '2026-07-16',
-        expiresInMs: 900_000,
-        plan: expect.objectContaining({ experiment: 'paired-shadow-v1', windowDays: 30 }),
+        kind: 'sourcing.market_shadow',
+        operationIdempotencyKey: 'market_shadow:2026-07-16',
+        scope: expect.objectContaining({
+          sourceKey: 'market_shadow_signals',
+          scopeKey: 'day',
+          targetKey: '2026-07-16',
+          attemptPlan: expect.objectContaining({ experiment: 'paired-shadow-v1', windowDays: 30 }),
+        }),
       }),
     );
-    expect(vi.mocked(attempts.beginAttempt).mock.invocationCallOrder[0]).toBeLessThan(
+    expect(runs.begin.mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(provider.fetchTrending).mock.invocationCallOrder[0],
     );
     expect(provider.fetchTrending).toHaveBeenCalledWith(
@@ -164,17 +146,17 @@ describe('SourcingShadowSignalService', () => {
   it('starts the source window at the KST day start when collecting before dawn', async () => {
     await service.collect(input, NOW);
 
-    expect(attempts.completeAttempt).toHaveBeenCalledWith(
+    expect(runs.complete).toHaveBeenCalledWith(ORGANIZATION_ID, expect.anything(), expect.anything(),
       expect.objectContaining({
-        sourceWindowStartAt: new Date('2026-07-15T15:00:00.000Z'),
-        sourceWindowEndAt: NOW,
+        windowStartAt: new Date('2026-07-15T15:00:00.000Z'),
+        windowEndAt: NOW,
       }),
     );
   });
 
   it('replays the exact receipt before seeds, configuration and external IO on another day', async () => {
     const first = await service.collect(input, NOW);
-    vi.mocked(snapshots.findAttemptIdByKey).mockResolvedValue(first.attemptId);
+    runs.replay.mockResolvedValue({ attemptId: first.attemptId });
     vi.mocked(trends.listSeeds).mockClear();
     vi.mocked(provider.fetchTrending).mockClear();
     vi.mocked(trends.findNaverKeywordHistory).mockClear();
@@ -183,7 +165,7 @@ describe('SourcingShadowSignalService', () => {
     expect(trends.listSeeds).not.toHaveBeenCalled();
     expect(provider.fetchTrending).not.toHaveBeenCalled();
     expect(trends.findNaverKeywordHistory).not.toHaveBeenCalled();
-    expect(attempts.beginAttempt).toHaveBeenCalledOnce();
+    expect(runs.begin).toHaveBeenCalledOnce();
   });
 
   it('does not admit when cancelled during seed loading', async () => {
@@ -195,7 +177,7 @@ describe('SourcingShadowSignalService', () => {
     await expect(service.collect(input, NOW, { signal: controller.signal })).rejects.toThrow(
       'cancelled',
     );
-    expect(attempts.beginAttempt).not.toHaveBeenCalled();
+    expect(runs.begin).not.toHaveBeenCalled();
     expect(provider.fetchTrending).not.toHaveBeenCalled();
   });
 
@@ -210,7 +192,7 @@ describe('SourcingShadowSignalService', () => {
       errorCode: 'SHADOW_COLLECTION_CANCELLED',
       snapshot: null,
     });
-    expect(attempts.completeAttempt).not.toHaveBeenCalled();
+    expect(runs.complete).not.toHaveBeenCalled();
   });
 
   it('stores a sanitized bounded Google error without a partial snapshot', async () => {
@@ -222,7 +204,7 @@ describe('SourcingShadowSignalService', () => {
       snapshot: null,
       errorMessage: 'google-trends-rss: Authorization=[REDACTED] upstream failed',
     });
-    expect(attempts.completeAttempt).not.toHaveBeenCalled();
+    expect(runs.complete).not.toHaveBeenCalled();
   });
 
   it('clamps recent reads to a 30-day KST business-date window', async () => {

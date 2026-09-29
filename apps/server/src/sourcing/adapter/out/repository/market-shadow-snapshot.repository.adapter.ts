@@ -1,35 +1,22 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import { readLatestOperationForPlan } from '../../../../common/operation/transaction/latest-operation-for-plan';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
-  MARKET_SHADOW_SNAPSHOT_SCOPE,
   type MarketShadowSnapshotRepositoryPort,
   type MarketShadowSnapshotRow,
 } from '../../../application/port/out/repository/market-shadow-snapshot.repository.port';
-import { toAttempt } from './sourcing-browser-source-attempt.repository.adapter';
 import {
   readLatestCurrentMarketShadowFact,
   readMarketShadowFactForAttempt,
   readRecentCurrentMarketShadowFacts,
-} from './source-evidence.reader';
-import {
-  readLatestSourcingAttempt,
-  readSourcingRunByIdempotencyKey,
 } from './source-evidence.reader';
 import { MarketShadowSnapshotDocumentSchema } from '../../../domain/market-shadow-snapshot-document';
 
 @Injectable()
 export class MarketShadowSnapshotRepositoryAdapter implements MarketShadowSnapshotRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
-  async findAttemptIdByKey(organizationId: string, idempotencyKey: string) {
-    const row = await readSourcingRunByIdempotencyKey(this.prisma, {
-      organizationId,
-      sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
-      scopeKey: 'day',
-      idempotencyKey,
-    });
-    return row?.id ?? null;
-  }
   async findByAttempt(organizationId: string, attemptId: string) {
     const fact = await readMarketShadowFactForAttempt(this.prisma, {
       organizationId,
@@ -40,15 +27,20 @@ export class MarketShadowSnapshotRepositoryAdapter implements MarketShadowSnapsh
   readLatest(organizationId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const latest = await readLatestSourcingAttempt(tx, {
+        const latest = await readLatestOperationForPlan(tx, {
           organizationId,
-          sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
-          scopeKey: 'day',
+          kinds: [SOURCING_OPERATION_KINDS.marketShadow],
+          planEquals: { sourceKey: 'market_shadow_signals', scopeKey: 'day' },
         });
         const complete = await readLatestCurrentMarketShadowFact(tx, organizationId);
         const latestComplete = complete ? toRow(complete) : null;
         return {
-          latestAttempt: latest ? toAttempt(latest, new Date()) : null,
+          latestAttempt: latest ? {
+            ...latest,
+            plan: jsonObject(latest.plan),
+            result: latest.result && typeof latest.result === 'object' && !Array.isArray(latest.result)
+              ? latest.result as Record<string, unknown> : null,
+          } : null,
           latestComplete,
           actualCutoffAt: latestComplete ? complete!.publication.windowEndAt : null,
         };
@@ -83,4 +75,8 @@ function toRow(
     createdAt: row.publication.createdAt,
     updatedAt: row.publication.completedAt,
   };
+}
+
+function jsonObject(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

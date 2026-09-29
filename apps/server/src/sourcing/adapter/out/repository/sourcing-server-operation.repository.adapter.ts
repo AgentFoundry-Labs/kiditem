@@ -17,11 +17,15 @@ import type {
 export class SourcingServerOperationRepositoryAdapter implements SourcingServerOperationRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async latestForTarget(input: SourcingSourceTarget & { kinds: readonly string[] }) {
+  async latestForTarget(input: Omit<SourcingSourceTarget, 'targetKey'> & { targetKey?: string; kinds: readonly string[] }) {
     const row = await readLatestOperationForPlan(this.prisma, {
       organizationId: input.organizationId,
       kinds: input.kinds,
-      planEquals: { sourceKey: input.sourceKey, scopeKey: input.scopeKey, targetKey: input.targetKey },
+      planEquals: {
+        sourceKey: input.sourceKey,
+        scopeKey: input.scopeKey,
+        ...(input.targetKey === undefined ? {} : { targetKey: input.targetKey }),
+      },
     });
     return row ? toRecord(row) : null;
   }

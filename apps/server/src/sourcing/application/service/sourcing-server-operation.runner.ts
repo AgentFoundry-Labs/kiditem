@@ -206,6 +206,12 @@ export class SourcingServerOperationRunner {
     return toAttempt(fromView(view));
   }
 
+  /** 이 원천·범위(대상을 주면 그 대상)의 가장 최근 실행(실패·진행 중 포함). 없으면 null. */
+  async latest(input: Omit<SourcingSourceTarget, 'targetKey'> & { targetKey?: string; kinds: readonly SourcingServerKind[] }): Promise<SourcingSourceAttempt | null> {
+    const record = await this.reads.latestForTarget(input);
+    return record ? toAttempt(record) : null;
+  }
+
   /**
    * 원천·대상 상태: 최신 실행(실패 포함)과 현재 발행. `ready`는 현재 발행의 plan 지문이 지금 plan과 같을 때만이다.
    * 옛 run 시절 발행은 실행이 없어 `latestAttempt` 없이 `latestComplete`만 나온다.

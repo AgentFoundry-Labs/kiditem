@@ -11,12 +11,12 @@ import {
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { SourcingShadowSignalService } from '../application/service/sourcing-shadow-signal.service';
 import { MarketShadowSnapshotRepositoryAdapter } from '../adapter/out/repository/market-shadow-snapshot.repository.adapter';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
 
 const NOW = new Date('2026-09-06T16:30:00Z');
-describe('Market Shadow source owner public service + disposable PG', () => {
+describe('시장 섀도 = 서버 구동 kind sourcing.market_shadow, KST 하루 1회 (disposable PG)', () => {
   let prisma: PrismaClient;
   let service: SourcingShadowSignalService;
   let alerts: SourceFailureAlerts;
@@ -35,7 +35,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       google,
       new MarketShadowSnapshotRepositoryAdapter(prisma as never),
       new TrendCollectionRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, alerts, unusedSalesProductDraftPort),
+      sourcingServerOperations(prisma, unusedSalesProductDraftPort).runner,
     );
   });
   afterAll(async () => {
@@ -173,7 +173,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     expect((await pending).state).toBe('COMPLETE');
     expect(google.fetchTrending).toHaveBeenCalledTimes(1);
   });
-  it('commits expired FAILED plus Alert before denying the day, without publishing the late provider payload', async () => {
+  it('임대가 끝난 실행은 읽을 때 만료 실패로 닫히며 알림을 열고, 그날 입장은 거절되며 늦은 공급자 결과는 발행되지 않는다', async () => {
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {
       release = resolve;
@@ -190,28 +190,17 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     try {
       await expect.poll(() => google.fetchTrending.mock.calls.length).toBe(1);
       const active = await collect(key);
-      await prisma.sourcingEvidenceIngestionRun.update({
-        where: { id: active.attemptId, organizationId: ORG },
-        // Fixed past instant avoids the host/DB clock boundary.
-        data: { leaseExpiresAt: new Date(0) },
-      });
+      await prisma.operation.update({ where: { id: active.attemptId }, data: { expiresAt: new Date(0) } });
       expect(await service.readAttempt(ORG, active.attemptId)).toMatchObject({
         state: 'FAILED',
         errorCode: 'ATTEMPT_EXPIRED',
         snapshot: null,
       });
-      expect(await alerts.list(ORG)).toEqual([]);
+      expect(await prisma.operation.findUniqueOrThrow({ where: { id: active.attemptId } })).toMatchObject({ status: 'failed' });
+      expect(await alerts.list(ORG)).toMatchObject([{ status: 'OPEN', attemptId: active.attemptId }]);
       await expect(collect()).rejects.toMatchObject({
         response: { code: 'SHADOW_DAILY_LIMIT', attemptId: active.attemptId },
       });
-      expect(
-        await prisma.sourcingEvidenceIngestionRun.findFirst({
-          where: { id: active.attemptId, organizationId: ORG },
-        }),
-      ).toMatchObject({ status: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
-      expect(await alerts.list(ORG)).toMatchObject([
-        { status: 'OPEN', attemptId: active.attemptId },
-      ]);
     } finally {
       release();
     }
@@ -221,7 +210,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     expect(await service.listRecent(ORG, 30, NOW)).toEqual([]);
     expect(google.fetchTrending).toHaveBeenCalledTimes(1);
   });
-  it('serializes two fresh day admissions before provider IO', async () => {
+  it('같은 KST 날 동시에 온 두 입장은 공급자 IO 전에 하나만 열고, 다른 하나는 그날 실행을 가리켜 거절된다', async () => {
     const results = await Promise.allSettled([collect(), collect()]);
     const complete = results.find((result) => result.status === 'fulfilled');
     const denied = results.find((result) => result.status === 'rejected');
@@ -259,7 +248,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     // Delay actual SQL only; the owner and database results are not substituted.
     const readClient = prisma.$extends({
       query: {
-        sourcingEvidenceIngestionRun: {
+        operation: {
           async findFirst({ args, query }) {
             const result = await query(args);
             latestRead();
@@ -278,7 +267,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       google,
       new MarketShadowSnapshotRepositoryAdapter(readClient as never),
       new TrendCollectionRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, alerts, unusedSalesProductDraftPort),
+      sourcingServerOperations(prisma, unusedSalesProductDraftPort).runner,
     );
     const reading = reader.getStatus(ORG, NOW);
     await latestReadPromise;
@@ -299,7 +288,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       latestComplete: { businessDate: new Date('2026-09-07T00:00:00Z') },
     });
   });
-  it('rolls expiry and denial back when the same-transaction Alert cannot be stored', async () => {
+  it('만료 실패와 그 알림은 한 트랜잭션이라, 알림을 쓰지 못하면 실행은 executing 그대로이고 그날 입장은 여전히 막힌다', async () => {
     let release!: () => void;
     const blocked = new Promise<void>((resolve) => {
       release = resolve;
@@ -312,19 +301,16 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     const pending = collect(key);
     await expect.poll(() => google.fetchTrending.mock.calls.length).toBe(1);
     const active = await collect(key);
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: active.attemptId, organizationId: ORG },
-      data: { leaseExpiresAt: new Date(Date.now() - 1) },
-    });
+    await prisma.operation.update({ where: { id: active.attemptId }, data: { expiresAt: new Date(Date.now() - 1) } });
     await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT shadow_alert_failure CHECK (source_type <> 'market_shadow_signals')`;
     try {
-      await expect(collect()).rejects.toThrow();
-      expect(
-        await prisma.sourcingEvidenceIngestionRun.findFirst({
-          where: { id: active.attemptId, organizationId: ORG },
-        }),
-      ).toMatchObject({ status: 'RUNNING', completedAt: null });
+      await expect(service.readAttempt(ORG, active.attemptId)).rejects.toThrow();
+      expect(await prisma.operation.findUniqueOrThrow({ where: { id: active.attemptId } }))
+        .toMatchObject({ status: 'executing', finishedAt: null });
       expect(await alerts.list(ORG)).toEqual([]);
+      await expect(collect()).rejects.toMatchObject({
+        response: { code: 'SHADOW_DAILY_LIMIT', attemptId: active.attemptId },
+      });
     } finally {
       await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT shadow_alert_failure`;
       release();
@@ -334,29 +320,23 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       errorCode: 'ATTEMPT_EXPIRED',
       snapshot: null,
     });
-    await expect(collect()).rejects.toMatchObject({
-      response: { code: 'SHADOW_DAILY_LIMIT', attemptId: active.attemptId },
-    });
     expect(await alerts.list(ORG)).toMatchObject([{ status: 'OPEN', attemptId: active.attemptId }]);
     expect(await service.listRecent(ORG, 30, NOW)).toEqual([]);
   });
-  it('rolls publication back with Alert resolution and retains the previous COMPLETE', async () => {
+  it('발행과 알림 닫기는 한 트랜잭션이라, 닫지 못하면 발행 없이 failed로 닫히고 이전 COMPLETE와 그날 입장 소진이 남는다', async () => {
     const first = await collect();
     google.fetchTrending.mockRejectedValueOnce(new Error('upstream failed'));
     const failed = await collect(randomUUID(), new Date('2026-09-07T16:30:00Z'));
     const laterDay = new Date('2026-09-08T16:30:00Z');
-    const key = randomUUID();
     await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT shadow_resolution_failure CHECK (source_type <> 'market_shadow_signals' OR status <> 'RESOLVED')`;
     try {
-      await expect(collect(key, laterDay)).rejects.toThrow();
+      const unpublished = await collect(randomUUID(), laterDay);
+      expect(unpublished).toMatchObject({ state: 'FAILED', snapshot: null });
       expect(await service.listRecent(ORG, 30, laterDay)).toEqual([first.snapshot]);
-      expect(await alerts.list(ORG)).toMatchObject([
-        { status: 'OPEN', attemptId: failed.attemptId },
-      ]);
-      const active = await collect(key, laterDay);
-      expect(active).toMatchObject({ state: 'RUNNING', snapshot: null });
+      expect(await alerts.list(ORG)).toMatchObject([{ status: 'OPEN', attemptId: unpublished.attemptId }]);
+      expect(failed.attemptId).not.toBe(unpublished.attemptId);
       await expect(collect(randomUUID(), laterDay)).rejects.toMatchObject({
-        response: { code: 'SHADOW_DAILY_LIMIT', attemptId: active.attemptId },
+        response: { code: 'SHADOW_DAILY_LIMIT', attemptId: unpublished.attemptId },
       });
     } finally {
       await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT shadow_resolution_failure`;
