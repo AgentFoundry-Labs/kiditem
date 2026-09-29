@@ -591,9 +591,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   }): Promise<{ actionId: string; operationId: string | null }> {
     const actionId = await this.prisma.$transaction(async (tx) => {
       // Two registrations of one name serialize here, so only one creates the action.
+      const organizationId = input.organizationId;
       await tx.$queryRaw(Prisma.sql`
+        -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
         SELECT pg_advisory_xact_lock(
-          hashtext(${`kiditem_ad_action_create_campaign:${input.organizationId}`}::text),
+          hashtext(${`kiditem_ad_action_create_campaign:${organizationId}`}::text),
           hashtext(${input.campaignName}::text)
         )::text AS locked
       `);
