@@ -206,4 +206,3 @@ test('keyword and competitor collection run only as runtime operation kinds (KID
   }
   assert.doesNotMatch(worker, /advertising\.collect_competitor_catalog/);
 });
-
