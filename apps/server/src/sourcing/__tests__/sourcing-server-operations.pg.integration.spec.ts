@@ -90,6 +90,10 @@ describe('서버 구동 소싱 kind (PostgreSQL)', () => {
     expect(await prisma.sourcingSourcePublication.findMany({ where: { organizationId: ORG }, select: { operationId: true, isCurrent: true } }))
       .toEqual([{ operationId: run.attempt.attemptId, isCurrent: true }]);
     expect(await prisma.alert.findMany({ where: { organizationId: ORG }, select: { status: true } })).toEqual([{ status: 'RESOLVED' }]);
+    // 공개 plan과 발행 plan은 원천 plan뿐이다 — 요청 멱등 키·지문·시작한 사람·알림 자리는 나가지 않는다.
+    expect(done.plan).toEqual({ source: SOURCE, keywords: ['슬라임'] });
+    expect((await prisma.sourcingSourcePublication.findFirstOrThrow({ where: { organizationId: ORG } })).plan)
+      .toEqual({ source: SOURCE, keywords: ['슬라임'] });
   });
 
   it('rejected>0이면 failed로 닫고 발행 0 · 원장 0이며 실패 단위 결과를 실행 result에 남긴다', async () => {

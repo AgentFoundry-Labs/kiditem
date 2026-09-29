@@ -244,6 +244,8 @@ describe('네이버·쇼츠 트렌드와 키워드 분석 = 서버 구동 kind (
     const controller = new TrendCollectionController(service, new TrendQueryService(history));
     const completed = (await controller.collect({ sources: [source] }, organizationId,
       { id: TEST_USER_ID } as never, 'yesterday-complete')).results[0];
+    // 실행 순서는 시작 시각으로 갈린다: 가짜 시계가 20ms 단위로만 흐르므로 다음 수집을 1초 뒤로 둔다.
+    vi.setSystemTime(new Date(Date.now() + 1_000));
     const failProvider = () => source === 'shorts'
       ? fetchTrending.mockRejectedValueOnce(new Error('provider failed'))
       : searchPopularKeywords.mockRejectedValueOnce(new Error('provider failed'));
@@ -256,6 +258,7 @@ describe('네이버·쇼츠 트렌드와 키워드 분석 = 서버 구동 kind (
       latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: yesterdayFailure.attemptId, state: 'FAILED' },
       errorMessage: yesterdayFailure.error });
     failProvider();
+    vi.setSystemTime(new Date(Date.now() + 1_000));
     const todayFailure = (await controller.collect({ sources: [source] }, organizationId,
       { id: TEST_USER_ID } as never, 'today-failed')).results[0];
     const failedToday = (await controller.status(organizationId))[source];
