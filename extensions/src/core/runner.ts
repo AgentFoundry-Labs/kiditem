@@ -72,8 +72,22 @@ export interface RunnerDeps {
   siteFor(kind: OperationKind, lease: RunSiteLease): unknown;
 }
 
+/** 서버가 준비해 둔 실행(`prepared`)을 받아 돌리는 입력(KID-386). 자격은 싣지 않는다 — 로그인이 필요하면 운영자가 한다. */
+export interface RunClaimedInput {
+  kinds: OperationKind[];
+  /** 로그·진단용(서버 claim의 `workerId`). */
+  workerId: string;
+  signal: AbortSignal;
+  onBegun?(begun: { operationId: string; reused: boolean }): void;
+}
+
 export interface OperationRunner {
   run(input: RunInput): Promise<RunOutcome>;
+  /**
+   * claim → 받은 실행의 plan·lockKeys·토큰으로 begin 경로와 같은 순서(자원 → 청크 → finish, `stopFor` 중지 규칙).
+   * 후보가 없으면 null. 연쇄(`result.next`)는 잇지 않는다 — 준비한 실행의 다음은 서버가 정한다.
+   */
+  runClaimed(input: RunClaimedInput): Promise<RunOutcome | null>;
 }
 
 export const RUNTIME_UNKNOWN_KIND = 'RUNTIME_UNKNOWN_KIND' as const;
@@ -152,6 +166,29 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
           scope: next.scope,
         };
       }
+    },
+
+    async runClaimed(input) {
+      let claimed;
+      try {
+        claimed = await deps.client.claim({ kinds: input.kinds, workerId: input.workerId });
+      } catch (caught) {
+        const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+        return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
+      }
+      const { operation, token } = claimed;
+      if (!operation || !token) return null;
+      const collector = collectorFor(operation.kind);
+      if (!collector) {
+        // 받은 실행은 이 확장의 것이다 — 임대 만료까지 붙잡지 않고 바로 실패로 돌려준다.
+        const errorMessage = `이 확장이 모르는 실행 종류입니다: ${operation.kind}`;
+        await deps.client
+          .finish({ operationId: operation.id, token, request: { outcome: 'failed', errorCode: RUNTIME_UNKNOWN_KIND, errorMessage } })
+          .catch(() => undefined);
+        return { kind: 'failed', operationId: operation.id, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage };
+      }
+      input.onBegun?.({ operationId: operation.id, reused: false });
+      return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token);
     },
   };
 }

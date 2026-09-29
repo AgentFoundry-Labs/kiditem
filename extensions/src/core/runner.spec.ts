@@ -39,6 +39,9 @@ function harness(options: {
   putDelay?: (chunkKind: string) => Promise<void> | undefined;
   putError?: (sequence: number, chunkKind: string) => RuntimeError | null;
   finishError?: RuntimeError;
+  /** 서버가 준비해 둔 실행(claim). 없으면 후보 없음. */
+  claimed?: OperationView;
+  claimError?: RuntimeError;
 } = {}) {
   const steps: Step[] = [];
   const puts: Array<{ chunkKind: string; sequence: number; payload: unknown[]; progress?: Record<string, unknown> }> = [];
@@ -46,8 +49,10 @@ function harness(options: {
   let releases = 0;
   const releaseErrors: unknown[] = [];
   const client: OperationClient = {
-    async claim() {
-      return { operation: null, token: null };
+    async claim(request) {
+      steps.push(`claim:${request.kinds.join(',')}`);
+      if (options.claimError) throw options.claimError;
+      return options.claimed ? { operation: options.claimed, token: TOKEN } : { operation: null, token: null };
     },
     async begin(request) {
       steps.push(`begin:${request.kind}`);
@@ -571,5 +576,72 @@ describe('createRunner — 실행 하나의 순서', () => {
     })());
     await runWith(h, c);
     expect(h.finishes).toEqual([{ outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' }]);
+  });
+});
+
+describe('runClaimed — 서버가 준비한 실행(claim, KID-386)', () => {
+  const prepared = () => view({ kind: 'advertising.ad_action', lockKeys: ['resource:ad-center:acc', 'resource:ad-action:a1'], plan: { actionId: 'a1' } });
+
+  function claimWith(h: ReturnType<typeof harness>, c: RunnableCollector | null, signal = new AbortController().signal) {
+    const runner = createRunner({ client: h.client, browser: h.browser, siteFor: () => null }, () => c);
+    return runner.runClaimed({ kinds: ['advertising.ad_action'], workerId: 'popup', signal });
+  }
+
+  it('claim한 실행의 plan·lockKeys로 begin 없이 수집하고 청크·finish를 그 토큰으로 보낸다', async () => {
+    const h = harness({ claimed: prepared() });
+    const plans: unknown[] = [];
+    const c: RunnableCollector = {
+      site: 'ad-center',
+      collect: (plan) => (async function* () {
+        plans.push(plan);
+        yield { chunkKind: 'ad_action_evidence', payload: [{ campaignId: '9' }] };
+        return { result: { providerOutcome: 'created' } };
+      })(),
+    };
+
+    const outcome = await claimWith(h, c);
+
+    expect(h.steps).toEqual(['claim:advertising.ad_action', 'acquire', 'put:ad_action_evidence#1', 'finish:succeeded', 'release']);
+    expect(h.acquired).toEqual([{ operationId: OP, lockKeys: ['resource:ad-center:acc', 'resource:ad-action:a1'], site: 'ad-center' }]);
+    expect(plans).toEqual([{ actionId: 'a1' }]);
+    expect(h.finishes).toEqual([{ outcome: 'succeeded', result: { providerOutcome: 'created' } }]);
+    expect(outcome).toMatchObject({ kind: 'finished', operation: { status: 'succeeded' } });
+  });
+
+  it('후보가 없으면 null이고 브라우저 자원을 잡지 않는다', async () => {
+    const h = harness();
+
+    const outcome = await claimWith(h, collector([echoChunk(1)]));
+
+    expect(outcome).toBeNull();
+    expect(h.steps).toEqual(['claim:advertising.ad_action']);
+  });
+
+  it('claim 거절은 finish 없이 failed(operationId null)', async () => {
+    const h = harness({ claimError: new RuntimeError('RUNTIME_API_UNREACHABLE', '연결 실패', null) });
+
+    const outcome = await claimWith(h, collector([echoChunk(1)]));
+
+    expect(outcome).toEqual({ kind: 'failed', operationId: null, errorCode: 'RUNTIME_API_UNREACHABLE', errorMessage: '연결 실패' });
+    expect(h.steps).toEqual(['claim:advertising.ad_action']);
+  });
+
+  it('이 확장이 모르는 kind를 받으면 실패 finish로 돌려준다(받은 실행을 임대 만료까지 붙잡지 않는다)', async () => {
+    const h = harness({ claimed: prepared() });
+
+    const outcome = await claimWith(h, null);
+
+    expect(outcome).toMatchObject({ kind: 'failed', operationId: OP, errorCode: 'RUNTIME_UNKNOWN_KIND' });
+    expect(h.steps).toEqual(['claim:advertising.ad_action', 'finish:failed']);
+  });
+
+  it('begin 경로와 같은 중지 규칙 — 청크가 fence_lost면 finish 없이 멈춘다', async () => {
+    const h = harness({ claimed: prepared(), putError: () => new RuntimeError('OPERATION_FENCE_LOST', '만료', { reason: 'expired' }) });
+
+    const outcome = await claimWith(h, collector([echoChunk(1)]));
+
+    expect(outcome).toEqual({ kind: 'fence_lost', operationId: OP, reason: 'expired' });
+    expect(h.finishes).toEqual([]);
+    expect(h.releases()).toBe(1);
   });
 });

@@ -20324,6 +20324,25 @@ var KidItemRuntime = (() => {
             scope: next.scope
           };
         }
+      },
+      async runClaimed(input) {
+        let claimed;
+        try {
+          claimed = await deps.client.claim({ kinds: input.kinds, workerId: input.workerId });
+        } catch (caught) {
+          const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+          return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
+        }
+        const { operation, token } = claimed;
+        if (!operation || !token) return null;
+        const collector = collectorFor2(operation.kind);
+        if (!collector) {
+          const errorMessage = `\uC774 \uD655\uC7A5\uC774 \uBAA8\uB974\uB294 \uC2E4\uD589 \uC885\uB958\uC785\uB2C8\uB2E4: ${operation.kind}`;
+          await deps.client.finish({ operationId: operation.id, token, request: { outcome: "failed", errorCode: RUNTIME_UNKNOWN_KIND, errorMessage } }).catch(() => void 0);
+          return { kind: "failed", operationId: operation.id, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage };
+        }
+        input.onBegun?.({ operationId: operation.id, reused: false });
+        return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token);
       }
     };
   }
