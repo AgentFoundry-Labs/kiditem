@@ -55,8 +55,14 @@ describe('committed runtime bundle', () => {
       'orders.coupang_directship',
       'orders.coupang_reviews',
       'orders.coupang_rocket_po',
+      'orders.coupang_shipment_list',
       'orders.coupang_shipment_summary',
       'orders.mall_orders',
+      'orders.mall_tracking_upload',
+      'orders.sellpia_auto_invoice',
+      'orders.sellpia_order_snapshot',
+      'orders.sellpia_order_transfer',
+      'orders.sellpia_post_transfer',
       'orders.sellpia_shipment_tracking',
       'products.sellpia_inventory',
       'sourcing.coupang_keyword_suggestion',
@@ -143,6 +149,8 @@ describe('committed runtime bundle', () => {
       advertisingAdReportOperationKindV1: true,
       advertisingAdActionOperationKindV1: true,
       channelsRegistrationOperationKindV1: true,
+      // Orders 작업 kind 6종(KID-366 wave8b).
+      orderActionOperationKindsV1: true,
     });
     expect(Object.keys(writeSite).sort()).toEqual(MALL_WRITE_SITES.map((mallKey) => `mallWriteSite.${mallKey}`));
     expect(mallSite).toEqual(Object.fromEntries([
