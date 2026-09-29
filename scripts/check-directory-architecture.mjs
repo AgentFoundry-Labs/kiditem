@@ -66,6 +66,15 @@ function forbiddenInPortCallerFolders(backendPortFiles) {
     .sort();
 }
 
+// KID-324: database adapters live in adapter/out/persistence (*.repository.ts),
+// their ports in application/port/out/repository, and orchestration in
+// application/service. The retired lanes must not come back.
+const RETIRED_BACKEND_LANES = ['/adapter/out/repository/', '/application/usecase/', '/application/port/out/persistence/'];
+
+function retiredLaneFiles(serverFiles) {
+  return serverFiles.filter((file) => RETIRED_BACKEND_LANES.some((lane) => file.includes(lane))).sort();
+}
+
 export function analyzeDirectoryArchitecture({
   architectureDoc,
   serverSrcDirs,
@@ -74,6 +83,7 @@ export function analyzeDirectoryArchitecture({
   webSrcDirs,
   webAppApiExists,
   backendPortFiles = [],
+  serverFiles = [],
 }) {
   const requiredPaths = [
     ...serverSrcDirs.map((name) => `apps/server/src/${name}`),
@@ -99,6 +109,7 @@ export function analyzeDirectoryArchitecture({
     forbidden,
     directOutPortFiles: directOutPortFiles(backendPortFiles),
     forbiddenInPortCallerFolders: forbiddenInPortCallerFolders(backendPortFiles),
+    retiredLaneFiles: retiredLaneFiles(serverFiles),
   };
 }
 
@@ -113,6 +124,7 @@ export function collectDirectoryArchitecture(root) {
     backendPortFiles: listFiles(serverSrcPath)
       .map((file) => path.relative(root, file))
       .filter((file) => file.includes('/application/port/')),
+    serverFiles: listFiles(serverSrcPath).map((file) => path.relative(root, file).split(path.sep).join('/')),
     webAppDirs: listDirectories(path.join(root, 'apps/web/src/app')),
     webSrcDirs: listDirectories(path.join(root, 'apps/web/src')),
     webAppApiExists: existsSync(webAppApiPath),
@@ -125,7 +137,8 @@ function main() {
     result.missing.length > 0 ||
     result.forbidden.length > 0 ||
     result.directOutPortFiles.length > 0 ||
-    result.forbiddenInPortCallerFolders.length > 0;
+    result.forbiddenInPortCallerFolders.length > 0 ||
+    result.retiredLaneFiles.length > 0;
 
   if (!hasFailure) {
     console.log('check:directory-architecture PASS');
@@ -147,6 +160,11 @@ function main() {
   if (result.forbiddenInPortCallerFolders.length > 0) {
     console.error(
       `Incoming port folders must use capability names, not caller or entrypoint types: ${result.forbiddenInPortCallerFolders.join(', ')}`,
+    );
+  }
+  if (result.retiredLaneFiles.length > 0) {
+    console.error(
+      `Retired backend lanes (use adapter/out/persistence, application/service, application/port/out/repository): ${result.retiredLaneFiles.join(', ')}`,
     );
   }
   console.error('Update docs/ARCHITECTURE.md with the directory map or move the directory.');
