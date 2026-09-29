@@ -228,11 +228,34 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
     await actions.approveActions([failed.actionId], ORG);
     expect((await prisma.adAction.findUniqueOrThrow({ where: { id: failed.actionId } })).operationId).toBe(retried.operationId);
 
-    // 광고센터에 반영된 뒤에는 다시 승인해도 두 번째 캠페인을 만들지 않는다.
+    // 광고센터에 반영된 뒤에는 다시 승인하면 거절한다 — 두 번째 캠페인을 만들지 않는다.
     await succeed(await claim(), 'C-9');
-    await actions.approveActions([failed.actionId], ORG);
+    await expect(actions.approveActions([failed.actionId], ORG)).rejects.toMatchObject({ code: 'ADVERTISING_AD_ACTION_ALREADY_APPLIED' });
     expect((await prisma.adAction.findUniqueOrThrow({ where: { id: failed.actionId } })).operationId).toBe(retried.operationId);
     expect(await prisma.operation.count({ where: { kind: AD_ACTION_KIND } })).toBe(2);
+  });
+
+  it('refuses to approve an uncertain registration again, and lets the operator release it by rejecting it', async () => {
+    const unsure = await register('확인 필요', [(await seedListing('P-1')).id]);
+    await succeed(await claim(), null);
+    await expect(actions.approveActions([unsure.actionId], ORG)).rejects.toMatchObject({ code: 'ADVERTISING_AD_ACTION_UNCERTAIN' });
+    await expect(actions.rejectActions([unsure.actionId], ORG)).resolves.toEqual({ updated: 1 });
+    expect(await statusOf(unsure.actionId)).toMatchObject({ approvalStatus: 'rejected', executeStatus: 'uncertain' });
+    // 거절로 풀린 이름은 다시 등록할 수 있다.
+    await expect(register('확인 필요', [(await seedListing('P-2')).id])).resolves.toMatchObject({ ok: true });
+  });
+
+  it('reads a failed run whose form may have been submitted as uncertain', async () => {
+    const run = await register('실패 후 확인', [(await seedListing('P-1')).id]);
+    const claimed = await claim();
+    await operations.finish({
+      organizationId: ORG,
+      operationId: claimed.operation.id,
+      token: claimed.token,
+      request: { outcome: 'failed', errorCode: 'ADVERTISING_AD_ACTION_NOT_APPLIED', result: { providerOutcome: 'uncertain' } },
+    });
+    expect(await statusOf(run.actionId)).toMatchObject({ executeStatus: 'uncertain', providerOutcome: 'uncertain', errorCode: 'ADVERTISING_AD_ACTION_NOT_APPLIED' });
+    await expect(actions.approveActions([run.actionId], ORG)).rejects.toMatchObject({ code: 'ADVERTISING_AD_ACTION_UNCERTAIN' });
   });
 
   it('an approved registration left without a run (a crash between approval and preparation) reads not_prepared, and approving it again prepares it', async () => {

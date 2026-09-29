@@ -12,9 +12,10 @@ export type { AdActionExecution };
  * audit copy in `payload.execution`. This module states the mapping once.
  *
  * - No `operationId`: `not_prepared`.
- * - `prepared` → `queued`, `executing` → `running`, `succeeded` → `done`, or
- *   `uncertain` when the run's result says the ad center showed no campaign id,
- *   `failed` → `failed`, `cancelled` → `cancelled`. A lease that ran out reads
+ * - `prepared` → `queued`, `executing` → `running`, `succeeded` → `done`,
+ *   `failed` → `failed`, `cancelled` → `cancelled`; a succeeded or failed run
+ *   whose result says `providerOutcome: uncertain` (the form was submitted but
+ *   no campaign id was read) reads `uncertain`. A lease that ran out reads
  *   as the operation contract projects it (`readOperationsByPlan`).
  */
 const EXECUTE_STATUS_BY_OPERATION_STATUS: Readonly<Record<string, AdActionExecuteStatus>> = {
@@ -47,10 +48,13 @@ export function deriveAdActionExecution(
     ? operation.result
     : {}) as Record<string, unknown>;
   const outcome = AdActionProviderOutcomeSchema.safeParse(result.providerOutcome);
-  const providerOutcome = operation.status === 'succeeded' && outcome.success ? outcome.data : null;
+  const failed = operation.status === 'failed';
+  // A succeeded run says what the ad center showed; a failed run may say the form was submitted anyway (`uncertain`).
+  const providerOutcome = outcome.success && (operation.status === 'succeeded' || (failed && outcome.data === 'uncertain'))
+    ? outcome.data
+    : null;
   const mapped = EXECUTE_STATUS_BY_OPERATION_STATUS[operation.status] ?? 'failed';
-  const executeStatus: AdActionExecuteStatus = mapped === 'done' && providerOutcome === 'uncertain' ? 'uncertain' : mapped;
-  const failed = executeStatus === 'failed';
+  const executeStatus: AdActionExecuteStatus = providerOutcome === 'uncertain' ? 'uncertain' : mapped;
   return {
     operationId: operation.id,
     executeStatus,

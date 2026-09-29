@@ -21,7 +21,6 @@ import {
 import { AD_ACTION_KIND, adActionLockKey } from '@kiditem/shared/advertising-operations';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { OPERATION_PORT, type OperationPort } from '../../../../common/operation/application/port/in/operation.port';
-import { readOperationsByPlan } from '../../../../common/operation/transaction/operations-by-plan';
 import {
   AD_LEDGER_READ_REPOSITORY_PORT,
   type AdLedgerReadRepositoryPort,
@@ -54,7 +53,7 @@ import type {
 } from '../../../application/port/out/repository/ad-action.repository.port';
 
 const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
-/** Executions after which the action has changed the ad center (or may have). */
+/** Executions after which the action changed the ad center or may have, which keep a campaign name taken. */
 const APPLIED_EXECUTE_STATUSES: readonly AdActionExecuteStatus[] = ['done', 'uncertain'];
 
 const OPEN_ACTION_APPROVAL_STATUS_VALUES = Prisma.join(
@@ -567,7 +566,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           continue;
         }
         if (live) throw new KiditemConflictError('ADVERTISING_AD_ACTION_EXECUTING', { details: { actionId: action.id } });
-        if (APPLIED_EXECUTE_STATUSES.includes(executions.get(action.id)?.executeStatus ?? 'not_prepared')) {
+        // An uncertain run may be rejected: that is how the operator releases it after checking the ad center.
+        if (executions.get(action.id)?.executeStatus === 'done') {
           throw new KiditemConflictError('ADVERTISING_AD_ACTION_ALREADY_APPLIED', { details: { actionId: action.id } });
         }
       }
@@ -645,15 +645,16 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       const live = await this.operations.findLive(organizationId, adActionLockKey(actionId), handle);
       if (live) return live.id;
       if (action.operationId) {
-        const [latest] = await readOperationsByPlan(tx, {
-          organizationId,
-          kinds: [AD_ACTION_KIND],
-          planContainsAny: [{ actionId }],
-          latestPer: 'actionId',
-          plan: { payloadKeys: [] },
-        });
-        // An applied run is not repeated: a second run would create a second campaign.
-        if (latest?.status === 'succeeded') return latest.id;
+        // An applied run is not repeated: a second run would create a second campaign. An uncertain one waits
+        // for the operator to check the ad center and reject it or register again under a new name.
+        const executeStatus = (await readAdActionExecutions(tx, { organizationId, actions: [action] }))
+          .get(actionId)?.executeStatus;
+        if (executeStatus === 'done') {
+          throw new KiditemConflictError('ADVERTISING_AD_ACTION_ALREADY_APPLIED', { details: { actionId } });
+        }
+        if (executeStatus === 'uncertain') {
+          throw new KiditemConflictError('ADVERTISING_AD_ACTION_UNCERTAIN', { details: { actionId } });
+        }
       }
       const { operation } = await this.operations.prepare(
         organizationId,

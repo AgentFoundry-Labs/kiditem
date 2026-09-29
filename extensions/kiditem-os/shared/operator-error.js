@@ -1016,6 +1016,13 @@
       "text": "이미 광고센터에 반영한 광고 액션은 거절할 수 없습니다. 광고센터에서 직접 확인해 주세요.",
       "retryable": false
     },
+    "ADVERTISING_AD_ACTION_UNCERTAIN": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "광고센터에서 캠페인이 만들어졌는지 확인이 필요합니다. 확인 뒤 거절하거나 새 이름으로 다시 등록해 주세요.",
+      "retryable": false
+    },
     "ADVERTISING_CAMPAIGN_ACCOUNTS_MIXED": {
       "owner": "advertising",
       "kind": "validation",
