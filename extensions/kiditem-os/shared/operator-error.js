@@ -260,6 +260,20 @@
       "text": "쿠팡 공급사 쿠키가 너무 커서 요청이 거절됐습니다. 쿠키를 정리한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "SELLPIA_TRANSFER_NOT_SUBMITTED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "셀피아가 주문 파일을 받지 않았습니다. 셀피아 화면을 확인한 뒤 다시 전송해 주세요.",
+      "retryable": true
+    },
+    "SELLPIA_SCREEN_UNREADABLE": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "셀피아 화면을 읽지 못했습니다. 열린 탭에서 로그인 상태를 확인해 주세요.",
+      "retryable": false
+    },
     "MALL_LOGIN_PAGE_UNREACHABLE": {
       "owner": "extension",
       "kind": "external",
