@@ -1,9 +1,7 @@
-import { Injectable } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
-import { accountLockKey } from '@kiditem/shared/operation';
 import {
   COUPANG_SHIPMENT_LIST_CHUNK_KIND,
   COUPANG_SHIPMENT_LIST_KIND,
@@ -19,6 +17,7 @@ import {
   SELLPIA_POST_TRANSFER_KIND,
 } from '@kiditem/shared/orders-action-operations';
 import {
+  COUPANG_DIRECTSHIP_CHUNK_KIND,
   COUPANG_DIRECTSHIP_KIND,
   MALL_ORDERS_CHUNK_KIND,
   MALL_ORDERS_KIND,
@@ -31,10 +30,9 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
+  TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { ordersOperationsApp } from '../../test-helpers/orders-operations';
-import { OperationOwner } from '../../common/operation/application/port/out/owner/operation-owner.decorator';
-import type { OperationOwnerPort } from '../../common/operation/application/port/out/owner/operation-owner.port';
 import { CHANNEL_ACCOUNT_PORT } from '../../channels/application/port/in/account/channel-account.port';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
@@ -42,6 +40,10 @@ import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credential
 import { ChannelsProductMappingGenerationAdapter } from '../../channels/adapter/out/products/product-mapping-generation.adapter';
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 import { MallOrdersOperationOwner } from '../adapter/in/operation/mall-orders-operation-owner';
+import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
+import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
+import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
+import type { CoupangDirectOrderCollectionRequest } from '../application/port/in/coupang-direct-order-collection.port';
 import { SellpiaShipmentTrackingOperationOwner } from '../adapter/in/operation/sellpia-shipment-tracking-operation-owner';
 import { SellpiaOrderTransferOperationOwner } from '../adapter/in/operation/sellpia-order-transfer-operation-owner';
 import { SellpiaPostTransferOperationOwner } from '../adapter/in/operation/sellpia-post-transfer-operation-owner';
@@ -71,7 +73,7 @@ import { CoupangDirectshipService } from '../coupang-directship/coupang-directsh
 // 옛 확장 워커 액션 6개가 옮겨 온 Orders 작업 실행 kind(KID-355 wave8b)를 실제 실행 계약(HTTP)·실제 owner·실제 PG로 돈다.
 // 셀피아·몰·쿠팡에는 아무것도 쓰지 않는다 — 확장이 올릴 청크와 finish를 그대로 흉내 낸다.
 const TODAY = '2026-09-29';
-const DIRECTSHIP_ACCOUNT = '44444444-4444-4444-8444-444444444444';
+const MISSING_OPERATION_ID = '44444444-4444-4444-8444-444444444444';
 
 function kidkidsOrder(om: string) {
   return {
@@ -94,23 +96,33 @@ function tracking(ordNo: string, provider: string) {
   return { ordNo, itemNo: '', invNo: `INV-${ordNo}`, courier: '1136', provider };
 }
 
-/** 직배송 실행 자리 — 전송 원천 kind 판정만 본다(캡처·소비 기록 없음). */
-@OperationOwner()
-@Injectable()
-class DirectshipStandInOwner implements OperationOwnerPort {
-  readonly kind = COUPANG_DIRECTSHIP_KIND;
-  async plan() {
-    return { lockKeys: [accountLockKey(DIRECTSHIP_ACCOUNT)], plan: { channelAccountId: DIRECTSHIP_ACCOUNT } };
-  }
-  async finalize() {
-    return { result: { rowCount: 1 } };
-  }
+/** 직배송 발주서 둘(쉽먼트·밀크런) — 확장 직배송 수집기가 올리는 모양. */
+function directshipCapture() {
+  const po = (seq: string, center: string, transport: 'SHIPMENT' | 'MILKRUN', skuId: string, barcode: string) => ({
+    seq, status: 'PA' as const, center, transport, edd: '2026-10-02', reg: '2026-09-29 09:00:00',
+    items: [{ skuId, barcode, name: 'Rocket item', qty: 2, amount: 2000 }],
+  });
+  return {
+    centers: {
+      'Seoul FC': { addr: 'Seoul', zip: '01234', contact: '02-1234' },
+      'Busan FC': { addr: 'Busan', zip: '48900', contact: '051-1234' },
+    },
+    pos: [po('PO-SHIP', 'Seoul FC', 'SHIPMENT', 'P-SHIP', '8801234567890'), po('PO-MILK', 'Busan FC', 'MILKRUN', 'P-MILK', '8801234567891')],
+  };
 }
 
-/** Python 생성기(외부 프로세스) 자리 — 직배송 성공 경로는 이 스펙이 부르지 않는다. */
-class UnusedDirectshipGenerator {
-  async generate(): Promise<never> {
-    throw new Error('directship generator must not run in this spec');
+/**
+ * Python 생성기(외부 프로세스) 자리. 받은 운송유형의 발주서마다 셀피아 양식의 '주문번호' 한 줄을 적은 xls를 만든다 —
+ * 전송 plan이 이 파일에서 대상을 읽는 길은 실제 코드다. 받은 요청을 남겨 소비 기록이 거른 발주서만 왔는지 본다.
+ */
+class DirectshipGeneratorStub {
+  readonly requests: CoupangDirectOrderCollectionRequest[] = [];
+  async generate(input: CoupangDirectOrderCollectionRequest) {
+    this.requests.push(input);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['주문번호', '센터'], ...input.pos.map((po) => [po.seq, po.center])]), 'sellpia');
+    const buffer = XLSX.write(book, { type: 'buffer', bookType: 'biff8' }) as Buffer;
+    return { buffer, fileName: `쿠팡직배송_${input.transport}.xls`, poCount: input.pos.length, rowCount: input.pos.length };
   }
 }
 
@@ -119,6 +131,9 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
   let harness: Awaited<ReturnType<typeof ordersOperationsApp>>;
   let kidkidsAccount: string;
   let onchAccount: string;
+  let rocketAccount: string;
+  let directshipService: CoupangDirectOrderCollectionService;
+  const generator = new DirectshipGeneratorStub();
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
@@ -130,7 +145,7 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
     harness = await ordersOperationsApp(prisma, {
       owners: [
         MallOrdersOperationOwner,
-        DirectshipStandInOwner,
+        CoupangDirectshipOperationOwner,
         SellpiaShipmentTrackingOperationOwner,
         SellpiaOrderTransferOperationOwner,
         SellpiaPostTransferOperationOwner,
@@ -147,17 +162,17 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
         SellpiaInvoiceTargetsService,
         OrdersActionOperationService,
         CoupangDirectOrderCollectionService,
-        { provide: CoupangDirectshipService, useClass: UnusedDirectshipGenerator },
+        { provide: CoupangDirectshipService, useValue: generator },
         { provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT, useExisting: CoupangDirectOrderCollectionService },
         { provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT, useClass: CoupangDirectOrderCollectionTransactionAdapter },
-        // 직배송 소비(consume)는 이 스펙이 부르지 않는다 — 소비 기록 읽기(readProjection)만 실제 PG로 돈다.
-        { provide: ROCKET_FINAL_ORDER_RECONCILIATION_PORT, useValue: {} },
+        { provide: ROCKET_FINAL_ORDER_RECONCILIATION_PORT, useValue: new RocketFinalOrderReconciliationService(new RocketFinalOrderReconciliationTransactionAdapter()) },
         { provide: CHANNEL_ACCOUNT_PORT, useValue: channelAccounts },
         { provide: ORDER_OPERATION_CAPTURE_PORT, useClass: OrderOperationCapturePersistenceAdapter },
         { provide: ORDER_MALL_ACCOUNT_PORT, useClass: OrderMallAccountPersistenceAdapter },
         { provide: SELLPIA_ACTION_OUTCOMES_PORT, useClass: SellpiaActionOutcomesPersistenceAdapter },
       ],
     });
+    directshipService = harness.app.get(CoupangDirectOrderCollectionService);
   });
 
   afterAll(async () => {
@@ -172,6 +187,9 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
       prisma.channelAccount.create({ data: { organizationId: ORG, channel, name, externalAccountId: channel, isPrimary: true } });
     kidkidsAccount = (await create('kidkids', '키드키즈')).id;
     onchAccount = (await create('onch', '온채널')).id;
+    rocketAccount = (await create('rocket', '쿠팡 로켓')).id;
+    await prisma.sellpiaInventoryState.create({ data: { organizationId: ORG, requestedGeneration: 1n, verifiedGeneration: 1n, lastVerifiedAt: new Date() } });
+    generator.requests.length = 0;
   });
 
   const post = (path: string, body: Record<string, unknown>, organizationId = ORG) =>
@@ -188,6 +206,18 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
   async function mallSource(orderNumbers: string[]): Promise<string> {
     const run = await harness.beginRun(MALL_ORDERS_KIND, { channelAccountId: kidkidsAccount, mallKey: 'kidkids', collectionDate: TODAY, collectionMode: 'browser' });
     await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: orderNumbers.map(kidkidsOrder) }]);
+    await harness.finish(run).expect(200);
+    return run.operation.id;
+  }
+
+  /** 직배송 실행 하나를 성공으로 끝낸다(발주서 → 센터표 → finish). */
+  async function directshipSource(): Promise<string> {
+    const input = directshipCapture();
+    const run = await harness.beginRun(COUPANG_DIRECTSHIP_KIND, { channelAccountId: rocketAccount });
+    await harness.put(run, [
+      { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: input.pos.map((purchaseOrder) => ({ purchaseOrder })) },
+      { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers: input.centers }] },
+    ]);
     await harness.finish(run).expect(200);
     return run.operation.id;
   }
@@ -220,7 +250,7 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
     });
 
     it('원천이 없거나·다른 조직이거나·끝나지 않았거나 전송 원천 kind가 아니면 ORDERS_TRANSFER_SOURCE_UNAVAILABLE', async () => {
-      const missing = await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId: DIRECTSHIP_ACCOUNT, shopName: '키드키즈' }).expect(422);
+      const missing = await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId: MISSING_OPERATION_ID, shopName: '키드키즈' }).expect(422);
       expect(missing.body).toMatchObject({ code: 'ORDERS_TRANSFER_SOURCE_UNAVAILABLE' });
       const sourceOperationId = await mallSource(['K-1']);
       await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈' }, OTHER_ORG).expect(422);
@@ -236,12 +266,38 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
       const sourceOperationId = await mallSource(['K-1']);
       const mallWithTransport = await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈', transport: 'SHIPMENT' }).expect(400);
       expect(mallWithTransport.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'transport_not_allowed' } });
-      const directship = await harness.beginRun(COUPANG_DIRECTSHIP_KIND, {});
-      await harness.finish(directship).expect(200);
+      const directship = { operation: { id: await directshipSource() } };
       const noTransport = await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId: directship.operation.id, shopName: '쿠팡직배송' }).expect(400);
       expect(noTransport.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'transport_required' } });
       const unconsumed = await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId: directship.operation.id, shopName: '쿠팡직배송', transport: 'MILKRUN' }).expect(422);
       expect(unconsumed.body).toMatchObject({ code: 'ORDERS_TRANSFER_SOURCE_UNAVAILABLE' });
+    });
+
+    it('직배송 원천: 웹이 변환한 그 운송유형의 소비 기록으로 파일을 다시 만들어 대상을 읽고, source 라우트가 같은 파일을 준다', async () => {
+      const sourceOperationId = await directshipSource();
+      await directshipService.consume({
+        organizationId: ORG,
+        userId: USER,
+        operationId: sourceOperationId,
+        capture: { channelAccountId: rocketAccount, ...directshipCapture() },
+        transport: 'MILKRUN',
+      });
+      const run = await harness.beginRun(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '쿠팡직배송', transport: 'MILKRUN' });
+      expect(run.operation.plan).toEqual({
+        sourceOperationId,
+        shopName: '쿠팡직배송',
+        transport: 'MILKRUN',
+        fileName: '쿠팡직배송_MILKRUN.xls',
+        targetOrderNumbers: ['PO-MILK'],
+      });
+      expect(generator.requests.map((request) => ({ transport: request.transport, pos: request.pos.map((po) => po.seq) })))
+        .toEqual([{ transport: 'MILKRUN', pos: ['PO-MILK'] }]);
+
+      const source = await readSource(run.operation.id).expect(200);
+      expect(source.headers['content-type']).toContain('application/vnd.ms-excel');
+      expect(source.headers['content-disposition']).toContain(encodeURIComponent('쿠팡직배송_MILKRUN.xls'));
+      const rows = XLSX.utils.sheet_to_json<unknown[]>(XLSX.read(source.body as Buffer, { type: 'buffer' }).Sheets.sellpia!, { header: 1 });
+      expect(rows).toEqual([['주문번호', '센터'], ['PO-MILK', 'Busan FC']]);
     });
 
     it('다시 만든 파일의 주문번호가 plan과 다르면 source 라우트가 거절한다', async () => {
