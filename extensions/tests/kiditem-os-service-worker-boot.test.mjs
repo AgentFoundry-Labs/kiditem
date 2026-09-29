@@ -634,7 +634,6 @@ test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', 
   const expected = {
     'orders.mall': 'cancelCollectionSession',
     'orders.sellpia_manual_match': 'cancelCollectionSession',
-    'channels.coupang_catalog': 'cancelCollectionSession',
   };
   for (const [producer, operation] of Object.entries(expected)) {
     const domain = domains.forProducer(producer);
@@ -642,6 +641,9 @@ test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', 
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+  // 쿠팡 도메인에는 수집 세션 producer가 없다 — 윙 카탈로그·상품은 실행 kind다(KID-365).
+  assert.equal(domains.forProducer('channels.coupang_catalog'), null);
+  assert.equal(domains.forProducer('dashboard.coupang_products'), null);
   // 광고 수집은 수집 세션 producer가 아니라 실행 kind다(KID-373).
   assert.equal(domains.forProducer('advertising.ad_report'), null);
   // 셀피아 재고는 수집 세션 producer가 아니라 실행 kind다(KID-361).

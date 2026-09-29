@@ -88,7 +88,8 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(worker, /function autoScrape\(/);
   assert.doesNotMatch(worker, /alarmName\(["']auto-scrape["']/);
   assert.match(worker, /KidItemDomains\.register\(/);
-  assert.match(worker, /producerPrefixes:\s*\["channels",\s*"dashboard"\]/);
+  // KID-365: the Coupang domain owns no collection session producer.
+  assert.doesNotMatch(worker, /producerPrefixes/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
