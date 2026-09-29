@@ -57,6 +57,18 @@ export const SOURCING_SOURCE_KEY_BY_KIND: Readonly<Record<SourcingOperationKind,
   'sourcing.scrape_url': (platform) => `${platform}.scrape_url`,
 };
 
+export const SOURCING_SERVER_KINDS = [
+  SOURCING_OPERATION_KINDS.naverTrend,
+  SOURCING_OPERATION_KINDS.shortstrendTrend,
+  SOURCING_OPERATION_KINDS.taobaoLive,
+  SOURCING_OPERATION_KINDS.marketShadow,
+  SOURCING_OPERATION_KINDS.naverKeywordAnalysis,
+  SOURCING_OPERATION_KINDS.keywordSearch1688,
+  SOURCING_OPERATION_KINDS.imageSearch1688,
+  SOURCING_OPERATION_KINDS.scrapeUrl,
+] as const;
+export type SourcingServerKind = (typeof SOURCING_SERVER_KINDS)[number];
+
 /**
  * Wing 검색 소싱: 옛 attempt plan(키워드 ≤12·키워드당 쪽수·용도)에 그 계정을 더한다. 계정의 Wing 로그인을 쓰므로
  * lockKey는 `account:<channelAccountId>`(카탈로그 동기화와 서로 막음)다.
@@ -130,3 +142,83 @@ export const SourcingOperationResultSchema = z.object({
   admitted: z.array(z.object({ sourceRecordId: z.string().uuid(), salesProductId: z.string().uuid() }).strict()).optional(),
 }).strict();
 export type SourcingOperationResult = z.infer<typeof SourcingOperationResultSchema>;
+
+// ── 서버 구동 kind 8개(KID-389) ─────────────────────────────────────────────
+
+/**
+ * 서버 구동 kind의 청크 종류 하나: 서버가 공급자 IO로 만든 원장 출력(옛 attempt 종료의 `output`)을 조각낸 원소.
+ * 계약의 청크 이름 규칙(`^[a-z][a-z0-9_]*$`) 때문에 점 없이 쓴다.
+ */
+export const SOURCING_SERVER_CHUNK_KIND = 'source_output';
+
+/** 원천 실패 알림의 자리(옛 attempt `failureAlert`). owner가 실패에 쓰고 성공에 닫는다. */
+export const SourcingSourceFailureAlertSchema = z.object({
+  sourceType: z.string().min(1).max(100),
+  dedupeKey: z.string().min(1).max(300),
+  title: z.string().min(1).max(200),
+  href: z.string().min(1).max(500),
+}).strict();
+
+/**
+ * 서버 구동 kind의 scope: 서버가 요청 안에서 얼린 옛 attempt 범위 그대로(원천·대상 키, plan 지문, 원천별 plan).
+ * HTTP begin은 이 kind들을 거절하므로(`serverDriven`) scope를 만드는 쪽은 서버뿐이다.
+ * `requestFingerprint`·`requestIdempotencyKey`는 같은 요청의 재전송을 옛 attempt처럼 같은 실행으로 돌려주는 데 쓴다.
+ */
+const SourcingServerScopeBaseSchema = z.object({
+  sourceKey: z.string().min(1).max(100),
+  scopeKey: z.string().min(1).max(100),
+  targetKey: z.string().min(1).max(500),
+  planChecksum: z.string().regex(/^[0-9a-f]{64}$/),
+  requestFingerprint: z.string().min(1).max(128),
+  requestIdempotencyKey: z.string().min(1).max(128),
+  collectorKey: z.string().min(1).max(100),
+  collectorVersion: z.string().min(1).max(100),
+  attemptPlan: z.object({ source: z.string().min(1) }).passthrough(),
+  failureAlert: SourcingSourceFailureAlertSchema,
+}).strict();
+
+function serverScope(sourceKeys: readonly [string, ...string[]], extra?: { scopeKey: z.ZodTypeAny; targetKey: z.ZodTypeAny }) {
+  return SourcingServerScopeBaseSchema.extend({
+    sourceKey: z.enum(sourceKeys),
+    ...(extra ?? {}),
+  });
+}
+
+export const SOURCING_SERVER_SCOPE_SCHEMAS = {
+  'sourcing.naver_trend': serverScope(['naver.trend']),
+  'sourcing.shortstrend_trend': serverScope(['shortstrend.trend']),
+  'sourcing.taobao_live': serverScope(['taobao.live']),
+  'sourcing.market_shadow': serverScope(['market_shadow_signals'], {
+    scopeKey: z.literal('day'),
+    targetKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }),
+  'sourcing.naver_keyword_analysis': serverScope(['naver.keyword_analysis']),
+  'sourcing.keyword_search_1688': serverScope(['1688.hot_product']),
+  'sourcing.image_search_1688': serverScope(['1688.image_search']),
+  'sourcing.scrape_url': serverScope(['1688.scrape_url', 'alibaba.scrape_url'], {
+    scopeKey: z.literal('product-url'),
+    targetKey: z.string().min(1).max(500),
+  }),
+} as const satisfies Record<SourcingServerKind, z.ZodTypeAny>;
+export type SourcingServerScope = z.infer<typeof SourcingServerScopeBaseSchema>;
+
+/**
+ * 서버 구동 실행의 result. 성공이면 finalize가 발행 요약을 돌려주고, 실패 단위가 있는 1688 검색은 서비스가
+ * `finish failed`에 같은 모양(`unitResult`)을 실어 닫는다 — 화면이 실패 이유를 실행에서 읽는다.
+ */
+export const SourcingServerOperationResultSchema = z.object({
+  sourceKey: z.string(),
+  scopeKey: z.string(),
+  targetKey: z.string(),
+  discoveredCount: z.number().int().nonnegative(),
+  acceptedCount: z.number().int().nonnegative(),
+  duplicateCount: z.number().int().nonnegative(),
+  rejectedCount: z.number().int().nonnegative(),
+  contentChecksum: z.string(),
+  warnings: z.array(z.string()).optional(),
+  /** 1688 키워드·이미지 검색: 대상 하나의 결과(`Sourcing1688BatchUnitResult`). */
+  unitResult: z.record(z.unknown()).optional(),
+  /** URL 수집: 같은 finish 트랜잭션에서 입장시킨 원본 기록과 그 초안. */
+  scrapeUrlResult: z.object({ sourceRecordId: z.string().uuid(), salesProductId: z.string().uuid() }).strict().optional(),
+}).strict();
+export type SourcingServerOperationResult = z.infer<typeof SourcingServerOperationResultSchema>;
