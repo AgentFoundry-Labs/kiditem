@@ -667,4 +667,25 @@ describe('runClaimed — 서버가 준비한 실행(claim, KID-386)', () => {
     expect(h.finishes).toEqual([]);
     expect(h.releases()).toBe(1);
   });
+
+  it('heartbeat 간격은 받은 실행의 임대(expiresAt까지)의 1/3이다 — 10분 임대 kind도 만료 전에 연장한다', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-29T00:00:00.000Z'));
+    const h = harness({ claimed: { ...prepared(), expiresAt: '2026-09-29T00:10:00.000Z' } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const c = collector(async function* () {
+      await gate;
+      yield echoChunk(1);
+    });
+
+    const running = claimWith(h, c);
+    await vi.advanceTimersByTimeAsync(200_000 - 1);
+    expect(h.puts).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.puts.map((put) => put.chunkKind)).toEqual(['heartbeat']);
+
+    release();
+    await running;
+  });
 });

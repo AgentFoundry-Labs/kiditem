@@ -26,7 +26,7 @@ export interface AdActionSite {
   listCampaigns(page: number): Promise<unknown[]>;
   createCampaign(
     input: { name: string; adGroupName?: string; productIds: string[]; dailyBudget: number; targetRoas: number | null },
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; onFilled?(): Promise<void> },
   ): Promise<{ campaignId: string | null; message: string | null; url: string | null }>;
   /** 실행 끝(성공·실패·중단 모두)에 한 번 — 사이트가 연 탭을 넘기거나 닫는다. */
   release(outcome: { error?: unknown }): Promise<void>;
@@ -42,14 +42,14 @@ const EXISTING_MESSAGE = '같은 이름의 캠페인이 이미 있어 새로 만
 export const adActionCollector: Collector<AdActionPlan, AdActionResult, AdActionSite> = {
   kind: AD_ACTION_KIND,
   site: 'ad-center',
-  async *collect(rawPlan, site, { signal }) {
+  async *collect(rawPlan, site, { signal, report }) {
     const parsed = AdActionPlanSchema.safeParse(rawPlan);
     if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, '광고 액션 실행 계획이 올바르지 않습니다.', { kind: AD_ACTION_KIND });
     if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, '광고센터 사이트를 쓸 수 없습니다.', { kind: AD_ACTION_KIND });
     const plan = parsed.data;
     let failure: unknown = null;
     try {
-      return yield* apply(plan, site, signal);
+      return yield* apply(plan, site, signal, report);
     } catch (error) {
       failure = error;
       throw error;
@@ -71,7 +71,9 @@ export const adActionCollector: Collector<AdActionPlan, AdActionResult, AdAction
   },
 };
 
-async function* apply(plan: AdActionPlan, site: AdActionSite, signal: AbortSignal): AsyncGenerator<CollectedChunk, CollectFinish<AdActionResult>, undefined> {
+type Report = ((progress: Record<string, unknown>) => Promise<void>) | undefined;
+
+async function* apply(plan: AdActionPlan, site: AdActionSite, signal: AbortSignal, report: Report): AsyncGenerator<CollectedChunk, CollectFinish<AdActionResult>, undefined> {
   const campaign = plan.createCampaign;
   // 다른 광고센터 계정이면 쓰지 않는다(보고서 수집과 같은 업체코드 대조).
   if (plan.vendorId !== null) {
@@ -87,12 +89,14 @@ async function* apply(plan: AdActionPlan, site: AdActionSite, signal: AbortSigna
 
   // 앞선 실행이 캠페인을 만들고 보고를 잃었을 수 있다 — 같은 이름이 있으면 만들지 않는다. 목록을 끝까지 못 읽으면 던진다.
   const existing = findByName(await readRoster(site), campaign.name);
+  // 임대(10분)를 연장한다 — 업체 확인·목록 읽기와 폼 채우기가 각각 몇 분 걸릴 수 있다.
+  await report?.({ phase: 'checked' });
   let submission: { campaignId: string | null; message: string | null };
   if (existing) {
     submission = { campaignId: existing, message: EXISTING_MESSAGE };
   } else {
     signal.throwIfAborted();
-    const pressed = await site.createCampaign(campaign, { signal });
+    const pressed = await site.createCampaign(campaign, { signal, onFilled: async () => report?.({ phase: 'filled' }) });
     let campaignId = pressed.campaignId;
     // 눌렀지만 번호를 못 읽었다 — 목록에서 이름으로 찾는다. 읽기 실패는 uncertain으로 남긴다(다시 누르지 않는다).
     if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);

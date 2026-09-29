@@ -4913,14 +4913,14 @@ var KidItemRuntime = (() => {
   var adActionCollector = {
     kind: AD_ACTION_KIND,
     site: "ad-center",
-    async *collect(rawPlan, site, { signal }) {
+    async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = AdActionPlanSchema.safeParse(rawPlan);
       if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uC561\uC158 \uC2E4\uD589 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_ACTION_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_ACTION_KIND });
       const plan = parsed3.data;
       let failure2 = null;
       try {
-        return yield* apply(plan, site, signal);
+        return yield* apply(plan, site, signal, report);
       } catch (error) {
         failure2 = error;
         throw error;
@@ -4940,7 +4940,7 @@ var KidItemRuntime = (() => {
       };
     }
   };
-  async function* apply(plan, site, signal) {
+  async function* apply(plan, site, signal, report) {
     const campaign = plan.createCampaign;
     if (plan.vendorId !== null) {
       const vendorId2 = await site.readVendorId();
@@ -4953,12 +4953,13 @@ var KidItemRuntime = (() => {
     }
     signal.throwIfAborted();
     const existing = findByName(await readRoster(site), campaign.name);
+    await report?.({ phase: "checked" });
     let submission;
     if (existing) {
       submission = { campaignId: existing, message: EXISTING_MESSAGE };
     } else {
       signal.throwIfAborted();
-      const pressed = await site.createCampaign(campaign, { signal });
+      const pressed = await site.createCampaign(campaign, { signal, onFilled: async () => report?.({ phase: "filled" }) });
       let campaignId = pressed.campaignId;
       if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
       submission = { campaignId, message: pressed.message };
@@ -20503,7 +20504,8 @@ var KidItemRuntime = (() => {
           return { kind: "failed", operationId: operation.id, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage };
         }
         input.onBegun?.({ operationId: operation.id, reused: false });
-        return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token);
+        const heartbeatMs = claimedHeartbeatInterval(operation.expiresAt, Date.now());
+        return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token, heartbeatMs);
       }
     };
   }
@@ -20532,7 +20534,7 @@ var KidItemRuntime = (() => {
     input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
     return execute(deps, collector, input, begun.operation, begun.token);
   }
-  async function execute(deps, collector, input, operation, token) {
+  async function execute(deps, collector, input, operation, token, heartbeatMs = HEARTBEAT_INTERVAL_MS) {
     const operationId = operation.id;
     const local = new AbortController();
     const onAbort = () => local.abort(input.signal.reason);
@@ -20578,7 +20580,7 @@ var KidItemRuntime = (() => {
             }
           }
         );
-      }, HEARTBEAT_INTERVAL_MS);
+      }, heartbeatMs);
     };
     let lease = null;
     let failure2 = null;
@@ -20696,6 +20698,12 @@ var KidItemRuntime = (() => {
       reason: reason.slice(0, 64),
       ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
     };
+  }
+  var MIN_HEARTBEAT_INTERVAL_MS = 5e3;
+  function claimedHeartbeatInterval(expiresAt, now) {
+    const remaining = new Date(expiresAt).getTime() - now;
+    if (!Number.isFinite(remaining)) return HEARTBEAT_INTERVAL_MS;
+    return Math.min(HEARTBEAT_INTERVAL_MS, Math.max(MIN_HEARTBEAT_INTERVAL_MS, Math.floor(remaining / 3)));
   }
   function cancelled(operationId) {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };

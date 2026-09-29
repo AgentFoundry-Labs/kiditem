@@ -37,7 +37,8 @@ function fakeSite(options: {
     async release({ error }) {
       log.push(`release ${error ? (error as RuntimeError).code : 'ok'}`);
     },
-    async createCampaign(input) {
+    async createCampaign(input, createOptions) {
+      await createOptions?.onFilled?.();
       log.push(`create ${input.name} ${input.productIds.join(',')} ${input.dailyBudget} ${input.targetRoas}`);
       return options.submit ? options.submit() : { campaignId: '88123', message: '등록되었습니다', url: 'https://advertising.coupang.com/marketing/campaign/88123/detail' };
     },
@@ -45,9 +46,12 @@ function fakeSite(options: {
   return { site, log };
 }
 
-async function drain(plan: unknown, site: AdActionSite) {
+async function drain(plan: unknown, site: AdActionSite, reports: Array<Record<string, unknown>> = []) {
   const chunks: CollectedChunk[] = [];
-  const stream = adActionCollector.collect(plan as never, site, { signal: new AbortController().signal, tabId: null })[Symbol.asyncIterator]() as AsyncIterator<CollectedChunk, CollectFinish | void>;
+  const report = async (progress: Record<string, unknown>) => {
+    reports.push(progress);
+  };
+  const stream = adActionCollector.collect(plan as never, site, { signal: new AbortController().signal, tabId: null, report })[Symbol.asyncIterator]() as AsyncIterator<CollectedChunk, CollectFinish | void>;
   for (;;) {
     const step = await stream.next();
     if (step.done) return { chunks, finish: step.value as CollectFinish };
@@ -73,6 +77,15 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
     expect(AdActionResultSchema.parse(finish.result)).toEqual({
       actionId: ACTION, actionType: 'create_campaign', providerOutcome: 'created', campaignId: '88123', message: '등록되었습니다',
     });
+  });
+
+  it('업체·목록 확인 뒤와 폼을 다 채운 뒤 progress를 올려 임대를 연장한다(채우기가 몇 분 걸린다)', async () => {
+    const { site } = fakeSite();
+    const reports: Array<Record<string, unknown>> = [];
+
+    await drain(PLAN, site, reports);
+
+    expect(reports.map((progress) => progress.phase)).toEqual(['checked', 'filled']);
   });
 
   it('같은 이름 캠페인이 이미 있으면 만들지 않고 그 번호로 created(다시 시도한 실행이 캠페인을 두 번 만들지 않게)', async () => {

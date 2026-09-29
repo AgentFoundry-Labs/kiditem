@@ -193,7 +193,9 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
         return { kind: 'failed', operationId: operation.id, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage };
       }
       input.onBegun?.({ operationId: operation.id, reused: false });
-      return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token);
+      // 준비 실행은 owner가 임대를 정한다(광고 액션 10분) — heartbeat는 받은 임대의 1/3마다.
+      const heartbeatMs = claimedHeartbeatInterval(operation.expiresAt, Date.now());
+      return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token, heartbeatMs);
     },
   };
 }
@@ -237,6 +239,7 @@ async function execute(
   input: RunInput,
   operation: OperationView,
   token: string,
+  heartbeatMs: number = HEARTBEAT_INTERVAL_MS,
 ): Promise<RunOutcome> {
   const operationId = operation.id;
   const local = new AbortController();
@@ -287,7 +290,7 @@ async function execute(
           }
         },
       );
-    }, HEARTBEAT_INTERVAL_MS);
+    }, heartbeatMs);
   };
 
   let lease: BrowserLease | null = null;
@@ -420,6 +423,14 @@ function loginFailureOf(error: RuntimeError, loginBlocked: boolean): Record<stri
     reason: reason.slice(0, 64),
     ...(typeof mallMessage === 'string' && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}),
   };
+}
+
+/** 받은 실행의 남은 임대의 1/3(5초 ~ 기본 간격). 만료 시각을 읽지 못하면 기본 간격. */
+const MIN_HEARTBEAT_INTERVAL_MS = 5_000;
+export function claimedHeartbeatInterval(expiresAt: string | Date, now: number): number {
+  const remaining = new Date(expiresAt).getTime() - now;
+  if (!Number.isFinite(remaining)) return HEARTBEAT_INTERVAL_MS;
+  return Math.min(HEARTBEAT_INTERVAL_MS, Math.max(MIN_HEARTBEAT_INTERVAL_MS, Math.floor(remaining / 3)));
 }
 
 /** 서버 cancel은 입구가 이미 불렀다 — finish를 보내지 않는다. */
