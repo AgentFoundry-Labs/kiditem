@@ -1,4 +1,4 @@
-// 쿠팡 광고센터 캠페인 등록(ISOLATED world, KID-386 — 옛 `content/coupang/ads-report.js` executeCreateCampaign 이식).
+// 쿠팡 광고센터 캠페인 등록(ISOLATED world, KID-386 — 옛 `content/coupang/ads-report.js`의 캠페인 등록 실행 이식).
 // 확장 런타임 사이트(`extensions/src/sites/ad-center/campaign.ts`)가 `page-call/bridge.js`와 함께 넣고 부른다:
 //   `adCenter.campaignFill`   — 광고 목표 화면(`/marketing/campaign/type`)이면 [다음]으로 등록 화면(`/registration`)에 가서
 //                               캠페인 이름·광고그룹·상품 검색/선택·운영 방식·일 예산·목표 ROAS를 채운다. [완료]는 누르지 않는다.

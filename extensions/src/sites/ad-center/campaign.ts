@@ -5,7 +5,7 @@ import { hostWithin, type PageGuard, type TabPage } from '../tab-page';
 import { AD_CENTER_LOGIN } from './login';
 
 /**
- * 광고센터 캠페인 등록 쓰기(KID-386 `advertising.ad_action`) — 옛 `content/coupang/ads-report.js` executeCreateCampaign의 DOM
+ * 광고센터 캠페인 등록 쓰기(KID-386 `advertising.ad_action`) — 옛 `content/coupang/ads-report.js` 캠페인 등록 실행의 DOM
  * 단계를 페이지 처리기 `content/page-call/ad-center-campaign-register.js`(ISOLATED)로 옮겼다. 규칙 하나: **누르기 전 실패는
  * 던지고, [완료]를 눌렀거나 눌렀을 수 있으면 던지지 않고 증거를 돌려준다** — 수집기가 앞은 `not_attempted`(실패 finish),
  * 뒤는 `created`/`uncertain`(성공 finish)으로 나눈다. 캠페인이 두 번 생기지 않게 누르는 호출의 답이 끊겨도 눌렀다고 본다.
