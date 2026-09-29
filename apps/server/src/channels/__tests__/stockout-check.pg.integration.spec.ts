@@ -105,6 +105,16 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
     expect(subject?.options[0]).toMatchObject({ status: 'SUSPENSION' });
   });
+  it('no longer dates a catalog status by an old completed import run, so a later provider observation decides (KID-365)', async () => {
+    const f = await fixture();
+    const oldRun = await prisma.sourceImportRun.create({
+      data: { organizationId: ORG, channelAccountId: f.account.id, sourceType: 'coupang_wing_catalog', status: 'completed', importedAt: new Date('2026-09-05T00:00:00Z') },
+    });
+    await prisma.channelListingOption.update({ where: { id: f.option.id }, data: { status: 'SUSPENSION', lastImportRunId: oldRun.id } });
+    await prisma.channelListingOptionDailySnapshot.create({ data: { organizationId: ORG, listingId: f.listing.id, listingOptionId: f.option.id, channel: 'coupang', externalId: f.listing.externalId, externalOptionId: f.option.externalOptionId, businessDate: new Date('2026-09-02'), stockQty: 20, lastObservedAt: new Date('2026-09-02T00:00:00Z') } });
+    const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
+    expect(subject?.options[0]).toMatchObject({ status: 'active' });
+  });
   it('dates a status written by a Sabangnet listings operation by that operation, so an older sold-out observation does not outlive the fresh import (KID-363)', async () => {
     const mall = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote', name: '키즈노트', status: 'active' } });
     const channels = makeChannelsOperations(prisma);

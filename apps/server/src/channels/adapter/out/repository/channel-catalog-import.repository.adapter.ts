@@ -85,7 +85,6 @@ export async function publishWingCatalogWorkbook(
   const identities = await upsertChannelCatalogIdentities(tx, {
     organizationId: input.organizationId,
     channelAccountId: input.channelAccountId,
-    lastImportRunId: null,
     lastOperationId: input.operationId,
     rawSource: SOURCE_TYPE,
     // 윙 엑셀에는 판매자코드 칸도 판매가 칸도 없다. 브라우저 수집이 본 값을 지우지 않는다.

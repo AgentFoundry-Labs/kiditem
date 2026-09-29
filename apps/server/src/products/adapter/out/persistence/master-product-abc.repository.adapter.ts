@@ -164,7 +164,7 @@ async function publishTx(
     UPDATE master_product_abc_formula_states
     SET publication_revision = ${nextPublicationRevision},
         official_cutoff_date = ${atUtcDate(actualCutoff)}::date,
-        published_sellpia_operation_id = ${input.sourceFences.sellpia.selectedComplete.sourceImportRunId}::uuid,
+        published_sellpia_operation_id = ${input.sourceFences.sellpia.selectedComplete.operationId}::uuid,
         published_mapping_generation = ${BigInt(input.mappingGeneration)}::bigint,
         published_at = ${input.calculatedAt}::timestamptz,
         updated_at = NOW()
@@ -382,7 +382,7 @@ function stateMatches(row: FormulaStateRow, input: ProductAbcPublicationInput): 
 
 function sourceSelectionsMatchMapping(input: ProductAbcPublicationInput): boolean {
   const { selectedComplete } = input.sourceFences.sellpia;
-  return selectedComplete.sourceImportRunId !== null
+  return selectedComplete.operationId !== null
     && selectedComplete.publicationSequence !== null
     && selectedComplete.mappingGeneration === input.mappingGeneration;
 }
@@ -400,7 +400,7 @@ function candidateSetIsValid(
   if (input.candidates.some((candidate) =>
     candidate.sellpiaOperationId.length === 0
     || candidate.sellpiaOperationId
-      !== input.sourceFences.sellpia.selectedComplete.sourceImportRunId
+      !== input.sourceFences.sellpia.selectedComplete.operationId
     || validGrade(candidate.abcGrade) === null
     || candidate.sellpiaGeneration !== input.sourceFences.sellpia.selectedComplete.publicationSequence
     || candidate.mappingGeneration !== input.mappingGeneration

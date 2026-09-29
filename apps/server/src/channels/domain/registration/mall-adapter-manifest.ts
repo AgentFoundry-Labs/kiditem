@@ -131,7 +131,7 @@ export interface MallAdapterManifest {
  *    `kiditem` 은 우리 확장 수집기(쿠팡 로켓은 발주 수집), `sellpia` 는 셀피아가 그 몰에서
  *    직접 가져오는 주문수집이다.
  *  - `uploadsTracking`: 확장에 발송처리(송장 등록) 액션이 있는 몰
- *    (`uploadOnchTracking`·`uploadKidkidsTracking`·`uploadDomeggookTracking`, 3곳).
+ *    (`uploadOnchTracking`·`uploadKidkidsTracking`, 2곳; 도매꾹은 호출이 없어 삭제).
  *    아이스크림몰·티쳐몰·키즈노트·보리보리·카카오는 **스펙만 있고 미구현**이다.
  *
  * 값은 채널 레지스트리(`@kiditem/shared/channel-registry`)의 `collector`·`uploadTracking`

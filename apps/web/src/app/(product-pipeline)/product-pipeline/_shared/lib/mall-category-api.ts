@@ -1,7 +1,11 @@
 import {
-  detectOrderCollectionExtensionId,
-  sendToExtension,
-} from '@/lib/extension-bridge';
+  LIST_MALL_CATEGORIES_ACTION,
+  ListMallCategoriesMessageSchema,
+  ListMallCategoriesResponseSchema,
+  MALL_CATEGORY_READ_CAPABILITY,
+} from '@kiditem/shared/extension-actions';
+import { detectOrderCollectionExtensionId } from '@/lib/extension-bridge';
+import { sendExtensionEntryAction } from '@/lib/extension-entry-action';
 import type { MallFormRegisterMall } from './mall-form-registration-api';
 
 /**
@@ -16,29 +20,24 @@ import type { MallFormRegisterMall } from './mall-form-registration-api';
 
 const CATEGORY_TIMEOUT_MS = 15000;
 
-interface CategoryResponse {
-  success?: boolean;
-  ok?: boolean;
-  names?: string[];
-  error?: string;
-}
+const LIST_CATEGORIES = { message: ListMallCategoriesMessageSchema, response: ListMallCategoriesResponseSchema };
 
 export async function listMallCategories(
   mall: MallFormRegisterMall,
   path: readonly string[],
 ): Promise<string[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, MALL_CATEGORY_READ_CAPABILITY);
   if (!extensionId) {
     throw new Error('확장프로그램이 필요합니다. 몰 분류는 몰에서 직접 읽어옵니다.');
   }
 
-  const response = await sendToExtension<CategoryResponse>(
+  // 화면은 분류 이름으로 한 단씩 고른다 — 온채널은 분류 id가 곧 이름이다(shared 계약, KID-366).
+  const response = await sendExtensionEntryAction(
     extensionId,
-    { action: 'listMallCategories', mall, path: [...path] },
+    LIST_CATEGORIES,
+    { action: LIST_MALL_CATEGORIES_ACTION, mall, path: [...path] },
     CATEGORY_TIMEOUT_MS,
   );
-  if (!response?.ok && !response?.success) {
-    throw new Error(response?.error ?? '분류 목록을 받지 못했습니다.');
-  }
-  return response.names ?? [];
+  if (!response.success) throw new Error(response.error);
+  return response.categories.map((category) => category.name);
 }

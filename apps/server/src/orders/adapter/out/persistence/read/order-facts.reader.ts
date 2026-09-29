@@ -1,12 +1,11 @@
 import { MALL_ORDERS_KIND, MallOrdersResultSchema } from '@kiditem/shared/orders-operations';
 import { readSucceededOperationWindows } from '../../../../../common/operation/transaction/succeeded-operation-windows';
+import { readLatestSucceededFinishedAt } from '../../../../../common/operation/transaction/operation-finished-at';
 import { Prisma } from '@prisma/client';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import {
   findChannel,
   findMallChannel,
   MALL_CHANNELS,
-  type MallChannelKey,
 } from '@kiditem/shared/channel-registry';
 import { businessDateKey, datesInclusive, kstBusinessDate } from '../../../../../common/kst';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
@@ -127,10 +126,11 @@ type WindowRow = {
   revenue: bigint | null;
   orderCount: bigint;
   quantity: bigint | null;
-  factObservedAt: Date | null;
+  publishedCount: bigint;
+  operationIds: string[] | null;
 };
 
-type CoverageRun = Awaited<ReturnType<typeof readCompletedOrderCoverageRuns>>[number];
+type CoverageRun = Awaited<ReturnType<typeof readMallOrderCoverage>>[number];
 type AccountFacts = Pick<ChannelAccountPort, 'findByIds'>;
 
 export async function readOrderListFacts(
@@ -223,7 +223,7 @@ export async function readOrderStatusCounts(
 }
 
 /**
- * How many orders completed source runs published for each channel account,
+ * How many orders operations published for each channel account,
  * whatever their status: whether an account has collected orders at all.
  */
 export async function readOrderCountsByChannelAccount(
@@ -251,7 +251,7 @@ export async function readOrderWindowFacts(
   accounts: AccountFacts,
 ): Promise<OrderWindowFacts> {
   // No business date is requested, so there is no coverage to look for; an
-  // unbounded coverage query would load every run and borrow their import time.
+  // unbounded coverage query would load every operation and borrow its finish time.
   if (isEmptyWindow(input)) return emptyOrderWindowFacts();
   const includedStatus = includedStatusPredicateSql(input.excludedStatuses);
   const rows = await tx.$queryRaw<WindowRow[]>(Prisma.sql`
@@ -260,17 +260,14 @@ export async function readOrderWindowFacts(
         COUNT(DISTINCT o.id) FILTER (WHERE ${includedStatus})::bigint AS order_count,
         COALESCE(SUM(oli.total_price) FILTER (WHERE ${includedStatus}), 0)::bigint AS revenue,
         COALESCE(SUM(oli.quantity) FILTER (WHERE ${includedStatus}), 0)::bigint AS quantity,
-        MAX(COALESCE(s.imported_at, o.updated_at)) AS observed_at
+        COUNT(DISTINCT o.id)::bigint AS published_count,
+        ARRAY_AGG(DISTINCT o.operation_id::text) AS operation_ids
       FROM orders o
       LEFT JOIN order_line_items oli
         ON oli.order_id = o.id
        AND oli.organization_id = ${input.organizationId}::uuid
-      LEFT JOIN source_import_runs s
-        ON s.id = o.source_import_run_id
-       AND s.organization_id = o.organization_id
-       AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       WHERE o.organization_id = ${input.organizationId}::uuid
-        AND (s.id IS NOT NULL OR o.operation_id IS NOT NULL)
+        AND o.operation_id IS NOT NULL
         AND o.ordered_at >= ${input.from}
         AND o.ordered_at < ${input.to}
     )
@@ -278,21 +275,27 @@ export async function readOrderWindowFacts(
       order_facts.revenue,
       order_facts.order_count AS "orderCount",
       order_facts.quantity,
-      order_facts.observed_at AS "factObservedAt"
+      order_facts.published_count AS "publishedCount",
+      order_facts.operation_ids AS "operationIds"
     FROM order_facts
   `);
-  const coverageRuns = await readCompletedOrderCoverageRuns(tx, input, accounts);
+  const coverageRuns = await readMallOrderCoverage(tx, input, accounts);
   const row = rows[0];
+  const published = Number(row?.publishedCount ?? 0n) > 0;
+  // 사실을 관측한 때는 그 주문을 쓴 실행이 끝난 때다(ADR-0025).
+  const factObservedAt = published
+    ? await readLatestSucceededFinishedAt(tx, { organizationId: input.organizationId, ids: row?.operationIds ?? [] })
+    : null;
   const coverage = buildOrderCoverage(input, coverageRuns);
   const orderCount = Number(row?.orderCount ?? 0n);
-  const observedAt = latestDate(row?.factObservedAt ?? null, coverage.coverageObservedAt);
+  const observedAt = latestDate(factObservedAt, coverage.coverageObservedAt);
   const coverageFacts = {
     requestedDates: coverage.requestedDates,
     includedDates: coverage.includedDates,
     missingDates: coverage.missingDates,
     sourceCoverage: coverage.sourceCoverage,
   };
-  const observedTotals = row?.factObservedAt
+  const observedTotals = published
     ? {
         revenue: Number(row.revenue ?? 0n),
         orderCount,
@@ -407,7 +410,7 @@ export async function readDailyOrderFacts(
     WHERE o.organization_id = ${input.organizationId}::uuid
       AND o.ordered_at >= ${input.from}
       AND o.ordered_at < ${input.to}
-      ${completeOrderFactSql(input.organizationId)}
+      ${COMPLETE_ORDER_FACT_SQL}
       ${excludedStatusesSql(input.excludedStatuses)}
     GROUP BY 1
     ORDER BY 1
@@ -443,7 +446,7 @@ export async function readListingOptionOrderFacts(
     WHERE o.organization_id = ${input.organizationId}::uuid
       AND o.ordered_at >= ${input.from}
       AND o.ordered_at < ${input.to}
-      ${completeOrderFactSql(input.organizationId)}
+      ${COMPLETE_ORDER_FACT_SQL}
       AND oli.listing_option_id IS NOT NULL
       ${excludedStatusesSql(input.excludedStatuses)}
     GROUP BY o.id, o.channel_account_id, oli.listing_option_id
@@ -472,7 +475,7 @@ export async function readRepurchaseOrderFacts(
     WHERE o.organization_id = ${input.organizationId}::uuid
       AND o.ordered_at >= ${input.from}
       AND o.ordered_at < ${input.to}
-      ${completeOrderFactSql(input.organizationId)}
+      ${COMPLETE_ORDER_FACT_SQL}
       ${excludedStatusesSql(input.excludedStatuses)}
     GROUP BY o.id
   `);
@@ -491,19 +494,14 @@ export async function readObservedOrderBounds(
         AT TIME ZONE 'Asia/Seoul' AS "to"
     FROM orders
     WHERE organization_id = ${organizationId}::uuid
-      AND (orders.operation_id IS NOT NULL OR EXISTS (
-        SELECT 1 FROM source_import_runs s
-        WHERE s.id = orders.source_import_run_id
-          AND s.organization_id = ${organizationId}::uuid
-          AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      ))
+      AND operation_id IS NOT NULL
   `);
   const row = rows[0];
   return row?.from && row.to ? { from: row.from, to: row.to } : null;
 }
 
 /**
- * How many orders a completed source run published for the organization,
+ * How many orders an operation published for the organization,
  * whatever their status: whether a collection published orders at all, not
  * what they earned.
  */
@@ -515,17 +513,12 @@ export async function readObservedOrderCount(
     SELECT COUNT(*)::bigint AS count
     FROM orders
     WHERE organization_id = ${organizationId}::uuid
-      AND (orders.operation_id IS NOT NULL OR EXISTS (
-        SELECT 1 FROM source_import_runs s
-        WHERE s.id = orders.source_import_run_id
-          AND s.organization_id = ${organizationId}::uuid
-          AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      ))
+      AND operation_id IS NOT NULL
   `);
   return Number(row?.count ?? 0n);
 }
 
-/** One line of an order a completed source run published, without window facts. */
+/** One line of an order an operation published, without window facts. */
 export interface PublishedOrderLineFact {
   orderId: string;
   lineItemId: string;
@@ -535,7 +528,7 @@ export interface PublishedOrderLineFact {
 }
 
 /**
- * Every line of every order a completed source run published for the
+ * Every line of every order an operation published for the
  * organization, whatever its date. It declares no window and reads no
  * coverage, so an all-history consumer can issue it on the client rather than
  * inside an interactive transaction; nothing it returns is a window total.
@@ -581,12 +574,7 @@ export async function readOrderStatusCount(
     SELECT COUNT(*)::bigint AS count
     FROM orders
     WHERE organization_id = ${organizationId}::uuid AND status = ${status}
-      AND (orders.operation_id IS NOT NULL OR EXISTS (
-        SELECT 1 FROM source_import_runs s
-        WHERE s.id = orders.source_import_run_id
-          AND s.organization_id = ${organizationId}::uuid
-          AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      ))
+      AND operation_id IS NOT NULL
   `);
   return Number(row?.count ?? 0n);
 }
@@ -601,14 +589,8 @@ function includedStatusPredicateSql(statuses: readonly string[] | undefined): Pr
   return Prisma.sql`o.status NOT IN (${Prisma.join(statuses)})`;
 }
 
-function completeOrderFactSql(organizationId: string): Prisma.Sql {
-  return Prisma.sql`AND (o.operation_id IS NOT NULL OR EXISTS (
-    SELECT 1 FROM source_import_runs completed_source
-    WHERE completed_source.id = o.source_import_run_id
-      AND completed_source.organization_id = ${organizationId}::uuid
-      AND completed_source.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-  ))`;
-}
+/** 실행이 쓴 주문만 사실이다 — 변환은 성공한 실행에서만 돈다(KID-359, KID-365). */
+const COMPLETE_ORDER_FACT_SQL = Prisma.sql`AND o.operation_id IS NOT NULL`;
 
 function isEmptyWindow(input: Pick<OrderWindowInput, 'from' | 'to'>): boolean {
   return input.to.getTime() <= input.from.getTime();
@@ -630,25 +612,18 @@ function emptyOrderWindowFacts(): OrderWindowFacts {
 }
 
 /**
- * 완료된 원천이 쓴 주문: 완료된 옛 run의 주문, 또는 성공한 directship 실행을 변환한 주문(`operationId`, KID-359 —
- * 변환은 성공한 실행에서만 돈다).
+ * 실행이 쓴 주문: 성공한 directship·로켓 실행을 변환한 주문(`operationId`, KID-359 — 변환은 성공한 실행에서만 돈다).
+ * 옛 run이 쓴 주문은 사실이 아니다(KID-365, ADR-0010: 옛 run 행은 이관 없이 버린다).
  */
 function completeOrderWhere(organizationId: string): Prisma.OrderWhereInput {
-  return {
-    organizationId,
-    OR: [
-      { operationId: { not: null } },
-      {
-        sourceImportRunId: { not: null },
-        sourceImportRun: {
-          is: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-        },
-      },
-    ],
-  };
+  return { organizationId, operationId: { not: null } };
 }
 
-async function readCompletedOrderCoverageRuns(
+/**
+ * 창 안의 업무일을 확인한 몰 주문 수집과 그 몰 계정의 채널. 몰 적용 범위는 성공한 `orders.mall_orders` 실행의
+ * `result.coverage`뿐이다(KID-365).
+ */
+async function readMallOrderCoverage(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
   accounts: AccountFacts,
@@ -656,71 +631,23 @@ async function readCompletedOrderCoverageRuns(
   const requestedDates = enumerateKstBusinessDates(input.from, input.to);
   const firstDate = requestedDates[0];
   const lastDate = requestedDates.at(-1);
-  const rows = await tx.sourceImportRun.findMany({
-    where: {
-      organizationId: input.organizationId,
-      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      OR: [
-        {
-          orders: {
-            some: {
-              organizationId: input.organizationId,
-              orderedAt: { gte: input.from, lt: input.to },
-            },
-          },
-        },
-        {
-          sourceType: 'order_collection_mall',
-          channelAccountId: { not: null },
-          coverageStartDate: lastDate ? { not: null, lte: new Date(lastDate) } : { not: null },
-          coverageEndDate: firstDate ? { not: null, gte: new Date(firstDate) } : { not: null },
-        },
-      ],
-    },
-    select: {
-      sourceType: true,
-      channelAccountId: true,
-      plan: true,
-      importedAt: true,
-      updatedAt: true,
-      createdAt: true,
-      coverageStartDate: true,
-      coverageEndDate: true,
-      orders: {
-        where: {
-          organizationId: input.organizationId,
-          orderedAt: { gte: input.from, lt: input.to },
-        },
-        select: { orderedAt: true },
-      },
-    },
-  });
   const operationRuns = firstDate && lastDate
     ? await readMallOrderCoverageOperations(tx, input.organizationId, firstDate, lastDate)
     : [];
-  const allRuns = [...rows, ...operationRuns];
-  const accountIds = [...new Set(allRuns.flatMap((run) =>
-    run.sourceType === 'order_collection_mall' && run.channelAccountId
-      ? [run.channelAccountId]
-      : [],
-  ))];
   const accountFacts = await accounts.findByIds(ownerTransaction(tx), {
     organizationId: input.organizationId,
-    accountIds,
+    accountIds: [...new Set(operationRuns.map((run) => run.channelAccountId))],
   });
   const accountById = new Map(accountFacts.map((account) => [account.id, account]));
-  return allRuns.map((run) => ({
+  return operationRuns.map((run) => ({
     ...run,
-    channelAccount: run.channelAccountId
-      ? { channel: accountById.get(run.channelAccountId)?.channel ?? null }
-      : null,
+    channelAccount: { channel: accountById.get(run.channelAccountId)?.channel ?? null },
   }));
 }
 
 /**
- * 실행 계약으로 옮긴 몰 주문 수집(`orders.mall_orders`, KID-359)이 확인한 기간. 성공 실행의 `result.coverage`가 옛 run의
- * coverageStartDate/EndDate 자리이고, 계정·몰 키는 plan에서 온다. 옛 run과 같은 모양으로 돌려 한 규칙으로 센다. 실행 표는
- * 실행 계약 모듈의 트랜잭션 리더로만 읽는다(ADR-0025).
+ * 실행 계약으로 옮긴 몰 주문 수집(`orders.mall_orders`, KID-359)이 확인한 기간: 성공 실행의 `result.coverage`, 계정은
+ * plan에서, 관측 시각은 끝난 시각. 실행 표는 실행 계약 모듈의 트랜잭션 리더로만 읽는다(ADR-0025).
  */
 async function readMallOrderCoverageOperations(
   tx: Prisma.TransactionClient,
@@ -734,20 +661,18 @@ async function readMallOrderCoverageOperations(
     const plan = operation.plan && typeof operation.plan === 'object' && !Array.isArray(operation.plan) ? operation.plan as Prisma.JsonObject : null;
     const channelAccountId = typeof plan?.channelAccountId === 'string' ? plan.channelAccountId : null;
     if (!result.success || !result.data.coverage || !channelAccountId) return [];
-    const observedAt = operation.finishedAt ?? operation.startedAt;
     return [{
-      sourceType: 'order_collection_mall',
       channelAccountId,
-      plan: { mallKey: result.data.mallKey } as Prisma.JsonValue,
-      importedAt: observedAt as Date | null,
-      updatedAt: observedAt,
-      createdAt: operation.startedAt,
-      coverageStartDate: new Date(`${result.data.coverage.startDate}T00:00:00.000Z`) as Date | null,
-      coverageEndDate: new Date(`${result.data.coverage.endDate}T00:00:00.000Z`) as Date | null,
-      orders: [] as Array<{ orderedAt: Date }>,
+      mallKey: result.data.mallKey,
+      observedAt: operation.finishedAt ?? operation.startedAt,
+      coverageStartDate: new Date(`${result.data.coverage.startDate}T00:00:00.000Z`),
+      coverageEndDate: new Date(`${result.data.coverage.endDate}T00:00:00.000Z`),
     }];
   });
 }
+
+/** 몰 적용 범위의 소스 칸 이름(웹이 읽는 옛 이름을 그대로 둔다). */
+const MALL_COVERAGE_SOURCE_TYPE = 'order_collection_mall';
 
 function buildOrderCoverage(
   input: OrderWindowInput,
@@ -756,77 +681,48 @@ function buildOrderCoverage(
   & { coverageObservedAt: Date | null } {
   const requestedDates = enumerateKstBusinessDates(input.from, input.to);
   const requested = new Set(requestedDates);
-  const bySource = new Map<string, {
-    sourceType: string;
-    channelAccountId: string | null;
-    mallKey: string | null;
-    factDates: Set<string>;
+  const byAccount = new Map<string, {
+    channelAccountId: string;
+    mallKey: string;
     included: Set<string>;
     observedAt: Date | null;
   }>();
 
   for (const run of runs) {
-    const sourceKey = `${run.sourceType}\u0000${run.channelAccountId ?? ''}`;
-    // 몰 키는 몰 주문 수집 시도에만 붙인다 — 공유 마켓 행(rocket)의 다른 원천은 몰이 아니다.
     // 몰 행의 채널이 곧 몰 키이고(ADR-0012), 레지스트리로 되찾는 것은 공유 마켓 행뿐이다.
-    const mallKey = run.sourceType === 'order_collection_mall'
-      ? mallKeyFromPlan(run.plan) ?? (
-        run.channelAccount?.channel
-          ? mallKeyForAccountChannel(run.channelAccount.channel)
-          : null
-      )
-      : null;
-    const source = bySource.get(sourceKey) ?? {
-      sourceType: run.sourceType,
+    const mallKey = findMallChannel(run.mallKey)?.key
+      ?? (run.channelAccount.channel ? mallKeyForAccountChannel(run.channelAccount.channel) : run.mallKey);
+    const source = byAccount.get(run.channelAccountId) ?? {
       channelAccountId: run.channelAccountId,
       mallKey,
-      factDates: new Set<string>(),
       included: new Set<string>(),
       observedAt: null,
     };
-    for (const order of run.orders) {
-      const date = businessDateKey(kstBusinessDate(order.orderedAt));
-      if (requested.has(date)) source.factDates.add(date);
+    for (const date of datesInclusive(run.coverageStartDate, run.coverageEndDate).map(businessDateKey)) {
+      if (requested.has(date)) source.included.add(date);
     }
-    if (
-      mallKey
-      && run.channelAccountId
-      && run.coverageStartDate
-      && run.coverageEndDate
-    ) {
-      for (const date of datesInclusive(
-        run.coverageStartDate,
-        run.coverageEndDate,
-      ).map(businessDateKey)) {
-        if (requested.has(date)) source.included.add(date);
-      }
-    }
-    source.observedAt = latestDate(
-      source.observedAt,
-      run.importedAt ?? run.updatedAt ?? run.createdAt,
-    );
-    bySource.set(sourceKey, source);
+    source.observedAt = latestDate(source.observedAt, run.observedAt);
+    byAccount.set(run.channelAccountId, source);
   }
 
-  const sources = [...bySource.values()];
+  const sources = [...byAccount.values()];
   const includedDates = sources.length === 0
     ? []
     : requestedDates.filter((date) => sources.every((source) => source.included.has(date)));
   const included = new Set(includedDates);
   const missingDates = requestedDates.filter((date) => !included.has(date));
-  const sourceCoverage = [...bySource.values()]
+  const sourceCoverage = sources
     .map((source) => ({
-      sourceType: source.sourceType,
+      sourceType: MALL_COVERAGE_SOURCE_TYPE,
       channelAccountId: source.channelAccountId,
       mallKey: source.mallKey,
-      factDates: requestedDates.filter((date) => source.factDates.has(date)),
+      // 몰 주문 수집은 주문 행을 쓰지 않는다(셀피아 양식으로 변환) — 몰 칸의 사실 날짜는 없다.
+      factDates: [],
       includedDates: requestedDates.filter((date) => source.included.has(date)),
       missingDates: requestedDates.filter((date) => !source.included.has(date)),
       observedAt: source.observedAt,
     }))
-    .sort((left, right) =>
-      `${left.sourceType}\u0000${left.channelAccountId ?? ''}`
-        .localeCompare(`${right.sourceType}\u0000${right.channelAccountId ?? ''}`));
+    .sort((left, right) => left.channelAccountId.localeCompare(right.channelAccountId));
 
   return {
     requestedDates,
@@ -838,13 +734,6 @@ function buildOrderCoverage(
       null,
     ),
   };
-}
-
-/** Completed source snapshots keep their mall key. Older valid snapshots fall back to the owner identity fact. */
-function mallKeyFromPlan(plan: Prisma.JsonValue): MallChannelKey | null {
-  if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return null;
-  const candidate = (plan as Prisma.JsonObject).mallKey;
-  return typeof candidate === 'string' ? findMallChannel(candidate)?.key ?? null : null;
 }
 
 function mallKeyForAccountChannel(channel: string): string {

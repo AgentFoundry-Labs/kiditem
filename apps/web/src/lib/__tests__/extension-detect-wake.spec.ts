@@ -21,7 +21,7 @@ function installChrome(responseDelayMs: number, calls: number[]): void {
       ) => {
         calls.push(responseDelayMs);
         setTimeout(
-          () => callback({ success: true, capabilities: { kiditemEnvironmentProfilesV1: true } }),
+          () => callback({ success: true, capabilities: { operationRuntime: true } }),
           responseDelayMs,
         );
       },

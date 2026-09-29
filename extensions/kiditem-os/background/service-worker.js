@@ -2,16 +2,12 @@
 //
 // 주문수집 / 쿠팡 Wing·광고센터 / 소싱 세 확장을 하나로 합친 진입점이다.
 // MV3 는 확장당 서비스워커 하나만 허용하므로 이 파일이 공용 모듈과 도메인
-// 워커를 순서대로 싣고, 도메인 사이에서 충돌하던 두 가지를 직접 소유한다.
+// 워커를 순서대로 싣는다. `ping`은 새 런타임이 옛 표의 capability까지 합쳐 한 번만
+// 답하고, 수집 세션 공통 액션은 세션의 `producer` 접두사로 소유 도메인을 골라 위임한다.
 //
-//  1. `ping` — 세 워커가 각자 응답하면 먼저 응답한 쪽의 capabilities 만 웹앱에
-//     전달돼 나머지 도메인이 "확장 미설치"로 보인다.
-//  2. 수집 세션 공통 액션 — 세 도메인이 `kiditem_collection_sessions` 저장소를
-//     공유하므로, 세션의 `producer` 접두사로 소유 도메인을 골라 위임한다.
-//
-// 두 처리는 `external-dispatch.js` 가 갖고 있고 여기서는 배선만 한다.
-// 도메인 고유 액션은 각 워커의 `onMessageExternal` 리스너가 그대로 처리한다.
-// 세 리스너 모두 모르는 액션에는 응답하지 않으므로 서로 간섭하지 않는다.
+// 웹앱 메시지(`onMessageExternal`)는 새 런타임(`kiditem-runtime.js`, `extensions/src/core/dispatch.ts`)이 유일한 리스너로
+// 받는다(KID-366). 옛 워커가 아직 가진 액션(셀피아·송장·카카오·수집 세션)은 `KidItemDomains`에 등록되어 있고, 새 런타임이
+// 모르는 액션을 이 표로 넘긴다 — 과도기 배선은 파일 끝의 `attachLegacyActions` 한 줄이다(wave9에서 삭제).
 
 importScripts(
   // 도메인 워커가 로드되면서 자신을 등록하므로 레지스트리가 가장 먼저다.
@@ -33,8 +29,6 @@ importScripts(
   "orders/order-collection-lifecycle.js",
   "orders/order-collection-source-owner.js",
   "orders/sellpia-post-processing.js",
-  "orders/mall-utility-actions.js",
-  "orders/mall-session-probe.js",
   "orders/mall-session.js",
   // 소싱 수집(KID-360)과 광고 키워드·경쟁사 수집(KID-362)은 새 런타임(kiditem-runtime.js)의 실행 kind다.
   // 도메인 워커 — 위 모듈의 전역을 최상위에서 바로 쓰므로 반드시 마지막이다.
@@ -60,12 +54,13 @@ KidItemWorkerKeepAlive.during(webAppCollectionLifetime.initialize()).catch((erro
   console.error("[KIDITEM] web-app lifetime startup reconciliation failed:", error?.message || error);
 });
 
-// `worker-globals.js` 가 만든 공용 인스턴스를 그대로 쓴다. ping 과 세션 조회만
-// 담당하므로 토큰을 요구하지 않는다(미로그인 환경에서도 웹앱이 확장 버전과
-// capabilities 를 읽을 수 있어야 한다).
+// 수집 세션 공통 액션을 옛 표에 올리고 외부 장기 실행 포트를 받는다. 토큰을 요구하지 않는다.
 KidItemExternalDispatch.create({
   chrome,
   environmentContext: sharedEnvironmentContext,
   sessions: collectionSessions,
   domains: KidItemDomains,
 }).install();
+
+// 새 런타임 dispatch가 모르는 액션을 옛 표로 넘기고, ping이 옛 표의 capability를 합친다(과도기, KID-366).
+KidItemRuntime.attachLegacyActions(KidItemDomains);

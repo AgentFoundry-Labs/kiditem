@@ -28,9 +28,10 @@ fi
 # Block files over 1MB
 for f in $STAGED; do
   [ ! -f "$f" ] && continue
-  # Skip lockfiles and DB seed data.
+  # Skip lockfiles, DB seed data, and the committed extension runtime bundle
+  # (generated from extensions/src; `extension:check` verifies it byte for byte).
   case "$f" in
-    package-lock.json|*/package-lock.json|pnpm-lock.yaml|prisma/init.sql.gz) continue ;;
+    package-lock.json|*/package-lock.json|pnpm-lock.yaml|prisma/init.sql.gz|extensions/kiditem-os/runtime/kiditem-runtime.js) continue ;;
   esac
   SIZE=$(wc -c < "$f" | tr -d ' ')
   if [ "$SIZE" -gt 1048576 ]; then

@@ -7,10 +7,9 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
-  readCompletedCatalogRunIds,
+  PUBLISHED_CATALOG_LISTING_WHERE,
   publishedCatalogOptionWhere,
-  publishedCatalogListingBranches,
-} from './completed-catalog-run';
+} from './published-catalog-listing';
 import { readLatestListingSaleStatusFacts } from '../persistence/channel-listing-daily-facts';
 import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import {
@@ -659,7 +658,7 @@ implements ChannelProductMatchingRepositoryPort {
     const search = query.search?.trim();
     const baseWhere = scope === 'matching'
       ? matchingListingWhere(organizationId)
-      : await availabilityListingWhere(prisma, organizationId, query.channelAccountId);
+      : availabilityListingWhere(organizationId);
     const where: Prisma.ChannelListingWhereInput = {
       ...baseWhere,
       ...(query.listingIds ? { id: { in: query.listingIds } } : {}),
@@ -718,19 +717,14 @@ function matchingListingWhere(
   return { organizationId };
 }
 
-async function availabilityListingWhere(
-  prisma: Prisma.TransactionClient,
-  organizationId: string,
-  channelAccountId?: string,
-): Promise<Prisma.ChannelListingWhereInput> {
-  const completedRunIds = await readCompletedCatalogRunIds(prisma, { organizationId, channelAccountId });
+function availabilityListingWhere(organizationId: string): Prisma.ChannelListingWhereInput {
   return {
     organizationId,
     isActive: true,
     OR: [
       // 수집에서 만든 초안이 붙은 몰 상품은 늘 우리 목록이다.
       { salesProduct: { organizationId, sourceRecordId: { not: null } } },
-      ...publishedCatalogListingBranches(completedRunIds),
+      PUBLISHED_CATALOG_LISTING_WHERE,
       {
         options: {
           some: publishedCatalogOptionWhere(organizationId),

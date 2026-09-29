@@ -69,11 +69,20 @@ multiple route groups.
   and `use-rocket-po-source.ts` reads the operations reader per account. Supply
   previews a published collection by `rocketPoOperationId`; preview errors
   never fail a source.
-- `mall-session-probe.ts` owns the mall login check (`probeMallSession`) and the
+- `extension-entry-action.ts` sends the extension's one-shot entry actions
+  (`@kiditem/shared/extension-actions`: auth token, mall login test/check,
+  Coupang shipment page/PDF/cookies, image host, mall categories). Build the
+  message and read the answer through the shared schemas; an answer outside the
+  contract is `ExtensionContractError` (a stale build, never a mall or password
+  failure). Detect the extension by the shared capability constants; the detect
+  default is the new runtime's `operationRuntime`.
+- `mall-session-probe.ts` owns the mall login check (`probeMallSession`, entry
+  action `checkMallLogin` under `mallLoginActionsV1`) and the
   `sweepMallSessions` round used by the agent loop. A mall is `signed_in`,
   `verification_required`, or `signed_out` — there is no unknown state. It sends
   only a mall key and the operator's saved site address, never credentials;
-  anything unexpected or unanswered is `signed_out` with its reason, and
+  anything unexpected or unanswered is `signed_out` with its reason (a shared
+  failure envelope keeps its registry code as the reason), and
   results stay in the current UI rather than a permanent login history. A stale extension is reported as outdated, not absent. The
   sweep names the malls needing a person (`signedOutKeys`, verification
   included) so the loop can skip collecting them this round.

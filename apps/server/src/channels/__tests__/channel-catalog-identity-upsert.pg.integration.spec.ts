@@ -47,7 +47,6 @@ describe('channel catalog identity upsert (PG integration)', () => {
     await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId,
-      lastImportRunId: null,
       rawSource: 'coupang_rocket_po_catalog',
       unobservedOptionFields: [],
       products: [
@@ -92,7 +91,6 @@ describe('channel catalog identity upsert (PG integration)', () => {
     await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId,
-      lastImportRunId: null,
       rawSource: 'coupang_wing_catalog_workbook',
       // 윙 엑셀은 판매자코드도 판매가도 싣지 않는다 — 이 원천이 읽지 않는 칸이다.
       unobservedOptionFields: ['sellerSku', 'salePrice'],
@@ -107,7 +105,6 @@ describe('channel catalog identity upsert (PG integration)', () => {
     await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId,
-      lastImportRunId: null,
       rawSource: 'mall_admin_listings',
       // 선언하지 않은 칸의 null 은 "몰에서 비어 있는 것을 보았다"는 뜻이라 덮는다.
       unobservedOptionFields: [],
@@ -145,7 +142,6 @@ describe('channel catalog identity upsert (PG integration)', () => {
     await prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId,
-      lastImportRunId: null,
       rawSource: 'sabangnet_mall_listings',
       unobservedOptionFields: ['modelNumber'],
       products: [product('P-2', {})],
@@ -161,11 +157,11 @@ describe('channel catalog identity upsert (PG integration)', () => {
     const primary = (sourceUrl: string, sortOrder: number) => ({ sourceUrl, role: 'primary' as const, sortOrder, externalOptionId: null });
     const detail = { sourceUrl: 'https://img/detail.jpg', role: 'detail' as const, sortOrder: 0, externalOptionId: null };
     const importOnce = (products: ChannelCatalogIdentityProduct[]) => prisma.$transaction((tx) => upsertChannelCatalogIdentities(tx, {
-      organizationId: TEST_ORGANIZATION_ID, channelAccountId, lastImportRunId: null,
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId,
       rawSource: 'coupang_catalog_browser', unobservedOptionFields: [], products,
     }));
     const basics = (products: ChannelCatalogIdentityProduct[]) => prisma.$transaction((tx) => upsertChannelCatalogBasics(tx, {
-      organizationId: TEST_ORGANIZATION_ID, channelAccountId, lastImportRunId: null, rawSource: 'coupang_catalog_basics', products,
+      organizationId: TEST_ORGANIZATION_ID, channelAccountId, rawSource: 'coupang_catalog_basics', products,
     }));
     const images = () => prisma.channelListing.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId }, orderBy: { externalId: 'asc' }, select: { externalId: true, imageUrl: true },

@@ -117,7 +117,12 @@ export const ERROR_DEFINITIONS = {
   MALL_LOGIN_REQUIRED: def('extension', 'precondition', '몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
   // 확장 4층 site 호출(`extensions/src/core/site-caller`)이 실행 실패 코드로 남긴다. 알림 reader가 실행 표에서 읽는다(KID-355).
   SITE_LOGIN_REQUIRED: def('extension', 'precondition', '사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
+  SITE_VERIFICATION_REQUIRED: def('extension', 'precondition', '사이트가 본인확인을 요구합니다. 브라우저에서 본인확인을 마친 뒤 다시 시도해 주세요.'),
+  MALL_LOGIN_UNSUPPORTED: def('extension', 'precondition', '이 몰은 자동 로그인을 지원하지 않습니다. 몰 화면에서 직접 로그인해 주세요.'),
+  MALL_LOGIN_REJECTED: def('extension', 'precondition', '몰이 로그인을 거절했습니다. 아이디와 비밀번호를 확인해 주세요.'),
+  MALL_LOGIN_UNCONFIRMED: def('extension', 'external', '로그인 결과를 확인하지 못했습니다. 몰 화면에서 확인해 주세요.', { retryable: true }),
   SITE_REQUEST_FAILED: def('extension', 'external', '사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
+  SITE_COOKIE_BLOAT: def('extension', 'external', '쿠팡 공급사 쿠키가 너무 커서 요청이 거절됐습니다. 쿠키를 정리한 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_LOGIN_PAGE_UNREACHABLE: def('extension', 'external', '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_CONTRACT_CHANGED: def('extension', 'external', '몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'),
   SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED: def('extension', 'precondition', '셀피아 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.'),

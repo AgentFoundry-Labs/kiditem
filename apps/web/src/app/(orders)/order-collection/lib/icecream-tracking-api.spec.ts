@@ -4,6 +4,8 @@ import * as XLSX from 'xlsx';
 import {
   buildIcecreamSendFinishFile,
   isTrackingSupportedMall,
+  uploadKidkidsTrackingViaExtension,
+  uploadOnchTrackingViaExtension,
   type SellpiaTrackingRow,
 } from './icecream-tracking-api';
 
@@ -12,6 +14,30 @@ const downloadBlob = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob }));
+const bridge = vi.hoisted(() => ({ detectOrderCollectionExtensionId: vi.fn(), sendToExtension: vi.fn() }));
+vi.mock('@/lib/extension-bridge', () => bridge);
+
+it('has no Domeggook tracking upload — nothing called it (KID-366)', async () => {
+  const module = await import('./icecream-tracking-api');
+  expect(module).not.toHaveProperty('uploadDomeggookTrackingViaExtension');
+  expect(module).not.toHaveProperty('buildDomeggookShipFile');
+});
+
+describe('mall tracking uploads until wave8b moves them to kinds', () => {
+  it('still find the extension by the old order worker flag, not the new runtime default', async () => {
+    bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
+    bridge.sendToExtension.mockResolvedValue({ success: true, results: [] });
+    const row = { ordNo: 'A1', itemNo: 'I1', invNo: 'N1', courier: '1136', provider: '온채널' };
+
+    await uploadOnchTrackingViaExtension([row]);
+    await uploadKidkidsTrackingViaExtension([row]);
+
+    expect(bridge.detectOrderCollectionExtensionId.mock.calls).toEqual([
+      [1200, 'orderCollectionIcecreamMall'],
+      [1200, 'orderCollectionIcecreamMall'],
+    ]);
+  });
+});
 
 const headers = ['주문번호', '배송번호', '배송순번', '상품번호'];
 const sourceRows = [

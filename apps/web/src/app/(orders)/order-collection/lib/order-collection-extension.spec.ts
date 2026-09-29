@@ -14,6 +14,7 @@ import {
   detectOrderCollectionSessionExtensionStatus,
   ensureMallLoggedInViaExtension,
   sendOrderFileToSellpiaViaExtension,
+  testMallLoginViaExtension,
 } from './order-collection-extension';
 
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
@@ -47,6 +48,60 @@ describe('order collection extension session bridge', () => {
       ],
       8_000,
     );
+  });
+
+  it('finds the login test by the new runtime mall login capability', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true, verified: true, mallMessage: null, errorCode: null });
+    await testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' });
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1500, ['mallLoginActionsV1']);
+  });
+
+  it('sends the login test in the shared shape — site address beside the credentials, not inside', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true, verified: false, mallMessage: '비밀번호가 틀렸습니다.', errorCode: null });
+    await expect(testMallLoginViaExtension('art09', {
+      loginId: 'seller',
+      password: 'x',
+      siteUrl: 'https://zzogzzog1.cafe24.com/admin/php/main.php',
+    })).resolves.toEqual({ success: true, submitted: true, verified: false, mallMessage: '비밀번호가 틀렸습니다.' });
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('order-extension', {
+      action: 'testMallLogin',
+      mallKey: 'art09',
+      credentials: { loginId: 'seller', password: 'x' },
+      siteUrl: 'https://zzogzzog1.cafe24.com/admin/php/main.php',
+    }, 60_000);
+  });
+
+  it('passes the verdict code through for the screen to read — answer or failure envelope', async () => {
+    bridge.sendToExtension.mockResolvedValueOnce({ success: true, submitted: true, verified: false, mallMessage: null, errorCode: 'SITE_VERIFICATION_REQUIRED' });
+    await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' })).resolves.toEqual({
+      success: true,
+      submitted: true,
+      verified: false,
+      errorCode: 'SITE_VERIFICATION_REQUIRED',
+    });
+    bridge.sendToExtension.mockResolvedValueOnce({ success: false, errorCode: 'SITE_REQUEST_FAILED', error: '사이트 요청이 실패했습니다.' });
+    await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' })).resolves.toEqual({
+      success: false,
+      errorCode: 'SITE_REQUEST_FAILED',
+      error: '사이트 요청이 실패했습니다.',
+    });
+  });
+
+  it('never calls an off-contract answer a wrong password', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true });
+    await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' }))
+      .resolves.toMatchObject({ success: false, unavailable: 'extension_outdated' });
+
+  });
+
+  it('sends without a saved site address that is not an http address', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true, verified: true, mallMessage: null, errorCode: null });
+    await testMallLoginViaExtension('art09', { loginId: 'seller', password: 'x', siteUrl: 'cafe24 admin' });
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('order-extension', {
+      action: 'testMallLogin',
+      mallKey: 'art09',
+      credentials: { loginId: 'seller', password: 'x' },
+    }, 60_000);
   });
 
   it('preserves the loaded extension version and missing capability diagnosis', async () => {

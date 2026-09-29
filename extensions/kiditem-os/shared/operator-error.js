@@ -218,11 +218,46 @@
       "text": "사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.",
       "retryable": false
     },
+    "SITE_VERIFICATION_REQUIRED": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "사이트가 본인확인을 요구합니다. 브라우저에서 본인확인을 마친 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "MALL_LOGIN_UNSUPPORTED": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "이 몰은 자동 로그인을 지원하지 않습니다. 몰 화면에서 직접 로그인해 주세요.",
+      "retryable": false
+    },
+    "MALL_LOGIN_REJECTED": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "몰이 로그인을 거절했습니다. 아이디와 비밀번호를 확인해 주세요.",
+      "retryable": false
+    },
+    "MALL_LOGIN_UNCONFIRMED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "로그인 결과를 확인하지 못했습니다. 몰 화면에서 확인해 주세요.",
+      "retryable": true
+    },
     "SITE_REQUEST_FAILED": {
       "owner": "extension",
       "kind": "external",
       "httpStatus": 502,
       "text": "사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
+    "SITE_COOKIE_BLOAT": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "쿠팡 공급사 쿠키가 너무 커서 요청이 거절됐습니다. 쿠키를 정리한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
     "MALL_LOGIN_PAGE_UNREACHABLE": {

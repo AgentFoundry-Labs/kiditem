@@ -76,9 +76,10 @@ describe('채널 레지스트리', () => {
   });
 
   /** 경로가 없는 일에 초록을 칠하지 않는다 — 확장에 발송처리 액션이 있는 셋뿐이다. */
-  it('⭐ 송장 송신은 온채널 · 키드키즈 · 도매꾹 뿐이다', () => {
+  it('⭐ 송장 송신은 온채널 · 키드키즈 뿐이다 (도매꾹 업로드 액션은 호출이 없어 삭제)', () => {
     expect(CHANNEL_REGISTRY.filter((entry) => entry.uploadTracking).map((entry) => entry.key))
-      .toEqual(['kidkids', 'onch', 'domeggook']);
+      .toEqual(['kidkids', 'onch']);
+    expect(channelUploadsTracking('domeggook')).toBe(false);
     expect(channelUploadsTracking('icecream-mall')).toBe(false);
   });
 

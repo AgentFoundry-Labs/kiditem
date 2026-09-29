@@ -428,7 +428,7 @@ describe('ProfitabilityEvidence', () => {
     });
 
     expect(result.sourceVector.sellpia).toMatchObject({
-      sourceImportRunId: olderSellpia.operationId,
+      operationId: olderSellpia.operationId,
       publicationSequence: '6',
       mappingGeneration: '3',
     });

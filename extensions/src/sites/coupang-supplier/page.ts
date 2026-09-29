@@ -82,6 +82,15 @@ interface FetchAnswer {
   tables?: PageTable[] | null;
 }
 
+interface PageAnswerPdf {
+  ok?: boolean;
+  error?: string;
+  status?: number;
+  pdf?: boolean;
+  bytes?: number;
+  b64?: string | null;
+}
+
 /** 요청 하나의 시간 상한. 멈춘 응답이 heartbeat로 잠금을 끝없이 연장하지 않게 끊는다. */
 export const SUPPLIER_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -90,7 +99,16 @@ export interface SupplierPage {
   fetch(path: string, options?: { headers?: Record<string, string>; tables?: boolean; timeoutMs?: number }): Promise<PageFetch>;
   /** 탭 본문 앞 400자(쿠키 과다 400 화면 판별). */
   bodyText(): Promise<string>;
+  /** 같은 출처 PDF 하나(KID-366). 본문이 PDF일 때만 `b64`가 있다. 다리 실패는 `fetch`와 같은 규칙이다. */
+  pdf(path: string): Promise<PagePdf>;
   readonly tab: TabPage;
+}
+
+export interface PagePdf {
+  status: number;
+  pdf: boolean;
+  bytes: number;
+  b64: string | null;
 }
 
 export function supplierPage(tab: TabPage): SupplierPage {
@@ -118,6 +136,27 @@ export function supplierPage(tab: TabPage): SupplierPage {
         url: answer.url ?? path,
         text: answer.text,
         tables: Array.isArray(answer.tables) ? answer.tables : null,
+      };
+    },
+    async pdf(path) {
+      const answer = await tab.ask<PageAnswerPdf>(
+        { type: 'KIDITEM_COUPANG_SUPPLIER_FETCH_PDF', url: path },
+        { timeoutMs: SUPPLIER_REQUEST_TIMEOUT_MS, inject: COUPANG_SUPPLIER_PAGE_FILES, guard: COUPANG_SUPPLIER_PAGE_GUARD },
+      );
+      if (answer.ok !== true && /failed to fetch/i.test(answer.error ?? '')) throw loginRequired(path);
+      if (answer.ok !== true || typeof answer.status !== 'number') {
+        throw new RuntimeError(SITE_REQUEST_FAILED, answer.error === 'timeout' ? '서플라이어 허브가 제때 응답하지 않았습니다.' : '서플라이어 허브를 읽지 못했습니다.', {
+          status: null,
+          url: path,
+          reason: answer.error === 'timeout' ? 'timeout' : 'network',
+          bodyHead: answer.error ?? null,
+        });
+      }
+      return {
+        status: answer.status,
+        pdf: answer.pdf === true && typeof answer.b64 === 'string',
+        bytes: typeof answer.bytes === 'number' ? answer.bytes : 0,
+        b64: answer.pdf === true && typeof answer.b64 === 'string' ? answer.b64 : null,
       };
     },
     async bodyText() {

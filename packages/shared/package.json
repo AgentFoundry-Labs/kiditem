@@ -315,7 +315,12 @@
       "import": "./dist/channel-registry.js",
       "require": "./dist/channel-registry.cjs"
     },
-    "./internal/*": null
+    "./internal/*": null,
+    "./extension-actions": {
+      "types": "./dist/extension-actions.d.ts",
+      "import": "./dist/extension-actions.js",
+      "require": "./dist/extension-actions.cjs"
+    }
   },
   "types": "./dist/index.d.ts",
   "typesVersions": {
@@ -502,6 +507,9 @@
       ],
       "source-readiness": [
         "dist/source-readiness.d.ts"
+      ],
+      "extension-actions": [
+        "dist/extension-actions.d.ts"
       ]
     }
   },

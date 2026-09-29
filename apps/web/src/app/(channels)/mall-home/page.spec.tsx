@@ -530,7 +530,7 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     mockDetectProbe.mockResolvedValue({ status: 'outdated', version: '1.0.83' });
     render(<MallHomePage />);
     expect(
-      await screen.findByText(/확장 1\.0\.83에는 로그인 확인\(mallLoginCheckV2\)이 없습니다/),
+      await screen.findByText(/확장 1\.0\.83에는 로그인 확인\(mallLoginActionsV1\)이 없습니다/),
     ).toBeInTheDocument();
     expect(mockProbeMall).not.toHaveBeenCalled();
   });

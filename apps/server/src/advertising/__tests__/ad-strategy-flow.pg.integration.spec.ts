@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 
 import { Test } from '@nestjs/testing';
@@ -129,18 +130,8 @@ describe('AdStrategy flow (PG integration)', () => {
           isPrimary: true,
         },
       }));
-    const importRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: params.organizationId,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: channelAccount.id,
-        fileName: 'advertising-strategy-pg.xlsx',
-        fileHash: `advertising-strategy-pg-${params.suffix}`,
-        status: 'completed',
-        rowCount: 1,
-        importedAt: new Date(),
-      },
-    });
+    // 카탈로그 리스팅은 실행이 쓴 행만 게시된 것이다(KID-365).
+    const catalogOperationId = randomUUID();
     const sellableStock = params.sellableStock ?? 100;
     const master = await seedSourceProduct(prisma, {
       organizationId: params.organizationId,
@@ -159,7 +150,7 @@ describe('AdStrategy flow (PG integration)', () => {
         channelAccountId: channelAccount.id,
         externalId: `EXT-${params.suffix}`,
         channelName: `Channel ${params.suffix}`,
-        lastImportRunId: importRun.id,
+        lastOperationId: catalogOperationId,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
@@ -168,7 +159,7 @@ describe('AdStrategy flow (PG integration)', () => {
         listingId: listing.id,
         externalOptionId: `VI-${params.suffix}`,
         salePrice: params.sellPrice ?? 20000,
-        lastImportRunId: importRun.id,
+        lastOperationId: catalogOperationId,
         isActive: true,
       },
     });
@@ -1170,7 +1161,7 @@ describe('AdStrategy flow (PG integration)', () => {
           listingId: a.listing.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
           salePrice: 20000,
-          lastImportRunId: a.listing.lastImportRunId,
+          lastOperationId: a.listing.lastOperationId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
         },

@@ -12,11 +12,6 @@
 // 각 워커가 `adsEnvironmentContext` / `ordersEnvironmentContext` /
 // `sourcingEnvironmentContext` 로 따로 만든다.
 
-const KIDITEM_WEB_URL_PATTERNS = [
-  "http://localhost:3000/*",
-  "http://kiditem-office/*",
-];
-
 // 수집 세션 조회/발행에만 쓰이므로 토큰을 요구하지 않는다. 세션 모듈은 이
 // 컨텍스트를 환경 ID 검증과 웹탭 브로드캐스트에만 사용한다.
 const sharedEnvironmentContext = KidItemEnvironmentContext.create({

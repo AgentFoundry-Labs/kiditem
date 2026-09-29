@@ -223,7 +223,7 @@ export function MallAccountForm({
               )}
               <span className="line-clamp-3">
                 {testResult.outcome === 'verified'
-                  ? `폼 제출됨${testResult.detail ? ` · ${testResult.detail}` : ''}`
+                  ? `${testResult.submitted ? '폼 제출됨' : '로그인 확인됨'}${testResult.detail ? ` · ${testResult.detail}` : ''}`
                   : testResult.outcome === 'unverified'
                     ? `확인 못 함 — ${testResult.detail}`
                     : testResult.detail}

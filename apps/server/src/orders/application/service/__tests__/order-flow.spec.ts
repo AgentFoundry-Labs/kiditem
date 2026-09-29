@@ -10,23 +10,19 @@ function makePrisma() {
       findFirst: vi.fn(),
       groupBy: vi.fn().mockResolvedValue([]),
     },
-    // 실행으로 옮긴 몰의 확인 범위(KID-359) — 이 스펙은 옛 run만 쓴다.
-    operation: { findMany: vi.fn().mockResolvedValue([]) },
-    sourceImportRun: {
+    // 몰 주문 수집 실행의 확인 범위(KID-359, KID-365) — 모든 날을 덮는 성공 실행 하나.
+    operation: {
       findMany: vi.fn().mockResolvedValue([{
-        sourceType: 'order_collection_mall',
-        channelAccountId: '00000000-0000-4000-8000-000000000099',
-        importedAt: new Date('2026-05-01T01:00:00.000Z'),
-        updatedAt: new Date('2026-05-01T01:00:00.000Z'),
-        createdAt: new Date('2026-05-01T01:00:00.000Z'),
-        coverageStartDate: new Date('2000-01-01T00:00:00.000Z'),
-        coverageEndDate: new Date('3000-01-01T00:00:00.000Z'),
-        channelAccount: {
-          channel: 'haebub-mall',
-          externalAccountId: 'haebub-mall',
-        },
-        orders: [],
+        id: '00000000-0000-4000-8000-000000000098',
+        kind: 'orders.mall_orders',
+        plan: { channelAccountId: '00000000-0000-4000-8000-000000000099', mallKey: 'haebub-mall' },
+        result: { rowCount: 0, mallKey: 'haebub-mall', captured: 0, coverage: { startDate: '2000-01-01', endDate: '2999-12-31' } },
+        windowStart: new Date('2000-01-01T00:00:00.000Z'),
+        windowEnd: new Date('2999-12-31T00:00:00.000Z'),
+        startedAt: new Date('2026-05-01T01:00:00.000Z'),
+        finishedAt: new Date('2026-05-01T01:00:00.000Z'),
       }]),
+      aggregate: vi.fn().mockResolvedValue({ _max: { finishedAt: new Date('2026-05-01T01:00:00.000Z') } }),
     },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -344,13 +340,15 @@ describe('OrdersService — order query and actions', () => {
           revenue: 90_000n,
           orderCount: 3n,
           quantity: 4n,
-          factObservedAt: new Date('2026-05-01T01:00:00.000Z'),
+          publishedCount: 3n,
+          operationIds: ['00000000-0000-4000-8000-000000000097'],
         }])
         .mockResolvedValueOnce([{
           revenue: 300_000n,
           orderCount: 10n,
           quantity: 12n,
-          factObservedAt: new Date('2026-05-01T01:00:00.000Z'),
+          publishedCount: 3n,
+          operationIds: ['00000000-0000-4000-8000-000000000097'],
         }]);
 
       const result = await service.getStats(ORGANIZATION_ID);
@@ -375,13 +373,14 @@ describe('OrdersService — order query and actions', () => {
     });
 
     it('keeps Today and week totals null when the owner has not covered the whole window', async () => {
-      prisma.sourceImportRun.findMany.mockResolvedValue([]);
+      prisma.operation.findMany.mockResolvedValue([]);
       prisma.$queryRaw.mockResolvedValue([
         {
           revenue: 90_000n,
           orderCount: 3n,
           quantity: 4n,
-          factObservedAt: new Date('2026-05-01T01:00:00.000Z'),
+          publishedCount: 3n,
+          operationIds: ['00000000-0000-4000-8000-000000000097'],
         },
       ]);
 

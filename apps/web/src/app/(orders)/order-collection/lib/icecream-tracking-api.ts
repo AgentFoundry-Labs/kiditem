@@ -4,65 +4,11 @@ import { downloadBlob } from '@/lib/browser-download';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
-// ── 도매꾹 송장 업로드(발송처리): 셀피아 송장 → 도매꾹 엑셀양식 → 확장이 shipXls 업로드 ──
-
-export interface DomeggookShipBuild {
-  fileName: string;
-  blob: Blob;
-  base64: string;
-  orderNos: string[];
-  rowCount: number;
-  unmappedCouriers: string[];
-}
-
-/** 셀피아 송장(도매꾹)으로 "송장 엑셀일괄입력" 파일 생성. download!==false 면 다운로드도. base64 는 확장 업로드용. */
-export async function buildDomeggookShipFile(
-  tracking: SellpiaTrackingRow[],
-  options?: { download?: boolean },
-): Promise<DomeggookShipBuild> {
-  const response = await apiClient.fetchRaw('/api/orders/collection/domeggook/ship-file', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tracking }),
-  });
-  if (!response.ok) {
-    const body = (await response.clone().json().catch(() => null)) as { message?: unknown } | null;
-    throw new Error(typeof body?.message === 'string' ? body.message : `파일 생성 실패 (${response.status})`);
-  }
-  const blob = await response.blob();
-  const fileName =
-    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ?? '도매꾹_송장.xls';
-  if (options?.download !== false) downloadBlob(blob, fileName);
-  return {
-    fileName,
-    blob,
-    base64: await blobToBase64(blob),
-    orderNos: decodeCsvHeader(response, 'X-Domeggook-Ship-Order-Nos'),
-    rowCount: numericHeader(response, 'X-Domeggook-Ship-Row-Count') ?? 0,
-    unmappedCouriers: decodeCsvHeader(response, 'X-Domeggook-Ship-Unmapped-Couriers'),
-  };
-}
-
-/** ⚠️파괴적: 확장이 도매꾹 shipXls 로 실제 발송처리. 프론트가 사용자 확인 후에만 호출. */
-export async function uploadDomeggookTrackingViaExtension(
-  fileBase64: string,
-  fileName: string,
-  orderNos: string[],
-): Promise<{ uploaded?: boolean; httpStatus?: number; snippet?: string }> {
-  const extensionId = await detectOrderCollectionExtensionId();
-  if (!extensionId) {
-    throw new Error('주문수집 확장프로그램이 필요합니다. domeggook.com 로그인 후 다시 시도하세요.');
-  }
-  const res = await sendToExtension<{
-    success?: boolean;
-    uploaded?: boolean;
-    httpStatus?: number;
-    snippet?: string;
-    error?: string;
-  }>(extensionId, { action: 'uploadDomeggookTracking', fileBase64, fileName, orderNos }, 90000);
-  if (!res?.success) throw new Error(res?.error ?? '도매꾹 송장 업로드에 실패했습니다.');
-  return { uploaded: res.uploaded, httpStatus: res.httpStatus, snippet: res.snippet };
-}
+/**
+ * 온채널·키드키즈 송장 업로드는 아직 옛 주문 워커가 답한다. wave8b가 kind로 옮기며 이 옛 표시와 함께 지운다
+ * (새 런타임 감지 기본값 `operationRuntime`로는 옛 워커가 없는 빌드를 가려내지 못한다).
+ */
+const LEGACY_ORDER_WORKER_CAPABILITY = 'orderCollectionIcecreamMall';
 
 export interface OnchUploadResultRow {
   ordNo: string;
@@ -77,7 +23,7 @@ export async function uploadOnchTrackingViaExtension(rows: SellpiaTrackingRow[])
   listSize: number;
   results: OnchUploadResultRow[];
 }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, LEGACY_ORDER_WORKER_CAPABILITY);
   if (!extensionId) {
     throw new Error('주문수집 확장프로그램이 필요합니다. www.onch3.co.kr 로그인 후 다시 시도하세요.');
   }
@@ -117,7 +63,7 @@ export async function uploadKidkidsTrackingViaExtension(rows: SellpiaTrackingRow
   submitted: boolean;
   results: KidkidsTrackingUploadResultRow[];
 }> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, LEGACY_ORDER_WORKER_CAPABILITY);
   if (!extensionId) {
     throw new Error('주문수집 확장프로그램이 필요합니다. partner.kidkids.net 로그인 후 다시 시도하세요.');
   }
@@ -156,29 +102,6 @@ export interface IcecreamUploadResult {
 // 아이스크림몰 출고완료 업로드는 네이티브 파일 다이얼로그를 거쳐야 해 확장 자동화가 불가능하다.
 // 파일만 만들어 주고 업로드는 화면의 [파일선택]으로 사람이 올린다(order-tracking-actions 참조).
 // 예전 uploadIcecreamTrackingViaExtension 브리지는 실제 등록으로 이어지지 않아 제거했다.
-
-async function blobToBase64(blob: Blob): Promise<string> {
-  const buf = new Uint8Array(await blob.arrayBuffer());
-  let bin = '';
-  const CH = 0x8000;
-  for (let i = 0; i < buf.length; i += CH) {
-    bin += String.fromCharCode.apply(null, Array.from(buf.subarray(i, i + CH)));
-  }
-  return btoa(bin);
-}
-
-function decodeCsvHeader(response: Response, name: string): string[] {
-  const raw = response.headers.get(name);
-  if (!raw) return [];
-  try {
-    return decodeURIComponent(raw)
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean);
-  } catch {
-    return [];
-  }
-}
 
 /**
  * 아이스크림몰 송장 업로드(발송처리) — 비파괴 dry-run.

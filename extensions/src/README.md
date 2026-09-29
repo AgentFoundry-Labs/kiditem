@@ -9,17 +9,38 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 `@kiditem/shared`는 import해도 되며 번들에 포함된다. 폴더는 4층이고 의존은 한 방향이다(KID-357, `npm run check:extension-runtime-layers`):
 
 - `entry/` — 웹앱·팝업이 부르는 액션 표 → core. 로직 없음. 수집기가 선언한 사이트 이름으로 등록표에서 핸들을
-  조립한다(`entry/site-handles.ts`, 사이트별 분기 없음). 옛 전역(`KidItemDomains` 등)은
-  `entry/legacy-bridge.ts` 한 파일만 참조한다.
+  조립한다(`entry/site-handles.ts`, 사이트별 분기 없음). 한 번에 끝나는 entry 액션은 `entry/actions/`에 액션마다 파일
+  하나다(아래). 어느 파일도 옛 전역(`KidItemDomains` 등)을 참조하지 않는다.
 - `core/` — operation client(서버 실행 계약의 유일한 창구), runner(begin → 청크 → finish 순서),
-  브라우저 자원(창·탭·로그인, 이름은 서버 lockKey와 같다), 사이트 호출기(간격·XSRF), 오류.
-  core는 core만 import한다.
+  브라우저 자원(창·탭·로그인, 이름은 서버 lockKey와 같다), 사이트 호출기(간격·XSRF), 오류, 그리고 확장 입구의 바탕
+  (KID-366, 아래 "입구와 인증"). core는 core만 import한다.
 - `collectors/<kind>/` — 서버 kind 문자열과 같은 이름. `collect(plan, site) → 청크 스트림`.
   서버·탭·토큰을 모른다: core 중 `site-caller`·`errors`만 쓴다.
 - `sites/<site>/` — 사이트 API·DOM 읽기·쓰기만. core 중 `site-caller`·`errors`만 쓴다. 사이트는 파일 끝에서
   `registerSite`(`sites/registry.ts`)로 스스로 등록하고, 입구는 이름으로 조립한다(KID-355).
   content script는 API가 없어 DOM을 읽어야 할 때만, 페이지 주입은 파일 주입만.
   인자가 필요한 페이지 읽기는 `sites/page-call.ts`(ISOLATED 브리지 → MAIN 러너 → 처리기 파일, KID-359 H3)를 쓴다.
+
+입구와 인증(KID-366): 웹앱 메시지는 `core/dispatch.ts`가 `chrome.runtime.onMessageExternal`의 **유일한** 리스너로 받는다 —
+보내는 창 origin → 환경(`core/environment.ts`, `local` = `http://localhost:3000` → API `:4000`, `office`; 표에 없는 origin은
+`FORBIDDEN`) → `{action}`으로 표의 액션 → shared 스키마(`@kiditem/shared/extension-actions`) 검증(실패는 `VALIDATION_FAILED`,
+details에는 칸 이름만) → 실행 → 봉투 `{success:true,…}|{success:false, errorCode, error, details?}`. 메시지가 말하는 환경은
+믿지 않는다. 팝업·콘텐츠 스크립트 메시지는 내부 dispatch가 이 확장에서 온 것만 받고, 환경은 팝업이 고른 id나 팝업이 묶어 둔
+Wing 탭(`kiditem_coupang_environment_tab_bindings_v1`)으로 정한다. 토큰은 `core/auth-store.ts`(옛 `environment-context.js`와
+같은 `kiditem_environment_profiles_v1` 키·모양이라 과도기 옛 워커의 `authedFetch`도 읽는다)에만 있고 응답·로그로 나가지 않는다.
+KidItem API는 `core/authed-fetch.ts`가 부른다(환경 API origin 안 경로만, Bearer, 25초 제한, 토큰이 없거나 401이면 그 환경 웹
+탭에 재로그인 힌트 파일 `content/page-call/auth-required-event.js`를 넣고 새 토큰을 10초 기다려 한 번만 다시). 응답할 때까지
+`core/keep-alive.ts`(참조 카운트, 20초 깨우기)가 서비스워커를 붙든다.
+
+entry 액션(한 번에 끝나는 호출, 서버 사실 없음, 파일은 base64로 부른 쪽에): 토큰(`setAuthToken`·`clearAuthToken`), 몰 로그인
+(`checkMallLogin` — `sites/mall-session/check.ts`, 조용한 읽기 뒤 확인용 탭, 로그인하지 않음; `testMallLogin` — 계정 화면 테스트,
+자격은 메모리에만), 쿠팡 쉽먼트(`openCoupangShipmentPage` 운영자에게 넘기는 탭은 앞으로, `fetchCoupangShipmentPdfBatch` 확인용 탭은
+닫는다, `clearCoupangCookies` 값은 읽지 않음), `hostPublicImages`·`listMallCategories`, 내부 `exportWingInventoryWorkbook`·
+`kiditemApiRequest`. `ping`은 새 런타임 capability(`operationRuntime` + 묶음 5종)를 낸다.
+
+과도기(wave8b·wave9까지): 새 표가 모르는 액션은 서비스워커가 `KidItemRuntime.attachLegacyActions(KidItemDomains)`로 넘긴 옛
+워커 표(셀피아·송장 업로드·배송 목록·카카오·수집 세션)로 가고, `ping`은 그 표의 capability를 합친다(새 런타임이 이긴다).
+옛 워커가 사라지면 이 한 줄과 `attachLegacy`도 지운다.
 
 사이트 자동 로그인(KID-377)은 `sites/site-login.ts` 한 곳이다. 저장 자격은 웹이 `operation.start`의 `credentials`로
 보내고 runner가 그 실행의 사이트 lease로만 넘긴다 — 서버·plan·progress·result·청크·로그·오류 details에 싣지 않는다.

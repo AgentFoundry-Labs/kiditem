@@ -54,7 +54,6 @@ function loadMallLogin({
       throw new Error("unexpected fetch");
     },
     autoSubmitIcecreamMallLogin: () => undefined,
-    inspectMallLoginScreen: () => undefined,
     chrome: {
       scripting: {
         async executeScript(options) {
@@ -98,7 +97,7 @@ function loadMallLogin({
   // 이 둘은 worker 에서 `async function` 이라 추출한 뒤 다시 async 로 되살린다.
   vm.runInContext(asyncSource("recordMallLoginDialogs"), context);
   vm.runInContext(asyncSource("takeMallLoginDialog"), context);
-  for (const file of ["mall-session-probe.js", "mall-session.js"]) {
+  for (const file of ["mall-session.js"]) {
     vm.runInContext(
       readFileSync(new URL(`../kiditem-os/background/orders/${file}`, import.meta.url), "utf8"),
       context,

@@ -19,6 +19,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { narrowMallOrderCoverageStart } from '../../test-helpers/__tests__/mall-order-coverage-operation';
 import {
   seedCompletedOrderCollection,
   seedOrderWithLineItems,
@@ -973,9 +974,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         },
       },
     });
-    await prisma.sourceImportRun.update({
-      where: { id: run },
-      data: { coverageStartDate: addDays(start, 1) },
+    await narrowMallOrderCoverageStart(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationId: run,
+      startDate: businessDateKey(addDays(start, 1)),
     });
     const partial = await service.listProducts(TEST_ORGANIZATION_ID, query);
     expect(partial.items.find(({ id }) => id === product.id)).toMatchObject({
@@ -1826,9 +1828,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
     expect(completed.displayDataAsOf).toBe(cutoff);
 
-    await prisma.sourceImportRun.update({
-      where: { id: orderRunId, organizationId: TEST_ORGANIZATION_ID },
-      data: { coverageStartDate: new Date(`${confirmedDates[1]}T00:00:00.000Z`) },
+    await narrowMallOrderCoverageStart(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationId: orderRunId,
+      startDate: confirmedDates[1]!,
     });
     const partial = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
     expect(partial.sources.orders).toMatchObject({ ready: false, latestComplete: null });

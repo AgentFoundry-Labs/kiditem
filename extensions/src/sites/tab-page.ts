@@ -176,6 +176,31 @@ export async function sweepDialogGuards(chromeApi: Partial<Pick<TabPageChrome, '
   }
 }
 
+/** 웹 탭에 "토큰을 다시 보내 달라"는 이벤트(`kiditem:extension-auth-required`)를 띄우는 파일(KID-366). */
+export const AUTH_REQUIRED_EVENT_FILE = 'content/page-call/auth-required-event.js';
+
+/**
+ * 그 환경의 KidItem 웹 탭(`urlPattern`)마다 재로그인 힌트 파일을 넣는다(옛 `environment-context.js` `notifyAuthRequired`).
+ * 웹의 AuthProvider가 이벤트를 받아 `setAuthToken`을 다시 보낸다. 잠든·얼린 탭은 건너뛰고, 실패해도 던지지 않는다(힌트일 뿐).
+ */
+export async function requestWebAuth(
+  chromeApi: {
+    tabs: { query(query: { url: string }): Promise<Array<{ id?: number; discarded?: boolean; frozen?: boolean }>> };
+    scripting: { executeScript(injection: { target: { tabId: number }; files: string[] }): Promise<unknown> };
+  },
+  urlPattern: string,
+): Promise<void> {
+  let tabs: Array<{ id?: number; discarded?: boolean; frozen?: boolean }>;
+  try {
+    tabs = await chromeApi.tabs.query({ url: urlPattern });
+  } catch {
+    return;
+  }
+  await Promise.all((Array.isArray(tabs) ? tabs : [])
+    .filter((tab) => typeof tab.id === 'number' && tab.discarded !== true && tab.frozen !== true)
+    .map((tab) => chromeApi.scripting.executeScript({ target: { tabId: tab.id as number }, files: [AUTH_REQUIRED_EVENT_FILE] }).catch(() => undefined)));
+}
+
 export const SITE_TAB_UNAVAILABLE = 'SITE_TAB_UNAVAILABLE' as const;
 
 const OPERATOR_POLL_MS = 2_000;

@@ -55,8 +55,7 @@ Action, collection, transmission, and reconciliation behavior is executable in
   ([ADR-0025](../../../../docs/adr/0025-operations-are-one-contract.md)); there
   is no review attempt route. Its finalize writes one operation row per review
   only after every planned month window's `review_windows` marker matches its
-  `reviews` chunk count, and the reader prefers operation rows over legacy
-  SourceImportRun rows.
+  `reviews` chunk count; readers show only operation rows (KID-365).
 - Sellpia shipment tracking is the operation kind
   `orders.sellpia_shipment_tracking`, locked by `resource:sellpia:login` (one
   Sellpia login per organization, shared by every kind that reads through it).
@@ -87,6 +86,12 @@ Action, collection, transmission, and reconciliation behavior is executable in
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
   operation's `rowCount`; legacy attempt runs are not counted. The order
   screen and the dashboard both read it.
+- Order facts are orders an operation converted (`Order.operationId`), observed
+  at that operation's finish; a window's coverage is the succeeded
+  `orders.mall_orders` operations' `result.coverage`. Orders and coverage only
+  an old import run carries are not facts (KID-365).
+  적용 범위는 몰 주문 수집 실행이 선언한 창만이다. 사실을 낸 원천마다 적용
+  범위를 요구하던 규칙은 KID-365에서 폐기.
 - Coupang shipment date summary is the operation kind
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
   old scan-proof validation and writes date rows with `operationId`; the

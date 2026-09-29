@@ -544,9 +544,9 @@ test('Wing tab completion still resolves and cleans up listeners before timeout'
 test('통합 서비스워커가 두 도메인 워커를 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();
 
-  // 도메인 워커 2개(쿠팡·주문) + 통합 dispatch = 외부 리스너 3개. 소싱 수집은 새 런타임의 실행 kind라(KID-360)
-  // 외부 리스너를 따로 두지 않고 KidItemDomains에 operation.start를 건다.
-  assert.equal(fake.externalMessageListeners.length, 3);
+  // 웹앱 메시지는 새 런타임 dispatch 하나가 받는다(KID-366) — 옛 워커는 KidItemDomains 표에만 올리고, 새 dispatch가
+  // 모르는 액션을 그 표로 넘긴다.
+  assert.equal(fake.externalMessageListeners.length, 1);
   assert.ok(context.KidItemDomains);
 });
 
@@ -592,12 +592,19 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   const [response] = responses;
   assert.equal(response.success, true);
   assert.equal(response.version, manifest.version);
+  // shared PingResponseSchema: capability 값은 boolean뿐이다.
+  for (const [name, value] of Object.entries(response.capabilities)) assert.equal(typeof value, 'boolean', name);
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
-    'mallLoginCheckV2',
+    // 새 런타임 entry 액션 묶음(KID-366)
+    'mallLoginActionsV1',
+    'coupangShipmentActionsV1',
+    'mallImageHostV1',
+    'mallCategoryReadV1',
+    'wingInventoryExportV1',
     // 쿠팡
     'coupangCatalogSnapshot',
     // 몰 쓰기 실행 kind(등록·품절·재개·가격·대표이미지, KID-256)
@@ -612,12 +619,19 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'operationLoginV1',
     // 공통
     'browserCollectionSessions',
-    'kiditemEnvironmentProfilesV1',
   ]) {
     assert.equal(response.capabilities[capability], true, capability);
   }
   // 옛 광고 수집(캠페인·키워드·수익성)은 새 런타임의 advertising.ad_report 실행 kind다(KID-373).
+  // 옛 entry 액션 capability는 별칭 없이 사라졌다(KID-366) — 프로필 지원은 operationRuntime으로 판단한다.
   for (const retired of [
+    'kiditemEnvironmentProfilesV1',
+    'mallLoginTestV1',
+    'mallLoginCheckV2',
+    'publicImageHostV1',
+    'mallCategoryLookup',
+    'coupangShipmentDownloads',
+    'clearCoupangCookies',
     'collectionStartV1',
     'profitabilityAdvertisingSourceOwnerV1',
     'advertisingCampaignSourceOwnerV1',
@@ -675,7 +689,8 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
   // 추천 키워드 수집은 operation.start{kind: sourcing.coupang_keyword_suggestion}로만 시작한다(KID-360).
   assert.equal(context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions'), null);
   assert.equal(context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1, undefined);
-  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
+  // operation.start·cancel은 새 런타임 dispatch 자신의 액션이다(KID-366) — 옛 표에 없다.
+  assert.equal(context.KidItemDomains.forExternalAction('operation.start'), null);
 });
 
 test('retired advertising account-day KPI actions, content step and capability are not registered', () => {
@@ -805,7 +820,14 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
   ]) {
     assert.equal(context.KidItemDomains.forExternalAction(retired), null, retired);
   }
-  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
+  assert.equal(context.KidItemDomains.forExternalAction('operation.start'), null);
+});
+
+test('operation.start·cancel은 새 런타임 dispatch가 shared 스키마로 검증해 답한다', async () => {
+  const { fake } = bootServiceWorker();
+  const response = await externalRequest(fake, { action: 'operation.cancel', operationId: 'not-a-uuid' });
+  assert.equal(response.success, false);
+  assert.equal(response.errorCode, 'VALIDATION_FAILED');
 });
 
 // 옛 소싱 워커가 받던 인증 전달(KID-360 이후 쿠팡 워커 하나가 받는다): 보낸 KidItem 환경의 프로필에만 쓴다.
