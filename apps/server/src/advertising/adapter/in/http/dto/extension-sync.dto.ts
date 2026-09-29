@@ -29,8 +29,6 @@ export class ExtensionSyncDto {
 
   /**
    * Browser collection run shared by every campaign request in one sweep.
-   * This is intentionally stored in scrape-run metadata rather than
-   * `ChannelScrapeRun.clientRunKey`, whose uniqueness is one row per source.
    */
   @IsOptional()
   @IsUUID()

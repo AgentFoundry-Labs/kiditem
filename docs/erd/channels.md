@@ -15,9 +15,6 @@
 | ChannelListingOption | `channel_listing_options` | ChannelListingOption canonical state owned by channels. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | ChannelListingOptionInventoryComponent canonical state owned by channels. |
-| ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
-| ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
-| ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
 | ProductRegistrationExecution | `product_registration_executions` | One frozen registration intent. A reusable target has many executions; one active execution per target and idempotent requests prevent duplicate submissions (ADR-0020). |
 | RegistrationTarget | `registration_targets` | Persistent registration target with explicit marketplace overrides. Executions freeze submitted values separately (ADR-0020). |
 | RegistrationTargetOption | `registration_target_options` | Selected common option and explicit price overrides for one persistent registration target. |
@@ -101,7 +98,6 @@ erDiagram
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
-    String rawSnapshotId FK
     String operationId
     Json metaJson
     DateTime createdAt
@@ -150,7 +146,6 @@ erDiagram
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
-    String rawSnapshotId FK
     String operationId
     Json metaJson
     DateTime createdAt
@@ -162,64 +157,6 @@ erDiagram
     String channelListingOptionId FK
     String masterProductId
     Int quantity
-    DateTime createdAt
-  }
-  ChannelScrapeChunk {
-    String id PK
-    String organizationId FK
-    String scrapeRunId FK
-    String kind
-    Int sequence
-    String checksum
-    Int itemCount
-    Json payload
-    DateTime publishedAt
-    Json publicationJson
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelScrapeRun {
-    String id PK
-    String organizationId FK
-    String channelAccountId FK
-    String clientRunKey
-    String sourceImportRunId
-    String channel
-    String source
-    String pageType
-    DateTime businessDate
-    DateTime periodStart
-    DateTime periodEnd
-    String status
-    String targetUrl
-    String period
-    String parserVersion
-    DateTime startedAt
-    DateTime finishedAt
-    DateTime createdAt
-    DateTime updatedAt
-    Json metaJson
-    Json errorJson
-  }
-  ChannelScrapeSnapshot {
-    String id PK
-    String organizationId FK
-    String scrapeRunId FK
-    String sourceImportRunId
-    String channel
-    String source
-    String pageType
-    DateTime businessDate
-    DateTime observedAt
-    String externalId
-    String externalOptionId
-    String listingId FK
-    String listingOptionId FK
-    String matchStatus
-    String matchReason
-    String rowHash
-    Json rawJson
-    Json normalizedJson
     DateTime createdAt
   }
   ProductRegistrationExecution {
@@ -376,21 +313,14 @@ erDiagram
     DateTime capturedAt
   }
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
-  ChannelAccount ||--o{ ChannelScrapeRun : "channelAccount"
   ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RegistrationTarget : "channelAccount"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
-  ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
   ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
   ChannelListingOption ||--o{ ChannelListingOptionInventoryComponent : "channelListingOption"
-  ChannelListingOption o|--o{ ChannelScrapeSnapshot : "listingOption"
-  ChannelScrapeRun ||--o{ ChannelScrapeChunk : "scrapeRun"
-  ChannelScrapeRun o|--o{ ChannelScrapeSnapshot : "scrapeRun"
-  ChannelScrapeSnapshot o|--o{ ChannelListingDailySnapshot : "rawSnapshot"
-  ChannelScrapeSnapshot o|--o{ ChannelListingOptionDailySnapshot : "rawSnapshot"
   RegistrationTarget o|--o{ ProductRegistrationExecution : "preparation"
   RegistrationTarget ||--o{ RegistrationTargetOption : "preparation"
   SalesProduct o|--o{ ChannelListing : "salesProduct"

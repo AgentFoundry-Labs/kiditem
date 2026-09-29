@@ -370,26 +370,13 @@ Consumer 는 pull 직후 다음 reference와 source-owner 검증을 확인한다
 
 ### 1. DB 저장 확인
 
-최근 scrape run 을 확인한다.
-
-```bash
-docker exec kiditem-postgres psql -U kiditem -d kiditem -c "
-select source, page_type, business_date, status, row_count, matched_count,
-       unmatched_count, error_count, started_at, finished_at
-from channel_scrape_runs
-where channel = 'coupang'
-order by started_at desc
-limit 20;
-"
-```
+수집 실행과 그 결과(행 수·오류)는 실행 계약 표(`operations`)와 owner 화면에서 본다.
 
 저장된 row 수를 확인한다.
 
 ```bash
 docker exec kiditem-postgres psql -U kiditem -d kiditem -c "
-select 'raw_snapshots' as table_name, count(*) from channel_scrape_snapshots where channel = 'coupang'
-union all
-select 'listing_daily', count(*) from channel_listing_daily_snapshots where channel = 'coupang'
+select 'listing_daily' as table_name, count(*) from channel_listing_daily_snapshots where channel = 'coupang'
 union all
 select 'option_daily', count(*) from channel_listing_option_daily_snapshots where channel = 'coupang';
 "
@@ -397,9 +384,9 @@ select 'option_daily', count(*) from channel_listing_option_daily_snapshots wher
 
 확인 기준:
 
-- `row_count` 가 publisher 가 공유한 payload row count 와 크게 다르면 payload 누락 또는 export 범위를 의심한다.
-- `error_count > 0` 이면 source-owner ingest 오류다. owner report 와 서버 로그를 같이 본다.
-- `unmatched_count` 가 높으면 스키마 오류라기보다 `ChannelListing` / `ChannelListingOption` 매칭 데이터가 부족하거나 쿠팡 payload 식별자가 기존 DB 와 안 맞는 상태일 수 있다.
+- 실행 결과의 행 수가 publisher 가 공유한 payload row count 와 크게 다르면 payload 누락 또는 export 범위를 의심한다.
+- 실행이 실패로 끝났으면 source-owner ingest 오류다. 실행 오류 코드와 서버 로그를 같이 본다.
+- 매칭되지 않은 행이 많으면 스키마 오류라기보다 `ChannelListing` / `ChannelListingOption` 매칭 데이터가 부족하거나 쿠팡 payload 식별자가 기존 DB 와 안 맞는 상태일 수 있다.
 
 ### 2. 재고 불일치 확인
 

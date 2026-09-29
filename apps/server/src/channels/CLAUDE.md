@@ -153,7 +153,7 @@ sync, registration, matching, and capacity behavior is executable in
   extension run holds the account lock while Wing builds the file, about seven
   minutes, so a sync start meanwhile gets `OPERATION_IN_PROGRESS`). They
   publish only inside the finish transaction, mark rows `lastOperationId`, and
-  never touch `source_import_runs` or `channel_scrape_*`. Each path writes only
+  never touch `source_import_runs`. Each path writes only
   its own `raw_json` section (`domain/collection/channel-listing-raw-sections.ts`).
 - Detail targets compare the listed `modifiedOn` with `detail.modifiedOn`, the
   list value the last details finalize applied (`domain/collection/catalog-detail-targets.ts`).

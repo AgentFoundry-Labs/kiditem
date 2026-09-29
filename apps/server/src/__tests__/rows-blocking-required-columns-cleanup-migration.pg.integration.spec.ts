@@ -14,6 +14,10 @@ import {
   TEST_USER_ID,
 } from '../test-helpers/real-prisma';
 import {
+  dropLegacyChannelScrapeTables,
+  restoreLegacyChannelScrapeTables,
+} from '../test-helpers/legacy-channel-scrape-tables';
+import {
   foreignKeysInto,
   referencingColumn,
   tablesDeletedBy,
@@ -144,11 +148,14 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     // 014 runs before 030 (KID-360): the schema it meets still names the run and holds its foreign keys.
     await toPre030Shape(prisma);
     await toPre373Shape(prisma);
+    // 014 still meets the channel_scrape_* tables KID-365 dropped.
+    await restoreLegacyChannelScrapeTables(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
     try {
+      await dropLegacyChannelScrapeTables(prisma);
       await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
     } finally {
@@ -504,11 +511,14 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     await toPre030Shape(prisma);
     await toPre373Shape(prisma);
+    // 014 still meets the channel_scrape_* tables KID-365 dropped.
+    await restoreLegacyChannelScrapeTables(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
     try {
+      await dropLegacyChannelScrapeTables(prisma);
       await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
     } finally {
@@ -584,7 +594,7 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
       await expect(tx.rocketPurchaseConfirmation.count()).resolves.toBe(0);
       await expect(tx.rocketPurchaseConfirmationLine.count()).resolves.toBe(0);
       await expect(tx.rocketPurchaseConfirmationTransmission.count()).resolves.toBe(0);
-      await expect(tx.channelScrapeRun.count()).resolves.toBe(0);
+      await expect(tx.$queryRaw`SELECT COUNT(*)::int AS count FROM channel_scrape_runs`).resolves.toEqual([{ count: 0 }]);
 
       // Idempotent before `db push`: nothing is left to reduce.
       const second = await runMigration(tx);
@@ -684,6 +694,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     await seedBaseFixture(db);
     await seedOrganization(db, TEST_ORGANIZATION_ID, ['pencil'], 2);
     await toPre373Shape(db);
+    await restoreLegacyChannelScrapeTables(db);
     const definitions = await indexDefinitions(db, [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]);
     await db.$transaction(async (tx) => {
       await toPre030Shape(tx);
@@ -1083,17 +1094,10 @@ async function seedImportRunDuplicates(tx: Prisma.TransactionClient) {
   // A collected scrape run cites the older item-winner attempt and goes with it.
   const winnerNewest = await run({ sourceType: 'coupang_wing_itemwinner', channelAccountId: accountA, status: 'running', minute: 2 });
   const winnerScraped = await run({ sourceType: 'coupang_wing_itemwinner', channelAccountId: accountA, status: 'running', minute: 1 });
-  await tx.channelScrapeRun.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: accountA,
-      sourceImportRunId: winnerScraped,
-      channel: 'coupang',
-      source: 'kid-239',
-      pageType: 'itemwinner',
-    },
-    select: { id: true },
-  });
+  await tx.$executeRaw`
+    INSERT INTO channel_scrape_runs (id, organization_id, channel_account_id, source_import_run_id, channel, source, page_type)
+    VALUES (${randomUUID()}::uuid, ${TEST_ORGANIZATION_ID}::uuid, ${accountA}::uuid, ${winnerScraped}::uuid, 'coupang', 'kid-239', 'itemwinner')
+  `;
 
   // Equal creation times: the higher id stays.
   const salesLow = await run({ id: '00000000-0000-4000-8000-000000002391', sourceType: 'sellpia_sales_daily', status: 'running', minute: 1 });

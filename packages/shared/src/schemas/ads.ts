@@ -501,9 +501,8 @@ export type AdBenchmarkData = z.infer<typeof AdBenchmarkDataSchema>;
  * `/api/ads/extension/status` response. Hard rewrite Phase H3 — all counts
  * come from latest `ChannelListingDailySnapshot` per listing
  * (orderBy businessDate desc, lastObservedAt desc, updatedAt desc, id desc),
- * `ChannelScrapeRun` / `ChannelScrapeSnapshot` for raw collection metadata,
- * and the Wing item-winner source owner's COMPLETE publication for the Wing KPI
- * sidebar. Legacy `ItemWinner` / `AdSnapshot` are NOT consulted.
+ * and the newest succeeded Wing item-winner operation for the collection
+ * metadata and the Wing KPI sidebar. Legacy `ItemWinner` / `AdSnapshot` are NOT consulted.
  *
  * Field semantics:
  *  - `currentWinnerCount`: latest daily snapshot per listing where
@@ -518,10 +517,10 @@ export type AdBenchmarkData = z.infer<typeof AdBenchmarkDataSchema>;
  *    `itemWinnerCount`, which had been all `ItemWinner` rows ever recorded.
  *  - `latestChannelStateAt`: max(`lastObservedAt`) across daily snapshots —
  *    "현재 상태 마지막 갱신 시각".
- *  - `rawSnapshotCount`: count of `ChannelScrapeSnapshot` rows. Replaces the
+ *  - `rawSnapshotCount`: rows Wing returned in that operation. Replaces the
  *    legacy `snapshotCount` (which was `AdSnapshot` rows).
- *  - `latestScrapeAt`: latest `ChannelScrapeRun.finishedAt ?? startedAt`.
- *  - `latestScrapePageType`: pageType of the latest run.
+ *  - `latestScrapeAt`: that operation's `finishedAt ?? startedAt`.
+ *  - `latestScrapePageType`: `itemwinner` when that operation exists.
  */
 export const AdExtensionStatusSchema = z.object({
   connected: z.literal(true),
@@ -543,8 +542,7 @@ export type AdExtensionStatus = z.infer<typeof AdExtensionStatusSchema>;
 
 /**
  * `/api/ads/collect/status` response. H3 — `lastCollectedAt` is the latest
- * `ChannelScrapeRun.finishedAt ?? startedAt`. Counts are run-row counts under
- * advertising / wing buckets respectively (see plan §C6 §2 mapping).
+ * collection time. Counts are under advertising / wing buckets respectively.
  */
 export const AdCollectStatusSchema = z.object({
   lastCollectedAt: z.union([z.string(), z.date()]).nullable(),

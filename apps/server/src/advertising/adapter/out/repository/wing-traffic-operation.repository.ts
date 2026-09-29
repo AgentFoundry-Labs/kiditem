@@ -336,7 +336,7 @@ async function upsertDailyFactPublication(
 /**
  * Wing 일별 트래픽 원장 쓰기(KID-362). 옛 `ad-traffic-source.repository.ts`의 발행(행 합산 + 0 채우기 SQL)을 그대로
  * 옮기되, 행은 스테이징 스냅샷이 아니라 실행 청크에서 오고 listing 맞춤은 finish 트랜잭션의 카탈로그로 한다.
- * 새 행은 `operation_id`를 갖고 `raw_snapshot_id`는 비어 있다. 트래픽 출처는 `wing.traffic.sourceAttemptId`(실행 id).
+ * 새 행은 `operation_id`를 갖는다. 트래픽 출처는 `wing.traffic.sourceAttemptId`(실행 id).
  */
 @Injectable()
 export class WingTrafficOperationRepository implements WingTrafficOperationRepositoryPort {

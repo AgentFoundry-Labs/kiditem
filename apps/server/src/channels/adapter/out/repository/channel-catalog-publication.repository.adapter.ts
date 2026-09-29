@@ -45,8 +45,8 @@ const CHANNEL = 'coupang';
 
 /**
  * Wing 카탈로그 실행 kind 셋의 Channels 원장 쓰기(KID-354). 실행 계약의 finish 트랜잭션 안에서 부르고, 반영
- * 출처는 `lastOperationId`·`publicationReference {type: 'operation'}`로 남긴다. `source_import_runs`·
- * `channel_scrape_*`는 읽지도 쓰지도 않는다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
+ * 출처는 `lastOperationId`·`publicationReference {type: 'operation'}`로 남긴다. `source_import_runs`는
+ * 읽지도 쓰지도 않는다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
  */
 @Injectable()
 export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalogPublicationPort {

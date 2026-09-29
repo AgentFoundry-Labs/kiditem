@@ -7,6 +7,10 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import {
+  dropLegacyChannelScrapeTables,
+  restoreLegacyChannelScrapeTables,
+} from '../../test-helpers/legacy-channel-scrape-tables';
+import {
   ensureSourceImportRunStatusCheck,
   SOURCE_IMPORT_RUN_STATUS_CHECK,
 } from '../../../../../scripts/data-migrations/helpers/source-import-run-status-check';
@@ -37,11 +41,14 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     // The shape before the cutover: nothing stops an unknown status.
     await prisma.$executeRaw`ALTER TABLE source_import_runs DROP CONSTRAINT IF EXISTS source_import_runs_status_check`;
+    // Office 0.1.31 still had the channel_scrape_* tables KID-365 dropped.
+    await restoreLegacyChannelScrapeTables(prisma);
   });
 
   afterEach(async () => {
     // Later suites share this database, so restore the pushed shape.
     await resetDb(prisma);
+    await dropLegacyChannelScrapeTables(prisma);
     await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
   });
 
@@ -72,16 +79,11 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await prisma.review.create({
       data: { organizationId: ORG, sourceImportRunId: superseded.id, rating: 5 },
     });
-    const rawSnapshot = await prisma.channelScrapeSnapshot.create({
-      data: {
-        organizationId: ORG,
-        sourceImportRunId: superseded.id,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'traffic',
-        rawJson: {},
-      },
-    });
+    const rawSnapshotId = '00000000-0000-4000-8000-000000001241';
+    await prisma.$executeRaw`
+      INSERT INTO channel_scrape_snapshots (id, organization_id, source_import_run_id, channel, source, page_type, raw_json)
+      VALUES (${rawSnapshotId}::uuid, ${ORG}::uuid, ${superseded.id}::uuid, 'coupang', 'wing', 'traffic', '{}'::jsonb)
+    `;
     // Carried-forward rows that point at it.
     const listing = await prisma.channelListing.create({
       data: {
@@ -98,9 +100,11 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
         channel: 'coupang',
         externalId: listing.externalId,
         businessDate: new Date('2026-09-01T00:00:00.000Z'),
-        rawSnapshotId: rawSnapshot.id,
       },
     });
+    await prisma.$executeRaw`
+      UPDATE channel_listing_daily_snapshots SET raw_snapshot_id = ${rawSnapshotId}::uuid WHERE id = ${listingDay.id}::uuid
+    `;
     const unknownRunOrder = await createOrder(account.id, 'kid124-unknown-run-order', superseded.id);
     await prisma.masterProductAbcFormulaState.create({
       data: {
@@ -182,10 +186,9 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       where: { id: listing.id },
       select: { lastImportRunId: true },
     })).resolves.toEqual({ lastImportRunId: null });
-    await expect(prisma.channelListingDailySnapshot.findUniqueOrThrow({
-      where: { id: listingDay.id },
-      select: { rawSnapshotId: true },
-    })).resolves.toEqual({ rawSnapshotId: null });
+    await expect(prisma.$queryRaw`
+      SELECT raw_snapshot_id FROM channel_listing_daily_snapshots WHERE id = ${listingDay.id}::uuid
+    `).resolves.toEqual([{ raw_snapshot_id: null }]);
     await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
       where: { organizationId: ORG },
       select: {
@@ -209,7 +212,8 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await expect(Promise.all([
       prisma.orderCollectionArtifact.count(),
       prisma.review.count(),
-      prisma.channelScrapeSnapshot.count(),
+      prisma.$queryRaw<Array<{ count: number }>>`SELECT COUNT(*)::int AS count FROM channel_scrape_snapshots`
+        .then(([row]) => row?.count),
     ])).resolves.toEqual([0, 0, 0]);
     await expect(createRun('complete')).rejects.toThrow(SOURCE_IMPORT_RUN_STATUS_CHECK);
 

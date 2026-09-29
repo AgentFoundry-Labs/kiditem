@@ -8,6 +8,10 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../test-helpers/real-prisma';
+import {
+  dropLegacyChannelScrapeTables,
+  restoreLegacyChannelScrapeTables,
+} from '../test-helpers/legacy-channel-scrape-tables';
 import { removeRetiredAccountKpiAndAdTierRowsMigration } from '../../../../scripts/data-migrations/v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows';
 
 const BUSINESS_DATE = new Date('2026-09-01T00:00:00.000Z');
@@ -31,6 +35,8 @@ type Seeded = {
  * is already gone, its pre-drop shape is recreated for this file only. KID-373
  * dropped `channel_ad_target_daily_snapshots`, which 013 still checks before
  * deleting a raw row, so its referencing column is recreated the same way.
+ * KID-365 dropped the `channel_scrape_*` tables and the `raw_snapshot_id`
+ * columns 013 reads; they are restored in their Office 0.1.31 shape the same way.
  */
 describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -42,6 +48,7 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
     await prisma.$connect();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await restoreLegacyChannelScrapeTables(prisma);
     recreatedKpiTable = !(await kpiTableExists());
     if (recreatedKpiTable) {
       await prisma.$executeRaw`
@@ -76,6 +83,7 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
     if (recreatedAdTargetTable) {
       await prisma.$executeRaw`DROP TABLE IF EXISTS channel_ad_target_daily_snapshots`;
     }
+    await dropLegacyChannelScrapeTables(prisma);
     await resetDb(prisma);
     await prisma.$disconnect();
   });
@@ -115,10 +123,9 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
       },
     });
 
-    const remainingRaw = await prisma.channelScrapeSnapshot.findMany({
-      select: { id: true },
-      orderBy: { id: 'asc' },
-    });
+    const remainingRaw = await prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id::text AS id FROM channel_scrape_snapshots ORDER BY id
+    `;
     expect(remainingRaw.map(({ id }) => id)).toEqual(
       [
         seeded.listingDayRawId,
@@ -157,7 +164,7 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
       throw new Error(restore);
     })).rejects.toThrow(restore);
     expect(await kpiTableExists()).toBe(true);
-    await expect(prisma.channelScrapeSnapshot.count()).resolves.toBe(4);
+    await expect(rawSnapshotCount()).resolves.toBe(4);
   });
 
   function runMigration() {
@@ -176,6 +183,13 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
       SELECT to_regclass('public.channel_ad_target_daily_snapshots') IS NOT NULL AS present
     `;
     return row?.present === true;
+  }
+
+  async function rawSnapshotCount(): Promise<number> {
+    const [row] = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(*)::bigint AS count FROM channel_scrape_snapshots
+    `;
+    return Number(row?.count ?? -1);
   }
 
   async function kpiRowCount(): Promise<number> {
@@ -218,38 +232,25 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
         externalOptionId: 'KID90-OPTION',
       },
     });
-    const run = await prisma.channelScrapeRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.id,
-        channel: 'coupang',
-        source: 'coupang_ads',
-        pageType: 'dashboard_daily',
-        status: 'complete',
-      },
-    });
-    const otherRun = await prisma.channelScrapeRun.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        channelAccountId: otherAccount.id,
-        channel: 'coupang',
-        source: 'coupang_ads',
-        pageType: 'dashboard_daily',
-        status: 'complete',
-      },
-    });
-    const raw = async (organizationId: string, scrapeRunId: string, label: string) =>
-      (await prisma.channelScrapeSnapshot.create({
-        data: {
-          organizationId,
-          scrapeRunId,
-          channel: 'coupang',
-          source: 'coupang_ads',
-          pageType: 'dashboard_daily',
-          businessDate: BUSINESS_DATE,
-          rawJson: { label },
-        },
-      })).id;
+    const scrapeRun = async (organizationId: string, channelAccountId: string) => {
+      const id = randomUUID();
+      await prisma.$executeRaw`
+        INSERT INTO channel_scrape_runs (id, organization_id, channel_account_id, channel, source, page_type, status, updated_at)
+        VALUES (${id}::uuid, ${organizationId}::uuid, ${channelAccountId}::uuid, 'coupang', 'coupang_ads', 'dashboard_daily', 'complete', now())
+      `;
+      return { id };
+    };
+    const run = await scrapeRun(TEST_ORGANIZATION_ID, account.id);
+    const otherRun = await scrapeRun(OTHER_ORGANIZATION_ID, otherAccount.id);
+    const raw = async (organizationId: string, scrapeRunId: string, label: string) => {
+      const id = randomUUID();
+      await prisma.$executeRaw`
+        INSERT INTO channel_scrape_snapshots (id, organization_id, scrape_run_id, channel, source, page_type, business_date, raw_json)
+        VALUES (${id}::uuid, ${organizationId}::uuid, ${scrapeRunId}::uuid, 'coupang', 'coupang_ads', 'dashboard_daily',
+          ${BUSINESS_DATE}::date, ${JSON.stringify({ label })}::jsonb)
+      `;
+      return id;
+    };
     const seeded: Seeded = {
       kpiOnlyRawId: await raw(TEST_ORGANIZATION_ID, run.id, 'kpi-only'),
       otherOrganizationKpiOnlyRawId: await raw(OTHER_ORGANIZATION_ID, otherRun.id, 'other-kpi-only'),
@@ -259,17 +260,16 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
       unrelatedRawId: await raw(TEST_ORGANIZATION_ID, run.id, 'unrelated'),
     };
 
-    await prisma.channelListingDailySnapshot.create({
+    const listingDay = await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         channel: 'coupang',
         externalId: listing.externalId,
         businessDate: BUSINESS_DATE,
-        rawSnapshotId: seeded.listingDayRawId,
       },
     });
-    await prisma.channelListingOptionDailySnapshot.create({
+    const optionDay = await prisma.channelListingOptionDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
@@ -278,9 +278,14 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
         externalId: listing.externalId,
         externalOptionId: option.externalOptionId,
         businessDate: BUSINESS_DATE,
-        rawSnapshotId: seeded.optionDayRawId,
       },
     });
+    await prisma.$executeRaw`
+      UPDATE channel_listing_daily_snapshots SET raw_snapshot_id = ${seeded.listingDayRawId}::uuid WHERE id = ${listingDay.id}::uuid
+    `;
+    await prisma.$executeRaw`
+      UPDATE channel_listing_option_daily_snapshots SET raw_snapshot_id = ${seeded.optionDayRawId}::uuid WHERE id = ${optionDay.id}::uuid
+    `;
     await prisma.$executeRaw`
       INSERT INTO channel_ad_target_daily_snapshots (id, raw_snapshot_id)
       VALUES (${randomUUID()}::uuid, ${seeded.adTargetDayRawId}::uuid)

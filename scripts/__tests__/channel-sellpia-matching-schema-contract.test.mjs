@@ -63,15 +63,10 @@ describe('channel Sellpia final schema contract', () => {
     assert.doesNotMatch(channels, /model ProductVariantComponent\b/);
   });
 
-  it('retains raw channel scrape evidence for selective reset replay', () => {
-    const scrapeRun = modelBlock(channels, 'ChannelScrapeRun');
-    const scrapeSnapshot = modelBlock(channels, 'ChannelScrapeSnapshot');
-
-    assert.match(scrapeRun, /^\s*channelAccountId\s+String\s+/m);
-    assert.match(scrapeRun, /^\s*metaJson\s+Json\?/m);
-    assert.match(scrapeRun, /^\s*errorJson\s+Json\?/m);
-    assert.match(scrapeSnapshot, /^\s*scrapeRunId\s+String\?/m);
-    assert.match(scrapeSnapshot, /^\s*rawJson\s+Json\s+/m);
-    assert.match(scrapeSnapshot, /^\s*normalizedJson\s+Json\?/m);
+  it('keeps no raw channel scrape tables; collection evidence lives in operation chunks (KID-365)', () => {
+    for (const model of ['ChannelScrapeRun', 'ChannelScrapeChunk', 'ChannelScrapeSnapshot']) {
+      assert.doesNotMatch(channels, new RegExp(`model ${model}\\b`));
+    }
+    assert.doesNotMatch(channels, /channel_scrape_|rawSnapshotId/);
   });
 });
