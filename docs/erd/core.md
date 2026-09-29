@@ -195,7 +195,6 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionBatch |
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionBatchItem |
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionEvidence |
-| Organization | organization | referenced by external | Sourcing | SourcingEvidenceIngestionRun |
 | Organization | organization | referenced by external | Sourcing | SourcingEvidenceObservation |
 | Organization | organization | referenced by external | Sourcing | SourcingInterestTarget |
 | Organization | organization | referenced by external | Sourcing | SourcingKeywordPreference |
@@ -253,4 +252,3 @@ erDiagram
 | User | triggeredByUser | referenced by external | AI | DetailPage |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
 | User | triggeredByUser | referenced by external | Sourcing | SourceRecord |
-| User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |

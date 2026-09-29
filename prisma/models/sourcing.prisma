@@ -547,64 +547,6 @@ model SourcingCollectionSourceControl {
 }
 
 /// @namespace Sourcing
-/// @describe Durable source-owner attempt. Browser sources use RUNNING, COMPLETE, and FAILED with a frozen plan and current COMPLETE pointer.
-model SourcingEvidenceIngestionRun {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-
-  sourceKey              String   @default("") @map("source_key") @db.VarChar(80)
-  scopeKey               String   @default("default") @map("scope_key") @db.VarChar(160)
-  leaseToken             String   @default(uuid()) @map("lease_token") @db.Uuid
-  leaseExpiresAt         DateTime @default(now()) @map("lease_expires_at") @db.Timestamptz
-  sourceControlCheckedAt DateTime @default(now()) @map("source_control_checked_at") @db.Timestamptz
-  generation             Int      @default(1)
-  staleDiscardedCount    Int      @default(0) @map("stale_discarded_count")
-
-  targetKey         String  @map("target_key") @db.VarChar(300)
-  idempotencyKey    String  @map("idempotency_key") @db.VarChar(300)
-  requestHash       String  @map("request_hash") @db.VarChar(64)
-  collectorKey      String  @map("collector_key") @db.VarChar(120)
-  collectorVersion  String  @map("collector_version") @db.VarChar(120)
-  triggerKind       String  @map("trigger_kind") @db.VarChar(40)
-  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
-  status            String  @default("RUNNING") @db.VarChar(40)
-  attemptPlan       Json?   @map("attempt_plan") @db.JsonB
-  planChecksum      String? @map("plan_checksum") @db.VarChar(64)
-  contentChecksum   String? @map("content_checksum") @db.VarChar(64)
-  isCurrentComplete Boolean @default(false) @map("is_current_complete")
-
-  sourceWindowStartAt DateTime? @map("source_window_start_at") @db.Timestamptz
-  sourceWindowEndAt   DateTime? @map("source_window_end_at") @db.Timestamptz
-  discoveredCount     Int       @default(0) @map("discovered_count")
-  acceptedCount       Int       @default(0) @map("accepted_count")
-  rejectedCount       Int       @default(0) @map("rejected_count")
-  duplicateCount      Int       @default(0) @map("duplicate_count")
-  coverageNumerator   Int?      @map("coverage_numerator")
-  coverageDenominator Int?      @map("coverage_denominator")
-  qualityReport       Json?     @map("quality_report") @db.JsonB
-  errorCode           String?   @map("error_code") @db.VarChar(100)
-  errorMessage        String?   @map("error_message") @db.Text
-
-  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz
-  completedAt DateTime? @map("completed_at") @db.Timestamptz
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization                        Organization                          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  triggeredByUser                     User?                                 @relation("SourcingEvidenceIngestionRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-
-  @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
-  @@unique([organizationId, sourceKey, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_source_idempotency_key")
-  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_active_target_key", where: raw("((status)::text = 'RUNNING'::text)"))
-  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_one_current_complete_key", where: raw("(is_current_complete = true)"))
-  @@index([triggeredByUserId])
-  @@index([organizationId, status, startedAt], map: "sourcing_evidence_ingestion_runs_status_started_idx")
-  @@index([organizationId, targetKey, startedAt], map: "sourcing_evidence_ingestion_runs_target_started_idx")
-  @@index([organizationId, sourceKey, scopeKey, targetKey, isCurrentComplete], map: "sourcing_evidence_ingestion_runs_current_complete_idx")
-  @@map("sourcing_evidence_ingestion_runs")
-}
-
-/// @namespace Sourcing
 /// @describe Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs.
 model SourcingEvidenceObservation {
   id                      String  @id @default(uuid()) @db.Uuid

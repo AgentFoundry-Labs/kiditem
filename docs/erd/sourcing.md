@@ -21,7 +21,6 @@
 | SourcingDecisionBatch | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
 | SourcingDecisionBatchItem | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
 | SourcingDecisionEvidence | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
-| SourcingEvidenceIngestionRun | `sourcing_evidence_ingestion_runs` | Durable source-owner attempt. Browser sources use RUNNING, COMPLETE, and FAILED with a frozen plan and current COMPLETE pointer. |
 | SourcingEvidenceObservation | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
 | SourcingInterestTarget | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingKeywordPreference | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
@@ -263,44 +262,6 @@ erDiagram
     String role
     Int ordinal
     DateTime createdAt
-  }
-  SourcingEvidenceIngestionRun {
-    String id PK
-    String organizationId FK
-    String sourceKey
-    String scopeKey
-    String leaseToken
-    DateTime leaseExpiresAt
-    DateTime sourceControlCheckedAt
-    Int generation
-    Int staleDiscardedCount
-    String targetKey
-    String idempotencyKey
-    String requestHash
-    String collectorKey
-    String collectorVersion
-    String triggerKind
-    String triggeredByUserId FK
-    String status
-    Json attemptPlan
-    String planChecksum
-    String contentChecksum
-    Boolean isCurrentComplete
-    DateTime sourceWindowStartAt
-    DateTime sourceWindowEndAt
-    Int discoveredCount
-    Int acceptedCount
-    Int rejectedCount
-    Int duplicateCount
-    Int coverageNumerator
-    Int coverageDenominator
-    Json qualityReport
-    String errorCode
-    String errorMessage
-    DateTime startedAt
-    DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
   }
   SourcingEvidenceObservation {
     String id PK
@@ -711,8 +672,6 @@ erDiagram
 | SourcingDecisionBatchItem | organization | references external | Core | Organization |
 | SourcingDecisionBatchItem | supplierOfferSkuSnapshot | references external | Supply | SupplierOfferSkuSnapshot |
 | SourcingDecisionEvidence | organization | references external | Core | Organization |
-| SourcingEvidenceIngestionRun | organization | references external | Core | Organization |
-| SourcingEvidenceIngestionRun | triggeredByUser | references external | Core | User |
 | SourcingEvidenceObservation | evidenceObservation | referenced by external | Supply | SupplierOfferSkuSnapshot |
 | SourcingEvidenceObservation | organization | references external | Core | Organization |
 | SourcingInterestTarget | organization | references external | Core | Organization |

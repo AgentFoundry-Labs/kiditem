@@ -28,12 +28,10 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
       SELECT pg_get_expr(indpred, indrelid) AS predicate
       FROM pg_index
       WHERE indexrelid IN (
-        'sourcing_evidence_ingestion_runs_active_target_key'::regclass,
-        'sourcing_evidence_ingestion_runs_one_current_complete_key'::regclass,
         'sourcing_source_publications_one_current_key'::regclass
       )
     `;
-    expect(predicates).toHaveLength(3);
+    expect(predicates).toHaveLength(1);
     for (const { predicate } of predicates) {
       expect(schema.includes(`where: raw("${predicate}")`), predicate).toBe(true);
     }
