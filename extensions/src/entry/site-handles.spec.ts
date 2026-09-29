@@ -83,7 +83,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   });
 
   it('셀피아 kind(송장·수동매칭·재고·매출·상품 손익)에는 화면별 파일을 합친 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
-    const sellpiaKeys = ['closeManualMatch', 'inventory', 'manualMatchSearch', 'manualMatchStatus', 'productProfit', 'sales', 'shipmentTracking'];
+    const sellpiaKeys = [
+      'closeManualMatch', 'inventory', 'issueInvoices', 'manualMatchSearch', 'manualMatchStatus', 'openPostTransfer', 'orderSnapshot',
+      'productProfit', 'sales', 'shipmentTracking', 'transferOrderFile',
+    ];
     for (const kind of ['orders.sellpia_shipment_tracking', 'channels.sellpia_manual_match', 'products.sellpia_inventory', 'analytics.sellpia_sales', 'analytics.sellpia_product_profitability'] as const) {
       expect(keys(createSiteHandles(deps)(kind, { tabId: null }))).toEqual(sellpiaKeys);
     }
@@ -111,13 +114,14 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   it('몰 주문 kind에는 몰 키로 그 몰 사이트를 찾는 라우터를 주고, 라우터는 탭을 스스로 여는 사이트다', () => {
     const handle = createSiteHandles(deps)('orders.mall_orders', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
-    expect(keys(handle.reader('kidkids'))).toEqual(['readListings', 'readOrders']);
+    // 온채널·키드키즈는 송장 업로드(KID-366 wave8b, 라우터 `mall-tracking`)도 같은 사이트다.
+    expect(keys(handle.reader('kidkids'))).toEqual(['readListings', 'readOrders', 'uploadTracking']);
     expect(keys(handle.reader('art09'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('domeggook'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('icecream-mall'))).toEqual(['readListings', 'readOrders']);
     // 2차 몰(KID-380): 키즈노트·온채널은 목록 읽기(KID-381)도 같은 사이트, 해법몰은 주문만.
     expect(keys(handle.reader('kidsnote'))).toEqual(['readListings', 'readOrders']);
-    expect(keys(handle.reader('onch'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('onch'))).toEqual(['readListings', 'readOrders', 'uploadTracking']);
     expect(keys(handle.reader('haebub-mall'))).toEqual(['readOrders']);
     // 엑셀·blob 몰(KID-380): 목록 읽기(KID-381)와 주문 읽기를 한 사이트로(보리보리·GS샵은 주문만).
     expect(keys(handle.reader('kkomangse'))).toEqual(['readListings', 'readOrders']);

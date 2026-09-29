@@ -47,7 +47,7 @@ describe('coupang-supplier 자동 로그인(KID-377)', () => {
   it('쉽먼트: 로그인 화면이면 같은 탭에서 로그인하고 쉽먼트 화면으로 다시 가서 읽은 뒤 탭을 닫는다', async () => {
     const login = fakeLoginScreen({ loginAt: XAUTH });
     const { fake, supplier } = supplierWith(login);
-    await expect(supplier.parcelPage(1)).resolves.toEqual([{ seq: '48835181', outbound: '2026-07-24 15:02', boxes: '1 박스' }]);
+    await expect(supplier.parcelPage(1)).resolves.toEqual([{ seq: '48835181', outbound: '2026-07-24 15:02', boxes: '1 박스', center: 'MINC34', status: '발송 완료' }]);
     await supplier.close();
     expect(login.state.filled).toEqual([{ loginId: 'fake-rocket-id', password: 'fake-rocket-password' }]);
     expect(fake.log.filter((line) => line.startsWith('navigate') || line.startsWith('open') || line.startsWith('close'))).toEqual([

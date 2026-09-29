@@ -51,8 +51,6 @@ function createHarness({
     query: [],
     removed: [],
     cancellations: [],
-    additionalCancellations: [],
-    additionalRetries: [],
     recoveries: [],
     order: [],
   };
@@ -121,14 +119,6 @@ function createHarness({
         closeManagedTab: true,
         ownerFailure: async () => ({ accepted: true }),
       });
-    },
-    cancelAdditionalCollections: async (environmentId) => {
-      calls.order.push(`additional:${environmentId}`);
-      calls.additionalCancellations.push(environmentId);
-    },
-    retryAdditionalCollections: async (environmentId) => {
-      calls.order.push(`additional-retry:${environmentId}`);
-      calls.additionalRetries.push(environmentId);
     },
     recoverCollections: async (environmentId) => {
       calls.recoveries.push(environmentId);
@@ -277,7 +267,6 @@ test('last-tab policy keeps one-of-many tabs alive and cancels only the matching
   assert.equal(await harness.manager.getOwned(ATTEMPT_LOCAL, 'local'), null);
   assert.ok(await harness.manager.getOwned(ATTEMPT_OFFICE, 'office'));
   assert.deepEqual(harness.calls.removed, [900]);
-  assert.deepEqual(harness.calls.additionalCancellations, ['local']);
 });
 
 test('reload/navigation and failed tab queries do not prove an app closure', async () => {
@@ -297,7 +286,6 @@ test('reload/navigation and failed tab queries do not prove an app closure', asy
   await flush();
   assert.ok(await harness.manager.getOwned(ATTEMPT_LOCAL, 'local'));
   assert.deepEqual(harness.calls.cancellations, []);
-  assert.deepEqual(harness.calls.additionalCancellations, []);
 });
 
 test('a slow managed-tab close does not block fencing or cancellation of another attempt', async () => {
@@ -319,11 +307,6 @@ test('a slow managed-tab close does not block fencing or cancellation of another
 
   await waitFor(() => harness.calls.cancellations.some(({ attemptId }) => attemptId === ATTEMPT_LOCAL_NEXT));
   assert.equal(await harness.manager.isActive(ATTEMPT_LOCAL_NEXT, 'local', 'inventory.sellpia'), false);
-  assert.ok(harness.calls.additionalCancellations.includes('local'));
-  assert.ok(
-    harness.calls.order.indexOf('additional:local') <
-      harness.calls.order.indexOf(`owner:${ATTEMPT_LOCAL_NEXT}`),
-  );
 
   releaseSlowClose();
   await waitFor(() => harness.calls.cancellations.some(({ attemptId }) => attemptId === ATTEMPT_LOCAL));
@@ -491,7 +474,6 @@ test('startup reconciles persisted stop intents before recovery and never resume
     attemptId: ATTEMPT_LOCAL,
     environmentId: 'local',
   }]);
-  assert.deepEqual(harness.calls.additionalCancellations, ['office']);
 });
 
 test('startup with no web app cancels active sessions without recovering them', async () => {
@@ -505,67 +487,6 @@ test('startup with no web app cancels active sessions without recovering them', 
     attemptId: ATTEMPT_LOCAL,
     environmentId: 'local',
   }]);
-});
-
-test('a domain cancellation result of false remains unsettled', async () => {
-  const harness = createHarness({ localTabs: [], officeTabs: [{ id: 201 }] });
-  harness.domain.cancelAdditionalCollections = async (environmentId) =>
-    environmentId === 'local' ? false : undefined;
-
-  const result = await harness.lifetime.initialize();
-  assert.equal(result.cleanupSettled.get('local'), false);
-  assert.equal(result.cleanupSettled.get('office'), true);
-});
-
-test('startup retries pending non-session cleanup before recovery and blocks recovery when it remains unsettled', async () => {
-  const harness = createHarness({ localTabs: [{ id: 101 }], officeTabs: [] });
-  harness.domain.retryAdditionalCollections = async (environmentId) => {
-    harness.calls.additionalRetries.push(environmentId);
-    return environmentId === 'local' ? false : true;
-  };
-
-  const result = await harness.lifetime.initialize();
-  assert.deepEqual(harness.calls.additionalRetries, ['local']);
-  assert.equal(result.cleanupSettled.get('local'), false);
-  assert.deepEqual(harness.calls.recoveries, []);
-  assert.deepEqual(harness.calls.additionalCancellations, ['office']);
-});
-
-test('auth handoff retries only fenced non-session cleanup when no session request remains', async () => {
-  const harness = createHarness({ localTabs: [{ id: 101 }], authReady: false });
-  let fenced = false;
-  let activeAdditionalWork = false;
-  let activeWorkCancelled = 0;
-  harness.domain.cancelAdditionalCollections = async (environmentId) => {
-    if (environmentId !== 'local') return undefined;
-    harness.calls.additionalCancellations.push(environmentId);
-    if (activeAdditionalWork) activeWorkCancelled += 1;
-    fenced = true;
-    return false;
-  };
-  harness.domain.retryAdditionalCollections = async (environmentId) => {
-    harness.calls.additionalRetries.push(environmentId);
-    assert.equal(fenced, true);
-    // A new non-session run may have started after the original fence. This
-    // retry seam must not call the broad cancellation hook or touch that run.
-    return true;
-  };
-
-  harness.lifetime.install();
-  harness.appTabs.local = [];
-  harness.onRemoved.emit(101, { windowId: 1, isWindowClosing: true });
-  await flush();
-  activeAdditionalWork = true;
-
-  harness.appTabs.local = [{ id: 102 }];
-  harness.setAuthReady('local', true);
-  harness.onCreated.emit({ id: 102, url: 'http://localhost:3000/dashboard' });
-  await flush();
-
-  assert.deepEqual(harness.calls.additionalCancellations, ['local']);
-  assert.deepEqual(harness.calls.additionalRetries, ['local']);
-  assert.equal(activeWorkCancelled, 0);
-  assert.deepEqual(harness.calls.cancellations, []);
 });
 
 test('reopening an app retries a fenced owner cancellation without auto-recovery', async () => {

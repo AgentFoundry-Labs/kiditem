@@ -240,9 +240,21 @@ test('order-collection route actions are handled by the extension worker', () =>
   for (const match of entryContract.matchAll(/_ACTION = ['"]([^'"]+)['"] as const/g)) {
     handledActions.add(match[1]);
   }
+  // 과도기(KID-366 wave8b): 이 액션들은 Orders 작업 kind 6종으로 옮겨 확장에서 지웠고, 웹 호출부는 같은 PR의 웹 트랙(T3)이
+  // 실행 시작·폴링으로 바꾼다. 세 트랙이 합쳐지면 웹이 더 이상 보내지 않으므로 이 목록을 지운다.
+  const movedToOperationKinds = new Set([
+    'sendOrderFileToSellpia',
+    'collectSellpiaOrderSnapshot',
+    'sellpiaPostTransfer',
+    'sellpiaAutoInvoice',
+    'collectCoupangShipmentList',
+    'uploadOnchTracking',
+    'uploadKidkidsTracking',
+  ]);
   const missingActions = [...requestedActions].filter(
     (action) =>
       !handledActions.has(action) &&
+      !movedToOperationKinds.has(action) &&
       !new Set(['restartCollectionSession', 'finalizeCollectionSession']).has(action),
   );
 
@@ -282,7 +294,7 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
   }
 });
 
-test('order worker imports failure evidence, session lifecycle, and focused Sellpia producers before dispatch', () => {
+test('order worker imports failure evidence and session lifecycle before dispatch', () => {
   const worker = readFileSync(workerPath, 'utf8');
   // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가 소유한다.
   const entrySource = readFileSync(
@@ -291,7 +303,7 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   );
   assert.match(
     entrySource,
-    /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*orders\/collection-failure\.js[\s\S]*orders\/order-collection-lifecycle\.js[\s\S]*orders\/sellpia-post-processing\.js/,
+    /importScripts\([\s\S]*collection-session\.js[\s\S]*orders\/collection-failure\.js[\s\S]*orders\/order-collection-lifecycle\.js/,
   );
   assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /browserCollectionSessions:\s*true/);
@@ -323,14 +335,12 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   assert.match(worker, /producerPrefixes:\s*\["orders"\]/);
 });
 
-test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.95', () => {
+test('order collector manifest keeps storage and Sellpia host access at the merged version', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
   assert.ok(manifest.permissions.includes('storage'));
+  // 셀피아 작업(전송·후처리·자동송장·스냅샷)은 새 런타임 kind다(KID-366 wave8b) — 옛 워커 capability 표시는 없다.
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
-  const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
-  assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
 });
 
 test('web bridge reaches local and Office KidItem origins', () => {
@@ -403,26 +413,32 @@ test('automatic order correlation guard rejects arbitrary spreads', () => {
   );
 });
 
-test('only explicit user actions route focus through the interactive helper', () => {
+test('the order worker never moves focus — write steps that face the operator are runtime kinds', () => {
   const worker = readFileSync(workerPath, 'utf8');
   assert.doesNotMatch(worker, /active:\s*true|focused:\s*true/);
-  // 쿠팡 쉽먼트 화면 열기는 새 런타임 entry 액션이다(KID-366, `sites/coupang-supplier/shipment-files.ts`가 앞으로 가져온다).
-  for (const action of [
-    'sendOrderFileToSellpia',
-    'uploadOnchTracking',
-  ]) {
-    assert.match(worker, new RegExp(`msg\\?\\.action === ["']${action}["']`), action);
-  }
-  for (const [functionName, reason] of [
-    ['findOrCreateSellpiaTab', 'ORDER_FILE_UPLOAD'],
-    ['uploadOnchTracking', 'TRACKING_MUTATION'],
-  ]) {
-    const start = worker.indexOf(`async function ${functionName}(`);
-    const next = worker.indexOf('\nasync function ', start + 1);
-    const body = worker.slice(start, next === -1 ? worker.length : next);
-    assert.notEqual(start, -1, functionName);
-    assert.match(body, new RegExp(`INTERACTIVE_TAB_REASONS\\.${reason}`), functionName);
-  }
+  // 셀피아 전송·후처리·자동송장·스냅샷, 쿠팡 배송 목록, 온채널·키드키즈 송장 업로드는 새 런타임 kind다(KID-366 wave8b,
+  // 쓰기 단계의 운영자 탭은 `extensions/src/sites/operator-tab.ts`). 옛 워커에 남은 액션은 카카오·세션 셋뿐이다(wave9).
+  const actions = worker.match(/const ORDERS_EXTERNAL_ACTIONS = \[([\s\S]*?)\];/)?.[1] ?? '';
+  assert.deepEqual([...actions.matchAll(/"([^"]+)"/g)].map((match) => match[1]), ['closeOrderCollectionTabs', 'ensureMallLoggedIn', 'collectKakaoOrders']);
+  const capabilities = worker.match(/capabilities:\s*\{([\s\S]*?)\n\s*\},/)?.[1] ?? '';
+  assert.deepEqual([...capabilities.matchAll(/^\s*(\w+):\s*true,/gm)].map((match) => match[1]), [
+    'collectKakaoOrders',
+    'browserCollectionSessions',
+    'orderCollectionFailureEvidenceV1',
+    'orderCollectionConfirmedCoverageV1',
+    'orderCollectionSourceOwnerV1',
+    'orderCollectionTabCloseV1',
+  ]);
+  assert.doesNotMatch(worker, /INTERACTIVE_TAB_REASONS|KidItemInteractiveTabs/);
+});
+
+test('Orders registers only the recovery hook — the additional read hooks left with the Sellpia snapshot and shipment list', () => {
+  const worker = readFileSync(workerPath, 'utf8');
+  assert.match(worker, /recoverCollections:\s*\(environmentId\)\s*=>\s*recoverOrdersCollections\(environmentId\)/);
+  // 셀피아 스냅샷·쿠팡 배송 목록은 실행 kind라(KID-366 wave8b) 옛 "추가 수집" 문맥·세션 저장소·훅이 없다.
+  assert.doesNotMatch(worker, /AdditionalCollection|ordersAdditional|ORDERS_ADDITIONAL_RESOURCES_KEY/);
+  const registry = readFileSync(path.join(repoRoot, 'extensions/kiditem-os/background/domain-registry.js'), 'utf8');
+  assert.doesNotMatch(registry, /AdditionalCollections/);
 });
 
 test('collection-session dispatch exposes no restart or finalize command', () => {

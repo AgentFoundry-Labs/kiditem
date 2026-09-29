@@ -44,6 +44,10 @@ containing test-style underscore paths.
   Report pressed, accepted, and refused separately; publication is a later
   re-read. Never press delete, sale-ban, or other irreversible controls. Do not
   add mall-write paths to the old JS workers.
+- Steps that write to Sellpia or a mall use the operator's tab
+  (`src/sites/operator-tab.ts`: reuse or open, bring forward) and leave it
+  with the operator; reads use a fresh background tab (`withFreshTab`). The
+  focus primitive stays only in `src/sites/tab-page.ts`.
 - A collector declares the site shape it needs as an interface in its folder;
   `entry/site-handles.ts` hands it the `sites/<site>` implementation. The Wing
   catalog kinds (`channels.wing_catalog_*`, KID-354) are the reference collectors.

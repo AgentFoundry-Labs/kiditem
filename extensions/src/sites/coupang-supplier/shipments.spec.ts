@@ -30,8 +30,8 @@ describe('coupang-supplier 쉽먼트 목록(KID-359)', () => {
       return bridgeAnswer(TWO_ROWS);
     });
     await expect(supplier.parcelPage(1)).resolves.toEqual([
-      { seq: '48835181', outbound: '2026-07-24 15:02', boxes: '1 박스' },
-      { seq: '48813091', outbound: '2026-07-27 14:34', boxes: '3 박스' },
+      { seq: '48835181', outbound: '2026-07-24 15:02', boxes: '1 박스', center: 'MINC34', status: '발송 완료' },
+      { seq: '48813091', outbound: '2026-07-27 14:34', boxes: '3 박스', center: '동탄1', status: '발송 가능' },
     ]);
     await supplier.parcelPage(2);
     await supplier.close();
@@ -42,6 +42,11 @@ describe('coupang-supplier 쉽먼트 목록(KID-359)', () => {
       'inject content/orders/coupang-supplier-page.js',
       'close 7',
     ]);
+  });
+
+  it('센터·쉽먼트 상태 머리가 없는 표는 그 칸을 비워 읽는다(배송 목록 파일 이름·정렬용 칸, KID-366 wave8b)', async () => {
+    const { supplier } = site(() => bridgeAnswer([pageTable({ id: 'parcel-tab', head: ['쉽먼트 번호', '발송일', '박스수'], body: [['1', '2026-07-24 15:02', '2 박스']] })]));
+    await expect(supplier.parcelPage(1)).resolves.toEqual([{ seq: '1', outbound: '2026-07-24 15:02', boxes: '2 박스', center: '', status: null }]);
   });
 
   it('머리만 있는 표는 빈 쪽이고, 한 칸짜리 안내 행은 건너뛴다', async () => {
