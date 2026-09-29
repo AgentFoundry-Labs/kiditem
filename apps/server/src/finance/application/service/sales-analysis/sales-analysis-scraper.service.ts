@@ -12,10 +12,7 @@ import {
   kstWindowDateRange,
   parseBusinessDate,
 } from '../../../../common/kst';
-import {
-  readObservedOrderBounds,
-  readObservedOrderCount,
-} from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import type { AdTrafficSourceAccountDaily, AdTrafficSourceCoverage, AdTrafficSourceDailyPublished, AdTrafficSourcePublished } from '@kiditem/shared/advertising-operations';
@@ -43,6 +40,7 @@ export class SalesAnalysisScraperService {
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly adTrafficRead: AdTrafficReadPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async getDataSources(
@@ -103,8 +101,8 @@ export class SalesAnalysisScraperService {
     organizationId: string,
   ): Promise<SalesAnalysisDataSources['orders']> {
     const { count, bounds } = await this.prisma.$transaction(async (tx) => ({
-      count: await readObservedOrderCount(tx, organizationId),
-      bounds: await readObservedOrderBounds(tx, organizationId),
+      count: await this.orderFacts.readObservedOrderCount(ownerTransaction(tx), { organizationId }),
+      bounds: await this.orderFacts.readObservedOrderBounds(ownerTransaction(tx), { organizationId }),
     }), { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
     const range = bounds ? kstWindowDateRange(bounds) : null;
     return {

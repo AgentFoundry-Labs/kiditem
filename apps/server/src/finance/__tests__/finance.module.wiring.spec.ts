@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../../orders/order-facts.module';
 import { AiListingContentQueryModule } from '../../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import 'reflect-metadata';
@@ -43,6 +44,7 @@ describe('FinanceModule capability wiring', () => {
       ProductCollectionRuntimeModule,
       ProductSourceModule,
       ProfitabilityEvidenceModule,
+      OrderFactsModule,
     ]);
     expect(controllers).toEqual([
       ProfitLossController,
