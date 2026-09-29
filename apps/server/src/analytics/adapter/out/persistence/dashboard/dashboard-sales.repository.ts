@@ -25,6 +25,7 @@ import {
 } from "../../../../../orders/application/port/in/order-collection-today-orders.port";
 import {
   buildPerListingProfit,
+  profitOrderWindowInput,
   readAdEvidenceFromLedger,
   type PerListingProfit,
 } from "../../../../../common/per-listing-profit";
@@ -449,6 +450,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from,
       to,
       adEvidence,
+      await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), profitOrderWindowInput(organizationId, from, to)),
       this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
     );
     return new Map(rows.map((row) => [row.listingId, row]));

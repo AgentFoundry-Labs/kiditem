@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../../orders/order-facts.module';
 import { AiListingContentQueryModule } from '../../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
@@ -26,6 +27,7 @@ describe('AdvertisingModule retained wiring', () => {
       ChannelsModule,
       OperationModule,
       AdvertisingLedgerReadModule,
+      OrderFactsModule,
     ]);
     const providerNames = (Reflect.getMetadata('providers', AdvertisingModule) ?? [])
       .map((provider: Function | { provide?: unknown }) =>

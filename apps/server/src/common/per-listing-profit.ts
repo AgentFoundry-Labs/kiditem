@@ -35,9 +35,10 @@ import { resolveOrderLineSalesCosts, resolveUnitCost } from '../products/domain/
 import type { ProductTransactionalReadPort } from '../products/application/port/in/product-transactional-read.port';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
-  readOrderLineWindowFacts,
+  type OrderLineWindowFacts,
   type OrderWindowFacts,
-} from '../orders/adapter/out/persistence/read/order-facts.reader';
+  type OrderWindowInput,
+} from '../orders/application/port/in/facts/order-facts.port';
 import { readPublishedProductAbcGrades } from '../products/adapter/out/persistence/read/product-abc-publication.reader';
 
 /** Owner capabilities used by the shared projection in its caller's transaction. */
@@ -60,10 +61,12 @@ export type ProfitAdReader = Pick<
  * (profit/loss, settlements, sales plans, sales analysis), statistics, the
  * dashboard and ad strategy.
  *
- * Every input comes from its owner's reader: order lines from a completed
- * Orders collection, purchase prices from Inventory, advertising from the
- * ad-report ledger (billed spend, KID-368) and grades from the current Products publication. The
- * reads run in the caller's transaction; this module owns no state.
+ * Every input comes from its owner: order lines from a completed Orders
+ * collection, which the caller reads through `ORDER_FACTS_PORT` over
+ * `profitOrderWindowInput` and passes in (KID-392), purchase prices from
+ * Inventory, advertising from the ad-report ledger (billed spend, KID-368) and
+ * grades from the current Products publication. The reads run in the caller's
+ * transaction; this module owns no state.
  *
  * ADR-0006 on both sides of a profit:
  * - Cost (KID-114). Purchase cost is the option recipe priced at Sellpia
@@ -280,23 +283,26 @@ export async function readAdEvidenceFromLedger(
   return evidence;
 }
 
+/**
+ * The Orders window a profit is computed over: collected orders in
+ * `[from, to)` without cancelled, returned or refunded ones. A caller reads
+ * `ORDER_FACTS_PORT.readOrderLineWindowFacts` with it, in the same transaction
+ * and over the same `[from, to)` it passes to this module.
+ */
+export function profitOrderWindowInput(organizationId: string, from: Date, to: Date): OrderWindowInput {
+  return { organizationId, from, to, excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES };
+}
+
 async function readProfitLines(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  from: Date,
-  to: Date,
+  facts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<Pick<
   ProfitWindowFacts,
   'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unallocatedShipping'
 >> {
-  const facts = await readOrderLineWindowFacts(tx, {
-    organizationId,
-    from,
-    to,
-    excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-  }, catalog.accounts);
   const optionIds = [...new Set(facts.orders.flatMap((order) =>
     order.lines.flatMap((line) => (line.listingOptionId ? [line.listingOptionId] : []))))];
   const transaction = ownerTransaction(tx);
@@ -455,20 +461,22 @@ async function readGrades(
 
 /**
  * Read every fact one finance window needs over its evaluated (closed-day)
- * window, in the caller's transaction: collected order lines priced from their
- * options, the advertising evidence and per-listing spend for the same
- * business dates, and current grades.
+ * window, in the caller's transaction: the collected order lines (read by the
+ * caller over `profitOrderWindowInput(organizationId, window.effective…)`)
+ * priced from their options, the advertising evidence and per-listing spend
+ * for the same business dates, and current grades.
  */
 export async function readProfitWindowFacts(
   tx: Prisma.TransactionClient,
   organizationId: string,
   window: FinanceWindow,
+  orderFacts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<ProfitWindowFacts> {
   const { from, to } = window.effective;
   const ad = await readAdWindowEvidence(tx, organizationId, from, to, catalog.ads);
-  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory, catalog);
+  const lineFacts = await readProfitLines(tx, organizationId, orderFacts, inventory, catalog);
   const listingBilledSpend = await readListingBilledSpend(tx, organizationId, from, to, catalog.ads);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return { ...lineFacts, window, ad, listingBilledSpend, gradeByProductId };
@@ -802,10 +810,11 @@ async function readPerListingProfit(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  orderFacts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
-  const lineFacts = await readProfitLines(tx, organizationId, from, to, inventory, catalog);
+  const lineFacts = await readProfitLines(tx, organizationId, orderFacts, inventory, catalog);
   const listingBilledSpend = await readListingBilledSpend(tx, organizationId, from, to, catalog.ads);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return {
@@ -826,6 +835,8 @@ async function readPerListingProfit(
  *   the same `[from, to)` window. It is required because its absence is what
  *   made "this organization runs no ads" and "ad collection failed for the
  *   whole window" the same computed zero.
+ * @param orderFacts Orders' line facts for the same window, read by the caller
+ *   through `ORDER_FACTS_PORT` over `profitOrderWindowInput(organizationId, from, to)`.
  */
 export async function buildPerListingProfit(
   tx: Prisma.TransactionClient,
@@ -833,6 +844,7 @@ export async function buildPerListingProfit(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  orderFacts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<PerListingProfit[]> {
@@ -842,6 +854,7 @@ export async function buildPerListingProfit(
     from,
     to,
     accountAdEvidence,
+    orderFacts,
     inventory,
     catalog,
   )).rows;
@@ -886,6 +899,8 @@ export async function buildPerListingMetricsCoverage(
   accountAdEvidence: AccountAdEvidence,
   /** Limit the population to these listings; every sold listing when omitted. */
   listingIds: ReadonlySet<string> | undefined,
+  /** Orders' line facts over `profitOrderWindowInput(organizationId, from, to)`. */
+  orderFacts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<PerListingMetricsCoverage> {
@@ -895,6 +910,7 @@ export async function buildPerListingMetricsCoverage(
     from,
     to,
     accountAdEvidence,
+    orderFacts,
     inventory,
     catalog,
   );
@@ -917,6 +933,8 @@ export async function buildPerListingMetrics(
   from: Date,
   to: Date,
   accountAdEvidence: AccountAdEvidence,
+  /** Orders' line facts over `profitOrderWindowInput(organizationId, from, to)`. */
+  orderFacts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<PerListingMetrics[]> {
@@ -927,6 +945,7 @@ export async function buildPerListingMetrics(
     to,
     accountAdEvidence,
     undefined,
+    orderFacts,
     inventory,
     catalog,
   );

@@ -98,7 +98,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductTransactionalReadRepositoryAdapter(),
         new ProductSourceReadUseCase(new ProductSourceReadRepositoryAdapter(prismaService)),
         channelFacts.accounts,
-        profitCatalogReaders.content, advertisingLedgerTestReader(prismaService), reviewFactsTestReader(),
+        profitCatalogReaders.content, advertisingLedgerTestReader(prismaService), reviewFactsTestReader(), orderFactsTestReader(prismaService),
       ),
     );
     sellpiaInventory = new SellpiaProductInventoryReader(

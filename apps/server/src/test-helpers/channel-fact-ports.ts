@@ -21,6 +21,8 @@ import { ORDER_FACTS_PORT } from '../orders/application/port/in/facts/order-fact
 import { REVIEW_FACTS_PORT } from '../orders/application/port/in/facts/review-facts.port';
 import { OrderFactsRepository } from '../orders/adapter/out/persistence/order-facts.repository';
 import { ReviewFactsRepository } from '../orders/adapter/out/persistence/review-facts.repository';
+import { ownerTransaction } from '../prisma/owner-transaction';
+import { profitOrderWindowInput } from '../common/per-listing-profit';
 
 /** Compose real owner fact capabilities for adapter/PG tests using one database client. */
 export function channelFactTestPorts(prisma: PrismaService) {
@@ -78,4 +80,12 @@ export function profitCatalogTestReaders(prisma: PrismaService) {
 /** Orders 리뷰 사실 incoming port(KID-392) — 실제 Orders 어댑터. */
 export function reviewFactsTestReader() {
   return new ReviewFactsRepository();
+}
+
+/** 이익 계산이 받는 Orders 라인 사실(KID-392) — 호출자가 하듯 실제 Orders 포트로 같은 창을 읽는다. */
+export function profitOrderFacts(client: PrismaService, organizationId: string, from: Date, to: Date) {
+  return orderFactsTestReader(client).readOrderLineWindowFacts(
+    ownerTransaction(client),
+    profitOrderWindowInput(organizationId, from, to),
+  );
 }

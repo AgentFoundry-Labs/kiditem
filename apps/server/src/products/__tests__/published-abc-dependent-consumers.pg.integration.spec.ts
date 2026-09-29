@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, profitOrderFacts } from '../../test-helpers/channel-fact-ports';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
@@ -140,7 +140,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       ORG,
       new Date('2026-08-01T00:00:00.000Z'),
       new Date('2026-09-01T00:00:00.000Z'),
-      { hasAdAccount: true, publishedDates: 31, accountSpend: 0, accountBilledSpend: 0, accountAdjustment: 0, coversWindow: true },
+      { hasAdAccount: true, publishedDates: 31, accountSpend: 0, accountBilledSpend: 0, accountAdjustment: 0, coversWindow: true }, await profitOrderFacts(prisma as never, ORG, new Date('2026-08-01T00:00:00.000Z'), new Date('2026-09-01T00:00:00.000Z')),
       new ProductTransactionalReadRepositoryAdapter(),
       profitCatalogTestReaders(prisma as never),
     )).resolves.toEqual([

@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../orders/order-facts.module';
 import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
@@ -145,6 +146,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelsModule,
     OperationModule,
     AdvertisingLedgerReadModule,
+    OrderFactsModule,
   ],
   controllers: [
     AdvertisingConfigController,

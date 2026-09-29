@@ -32,6 +32,7 @@ import {
   type FinanceWindow,
   type PerListingProfit,
   type ProfitWindowFacts,
+  profitOrderWindowInput,
 } from '../../../../common/per-listing-profit';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -106,10 +107,11 @@ export class StatisticsService {
   private readFacts(organizationId: string, period: string | undefined, now: Date): Promise<ProfitWindowFacts> {
     const window = this.resolveWindow(period, now);
     return this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(
+      async (tx) => readProfitWindowFacts(
         tx,
         organizationId,
         window,
+        await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), profitOrderWindowInput(organizationId, window.effective.from, window.effective.to)),
         this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
       ),
       REPEATABLE_READ,

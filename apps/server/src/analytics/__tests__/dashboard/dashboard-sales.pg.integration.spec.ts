@@ -1501,7 +1501,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         productAbcRead(prisma), profitCatalogTestReaders(client as never).content, todayOrdersTestAdapter(prisma), advertisingLedgerTestReader(client as never), orderFactsTestReader(client as never),
       )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content, advertisingLedgerTestReader(client as never))
+      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content, advertisingLedgerTestReader(client as never), orderFactsTestReader(client as never))
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

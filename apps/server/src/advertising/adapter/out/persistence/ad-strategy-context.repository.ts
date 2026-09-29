@@ -1,3 +1,4 @@
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../application/port/in/ledger/advertising-ledger-read.port';
@@ -23,6 +24,7 @@ import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/
 import {
   buildPerListingMetricsCoverage,
   readAdEvidenceFromLedger,
+  profitOrderWindowInput,
 } from '../../../../common/per-listing-profit';
 import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import {
@@ -58,6 +60,7 @@ export class AdStrategyContextRepositoryAdapter
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(AD_LEDGER_READ_REPOSITORY_PORT) private readonly ledger: AdLedgerReadRepositoryPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async loadStrategyContext(
@@ -133,6 +136,7 @@ export class AdStrategyContextRepositoryAdapter
       profitWindow.to,
       accountAdEvidence,
       listingIdSet,
+      await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), profitOrderWindowInput(organizationId, profitWindow.from, profitWindow.to)),
       this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
     );
     const channelStateByListing = await this.loadChannelStateByListingIn(

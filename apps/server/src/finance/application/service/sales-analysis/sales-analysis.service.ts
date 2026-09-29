@@ -1,3 +1,5 @@
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -20,6 +22,7 @@ import {
   roundOrUnavailable,
   totalOrUnavailable,
   type AccountAdEvidence,
+  profitOrderWindowInput,
 } from '../../../../common/per-listing-profit';
 import { advertisingAppliesToSale } from '../../../../advertising/domain/ad-sweep-coverage';
 import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
@@ -92,6 +95,7 @@ export class SalesAnalysisService {
     @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async getAnalysis(
@@ -109,6 +113,7 @@ export class SalesAnalysisService {
         tx,
         organizationId,
         window,
+        await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), profitOrderWindowInput(organizationId, window.effective.from, window.effective.to)),
         this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
       );
       const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));

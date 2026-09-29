@@ -1,3 +1,5 @@
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -14,6 +16,7 @@ import {
   profitWindowTotals,
   readProfitWindowFacts,
   resolveFinanceWindow,
+  profitOrderWindowInput,
 } from '../../../../common/per-listing-profit';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -45,6 +48,7 @@ export class ProfitLossService {
     @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async findAll(
@@ -57,10 +61,11 @@ export class ProfitLossService {
     const window = resolveFinanceWindow(kstMonthWindow(year, month), now);
 
     const facts = await this.prisma.$transaction(
-      (tx) => readProfitWindowFacts(
+      async (tx) => readProfitWindowFacts(
         tx,
         organizationId,
         window,
+        await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), profitOrderWindowInput(organizationId, window.effective.from, window.effective.to)),
         this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
       ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
