@@ -1,6 +1,6 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
-import { callPage } from '../page-call';
+import { PAGE_CALL_MESSAGE, callPage, type PageCallAnswer } from '../page-call';
 import { hostWithin, type PageGuard, type TabPage } from '../tab-page';
 import { AD_CENTER_LOGIN } from './login';
 
@@ -60,14 +60,13 @@ export async function submitCampaign(page: TabPage, input: AdCenterCampaignInput
   if (filled?.state !== 'filled') throw formChanged(filled);
   options.signal?.throwIfAborted();
 
-  // 여기서부터는 눌렀을 수 있다 — 답이 끊겨도(화면 이동) 던지지 않는다.
-  let submitted: SubmitAnswer | null = null;
-  try {
-    submitted = await call<SubmitAnswer>('adCenter.campaignSubmit', {}, SUBMIT_TIMEOUT_MS);
-  } catch {
-    submitted = null;
-  }
-  if (submitted?.state === 'form_changed') throw formChanged(submitted);
+  // 여기서부터는 눌렀을 수 있다. 누르기 호출은 한 번만, 파일 주입 없이 보낸다(채우기가 처리기를 이미 넣었다) — 주입·재전송 경로는
+  // 화면 이동으로 닫힌 메시지 포트를 "처리기 없음"으로 읽고 새 화면에 다시 보낼 수 있다(두 번 누르기). 처리기가 누르지 않았다고
+  // 분명히 답한 `form_changed`만 누르지 않은 것이고, 답이 없거나 실패하면 눌렀다고 본다.
+  const submitted = await page
+    .ask<PageCallAnswer<SubmitAnswer>>({ type: PAGE_CALL_MESSAGE, call: 'adCenter.campaignSubmit', args: {}, world: 'isolated' }, { timeoutMs: SUBMIT_TIMEOUT_MS })
+    .catch(() => null);
+  if (submitted?.ok === true && submitted.value?.state === 'form_changed') throw formChanged(submitted.value);
 
   const result = await call<ResultAnswer>('adCenter.campaignResult', {}, RESULT_TIMEOUT_MS).catch(() => null);
   const campaignId = typeof result?.campaignId === 'string' && /^\d+$/.test(result.campaignId) ? result.campaignId : null;

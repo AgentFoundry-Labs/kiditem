@@ -4,7 +4,8 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller
 import { fastClock } from '../login.fake';
 import { siteFactoryFor, type SiteDeps } from '../registry';
 import { fakeTabPages } from '../tab-page.fake';
-import { ADVERTISING_AD_CENTER_FORM_CHANGED, AD_CENTER_CAMPAIGN_FILE, AD_CENTER_CAMPAIGN_TYPE_URL } from './campaign';
+import { createTabPages, type TabPageChrome } from '../tab-page';
+import { ADVERTISING_AD_CENTER_FORM_CHANGED, AD_CENTER_CAMPAIGN_FILE, AD_CENTER_CAMPAIGN_TYPE_URL, submitCampaign } from './campaign';
 import { AD_CENTER_HOME_URL, AD_CENTER_VENDOR_FILE, type AdCenterSite } from './index';
 
 // 광고센터 캠페인 등록 쓰기(KID-386). 페이지 처리기는 `ad-center-campaign-page-script.spec.ts`가 fixture로 보고, 여기는 사이트가
@@ -130,5 +131,37 @@ describe('sites/ad-center createCampaign — 캠페인 등록 쓰기(KID-386)', 
     await expect(site.readVendorId()).resolves.toBe('A00012345');
 
     expect(log[0]).toBe(`open ${AD_CENTER_HOME_URL}`);
+  });
+
+  it('[완료] 누르기 호출은 한 번만 보낸다 — 화면 이동으로 메시지 포트가 닫혀도 파일을 다시 넣어 재전송하지 않고 눌렀다고 본다(실제 탭 묶음)', async () => {
+    const sent: string[] = [];
+    const injected: string[] = [];
+    const chromeApi: TabPageChrome = {
+      tabs: {
+        create: async () => ({ id: 4 }),
+        update: async () => undefined,
+        get: async () => ({ status: 'complete', url: 'https://advertising.coupang.com/marketing/campaign/registration' }),
+        query: async () => [],
+        remove: async () => undefined,
+        async sendMessage(_tabId, message) {
+          const call = String((message as { call?: unknown }).call ?? (message as { action?: unknown }).action);
+          sent.push(call);
+          if (call === 'adCenter.campaignFill') return { ok: true, value: { state: 'filled', selected: ['70011'] } };
+          // 누른 뒤 화면이 옮겨 가 답이 오지 않는다.
+          if (call === 'adCenter.campaignSubmit') throw new Error('The message port closed before a response was received.');
+          if (call === 'adCenter.campaignResult') return { ok: true, value: PRESSED_RESULT };
+          return undefined;
+        },
+      },
+      scripting: { executeScript: async (injection) => { injected.push(injection.files.join(',')); return []; } },
+      runtime: { onMessage: { addListener: () => undefined, removeListener: () => undefined } },
+    };
+    const page = createTabPages({ chrome: chromeApi, fetch: async () => new Response('x'), sleep: async () => undefined, now: () => 0 }).attach(4);
+
+    const submission = await submitCampaign(page, INPUT);
+
+    expect(sent.filter((call) => call === 'adCenter.campaignSubmit')).toHaveLength(1);
+    expect(injected).toEqual([]);
+    expect(submission.campaignId).toBe('88123');
   });
 });

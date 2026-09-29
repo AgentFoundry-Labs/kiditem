@@ -12342,13 +12342,8 @@ var KidItemRuntime = (() => {
     }
     if (filled?.state !== "filled") throw formChanged(filled);
     options.signal?.throwIfAborted();
-    let submitted = null;
-    try {
-      submitted = await call2("adCenter.campaignSubmit", {}, SUBMIT_TIMEOUT_MS);
-    } catch {
-      submitted = null;
-    }
-    if (submitted?.state === "form_changed") throw formChanged(submitted);
+    const submitted = await page.ask({ type: PAGE_CALL_MESSAGE, call: "adCenter.campaignSubmit", args: {}, world: "isolated" }, { timeoutMs: SUBMIT_TIMEOUT_MS }).catch(() => null);
+    if (submitted?.ok === true && submitted.value?.state === "form_changed") throw formChanged(submitted.value);
     const result = await call2("adCenter.campaignResult", {}, RESULT_TIMEOUT_MS).catch(() => null);
     const campaignId = typeof result?.campaignId === "string" && /^\d+$/.test(result.campaignId) ? result.campaignId : null;
     const message = text3(result?.validation) ?? text3(result?.message) ?? (result ? null : "\uC644\uB8CC\uB97C \uB204\uB978 \uB4A4 \uAD11\uACE0\uC13C\uD130 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
