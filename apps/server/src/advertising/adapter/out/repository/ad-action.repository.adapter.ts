@@ -540,6 +540,14 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   ): Promise<number> {
     if (ids.length === 0) return 0;
     return this.prisma.$transaction(async (tx) => {
+      const handle = ownerTransaction(tx);
+      // Runs first, then actions: a finish or lease expiry locks the run and then writes the action
+      // (`payload.execution`), so taking them in the same order never deadlocks. `findLive` row-locks
+      // a live run, so the extension cannot claim or finish it meanwhile.
+      const liveById = new Map<string, Awaited<ReturnType<OperationPort['findLive']>>>();
+      for (const id of [...new Set(ids)].sort()) {
+        liveById.set(id, await this.operations.findLive(organizationId, adActionLockKey(id), handle));
+      }
       const scopedActions = await lockReviewableActions(tx, {
         ids,
         organizationId,
@@ -554,13 +562,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
 
       // A run the extension holds may already be writing to the ad center, and
       // an applied one already changed it, so either refuses the rejection and
-      // this transaction rolls back. A prepared run is cancelled. `findLive`
-      // row-locks the live run, so the extension cannot claim it meanwhile.
-      const handle = ownerTransaction(tx);
+      // this transaction rolls back. A prepared run is cancelled.
       const linked = scopedActions.filter((action) => action.operationId !== null);
       const executions = await readAdActionExecutions(tx, { organizationId, actions: linked });
       for (const action of linked) {
-        const live = await this.operations.findLive(organizationId, adActionLockKey(action.id), handle);
+        const live = liveById.get(action.id) ?? null;
         if (live?.status === 'prepared') {
           await this.operations.cancel(organizationId, live.id, handle);
           continue;
@@ -629,6 +635,9 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
    */
   private async prepareExecution(organizationId: string, actionId: string): Promise<string | null> {
     return this.prisma.$transaction(async (tx) => {
+      const handle = ownerTransaction(tx);
+      // The run before the action, in the order a finish takes them (see `rejectAdActions`).
+      const live = await this.operations.findLive(organizationId, adActionLockKey(actionId), handle);
       const [action] = await tx.$queryRaw<Array<{ id: string; actionType: string; approvalStatus: string; operationId: string | null }>>(Prisma.sql`
         SELECT id, action_type AS "actionType", approval_status AS "approvalStatus", operation_id AS "operationId"
         FROM ad_actions
@@ -636,8 +645,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         FOR UPDATE
       `);
       if (!action || action.approvalStatus !== 'approved' || !isExecutableAdActionType(action.actionType)) return null;
-      const handle = ownerTransaction(tx);
-      const live = await this.operations.findLive(organizationId, adActionLockKey(actionId), handle);
       if (live) return live.id;
       if (action.operationId) {
         // An applied run is not repeated: a second run would create a second campaign. An uncertain one waits
@@ -650,6 +657,8 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         if (executeStatus === 'uncertain') {
           throw new KiditemConflictError('ADVERTISING_AD_ACTION_UNCERTAIN', { details: { actionId } });
         }
+        // Another preparation committed while this one waited for the action row.
+        if (executeStatus === 'queued' || executeStatus === 'running') return action.operationId;
       }
       const { operation } = await this.operations.prepare(
         organizationId,

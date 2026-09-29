@@ -354,6 +354,18 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
     expect(await prisma.adAction.count()).toBe(1);
   });
 
+  it('a rejection racing the extension\'s failure report never deadlocks: both take the run before the action', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const run = await register(`경합 ${round}`, [(await seedListing(`R-${round}`)).id]);
+      const claimed = await claim();
+      const [finished, rejected] = await Promise.allSettled([fail(claimed), actions.rejectActions([run.actionId], ORG)]);
+      expect(finished.status, String((finished as PromiseRejectedResult).reason)).toBe('fulfilled');
+      if (rejected.status === 'rejected') {
+        expect(rejected.reason).toMatchObject({ code: 'ADVERTISING_AD_ACTION_EXECUTING' });
+      }
+    }
+  });
+
   it('refuses a registration that mixes products of two accounts before creating anything', async () => {
     const other = await prisma.channelAccount.create({
       data: { organizationId: ORG, channel: 'coupang', name: 'Other', externalAccountId: 'other', isPrimary: false },
