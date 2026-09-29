@@ -116,7 +116,7 @@ beforeEach(() => {
       success: true,
       capabilities: { kiditemEnvironmentProfilesV1: true },
     }),
-    setAuthToken: () => ({ success: true }),
+    setAuthToken: () => ({ success: true, environmentId: 'local' }),
     // A web-opened attempt shows as taken once the extension holds its session.
     getCollectionSession: (message) => extensionSessionReply(message),
   };

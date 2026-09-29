@@ -63,7 +63,7 @@ beforeEach(() => {
   vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
     const action = (message as { action: string }).action;
     if (action === 'ping') return { success: true, capabilities: { kiditemEnvironmentProfilesV1: true, operationRuntime: true } };
-    if (action === 'setAuthToken') return { success: true };
+    if (action === 'setAuthToken') return { success: true, environmentId: 'local' };
     if (action === 'operation.start') {
       serverOperations = [excelOperation()];
       return { success: true, operationId: EXCEL_ID, reused: false };
