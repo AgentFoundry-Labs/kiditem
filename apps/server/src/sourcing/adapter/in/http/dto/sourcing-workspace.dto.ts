@@ -3,10 +3,8 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
-  IsDateString,
   IsIn,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -14,7 +12,6 @@ import {
   MaxLength,
   Matches,
   Min,
-  ValidateNested,
 } from 'class-validator';
 import type { SourcingRecommendationSurface } from '../../../../application/service/sourcing-recommendation.service';
 
@@ -40,70 +37,6 @@ export class SourcingRecommendationQueryDto {
   @IsString()
   @MaxLength(1_000)
   cursor?: string;
-}
-
-export class SourcingCoupangObservationItemDto {
-  @IsString()
-  @MaxLength(200)
-  productId!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  itemId?: string | null;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  vendorItemId?: string | null;
-
-  @IsString()
-  @MaxLength(500)
-  productName!: string;
-
-  @IsString()
-  @MaxLength(200)
-  sourceKeyword!: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  salePriceKrw?: number | null;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  ratingCount?: number | null;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  @Max(5)
-  ratingAverage?: number | null;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  viewsLast28d?: number | null;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  salesLast28d?: number | null;
-
-  @IsDateString()
-  capturedAt!: string;
-}
-
-export class SourcingCoupangObservationDto {
-  @IsUUID()
-  idempotencyKey!: string;
-
-  @IsArray()
-  @ArrayMaxSize(100)
-  @ValidateNested({ each: true })
-  @Type(() => SourcingCoupangObservationItemDto)
-  items!: SourcingCoupangObservationItemDto[];
 }
 
 export class SourcingValidationQueryDto {

@@ -10,7 +10,6 @@ import {
   SourcingReviewSelectionSchema,
   SourcingValidationEnvelopeSchema,
   type RecommendationSurface,
-  type SourcingCoupangObservationCommand,
   type SourcingKeywordPreferenceCommand,
   type SourcingInterestTargetCommand,
   type SourcingInterestTarget,
@@ -40,10 +39,6 @@ export const sourcingWorkspaceApi = {
       `/api/sourcing/workspace/recommendations?${params.toString()}`,
       SourcingRecommendationEnvelopeSchema,
     );
-  },
-
-  async ingestCoupangObservations(input: SourcingCoupangObservationCommand): Promise<void> {
-    await apiClient.post<unknown>('/api/sourcing/workspace/coupang-observations', input);
   },
 
   async validation(input: { limit?: number; cursor?: string } = {}): Promise<SourcingValidationEnvelope> {

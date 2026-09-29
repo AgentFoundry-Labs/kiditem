@@ -36,7 +36,6 @@ vi.mock('../market/lib/trend-collection-api', () => ({
 
 vi.mock('../hooks/use-sourcing-workspace', () => ({
   useSourcingRecommendations: () => ({ data: undefined, isLoading: false, error: null }),
-  useIngestSourcingCoupangObservations: () => ({ mutateAsync: vi.fn() }),
   useRefreshSourcingRecommendations: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
   useRefreshSourcingValidation: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
 }));
