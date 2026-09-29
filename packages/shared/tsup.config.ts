@@ -32,7 +32,6 @@ export default defineConfig({
     'src/channel-product-matching.ts',
     'src/source-import.ts',
     'src/sellpia-inventory-freshness.ts',
-    'src/sellpia-order-transmission.ts',
     'src/sellpia-manual-match.ts',
     'src/rocket-purchase-preview.ts',
     'src/sabangnet-mall-listings.ts',

@@ -8,7 +8,7 @@ import { SELLPIA_LOGIN_LOCK_KEY } from './sellpia-operations.js';
  * 옛 액션은 서버에 사실을 하나도 쓰지 않고 웹 화면·브라우저 저장소·확장 세션 저장소에만 남겼다.
  *
  * 사장님 결정(KID-355 2026-09-29 13:31 "추천대로"):
- * - 전송은 실행이 멱등 울타리다(`SellpiaOrderTransmissionIntent`는 wave9 drop). 제출했지만 확인 못 함은 `reconciling`.
+ * - 전송은 실행이 멱등 울타리다(옛 전송 intent 표는 KID-388 뒤 drop). 제출했지만 확인 못 함은 `reconciling`.
  * - 전송 파일은 서버가 원천 실행(`sourceOperationId`)에서 다시 만든다 — scope에 파일이 없다.
  * - 자동송장 대상은 표 없이 실행 result로: 최근 24시간 성공 전송 result의 `acceptedOrderNumbers` − 송장 result의 발급 번호.
  * - 송장 업로드는 kind 하나, 몰 차이는 site 어댑터에.
