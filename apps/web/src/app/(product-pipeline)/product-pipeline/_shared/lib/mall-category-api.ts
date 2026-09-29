@@ -31,7 +31,7 @@ export async function listMallCategories(
     throw new Error('확장프로그램이 필요합니다. 몰 분류는 몰에서 직접 읽어옵니다.');
   }
 
-  // 화면은 분류 이름으로 한 단씩 고른다 — 온채널은 이름이 곧 분류 경로다.
+  // 화면은 분류 이름으로 한 단씩 고른다 — 온채널은 분류 id가 곧 이름이다(shared 계약, KID-366).
   const response = await sendExtensionEntryAction(
     extensionId,
     LIST_CATEGORIES,
