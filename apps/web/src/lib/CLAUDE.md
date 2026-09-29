@@ -100,7 +100,7 @@ multiple route groups.
   an OTP/CAPTCHA) stops auto-login for a mall until the operator's own session
   is observed (`signed_in`), a login test succeeds, or they clear it. A blocked
   mall is not logged into, but a collection the operator starts still runs on
-  a live session; only the agent loop leaves it out. A block comes from the
+  a live session; the agent loop and auto-detect leave it out. A block comes from the
   mall rejecting the credentials (`mallRejectedCredentials`) or from a run that
   ends `credentials_rejected` (the login form remained after submitting the
   stored credentials), whatever the mall said; a run that finished before the
