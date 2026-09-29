@@ -64,21 +64,28 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
     })).id;
   });
 
-  async function seedListing(externalId: string, channelAccountId = accountId, organizationId = ORG) {
-    return prisma.channelListing.create({
+  /** A listing with one active option; the ad center searches products by the option id (`vendor_item`). */
+  async function seedListing(externalId: string, channelAccountId = accountId, organizationId = ORG, options = [`${externalId}-OPT`]) {
+    const listing = await prisma.channelListing.create({
       data: { organizationId, channelAccountId, externalId, displayName: `상품 ${externalId}`, isActive: true },
     });
+    for (const externalOptionId of options) {
+      await prisma.channelListingOption.create({
+        data: { organizationId, listingId: listing.id, externalOptionId, itemName: externalOptionId, isActive: true },
+      });
+    }
+    return listing;
   }
 
-  async function register(campaignName: string, listingIds: string[]) {
+  async function register(campaignName: string, listingIds: string[], values: { dailyBudget?: number; targetRoas?: number } = {}) {
     return strategy.registerCampaign({
       campaignName,
       adGroupName: 'A등급_그룹',
       grade: 'A',
-      dailyBudget: 30_000,
+      dailyBudget: values.dailyBudget ?? 30_000,
       operationMode: '매출최적화',
       listings: listingIds.map((listingId) => ({ listingId })),
-      targetRoas: 350,
+      targetRoas: values.targetRoas ?? 350,
     }, ORG);
   }
 
@@ -154,7 +161,7 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
       channelAccountId: accountId,
       operationId: result.operationId,
     });
-    expect(action.payload).toMatchObject({ campaignName: '봄 캠페인', productIds: ['PRODUCT-A'], dailyBudget: 30_000, targetRoas: 350 });
+    expect(action.payload).toMatchObject({ campaignName: '봄 캠페인', productIds: ['PRODUCT-A-OPT'], dailyBudget: 30_000, targetRoas: 350 });
     const operation = await operations.get(ORG, result.operationId!);
     expect(operation).toMatchObject({ kind: AD_ACTION_KIND, status: 'prepared', plan: { actionId: result.actionId, channelAccountId: accountId } });
   });
@@ -294,6 +301,24 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
   });
 
   const claimOrNull = () => operations.claimForOrganization(ORG, { kinds: [AD_ACTION_KIND], workerId: 'ext-popup' });
+
+  it('searches the ad center by every active option id of the listings, and refuses a registration it could not run before creating anything', async () => {
+    const twoOptions = await seedListing('P-1', accountId, ORG, ['VID-1', 'VID-2']);
+    const registered = await register('옵션 둘', [twoOptions.id]);
+    expect((await prisma.adAction.findUniqueOrThrow({ where: { id: registered.actionId } })).payload)
+      .toMatchObject({ productIds: ['VID-1', 'VID-2'] });
+
+    const noOption = await seedListing('P-2', accountId, ORG, []);
+    await expect(register('옵션 없음', [noOption.id])).rejects.toMatchObject({
+      code: 'ADVERTISING_AD_ACTION_NOT_EXECUTABLE',
+      details: { reason: 'listing_without_options' },
+    });
+    await expect(register('소수 예산', [twoOptions.id], { dailyBudget: 30_000.5 })).rejects.toMatchObject({
+      code: 'ADVERTISING_AD_ACTION_NOT_EXECUTABLE',
+      details: { reason: 'registration_incomplete' },
+    });
+    expect(await prisma.adAction.count()).toBe(1);
+  });
 
   it('refuses a registration that mixes products of two accounts before creating anything', async () => {
     const other = await prisma.channelAccount.create({

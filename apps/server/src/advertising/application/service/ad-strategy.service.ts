@@ -3,7 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
+import { adActionCreateCampaign } from '../../domain/ad-action-operation';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -198,7 +199,13 @@ export class AdStrategyService {
         details: { channelAccountIds: accountIds },
       });
     }
-    const externalIdByListing = new Map(listings.map((listing) => [listing.id, listing.externalId]));
+    const withoutOptions = listings.filter((listing) => listing.optionIds.length === 0).map((listing) => listing.id);
+    if (withoutOptions.length > 0) {
+      throw new KiditemPreconditionError('ADVERTISING_AD_ACTION_NOT_EXECUTABLE', {
+        details: { reason: 'listing_without_options', listingIds: withoutOptions },
+        message: '판매 중인 옵션이 없는 상품은 광고센터에서 찾을 수 없습니다. 옵션이 있는 상품으로 다시 등록해 주세요.',
+      });
+    }
 
     // 3. 중복 캠페인 체크
     const existing = await this.actionRepo.findOpenCreateCampaignAction(
@@ -221,16 +228,22 @@ export class AdStrategyService {
       dailyBudget: dto.dailyBudget,
       operationMode: dto.operationMode,
       listings: dto.listings,
-      productIds: [...new Set(dto.listings.flatMap((listing) => {
-        const externalId = externalIdByListing.get(listing.listingId);
-        return externalId ? [externalId] : [];
-      }))],
+      // 광고센터 등록 검색은 옵션(`vendor_item`) 단위라 리스팅 옵션 id로 찾는다.
+      productIds: [...new Set(listings.flatMap((listing) => listing.optionIds))],
       smartTargetingBid: dto.smartTargetingBid ?? null,
       keywords: dto.keywords ?? [],
       nonSearchBid: dto.nonSearchBid ?? null,
       targetRoas: dto.targetRoas ?? null,
       pageType: 'campaign_registration',
     };
+
+    // 실행할 수 없는 등록 내용은 커밋하지 않는다(상품 1~50, 정수 예산·목표 ROAS).
+    if (!adActionCreateCampaign({ targetLabel: dto.campaignName, payload })) {
+      throw new KiditemPreconditionError('ADVERTISING_AD_ACTION_NOT_EXECUTABLE', {
+        details: { reason: 'registration_incomplete' },
+        message: '캠페인 등록 내용(상품 1~50개, 원 단위 예산·목표 ROAS)이 맞지 않아 광고센터에 등록할 수 없습니다.',
+      });
+    }
 
     const { actionId, operationId } = await this.actionRepo.createCampaignAction({
       organizationId,
