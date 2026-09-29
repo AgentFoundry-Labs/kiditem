@@ -17,7 +17,7 @@ const channelListings = [{
   channelAccountName: '쿠팡 본계정',
   externalId: 'listing-1',
   displayName: '동물 블록',
-  saleState: 'on_sale',
+  saleStatus: '판매중',
   options: [{
     id: '22222222-2222-4222-8222-222222222222',
     externalOptionId: 'option-1',
