@@ -143,7 +143,7 @@ beforeEach(() => {
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true },
+      capabilities: { operationRuntime: true },
     }),
     setAuthToken: () => ({ success: true, environmentId: 'local' }),
     [SPEC_START_ACTION]: startedReply,

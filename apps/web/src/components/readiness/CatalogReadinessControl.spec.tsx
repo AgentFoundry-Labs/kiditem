@@ -116,7 +116,7 @@ beforeEach(() => {
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true, operationRuntime: true },
+      capabilities: { operationRuntime: true },
     }),
     setAuthToken: () => ({ success: true, environmentId: 'local' }),
   };

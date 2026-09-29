@@ -114,7 +114,7 @@ beforeEach(() => {
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true },
+      capabilities: { operationRuntime: true },
     }),
     setAuthToken: () => ({ success: true, environmentId: 'local' }),
     // A web-opened attempt shows as taken once the extension holds its session.

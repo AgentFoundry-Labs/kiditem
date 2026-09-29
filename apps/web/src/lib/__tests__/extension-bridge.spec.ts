@@ -44,21 +44,23 @@ describe('universal extension discovery', () => {
     installChrome({ success: true });
   });
 
-  it('rejects a Coupang extension without environment profiles capability', async () => {
+  it('rejects an extension without the new runtime capability', async () => {
     window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'coupang-extension');
+    await expect(detectExtensionId(5)).resolves.toBeNull();
+    installChrome({ success: true, capabilities: { orderCollectionIcecreamMall: true } });
     await expect(detectExtensionId(5)).resolves.toBeNull();
   });
 
-  it('accepts a Coupang extension with environment profiles capability', async () => {
+  it('accepts an extension with the new runtime capability', async () => {
     installChrome({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true },
+      capabilities: { operationRuntime: true },
     });
     window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'coupang-extension');
     await expect(detectExtensionId(5)).resolves.toBe('coupang-extension');
   });
 
-  it('requires the sourcing operation kinds (KID-360) and environment profile capabilities', async () => {
+  it('requires the sourcing operation kinds (KID-360) and the new runtime capability', async () => {
     window.localStorage.setItem(
       KIDITEM_SOURCING_EXTENSION_ID_KEY,
       'sourcing-extension',
@@ -72,14 +74,14 @@ describe('universal extension discovery', () => {
     // 새 런타임은 있지만 소싱 kind가 없는 빌드(KID-357)는 소싱 수집을 돌리지 못한다.
     installChrome({
       success: true,
-      capabilities: { operationRuntime: true, kiditemEnvironmentProfilesV1: true },
+      capabilities: { operationRuntime: true },
     });
     await expect(detectSourcingExtensionId(5)).resolves.toBeNull();
 
     // 옛 소싱 워커의 표시만 있는 확장은 소싱 수집을 돌리지 못한다.
     installChrome({
       success: true,
-      capabilities: { sourcingProductScraper: true, kiditemEnvironmentProfilesV1: true },
+      capabilities: { sourcingProductScraper: true, operationRuntime: true },
     });
     await expect(detectSourcingExtensionId(5)).resolves.toBeNull();
 
@@ -88,7 +90,6 @@ describe('universal extension discovery', () => {
       capabilities: {
         operationRuntime: true,
         sourcingOperationKindsV1: true,
-        kiditemEnvironmentProfilesV1: true,
       },
     });
     await expect(detectSourcingExtensionId(5)).resolves.toBe(
@@ -101,18 +102,11 @@ describe('universal extension discovery', () => {
       KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
       'order-extension',
     );
-    installChrome({
-      success: true,
-      capabilities: { operationRuntime: true },
-    });
-    await expect(detectOrderCollectionExtensionId(5)).resolves.toBeNull();
-
     // 옛 워커 표시만 있는 확장은 새 런타임이 없으면 기본 감지에 잡히지 않는다(KID-366).
     installChrome({
       success: true,
       capabilities: {
         orderCollectionIcecreamMall: true,
-        kiditemEnvironmentProfilesV1: true,
       },
     });
     await expect(detectOrderCollectionExtensionId(5)).resolves.toBeNull();
@@ -126,7 +120,6 @@ describe('universal extension discovery', () => {
       version: '1.3.0',
       capabilities: {
         operationRuntime: true,
-        kiditemEnvironmentProfilesV1: true,
       },
     });
     await expect(detectOrderCollectionExtensionId(5)).resolves.toBe(
@@ -148,7 +141,7 @@ describe('universal extension discovery', () => {
       success: true,
       version: '0.1.85',
       capabilities: {
-        kiditemEnvironmentProfilesV1: true,
+        operationRuntime: true,
         browserCollectionSessions: true,
       },
     });
@@ -181,7 +174,7 @@ describe('universal extension discovery', () => {
             window.setTimeout(() => callback({
               success: true,
               version: '1.2.2',
-              capabilities: { kiditemEnvironmentProfilesV1: true, browserCollectionSessions: true },
+              capabilities: { operationRuntime: true, browserCollectionSessions: true },
             }), 60);
           },
         },
@@ -203,7 +196,7 @@ describe('universal extension discovery', () => {
       success: true,
       version: '0.1.86',
       capabilities: {
-        kiditemEnvironmentProfilesV1: true,
+        operationRuntime: true,
         browserCollectionSessions: true,
         orderCollectionFailureEvidenceV1: true,
       },
@@ -238,14 +231,14 @@ describe('universal extension discovery', () => {
                 success: true,
                 version: '0.1.87',
                 capabilities: {
-                  kiditemEnvironmentProfilesV1: true,
+                  operationRuntime: true,
                   coupangRocketPoCollectionSessionV1: true,
                 },
               }
             : {
                 success: true,
                 version: '0.1.86',
-                capabilities: { kiditemEnvironmentProfilesV1: true },
+                capabilities: { operationRuntime: true },
               }),
         },
       },
