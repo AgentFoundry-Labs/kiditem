@@ -260,7 +260,7 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
     await prisma.channelAccount.deleteMany({ where: { organizationId: ORG } });
     for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
       const account = await prisma.channelAccount.create({
-        data: { organizationId: ORG, channel: mallKey, externalAccountId: `${mallKey}-every`, name: mallKey, status: 'configured' },
+        data: { organizationId: ORG, channel: mallKey, externalAccountId: mallKey, name: mallKey, status: 'configured' },
         select: { id: true },
       });
       const begun = await begin(mallKey, account.id);
@@ -279,7 +279,7 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
   it.each(MOVED_MALLS)('%s (KID-381): publishes its list once under its account lock, a re-run replaces the list, a failed run writes nothing', async (mallKey) => {
     await prisma.channelAccount.deleteMany({ where: { organizationId: ORG, channel: mallKey } });
     const account = await prisma.channelAccount.create({
-      data: { organizationId: ORG, channel: mallKey, externalAccountId: `${mallKey}-moved`, name: mallKey, status: 'configured' },
+      data: { organizationId: ORG, channel: mallKey, externalAccountId: mallKey, name: mallKey, status: 'configured' },
       select: { id: true },
     });
     const begun = await begin(mallKey, account.id);
@@ -323,8 +323,10 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
 
   it('refuses to publish when the hub picks another row for the mall after the plan', async () => {
     const begun = await begin();
+    // 몰 행은 channel · externalAccountId 모두 몰 키인 한 행이다(ADR-0012) — 옛 행이 몰 행에서 빠지고 새 행이 선다.
+    await prisma.channelAccount.update({ where: { id: KIDKIDS }, data: { externalAccountId: 'kidkids-old' } });
     await prisma.channelAccount.create({
-      data: { organizationId: ORG, channel: 'kidkids', externalAccountId: 'kidkids-2', name: '키드키즈 2', status: 'configured', isPrimary: true },
+      data: { organizationId: ORG, channel: 'kidkids', externalAccountId: 'kidkids', name: '키드키즈 2', status: 'configured', isPrimary: true },
     });
     await expect(finish(begun, [row()])).rejects.toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID', details: { reason: 'mall_account_changed' } });
     expect(await prisma.channelListing.count()).toBe(0);

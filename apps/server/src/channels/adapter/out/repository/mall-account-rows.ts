@@ -31,7 +31,10 @@ export function mallAccountRowsWhere(organizationId: string) {
   } satisfies Prisma.ChannelAccountWhereInput;
 }
 
-/** 몰 키마다 그 몰의 계정 행 ID. 행이 없는 몰은 결과에 없다. 상태는 가리지 않는다. */
+/**
+ * 몰 키마다 그 몰의 계정 행 ID — `mallAccountRowsWhere`와 같은 행이라 쇼핑몰 현황과 리스팅 발행 원천이 같은 행을 본다
+ * (ADR-0012). 행이 없는 몰은 결과에 없다. 상태는 가리지 않는다.
+ */
 export async function readMallAccountRowIds(
   client: Pick<Prisma.TransactionClient, 'channelAccount'>,
   organizationId: string,
@@ -39,7 +42,7 @@ export async function readMallAccountRowIds(
 ): Promise<Map<string, string>> {
   if (mallKeys.length === 0) return new Map();
   const rows = await client.channelAccount.findMany({
-    where: { organizationId, channel: { in: [...mallKeys] } },
+    where: { AND: [mallAccountRowsWhere(organizationId), { channel: { in: [...mallKeys] } }] },
     orderBy: MALL_ACCOUNT_ROW_ORDER,
     select: { id: true, channel: true },
   });
