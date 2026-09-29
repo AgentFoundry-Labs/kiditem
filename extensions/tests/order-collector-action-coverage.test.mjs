@@ -240,21 +240,9 @@ test('order-collection route actions are handled by the extension worker', () =>
   for (const match of entryContract.matchAll(/_ACTION = ['"]([^'"]+)['"] as const/g)) {
     handledActions.add(match[1]);
   }
-  // 과도기(KID-366 wave8b): 이 액션들은 Orders 작업 kind 6종으로 옮겨 확장에서 지웠고, 웹 호출부는 같은 PR의 웹 트랙(T3)이
-  // 실행 시작·폴링으로 바꾼다. 세 트랙이 합쳐지면 웹이 더 이상 보내지 않으므로 이 목록을 지운다.
-  const movedToOperationKinds = new Set([
-    'sendOrderFileToSellpia',
-    'collectSellpiaOrderSnapshot',
-    'sellpiaPostTransfer',
-    'sellpiaAutoInvoice',
-    'collectCoupangShipmentList',
-    'uploadOnchTracking',
-    'uploadKidkidsTracking',
-  ]);
   const missingActions = [...requestedActions].filter(
     (action) =>
       !handledActions.has(action) &&
-      !movedToOperationKinds.has(action) &&
       !new Set(['restartCollectionSession', 'finalizeCollectionSession']).has(action),
   );
 
