@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withOperatorConfirmation } from './orders-action-operation-input';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import {
   readSellpiaTransferOperatorConfirmation,
@@ -6,10 +7,11 @@ import {
   sellpiaTransferScope,
   sellpiaTransferTransport,
   sameOrderNumbers,
+  sellpiaTransferResendOf,
 } from './sellpia-order-transfer-operation';
 
 const SOURCE = '11111111-1111-4111-8111-111111111111';
-const plan = { sourceOperationId: SOURCE, shopName: '아이스크림몰', transport: null, fileName: 'a.xlsx', targetOrderNumbers: ['A-1', 'A-2', 'A-3'] };
+const plan = { sourceOperationId: SOURCE, shopName: '아이스크림몰', transport: null, resendOf: null, fileName: 'a.xlsx', targetOrderNumbers: ['A-1', 'A-2', 'A-3'] };
 
 function evidence(payload: Record<string, unknown>, sequence = 1): OperationStagedChunk {
   return {
@@ -67,15 +69,28 @@ describe('셀피아 전송 실행 규칙(KID-355 wave8b)', () => {
     expect(() => sellpiaTransferResult(unknown, plan, { acceptedOrderNumbers: ['Z-9'] })).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED' }));
   });
 
-  it('운영자 확인 표시는 resolve result의 operatorConfirmation 칸에서만 읽는다', () => {
+  it('운영자 확인은 확인 서비스가 붙인 표시에서만 읽고, 확장 finish result의 같은 이름 칸은 버린다', () => {
     expect(readSellpiaTransferOperatorConfirmation(null)).toBeNull();
     expect(readSellpiaTransferOperatorConfirmation({ outcome: 'unknown' })).toBeNull();
-    expect(readSellpiaTransferOperatorConfirmation({ operatorConfirmation: { acceptedOrderNumbers: ['A-1'] } })).toEqual({ acceptedOrderNumbers: ['A-1'] });
-    expect(() => readSellpiaTransferOperatorConfirmation({ operatorConfirmation: { acceptedOrderNumbers: 'A-1' } })).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED' }));
+    expect(readSellpiaTransferOperatorConfirmation({ operatorConfirmation: {} })).toBeNull();
+    expect(readSellpiaTransferOperatorConfirmation(JSON.parse(JSON.stringify(withOperatorConfirmation({}))))).toBeNull();
+    expect(readSellpiaTransferOperatorConfirmation({ outcome: 'unknown', ...withOperatorConfirmation({ acceptedOrderNumbers: ['A-1'] }) }))
+      .toEqual({ acceptedOrderNumbers: ['A-1'] });
+    expect(() => readSellpiaTransferOperatorConfirmation(withOperatorConfirmation({ acceptedOrderNumbers: 'A-1' })))
+      .toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED' }));
   });
 
   it('다시 만든 파일의 번호가 plan과 같은지는 순서와 무관하게 본다', () => {
     expect(sameOrderNumbers(['A-2', 'A-1'], ['A-1', 'A-2'])).toBe(true);
     expect(sameOrderNumbers(['A-1'], ['A-1', 'A-2'])).toBe(false);
+  });
+
+  it('같은 원천의 성공 전송이 있으면 재전송 표시(resend) 없이는 거절하고, 있으면 그 실행 id를 resendOf로 남긴다', () => {
+    const previous = '55555555-5555-4555-8555-555555555555';
+    expect(sellpiaTransferResendOf(null, undefined)).toBeNull();
+    expect(sellpiaTransferResendOf(null, true)).toBeNull();
+    expect(sellpiaTransferResendOf(previous, true)).toBe(previous);
+    expect(() => sellpiaTransferResendOf(previous, undefined)).toThrow(expect.objectContaining({ code: 'ORDERS_TRANSFER_ALREADY_SENT' }));
+    expect(() => sellpiaTransferResendOf(previous, false)).toThrow(expect.objectContaining({ code: 'ORDERS_TRANSFER_ALREADY_SENT' }));
   });
 });

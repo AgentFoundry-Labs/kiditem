@@ -1,4 +1,4 @@
-import { KiditemPreconditionError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import {
   SELLPIA_ORDER_TRANSFER_CHUNK_KIND,
@@ -89,6 +89,16 @@ export function sellpiaTransferResult(
     acceptedOrderNumbers: accepted,
     targetOrderCount: plan.targetOrderNumbers.length,
   });
+}
+
+/**
+ * 재전송 울타리(리더 결정, KID-355): 같은 원천(+운송유형)의 성공한 전송(`previousId`)이 있으면 운영자가 재전송을 고른
+ * 경우(`resend`)에만 다시 보내고, plan에 그 실행 id를 남긴다. 닫힌(실패) 전송은 성공이 아니라 막지 않는다.
+ */
+export function sellpiaTransferResendOf(previousId: string | null, resend: boolean | undefined): string | null {
+  if (previousId === null) return null;
+  if (resend !== true) throw new KiditemConflictError('ORDERS_TRANSFER_ALREADY_SENT', { details: { previousOperationId: previousId } });
+  return previousId;
 }
 
 /** 다시 만든 파일의 번호가 plan의 대상과 같은가(순서 무관). 다르면 원천이 바뀐 것이다. */

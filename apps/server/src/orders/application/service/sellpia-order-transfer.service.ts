@@ -22,9 +22,14 @@ import { sellpiaOrderNumbersFromFile } from '../../domain/sellpia-order-targets'
 import {
   readSellpiaTransferPlan,
   sameOrderNumbers,
+  sellpiaTransferResendOf,
   sellpiaTransferScope,
   sellpiaTransferTransport,
 } from '../../domain/sellpia-order-transfer-operation';
+import {
+  SELLPIA_ACTION_OUTCOMES_PORT,
+  type SellpiaActionOutcomesPort,
+} from '../port/out/persistence/sellpia-action-outcomes.port';
 import { MallOrdersOperationService } from './mall-orders-operation.service';
 
 /** 원천 실행에서 다시 만든 셀피아 업로드 파일. */
@@ -50,6 +55,7 @@ export class SellpiaOrderTransferService {
     private readonly mallOrders: MallOrdersOperationService,
     @Inject(COUPANG_DIRECT_ORDER_COLLECTION_PORT) private readonly directship: CoupangDirectOrderCollectionPort,
     private readonly directshipFiles: CoupangDirectshipService,
+    @Inject(SELLPIA_ACTION_OUTCOMES_PORT) private readonly outcomes: SellpiaActionOutcomesPort,
   ) {}
 
   async plan(organizationId: string, rawScope: unknown): Promise<OperationPlanResult> {
@@ -61,6 +67,8 @@ export class SellpiaOrderTransferService {
       });
     }
     const transport = sellpiaTransferTransport(source.kind, scope.transport);
+    const previous = await this.outcomes.findSucceededTransfer({ organizationId, sourceOperationId: scope.sourceOperationId, transport });
+    const resendOf = sellpiaTransferResendOf(previous, scope.resend);
     const file = await this.regenerate(organizationId, scope.sourceOperationId, transport);
     if (!file || file.orderNumbers.length === 0) {
       throw new KiditemPreconditionError('ORDERS_TRANSFER_NO_TARGETS', { details: { sourceOperationId: scope.sourceOperationId } });
@@ -69,6 +77,7 @@ export class SellpiaOrderTransferService {
       sourceOperationId: scope.sourceOperationId,
       shopName: scope.shopName,
       transport,
+      resendOf,
       fileName: file.fileName,
       targetOrderNumbers: file.orderNumbers,
     });
@@ -109,7 +118,7 @@ export class SellpiaOrderTransferService {
       return {
         bytes: converted.conversion.buffer,
         fileName: converted.conversion.fileName,
-        contentType: converted.mallKey === 'art09' ? 'text/csv;charset=utf-8' : XLS_CONTENT_TYPE,
+        contentType: converted.contentType,
         orderNumbers: sellpiaOrderNumbersFromFile(converted.conversion.buffer),
       };
     }

@@ -17,4 +17,6 @@ export interface SellpiaActionOutcomesPort {
     transfers: SellpiaActionOutcome[];
     invoices: SellpiaActionOutcome[];
   }>;
+  /** 같은 원천 실행(+운송유형, 몰 주문은 null)을 보낸 가장 최근 성공 전송 실행 id. 없으면 null(재전송 울타리). */
+  findSucceededTransfer(input: { organizationId: string; sourceOperationId: string; transport: string | null }): Promise<string | null>;
 }
