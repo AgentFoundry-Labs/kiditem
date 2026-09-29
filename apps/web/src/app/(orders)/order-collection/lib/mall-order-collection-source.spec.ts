@@ -325,6 +325,32 @@ describe('mallOrderCollectionSource', () => {
     expect(handOff).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * 답을 못 받은 시작 기억은 몰마다 따로다. 다른 몰의 미완료 시작은 요청이 같아 보여도 그 몰의 시도라,
+   * 이 몰이 그 키를 재생하면 owner 가 다른 몰의 시도를 이 몰의 확장 실행에 넘긴다.
+   */
+  it('does not replay another mall`s unanswered begin key', async () => {
+    const { source } = adapter();
+    const otherMallStart = {
+      attemptId: null,
+      idempotencyKey: STORED_KEY,
+      mallKey: OTHER_MALL_KEY,
+      collectionDate: '2026-09-15',
+      collectionMode: 'browser',
+      selectionMode: 'manual',
+    } as const;
+    rememberActiveOrderCollectionAttempt(ORGANIZATION_ID, otherMallStart, undefined, OTHER_MALL_KEY);
+    rememberActiveOrderCollectionAttempt(ORGANIZATION_ID, otherMallStart);
+    vi.mocked(apiClient.post).mockResolvedValueOnce(openedAttempt());
+
+    await source.start!({ collectionDate: '2026-09-15' }, { status: undefined });
+
+    const keys = beginKeys();
+    expect(keys).toHaveLength(1);
+    expect(keys[0]).not.toBe(STORED_KEY);
+    expect(readActiveOrderCollectionAttempt(ORGANIZATION_ID, undefined, OTHER_MALL_KEY)?.idempotencyKey).toBe(STORED_KEY);
+  });
+
   /** owner 는 같은 키에 다른 요청이 오면 재사용으로 거절한다. 그러면 새 키로 시작한다. */
   it('drops the unanswered key when the next start asks for another day', async () => {
     const { source } = adapter();
