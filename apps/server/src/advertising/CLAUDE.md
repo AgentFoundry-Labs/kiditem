@@ -28,10 +28,8 @@ throughout.
   and the recent measured window (`readCurrentAdTargets`); there is no bid
   rule. A proposal's evidence is `payload.adTarget`.
 - Approving an action of a `MANUAL_AD_ACTION_TYPES` type
-  (`domain/execution-task-lifecycle.ts`) records the operator's confirmation,
-  and the operator applies the change in the ad center. The server refuses
-  every executor claim for those types; the extension writes to Coupang only
-  after an accepted claim.
+  (`domain/manual-ad-action-types.ts`) records the operator's confirmation and
+  prepares nothing; the operator applies the change in the ad center.
 - Raw scrape evidence and daily fact projections remain organization-scoped and
   auditable. Advertising is the canonical writer for its own facts; consumers
   use its read contracts rather than mutating channel tables directly.
@@ -85,6 +83,30 @@ option and day, only for keywords that drew a click.
 - A moved kind's failure stays on its operation row; the alerts reader absorbs
   it (KID-355 policy B). These owners and the Wing daily owners have no
   `onFailed` and write no alert rows.
+
+## Ad Action Execution
+
+- An `AdAction` is a decision (type, values, approval). Its execution is an
+  `advertising.ad_action` operation (KID-386,
+  `adapter/in/operation/ad-action-operation-owner.ts`); only
+  `create_campaign` runs. Execution words come from the action's latest
+  operation (`read/ad-action-execution.ts`); `AdAction.operationId` links it
+  and `payload.execution` keeps only an audit copy. `execution_tasks` is
+  neither read nor written.
+- Approval or `POST /api/ads/campaigns/register` commits the action first,
+  then a second transaction locks it and calls `operations.prepare`, because
+  the owner's `plan` reads the committed action. A failed preparation leaves
+  it approved and `not_prepared`; approving again prepares it. A live or
+  applied run is never prepared again.
+- The extension claims the run from its popup (`POST /api/operations/claim`,
+  10-minute lease), fills the ad center registration form, and reports an
+  `ad_action_evidence` chunk and a finish: campaign id read → `created`, form
+  submitted without an id → succeeded `uncertain`, form not reached → failed.
+- The run locks `resource:ad-action:<actionId>` only. A prepared run can wait
+  days for the popup, so it must not hold `resource:ad-center:<id>` and block
+  the ad report; the popup runs one action at a time.
+- Rejection cancels a prepared run and is refused while the extension holds
+  the run or after it applied.
 
 ## Ad Report
 
