@@ -496,8 +496,6 @@ async function readObservedOrderCount(
   return Number(row?.count ?? 0n);
 }
 
-/** One line of an order an operation published, without window facts. */
-
 /**
  * Every line of every order an operation published for the
  * organization, whatever its date. It declares no window and reads no
