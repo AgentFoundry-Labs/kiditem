@@ -288,8 +288,12 @@ export function OrderCollectionWorkspace() {
       current.map((entry) => (entry.id === file.id ? file : entry)),
     );
   }, []);
+  // 서버가 이미 보낸 파일이라 거절하면(기록이 어긋남) 요청됨으로 맞춘 기록으로 재전송 확인 창을 띄운다.
+  const resendConfirmRef = useRef<(item: ConversionHistoryItem) => void>(() => undefined);
+  const handleAlreadySent = useCallback((file: ConversionHistoryItem) => resendConfirmRef.current(file), []);
   const sellpiaTransmission = useSellpiaOrderTransmission({
     items: history,
+    onAlreadySent: handleAlreadySent,
     onTransmissionRequested: handleTransmissionRequested,
   });
 
@@ -661,6 +665,8 @@ export function OrderCollectionWorkspace() {
       releaseAction();
     }
   };
+
+  resendConfirmRef.current = (item) => { void handleSendToSellpia(item); };
 
   const handleSendSelectedToSellpia = async (items: ConversionHistoryItem[]) => {
     const batch = [...items];
