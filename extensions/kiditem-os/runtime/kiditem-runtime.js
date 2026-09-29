@@ -16243,10 +16243,11 @@ var KidItemRuntime = (() => {
     const { page, opened } = await openOperatorTab(tabs, { matches: target.matches, url: target.url, stay: target.stay });
     let close = false;
     try {
-      const args = { rows: rows.map((row) => ({ orderNo: row.orderNo, trackingNumber: row.trackingNumber, courierName: courierName(row.courier) })) };
+      const unique = rows.filter((row, index) => rows.findIndex((other) => other.orderNo === row.orderNo) === index);
+      const args = { rows: unique.map((row) => ({ orderNo: row.orderNo, trackingNumber: row.trackingNumber, courierName: courierName(row.courier) })) };
       const read15 = async () => {
         const answer2 = await callPage(page, target.call, args, {
-          timeoutMs: target.timeoutMs(rows.length),
+          timeoutMs: target.timeoutMs(unique.length),
           guard: target.guard,
           isolated: [target.file],
           displayName: target.displayName
@@ -16262,7 +16263,7 @@ var KidItemRuntime = (() => {
         answer = signIn ? await signIn.onPage(page, target.url, read15) : await read15();
       } catch (error) {
         if (!answerLost(error)) throw error;
-        return { rows: rows.map((row) => ({ orderNo: row.orderNo, status: "failed", mallMessage: ANSWER_LOST })), confirmedByMall: false };
+        return { rows: unique.map((row) => ({ orderNo: row.orderNo, status: "failed", mallMessage: ANSWER_LOST })), confirmedByMall: false };
       }
       const results = answer.rows ?? [];
       const confirmedByMall = !(target.submitOnly && answer.submitted === true);
@@ -21701,7 +21702,7 @@ var KidItemRuntime = (() => {
         return response.operation;
       },
       async readSource(path) {
-        if (!/^\/api\/[A-Za-z0-9._~\-/]+$/.test(path)) {
+        if (!/^\/api\/[A-Za-z0-9._~\-/]+$/.test(path) || path.split("/").includes("..")) {
           throw new RuntimeError(RUNTIME_API_UNREACHABLE, "\uC2E4\uD589 \uC6D0\uCC9C \uD30C\uC77C \uACBD\uB85C\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { path });
         }
         const response = await send16(api, path, { method: "GET", headers: {} });
