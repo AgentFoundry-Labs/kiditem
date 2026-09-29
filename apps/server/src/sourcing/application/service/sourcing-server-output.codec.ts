@@ -15,10 +15,27 @@ export interface SourceOutputHead {
   warnings?: string[];
   /** URL 수집만: finalize가 같은 트랜잭션에서 입장시킬 원본 기록. */
   sourceRecord?: SourceRecordWrite;
+  /**
+   * 품목 단위로 나눠 싣는 문서(섀도, KID-389). 출력 안의 `{ $document: 이름 }` 자리는 finalize에서 이 문서로 바뀐다.
+   * 문서의 목록(`lists[].path`)은 원소 하나에 품목 하나씩 실려, 청크 원소 상한이 문서 전체가 아니라 품목 하나에 걸린다.
+   */
+  documents?: Record<string, SourceDocumentSplit>;
+}
+
+export interface SourceDocumentSplit {
+  /** 목록을 비운 문서 뼈대. */
+  skeleton: unknown;
+  lists: Array<{ path: Array<string | number>; items: unknown[] }>;
+}
+
+/** 품목 단위로 나눈 문서의 자리 표시. */
+export function sourceDocumentRef(name: string): { $document: string } {
+  return { $document: name };
 }
 
 type Element =
   | { part: 'head'; head: unknown; discoveredCount: number; rejectedCount: number; qualityReport: unknown }
+  | { part: 'document_item'; document: string; list: number; value: unknown }
   | { part: 'observation'; value: unknown }
   | { part: 'record'; value: unknown };
 
@@ -28,8 +45,18 @@ type Element =
  * 같은 `Date` 값을 받는다. 원소 순서(머리 → 관측 → typed 원장)는 청크 순번으로 지킨다.
  */
 export function encodeSourceOutput(output: AuthorizedCollectionOutput, head: SourceOutputHead): unknown[][] {
+  const { documents, ...rest } = head;
+  const skeletons = documents
+    ? Object.fromEntries(Object.entries(documents).map(([name, split]) => [name, {
+      skeleton: split.skeleton,
+      paths: split.lists.map((list) => list.path),
+    }]))
+    : undefined;
   const elements: Element[] = [
-    { part: 'head', head, discoveredCount: output.discoveredCount, rejectedCount: output.rejectedCount, qualityReport: output.qualityReport },
+    { part: 'head', head: { ...rest, ...(skeletons ? { documents: skeletons } : {}) },
+      discoveredCount: output.discoveredCount, rejectedCount: output.rejectedCount, qualityReport: output.qualityReport },
+    ...Object.entries(documents ?? {}).flatMap(([document, split]) => split.lists.flatMap((list, index) =>
+      list.items.map((value) => ({ part: 'document_item' as const, document, list: index, value })))),
     ...output.observations.map((value) => ({ part: 'observation' as const, value })),
     ...output.typedRecords.map((value) => ({ part: 'record' as const, value })),
   ];
@@ -65,16 +92,30 @@ export function decodeSourceOutput(chunks: readonly OperationStagedChunk[]): { o
   if (!first || first.part !== 'head' || rest.some((element) => element.part === 'head')) throw invalid('source_output_head_missing');
   const observations: unknown[] = [];
   const typedRecords: unknown[] = [];
+  const { documents: skeletons, ...head } = first.head as SourceOutputHead & {
+    documents?: Record<string, { skeleton: unknown; paths: Array<Array<string | number>> }>;
+  };
+  const documentItems = new Map<string, unknown[][]>();
   for (const element of rest) {
     if (element.part === 'observation') observations.push(element.value);
     else if (element.part === 'record') typedRecords.push(element.value);
-    else throw invalid('source_output_malformed');
+    else if (element.part === 'document_item' && skeletons?.[element.document]?.paths[element.list]) {
+      const lists = documentItems.get(element.document) ?? skeletons[element.document].paths.map(() => []);
+      lists[element.list].push(element.value);
+      documentItems.set(element.document, lists);
+    } else throw invalid('source_output_malformed');
   }
+  const documents = new Map(Object.entries(skeletons ?? {}).map(([name, { skeleton, paths }]) => {
+    const document = structuredClone(skeleton);
+    paths.forEach((path, index) => setPath(document, path, documentItems.get(name)?.[index] ?? []));
+    return [name, document];
+  }));
+  const resolve = (value: unknown): unknown => resolveDocuments(value, documents);
   return {
-    head: first.head as SourceOutputHead,
+    head: head as SourceOutputHead,
     output: {
-      observations: observations as AuthorizedCollectionOutput['observations'],
-      typedRecords: typedRecords as AuthorizedCollectionOutput['typedRecords'],
+      observations: resolve(observations) as AuthorizedCollectionOutput['observations'],
+      typedRecords: resolve(typedRecords) as AuthorizedCollectionOutput['typedRecords'],
       discoveredCount: first.discoveredCount,
       rejectedCount: first.rejectedCount,
       qualityReport: first.qualityReport as Record<string, unknown>,
@@ -97,6 +138,30 @@ function decodeDates(value: unknown): unknown {
     const entries = Object.entries(value);
     if (entries.length === 1 && entries[0][0] === '$date' && typeof entries[0][1] === 'string') return new Date(entries[0][1]);
     return Object.fromEntries(entries.map(([key, item]) => [key, decodeDates(item)]));
+  }
+  return value;
+}
+
+function setPath(target: unknown, path: Array<string | number>, value: unknown): void {
+  let cursor = target as Record<string | number, unknown>;
+  for (const key of path.slice(0, -1)) {
+    cursor = cursor?.[key] as Record<string | number, unknown>;
+    if (!cursor || typeof cursor !== 'object') throw invalid('source_document_path_missing');
+  }
+  cursor[path[path.length - 1]] = value;
+}
+
+/** `{ $document: 이름 }` 자리를 다시 모은 문서로 바꾼다. 모르는 이름이면 거절한다. */
+function resolveDocuments(value: unknown, documents: Map<string, unknown>): unknown {
+  if (Array.isArray(value)) return value.map((item) => resolveDocuments(item, documents));
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const entries = Object.entries(value);
+    if (entries.length === 1 && entries[0][0] === '$document') {
+      const document = documents.get(String(entries[0][1]));
+      if (document === undefined) throw invalid('source_document_missing');
+      return structuredClone(document);
+    }
+    return Object.fromEntries(entries.map(([key, item]) => [key, resolveDocuments(item, documents)]));
   }
   return value;
 }
