@@ -23,7 +23,7 @@ describe('자동송장 대상 규칙 — 최근 24시간 성공 전송의 받아
       now,
       transfers: [{ finishedAt: hoursAgo(1), acceptedOrderNumbers: ['A-1', 'B-2', 'C-3'] }],
       // C-3은 앞 송장 실행에서 못 찾은 번호였다(issued에 없음) → 다시 대상
-      invoices: [{ issuedOrderNumbers: ['B-2'] }, { issuedOrderNumbers: [' A-1 '] }],
+      invoices: [{ finishedAt: hoursAgo(0.5), issuedOrderNumbers: ['B-2'] }, { finishedAt: hoursAgo(0.2), issuedOrderNumbers: [' A-1 '] }],
     });
     expect(targets).toEqual(['C-3']);
   });
@@ -35,5 +35,22 @@ describe('자동송장 대상 규칙 — 최근 24시간 성공 전송의 받아
 
   it('미래 시각의 전송(시계 오차)은 대상에서 뺀다', () => {
     expect(sellpiaInvoiceTargets({ now, transfers: [{ finishedAt: hoursAgo(-1), acceptedOrderNumbers: ['F'] }], invoices: [] })).toEqual([]);
+  });
+
+  it('송장 발급은 그보다 먼저 끝난 전송의 번호만 뺀다 — 파일마다 1부터 다시 세는 번호가 뒤 전송에서 다시 나와도 대상이다', () => {
+    const targets = sellpiaInvoiceTargets({
+      now,
+      transfers: [
+        { finishedAt: hoursAgo(5), acceptedOrderNumbers: ['20260929_0001'] },
+        { finishedAt: hoursAgo(2), acceptedOrderNumbers: ['20260929_0001', '20260929_0002'] },
+      ],
+      invoices: [{ finishedAt: hoursAgo(4), issuedOrderNumbers: ['20260929_0001'] }],
+    });
+    expect(targets).toEqual(['20260929_0001', '20260929_0002']);
+    expect(sellpiaInvoiceTargets({
+      now,
+      transfers: [{ finishedAt: hoursAgo(5), acceptedOrderNumbers: ['20260929_0001'] }],
+      invoices: [{ finishedAt: hoursAgo(4), issuedOrderNumbers: ['20260929_0001'] }],
+    })).toEqual([]);
   });
 });

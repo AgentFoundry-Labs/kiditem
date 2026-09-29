@@ -33,6 +33,8 @@ export interface MallOrdersOperationConversion {
   operationId: string;
   artifactId: string;
   mallKey: string;
+  /** 변환 파일 형식: 아트공구는 Cafe24 CSV, 나머지는 셀피아 xls. */
+  contentType: string;
   conversion: OrderCollectionConversion | null;
 }
 
@@ -121,7 +123,13 @@ export class MallOrdersOperationService {
     }
     const result = MallOrdersResultSchema.safeParse(operation.result);
     const conversion = result.success && result.data.captured === 0 ? null : await this.convert(plan, capture);
-    return { operationId: operation.id, artifactId: capture.artifactId, mallKey: plan.mallKey, conversion };
+    return {
+      operationId: operation.id,
+      artifactId: capture.artifactId,
+      mallKey: plan.mallKey,
+      contentType: plan.mallKey === 'art09' ? 'text/csv;charset=utf-8' : 'application/vnd.ms-excel',
+      conversion,
+    };
   }
 
   /** 성공한 아이스크림몰 실행의 continuation(배송 색인·본 행 키 — 화면이 이어 쓴다). */
