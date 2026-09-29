@@ -1,4 +1,10 @@
 import { SOURCING_EXTENSION_OPERATION_OWNERS } from "./adapter/in/operation/sourcing-extension-operation-owners";
+import { SOURCING_SERVER_OPERATION_OWNERS } from "./adapter/in/operation/sourcing-server-operation-owners";
+import { SourcingServerOperationRepositoryAdapter } from "./adapter/out/repository/sourcing-server-operation.repository.adapter";
+import { SOURCING_SERVER_OPERATION_PORT } from "./application/port/in/sourcing-server-operation.port";
+import { SOURCING_SERVER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-server-operation.repository.port";
+import { SourcingServerOperationService } from "./application/service/sourcing-server-operation.service";
+import { SourcingServerOperationRunner } from "./application/service/sourcing-server-operation.runner";
 import { SourcingChannelAccountAdapter } from "./adapter/out/channels/sourcing-channel-account.adapter";
 import { SourcingOperationLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-operation-ledger.repository.adapter";
 import { SOURCING_EXTENSION_OPERATION_PORT } from "./application/port/in/sourcing-extension-operation.port";
@@ -8,6 +14,7 @@ import { SourcingExtensionOperationService } from "./application/service/sourcin
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
+import { OperationModule } from "../common/operation/operation.module";
 import { AiModule } from "../content/ai.module";
 import { AiAgentRuntimeModule } from "../content/ai-agent-runtime.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
@@ -170,6 +177,7 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     PrismaModule,
     SourcingSourceRecordModule,
     AlertsModule,
+    OperationModule,
     AiAgentRuntimeModule,
     SalesProductModule,
     AiModule,
@@ -201,6 +209,12 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     ...SOURCING_EXTENSION_OPERATION_OWNERS,
     SourcingExtensionOperationService,
     { provide: SOURCING_EXTENSION_OPERATION_PORT, useExisting: SourcingExtensionOperationService },
+    ...SOURCING_SERVER_OPERATION_OWNERS,
+    SourcingServerOperationService,
+    { provide: SOURCING_SERVER_OPERATION_PORT, useExisting: SourcingServerOperationService },
+    SourcingServerOperationRunner,
+    SourcingServerOperationRepositoryAdapter,
+    { provide: SOURCING_SERVER_OPERATION_REPOSITORY_PORT, useExisting: SourcingServerOperationRepositoryAdapter },
     SourcingOperationLedgerRepositoryAdapter,
     { provide: SOURCING_OPERATION_LEDGER_REPOSITORY_PORT, useExisting: SourcingOperationLedgerRepositoryAdapter },
     SourcingChannelAccountAdapter,
