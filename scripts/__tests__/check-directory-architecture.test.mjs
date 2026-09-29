@@ -116,3 +116,25 @@ test("rejects retired backend lanes: adapter/out/repository, application/usecase
     "apps/server/src/products/application/port/out/persistence/product.repository.port.ts",
   ]);
 });
+
+test("rejects the retired *.repository.adapter.ts and *.persistence.adapter.ts file names (KID-324)", () => {
+  const result = analyzeDirectoryArchitecture({
+    architectureDoc: "",
+    serverSrcDirs: [],
+    gatewaySrcDirs: [],
+    webAppDirs: [],
+    webSrcDirs: ["app"],
+    webAppApiExists: false,
+    serverFiles: [
+      "apps/server/src/channels/adapter/out/persistence/listing.repository.ts",
+      "apps/server/src/channels/adapter/out/persistence/listing.repository.adapter.ts",
+      "apps/server/src/channels/adapter/out/persistence/account.persistence.adapter.spec.ts",
+      "apps/server/src/supply/adapter/out/transaction/submission.transaction.adapter.ts",
+    ],
+  });
+
+  assert.deepEqual(result.retiredAdapterFileNames, [
+    "apps/server/src/channels/adapter/out/persistence/account.persistence.adapter.spec.ts",
+    "apps/server/src/channels/adapter/out/persistence/listing.repository.adapter.ts",
+  ]);
+});

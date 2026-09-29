@@ -14,8 +14,7 @@ each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`,
 Documented legacy exception: the statistics and supplier-stats application
 services inject `PrismaService` directly and read Orders through
 `orders/adapter/out/persistence/read/order-facts.reader` (frozen in
-`check:hexagonal` `KNOWN_VIOLATIONS`, removed with KID-334, and in its
-`CROSS_OWNER_EXCEPTIONS`); the dashboard
+`check:hexagonal` `CROSS_OWNER_EXCEPTIONS`, removed with KID-392); the dashboard
 architecture spec therefore scopes its Prisma-free rules to `*/dashboard/`.
 
 ## Ownership and source boundaries

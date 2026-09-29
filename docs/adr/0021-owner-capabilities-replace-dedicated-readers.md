@@ -27,7 +27,7 @@ Owner persistence adapters may query their canonical ledgers without
 registering each query file. Transitional owner `read/` helpers remain valid
 internal implementations. Other owners inject the provider's incoming port
 directly; consumers keep no anti-corruption output ports of their own. Existing
-direct consumers remain explicit migration exceptions (KID-324). The ledger
+direct consumers remain explicit migration exceptions (KID-324 and its sub-issues). The ledger
 guard continues to restrict mutations to declared owner publication paths;
 permission to read does not grant permission to publish. A capability is a
 domain ability listed in the owner's Agent capability catalog; an incoming port

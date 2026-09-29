@@ -170,16 +170,20 @@ test('products joins the scanner (KID-311)', () => {
   assert.ok(hexagonalBoundaryViolations('apps/server/src/products/read/product-abc-publication.reader.ts', '').length);
 });
 
-test('analytics joins the scanner: retired lanes refused, a listed adapter import passes (KID-311)', () => {
+test("analytics joins the scanner: retired lanes refused; another owner's adapter is left to the cross-owner rule (KID-311, KID-324)", async () => {
   for (const path of ['analytics/dto/x.dto.ts', 'analytics/services/x.service.ts', 'analytics/read/x.ts', 'analytics/controllers/x.controller.ts']) {
     assert.ok(hexagonalBoundaryViolations(`apps/server/src/${path}`, '').length, path);
   }
   const statistics = 'analytics/application/service/statistics/statistics.service.ts';
   const specifier = '../../../../orders/adapter/out/persistence/read/order-facts.reader';
   const source = `import { x } from '${specifier}';`;
-  const entry = { owner: 'analytics', file: statistics, specifier, removeWith: 'KID-334' };
-  assert.deepEqual(evaluateHexagonal([{ file: statistics, source }], [entry]), []);
-  assert.equal(evaluateHexagonal([{ file: statistics, source }], []).length, 1);
+  // A cross-owner edge is listed once, in CROSS_OWNER_EXCEPTIONS, not in KNOWN_VIOLATIONS.
+  assert.deepEqual(evaluateHexagonal([{ file: statistics, source }], []), []);
+  const { crossOwnerImportFindings } = await import('../check-hexagonal.mjs');
+  assert.equal(crossOwnerImportFindings(statistics, source).length, 1);
+  // A same-owner adapter import from the pure layer still needs a KNOWN_VIOLATIONS entry.
+  const own = "import { x } from '../../../adapter/out/persistence/read/statistics-facts';";
+  assert.equal(evaluateHexagonal([{ file: statistics, source: own }], []).length, 1);
 });
 
 test('a known violation must name a scanned owner, a file under it, a specifier and a KID ticket (KID-311)', () => {

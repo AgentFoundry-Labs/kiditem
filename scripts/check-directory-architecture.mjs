@@ -75,6 +75,11 @@ function retiredLaneFiles(serverFiles) {
   return serverFiles.filter((file) => RETIRED_BACKEND_LANES.some((lane) => file.includes(lane))).sort();
 }
 
+// Database adapter files are `<name>.repository.ts`; the old suffixes must not return.
+function retiredAdapterFileNames(serverFiles) {
+  return serverFiles.filter((file) => /\.(?:repository|persistence)\.adapter\./.test(path.posix.basename(file))).sort();
+}
+
 export function analyzeDirectoryArchitecture({
   architectureDoc,
   serverSrcDirs,
@@ -110,6 +115,7 @@ export function analyzeDirectoryArchitecture({
     directOutPortFiles: directOutPortFiles(backendPortFiles),
     forbiddenInPortCallerFolders: forbiddenInPortCallerFolders(backendPortFiles),
     retiredLaneFiles: retiredLaneFiles(serverFiles),
+    retiredAdapterFileNames: retiredAdapterFileNames(serverFiles),
   };
 }
 
@@ -138,7 +144,8 @@ function main() {
     result.forbidden.length > 0 ||
     result.directOutPortFiles.length > 0 ||
     result.forbiddenInPortCallerFolders.length > 0 ||
-    result.retiredLaneFiles.length > 0;
+    result.retiredLaneFiles.length > 0 ||
+    result.retiredAdapterFileNames.length > 0;
 
   if (!hasFailure) {
     console.log('check:directory-architecture PASS');
@@ -165,6 +172,11 @@ function main() {
   if (result.retiredLaneFiles.length > 0) {
     console.error(
       `Retired backend lanes (use adapter/out/persistence, application/service, application/port/out/repository): ${result.retiredLaneFiles.join(', ')}`,
+    );
+  }
+  if (result.retiredAdapterFileNames.length > 0) {
+    console.error(
+      `Database adapter files are named <name>.repository.ts: ${result.retiredAdapterFileNames.join(', ')}`,
     );
   }
   console.error('Update docs/ARCHITECTURE.md with the directory map or move the directory.');
