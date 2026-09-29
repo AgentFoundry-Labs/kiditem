@@ -10544,6 +10544,16 @@ var KidItemRuntime = (() => {
     SOURCING_OPERATION_KINDS.tiktokCreative,
     SOURCING_OPERATION_KINDS.productExtension
   ];
+  var SOURCING_SERVER_KINDS = [
+    SOURCING_OPERATION_KINDS.naverTrend,
+    SOURCING_OPERATION_KINDS.shortstrendTrend,
+    SOURCING_OPERATION_KINDS.taobaoLive,
+    SOURCING_OPERATION_KINDS.marketShadow,
+    SOURCING_OPERATION_KINDS.naverKeywordAnalysis,
+    SOURCING_OPERATION_KINDS.keywordSearch1688,
+    SOURCING_OPERATION_KINDS.imageSearch1688,
+    SOURCING_OPERATION_KINDS.scrapeUrl
+  ];
   var SourcingWingCatalogScopeSchema = SourcingWingCatalogBatchInputSchema.innerType().extend({
     channelAccountId: external_exports.string().uuid()
   }).strict();
@@ -10589,6 +10599,63 @@ var KidItemRuntime = (() => {
     windowEndAt: external_exports.string().datetime({ offset: true }).nullable(),
     /** product_extension: 이 수집이 입장시킨 원본 기록과 그 초안. */
     admitted: external_exports.array(external_exports.object({ sourceRecordId: external_exports.string().uuid(), salesProductId: external_exports.string().uuid() }).strict()).optional()
+  }).strict();
+  var SourcingSourceFailureAlertSchema = external_exports.object({
+    sourceType: external_exports.string().min(1).max(100),
+    dedupeKey: external_exports.string().min(1).max(300),
+    title: external_exports.string().min(1).max(200),
+    href: external_exports.string().min(1).max(500)
+  }).strict();
+  var SourcingServerScopeBaseSchema = external_exports.object({
+    sourceKey: external_exports.string().min(1).max(100),
+    scopeKey: external_exports.string().min(1).max(100),
+    targetKey: external_exports.string().min(1).max(500),
+    planChecksum: external_exports.string().regex(/^[0-9a-f]{64}$/),
+    requestFingerprint: external_exports.string().min(1).max(128),
+    requestIdempotencyKey: external_exports.string().min(1).max(128),
+    collectorKey: external_exports.string().min(1).max(100),
+    collectorVersion: external_exports.string().min(1).max(100),
+    attemptPlan: external_exports.object({ source: external_exports.string().min(1) }).passthrough(),
+    failureAlert: SourcingSourceFailureAlertSchema
+  }).strict();
+  function serverScope(sourceKeys, extra) {
+    return SourcingServerScopeBaseSchema.extend({
+      sourceKey: external_exports.enum(sourceKeys),
+      ...extra ?? {}
+    });
+  }
+  var SOURCING_SERVER_SCOPE_SCHEMAS = {
+    "sourcing.naver_trend": serverScope(["naver.trend"]),
+    "sourcing.shortstrend_trend": serverScope(["shortstrend.trend"]),
+    "sourcing.taobao_live": serverScope(["taobao.live"]),
+    "sourcing.market_shadow": serverScope(["market_shadow_signals"], {
+      scopeKey: external_exports.literal("day"),
+      targetKey: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+    }),
+    "sourcing.naver_keyword_analysis": serverScope(["naver.keyword_analysis"]),
+    "sourcing.keyword_search_1688": serverScope(["1688.hot_product"]),
+    "sourcing.image_search_1688": serverScope(["1688.image_search"]),
+    "sourcing.scrape_url": serverScope(["1688.scrape_url", "alibaba.scrape_url"], {
+      scopeKey: external_exports.literal("product-url"),
+      targetKey: external_exports.string().min(1).max(500)
+    })
+  };
+  var SourcingServerOperationResultSchema = external_exports.object({
+    sourceKey: external_exports.string(),
+    scopeKey: external_exports.string(),
+    targetKey: external_exports.string(),
+    discoveredCount: external_exports.number().int().nonnegative(),
+    acceptedCount: external_exports.number().int().nonnegative(),
+    duplicateCount: external_exports.number().int().nonnegative(),
+    rejectedCount: external_exports.number().int().nonnegative(),
+    contentChecksum: external_exports.string(),
+    /** 발행 행의 `completedAt`(성공만). 화면의 완료 시각과 원천 기준 시각이 같은 값을 읽게 한다. */
+    completedAt: external_exports.string().datetime({ offset: true }).optional(),
+    warnings: external_exports.array(external_exports.string()).optional(),
+    /** 1688 키워드·이미지 검색: 대상 하나의 결과(`Sourcing1688BatchUnitResult`). */
+    unitResult: external_exports.record(external_exports.unknown()).optional(),
+    /** URL 수집: 같은 finish 트랜잭션에서 입장시킨 원본 기록과 그 초안. */
+    scrapeUrlResult: external_exports.object({ sourceRecordId: external_exports.string().uuid(), salesProductId: external_exports.string().uuid() }).strict().optional()
   }).strict();
 
   // extensions/src/collectors/sourcing.coupang_keyword_suggestion/index.ts
