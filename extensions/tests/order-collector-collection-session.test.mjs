@@ -531,15 +531,12 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   const collection = { assertActive: async () => true };
   const cases = [
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
-    ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
     ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
   ];
 
   for (const [functionName, url] of cases) {
-    const located = functionName === 'findOrCreateDomeggookTab'
-      ? await runtime.context[functionName](url, collection)
-      : await runtime.context[functionName](collection);
+    const located = await runtime.context[functionName](collection);
     assert.equal(located.created, true, functionName);
     assert.equal(located.tab.active, false, functionName);
     assert.equal(located.tab.url, url, functionName);

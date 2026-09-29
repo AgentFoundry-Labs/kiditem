@@ -19,70 +19,6 @@ const coupangEnvironment = KidItemCoupangEnvironmentRuntime.create({
   chrome,
   environmentContext: adsEnvironmentContext,
 });
-const authedFetch = (environmentId, path, init) =>
-  adsEnvironmentContext.authedFetch(environmentId, path, init);
-const getAuthToken = (environmentId) =>
-  adsEnvironmentContext.getAccessToken(environmentId);
-
-async function exportWingInventoryWorkbook(products, sender) {
-  if (!Array.isArray(products) || products.length === 0) {
-    throw new Error("Wing 상품 행이 없습니다.");
-  }
-  const environmentId = await coupangEnvironment.environmentForTab(sender?.tab?.id);
-  if (!environmentId) {
-    throw new Error("현재 Wing 탭이 KidItem 환경에 연결되지 않았습니다.");
-  }
-  const response = await authedFetch(environmentId, "/api/channels/coupang-wing/inventory-export", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ products, fileName: legacyWingInventoryFileName() }),
-  });
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (!response.ok) {
-    let message = `Wing 상품목록 엑셀 변환 실패 (HTTP ${response.status})`;
-    try {
-      const body = JSON.parse(new TextDecoder().decode(bytes));
-      message = body?.message || body?.error || message;
-    } catch {
-      // Preserve the HTTP failure when the server did not return JSON.
-    }
-    throw new Error(message);
-  }
-  return {
-    success: true,
-    fileBase64: bytesToBase64(bytes),
-    fileName: parseContentDispositionFilename(response.headers.get("content-disposition")) || "wing-inventory.xls",
-    contentType: response.headers.get("content-type") || "application/vnd.ms-excel;charset=utf-8",
-    total: products.length,
-  };
-}
-
-function legacyWingInventoryFileName() {
-  const now = new Date();
-  const pad = (value) => String(value).padStart(2, "0");
-  return `wing-inventory_${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}.${pad(now.getMinutes())}.xls`;
-}
-
-function bytesToBase64(bytes) {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return btoa(binary);
-}
-
-function parseContentDispositionFilename(header) {
-  if (typeof header !== "string") return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header)?.[1];
-  if (encoded) {
-    try {
-      return decodeURIComponent(encoded);
-    } catch {
-      return null;
-    }
-  }
-  return /filename="([^"]+)"/i.exec(header)?.[1] || null;
-}
 
 // Write-only Wing/Ads sync stamps no build reads any more. Remove them once from
 // installed profiles.
@@ -143,68 +79,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch((error) => sendResponse({ success: false, error: error.message }));
     return true;
   }
-
-  if (msg.action === "kiditemApiRequest") {
-    const path = typeof msg.path === "string" ? msg.path : "";
-    if (!path.startsWith("/api/") || /^https?:/i.test(path)) {
-      sendResponse({ success: false, error: "허용되지 않은 API 경로입니다." });
-      return;
-    }
-    Promise.resolve()
-      .then(async () => {
-        const environmentId = msg.environmentId ||
-          (await coupangEnvironment.environmentForTab(sender?.tab?.id));
-        adsEnvironmentContext.requireEnvironment(environmentId);
-        const headers = new Headers(msg.init?.headers || {});
-        headers.delete("authorization");
-        const response = await authedFetch(environmentId, path, {
-          ...(msg.init || {}),
-          headers,
-        });
-        const body = await response.json().catch(() => null);
-        return { success: true, ok: response.ok, status: response.status, body };
-      })
-      .then(sendResponse)
-      .catch((error) => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (msg.action === "exportWingInventoryWorkbook") {
-    KidItemWorkerKeepAlive.during(
-      exportWingInventoryWorkbook(msg.products, sender),
-    )
-      .then(sendResponse)
-      .catch((error) => sendResponse({
-        success: false,
-        error: error?.message || "Wing 상품목록 엑셀 변환 실패",
-      }));
-    return true;
-  }
-
-
+  // 팝업 API 요청(`kiditemApiRequest`)과 Wing 재고 내보내기(`exportWingInventoryWorkbook`)·웹앱 토큰(`setAuthToken`·
+  // `clearAuthToken`)은 새 런타임이 받는다(KID-366, `extensions/src/entry/actions`).
 });
-
-// ═══ 대시보드(외부 웹페이지) 메시지 ═══
-// 새 런타임 dispatch가 받아 과도기 위임으로 넘긴다(KID-366) — 환경은 보내는 창 origin으로 정해져 온다.
-const coupangExternalActions = {
-  setAuthToken: {
-    validate(msg) {
-      if (typeof msg?.token !== "string" || !msg.token) throw new Error("token required");
-      return { token: msg.token };
-    },
-    handle: async (input, environmentId) => {
-      await adsEnvironmentContext.setAccessToken(environmentId, input.token);
-      return { success: true, environmentId };
-    },
-  },
-  clearAuthToken: {
-    validate: () => ({}),
-    handle: async (_input, environmentId) => {
-      await adsEnvironmentContext.clearAccessToken(environmentId);
-      return { success: true, environmentId };
-    },
-  },
-};
 
 function buildCoupangSearchUrl(keyword) {
   return `${COUPANG_SEARCH_URL}?component=&q=${encodeURIComponent(keyword)}&channel=user`;
@@ -456,13 +333,11 @@ function sleep(ms) {
 // ── 통합 서비스워커 등록 ──
 // 이 도메인에는 수집 세션 producer가 없다 — 윙 카탈로그·상품은 실행 kind다(KID-365).
 KidItemDomains.register({
-  externalActions: coupangExternalActions,
   capabilities: {
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
     browserCollectionSessions: true,
-    kiditemEnvironmentProfilesV1: true,
   },
   // 광고 수집(캠페인·키워드·수익성)은 새 런타임의 실행 kind라, 이 도메인에는
   // 취소하거나 복구할 브라우저 수집 세션이 남지 않는다(KID-373).

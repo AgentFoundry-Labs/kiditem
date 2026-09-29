@@ -10,11 +10,9 @@ import vm from "node:vm";
  * 6개, mall-session-probe.js 의 조용한 확인 스펙 14개. 몰을 한 표에만 적으면 자동 로그인은
  * 되는데 상태는 "확인 불가" 로 남았다 — 아무도 고장이라고 부르지 않는 고장이다.
  *
- * 이제 몰 한 줄 스펙(`entryUrl · loginUrl · loggedInSignal · fields`) 하나에 그 셋이 모이고,
- * 밖으로 나가는 문은 둘뿐이다. `ensureLoggedIn` 은 `ok · rejected · unknown`,
- * `checkLogin` 은 `in · out · unknown` 으로 답한다. 탭을 열고 스크립트를 넣고 알림 창을
- * 삼키는 일은 모듈 안쪽의 드라이버 자리이고, 이 테스트는 그 자리에 가짜를 끼워
- * 스펙에 적힌 몰 전부를 돌린다.
+ * 로그인 상태 확인(`checkMallLogin`)과 로그인 테스트는 새 런타임(`extensions/src/sites/mall-session`, KID-366)으로
+ * 옮겼다. 여기 남은 문은 옛 수집 경로의 `ensureLoggedIn`(`ok · rejected · unknown`) 하나다. 탭을 열고 스크립트를 넣고
+ * 알림 창을 삼키는 일은 모듈 안쪽의 드라이버 자리이고, 이 테스트는 그 자리에 가짜를 끼워 스펙에 적힌 몰 전부를 돌린다.
  */
 const source = readFileSync(
   new URL("../kiditem-os/background/orders/mall-session.js", import.meta.url),
@@ -159,32 +157,14 @@ test("⭐ 세 표에 있던 몰이 모두 한 스펙 표에 있다", () => {
   assert.ok(MallSession.malls.length >= 16, "합집합은 16개 이상이어야 한다");
 });
 
-test("⭐ 스펙 한 줄은 들어갈 주소 · 로그인 주소 · 로그인 표시 · 입력칸을 함께 적는다", () => {
+test("⭐ 스펙 한 줄은 로그인 입구와 입력칸을 적는다 — 고정 입구가 없는 몰은 저장된 사이트 주소로 들어간다", () => {
   for (const [mallKey, sources] of Object.entries(UNION)) {
     const spec = MallSession.SPECS[mallKey];
     assert.ok(spec, `${mallKey} 스펙 없음`);
-    // 확인은 언제나 주소가 있어야 한다 — 없으면 상태가 영영 "확인 불가" 다.
-    assert.match(spec.entryUrl, /^https:\/\//, `${mallKey} entryUrl`);
-    if (sources.includes("login")) {
-      assert.match(spec.loginUrl, /^https:\/\//, `${mallKey} loginUrl`);
-    } else {
-      // 고정 로그인 주소가 없는 몰은 사장님이 계정에 적어 둔 사이트 주소로 들어간다.
-      assert.equal(spec.loginUrl, null, `${mallKey} loginUrl`);
-    }
-    assert.equal(
-      typeof spec.loggedInSignal === "function",
-      sources.includes("signal"),
-      `${mallKey} loggedInSignal`,
-    );
+    if (sources.includes("login")) assert.match(spec.loginUrl, /^https:\/\//, `${mallKey} loginUrl`);
+    else assert.equal(spec.loginUrl, null, `${mallKey} loginUrl`);
     assert.ok(spec.fields === null || Array.isArray(spec.fields), `${mallKey} fields`);
   }
-});
-
-test("조용히 읽을 수 있는 몰은 로그인 표시가 있는 몰뿐이다", () => {
-  assert.deepEqual(
-    [...MallSession.passiveMalls].sort(),
-    Object.entries(UNION).filter(([, s]) => s.includes("signal")).map(([key]) => key).sort(),
-  );
 });
 
 test("채울 로그인 폼이 없는 몰은 그렇게 적혀 있다 — 고정 로그인 주소도 두지 않는다", () => {
@@ -209,92 +189,6 @@ test("⭐ 이유 코드는 두 문이 함께 쓰는 한 벌이고, 서버가 받
   // 두 문이 실제로 같은 벌에서 답한다.
   for (const shared of ["verification_required", "login_page_not_reachable", "already_signed_in"]) {
     assert.ok(codes.includes(shared), `공통 이유 코드 누락: ${shared}`);
-  }
-});
-
-// ── 로그인 상태 확인 ─────────────────────────────────────────────────────────
-
-test("⭐ 조용한 확인이 확실하면 그 답을 쓰고 탭을 열지 않는다", async () => {
-  const signedIn = fakeDriver({ passive: { verdict: "in", reason: "admin_page" } });
-  assert.deepEqual({ ...(await signedIn.session.checkLogin("onch")) }, { verdict: "in", reason: "admin_page" });
-  assert.equal(signedIn.calls.opened.length, 0);
-
-  const signedOut = fakeDriver({ passive: { verdict: "out", reason: "login_page" } });
-  assert.deepEqual({ ...(await signedOut.session.checkLogin("kidsnote")) }, { verdict: "out", reason: "login_page" });
-  assert.equal(signedOut.calls.opened.length, 0);
-
-  const verify = fakeDriver({ passive: { verdict: "out", reason: "verification_required" } });
-  assert.deepEqual(
-    { ...(await verify.session.checkLogin("kidkids")) },
-    { verdict: "out", reason: "verification_required" },
-  );
-});
-
-test("⭐ 조용히 가릴 수 없으면 관리자 화면을 열어 보고 닫는다", async () => {
-  const { session, calls } = fakeDriver({ screens: [{ loginForm: false, verification: false }] });
-
-  assert.deepEqual({ ...(await session.checkLogin("always", "https://alwayzseller.ilevit.com/login")) },
-    { verdict: "in", reason: "admin_page" });
-  // 저장된 사이트 주소(로그인 화면)보다 로그인해야 열리는 관리자 첫 화면이 먼저다.
-  assert.equal(calls.opened[0].url, "https://alwayzseller.ilevit.com/");
-  assert.deepEqual(calls.closed, [{ id: 77, collection: null, keepOpen: false }]);
-});
-
-test("⭐ 화면에 로그인 폼이 있으면 로그인 필요, 인증칸이 있으면 인증 필요", async () => {
-  const out = fakeDriver({ screens: [{ loginForm: true, verification: false }] });
-  assert.deepEqual({ ...(await out.session.checkLogin("gs-shop")) }, { verdict: "out", reason: "login_page" });
-
-  const verify = fakeDriver({ screens: [{ loginForm: false, verification: true }] });
-  assert.deepEqual(
-    { ...(await verify.session.checkLogin("gs-shop")) },
-    { verdict: "out", reason: "verification_required" },
-  );
-});
-
-test("로그인 주소로 넘어간 화면은 들여다보지 못해도 로그인 필요다", async () => {
-  const { session } = fakeDriver({
-    screens: [null],
-    tabUrl: "https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth",
-  });
-  assert.equal((await session.checkLogin("coupang")).verdict, "out");
-});
-
-test("⭐ 아예 들여다보지 못한 화면은 모른다고 답한다 — 로그인 필요로 단정하지 않는다", async () => {
-  const { session } = fakeDriver({ screens: [null, null] });
-  assert.deepEqual(
-    { ...(await session.checkLogin("kakao")) },
-    { verdict: "unknown", reason: "login_page_not_reachable" },
-  );
-});
-
-test("스펙에 없는 몰과 권한 밖 주소는 아무것도 열지 않고 모른다고 답한다", async () => {
-  const unknownMall = fakeDriver({});
-  assert.deepEqual(
-    { ...(await unknownMall.session.checkLogin("one-polaris")) },
-    { verdict: "unknown", reason: "no_login_address" },
-  );
-  assert.equal(unknownMall.calls.opened.length, 0);
-
-  const outside = fakeDriver({ allowed: false });
-  assert.deepEqual(
-    { ...(await outside.session.checkLogin("yoons", "https://unknown-mall.example/admin")) },
-    { verdict: "unknown", reason: "login_page_not_reachable" },
-  );
-  assert.equal(outside.calls.opened.length, 0);
-  assert.deepEqual(outside.calls.permissions, ["https://unknown-mall.example"]);
-});
-
-test("⭐ 스펙에 적힌 몰은 하나도 빠짐없이 세 답 중 하나를 낸다", async () => {
-  for (const mallKey of MallSession.malls) {
-    const inside = fakeDriver({ screens: [{ loginForm: false, verification: false }] });
-    assert.equal((await inside.session.checkLogin(mallKey)).verdict, "in", `${mallKey} in`);
-    assert.equal(inside.calls.opened[0].url, MallSession.SPECS[mallKey].entryUrl, `${mallKey} entryUrl`);
-
-    const outside = fakeDriver({ screens: [{ loginForm: true, verification: false }] });
-    assert.equal((await outside.session.checkLogin(mallKey)).verdict, "out", `${mallKey} out`);
-
-    const blind = fakeDriver({ screens: [null, null] });
-    assert.equal((await blind.session.checkLogin(mallKey)).verdict, "unknown", `${mallKey} unknown`);
   }
 });
 
@@ -454,13 +348,6 @@ test("⭐ 채울 로그인 폼이 없는 몰은 탭도 열지 않고 그렇게 �
     assert.equal(result.success, true, `${mallKey} success`);
     assert.equal(result.submitted, false, `${mallKey} submitted`);
   }
-
-  // 확인(`checkLogin`)은 그대로다 — 둘 다 관리자 화면을 여전히 열어 본다.
-  for (const mallKey of ["kakao", "always"]) {
-    const looked = fakeDriver({ screens: [{ loginForm: false, verification: false }] });
-    assert.equal((await looked.session.checkLogin(mallKey)).verdict, "in", `${mallKey} check`);
-    assert.equal(looked.calls.opened[0].url, MallSession.SPECS[mallKey].entryUrl, `${mallKey} entryUrl`);
-  }
 });
 
 test("⭐ 두 문이 내는 이유 코드는 모두 그 한 벌 안에 있다", async () => {
@@ -479,11 +366,6 @@ test("⭐ 두 문이 내는 이유 코드는 모두 그 한 벌 안에 있다", 
     for (const mallKey of [...MallSession.malls, "one-polaris"]) {
       seen.add((await fakeDriver(script).session.ensureLoggedIn(mallKey, credentials)).reason);
       seen.add((await fakeDriver(script).session.ensureLoggedIn(mallKey, null)).reason);
-    }
-  }
-  for (const screens of [[{ loginForm: true }], [{ loginForm: false, verification: true }], [null, null], [{}]]) {
-    for (const mallKey of [...MallSession.malls, "one-polaris"]) {
-      seen.add((await fakeDriver({ screens }).session.checkLogin(mallKey)).reason);
     }
   }
   for (const reason of seen) {

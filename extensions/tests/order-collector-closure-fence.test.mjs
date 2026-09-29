@@ -410,5 +410,4 @@ test("Orders registers recovery and additional-read cancellation hooks", () => {
   assert.match(worker, /ORDERS_ADDITIONAL_RESOURCES_KEY/);
   assert.match(worker, /async function collectSellpiaOrderSnapshot\(environmentId\)/);
   assert.match(worker, /async function collectCoupangShipmentList\(options, environmentId\)/);
-  assert.match(worker, /async function fetchCoupangShipmentPdfBatch\(options, environmentId\)/);
 });

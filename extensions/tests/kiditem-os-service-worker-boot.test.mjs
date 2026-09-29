@@ -597,7 +597,12 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'orderCollectionIcecreamMall',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
-    'mallLoginCheckV2',
+    // 새 런타임 entry 액션 묶음(KID-366)
+    'mallLoginActionsV1',
+    'coupangShipmentActionsV1',
+    'mallImageHostV1',
+    'mallCategoryReadV1',
+    'wingInventoryExportV1',
     // 쿠팡
     'coupangCatalogSnapshot',
     // 몰 쓰기 실행 kind(등록·품절·재개·가격·대표이미지, KID-256)
@@ -612,12 +617,19 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'operationLoginV1',
     // 공통
     'browserCollectionSessions',
-    'kiditemEnvironmentProfilesV1',
   ]) {
     assert.equal(response.capabilities[capability], true, capability);
   }
   // 옛 광고 수집(캠페인·키워드·수익성)은 새 런타임의 advertising.ad_report 실행 kind다(KID-373).
+  // 옛 entry 액션 capability는 별칭 없이 사라졌다(KID-366) — 프로필 지원은 operationRuntime으로 판단한다.
   for (const retired of [
+    'kiditemEnvironmentProfilesV1',
+    'mallLoginTestV1',
+    'mallLoginCheckV2',
+    'publicImageHostV1',
+    'mallCategoryLookup',
+    'coupangShipmentDownloads',
+    'clearCoupangCookies',
     'collectionStartV1',
     'profitabilityAdvertisingSourceOwnerV1',
     'advertisingCampaignSourceOwnerV1',

@@ -13,8 +13,9 @@ const environmentContext = await readFile(
 
 test('uses the shared environment auth context instead of a global token or API URL', () => {
   assert.match(worker, /KidItemEnvironmentContext\.create/);
-  // 세 도메인이 한 스코프를 공유하므로 쿠팡 도메인은 adsEnvironmentContext 를 쓴다.
-  assert.match(worker, /adsEnvironmentContext\.authedFetch\(environmentId/);
+  // KidItem API 호출(팝업 요청·Wing 재고 내보내기)과 토큰 저장은 새 런타임 core가 한다(KID-366,
+  // `extensions/src/core/authed-fetch.ts`). 쿠팡 워커는 API를 직접 부르지 않는다.
+  assert.doesNotMatch(worker, /authedFetch/);
   assert.doesNotMatch(worker, /const API_URL/);
   assert.doesNotMatch(worker, /AUTH_TOKEN_KEY/);
   assert.doesNotMatch(worker, /KidItemAuth/);

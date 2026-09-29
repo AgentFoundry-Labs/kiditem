@@ -29,8 +29,6 @@ importScripts(
   "orders/order-collection-lifecycle.js",
   "orders/order-collection-source-owner.js",
   "orders/sellpia-post-processing.js",
-  "orders/mall-utility-actions.js",
-  "orders/mall-session-probe.js",
   "orders/mall-session.js",
   // 소싱 수집(KID-360)과 광고 키워드·경쟁사 수집(KID-362)은 새 런타임(kiditem-runtime.js)의 실행 kind다.
   // 도메인 워커 — 위 모듈의 전역을 최상위에서 바로 쓰므로 반드시 마지막이다.

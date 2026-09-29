@@ -12,12 +12,11 @@ const workerSource = fs.readFileSync(
   'utf8',
 );
 
-test('Wing export transport stays authenticated and tab-bound', () => {
-  assert.match(workerSource, /msg\.action === ["']exportWingInventoryWorkbook["']/);
-  assert.match(workerSource, /\/api\/channels\/coupang-wing\/inventory-export/);
-  assert.match(workerSource, /environmentForTab\(sender\?\.tab\?\.id\)/);
-  assert.match(workerSource, /fileName: legacyWingInventoryFileName\(\)/);
-  assert.match(workerSource, /function legacyWingInventoryFileName\(\)/);
+// 서버 변환 호출(인증·탭에 묶인 환경)은 새 런타임 내부 액션이다(KID-366, `extensions/src/entry/actions/
+// export-wing-inventory-workbook.ts` 스펙이 본다). 옛 쿠팡 워커는 더 이상 받지 않는다.
+test('Wing export transport moved to the new runtime; the old Coupang worker no longer answers it', () => {
+  assert.doesNotMatch(workerSource, /msg\.action === ["']exportWingInventoryWorkbook["']/);
+  assert.doesNotMatch(workerSource, /inventory-export/);
   assert.doesNotMatch(source, /new Blob\(\['\\uFEFF'/);
 });
 
@@ -77,10 +76,8 @@ test('Wing inventory keeps DOM collection in the content script and sends raw ro
           sent.push(message);
           callback({
             success: true,
-            fileBase64: Buffer.from('\uFEFFserver-workbook').toString('base64'),
+            b64: Buffer.from('\uFEFFserver-workbook').toString('base64'),
             fileName: 'wing-inventory_2026-07-31_14.05.xls',
-            contentType: 'application/vnd.ms-excel;charset=utf-8',
-            total: 1,
           });
         },
       },
@@ -105,7 +102,8 @@ test('Wing inventory keeps DOM collection in the content script and sends raw ro
   assert.equal(response.total, 1);
   const exportMessage = JSON.parse(JSON.stringify(sent[0]));
   assert.equal(exportMessage.action, 'exportWingInventoryWorkbook');
-  assert.deepEqual(exportMessage.products, [{ 등록상품ID: 'P-1', 상품명: '상품 하나', 가격: '1,000' }]);
+  assert.deepEqual(Object.keys(exportMessage).sort(), ['action', 'rows']);
+  assert.deepEqual(exportMessage.rows, [{ 등록상품ID: 'P-1', 상품명: '상품 하나', 가격: '1,000' }]);
   assert.equal(downloadedAnchor.download, 'wing-inventory_2026-07-31_14.05.xls');
   assert.equal(await downloadedBlob.text(), 'server-workbook');
   assert.deepEqual(

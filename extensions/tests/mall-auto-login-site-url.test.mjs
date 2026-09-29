@@ -105,18 +105,8 @@ function fakeLoginDriver(opened) {
     takeDialog: async () => null,
     fillLoginForm: async () => ({ frames: [{ state: "no-login-form" }] }),
     loginFormRemains: async () => false,
-    inspectScreen: async () => ({ href: "", frames: [] }),
-    probe: async () => ({ verdict: "unknown", reason: "no_passive_check" }),
   };
 }
-
-test("the login test carries the saved address through and checks its type", () => {
-  const start = workerSource.indexOf('if (msg?.action === "testMallLogin")');
-  assert.notEqual(start, -1);
-  const block = workerSource.slice(start, workerSource.indexOf("\n  if (msg?.action ===", start + 1));
-  assert.match(block, /credentials\.siteUrl === undefined \|\| typeof credentials\.siteUrl === "string"/);
-  assert.match(block, /\.\.\.\(credentials\.siteUrl \? \{ siteUrl: credentials\.siteUrl \} : \{\}\)/);
-});
 
 /**
  * 몰은 대개 알림 창(`alert`)으로 답한다. 백그라운드 탭의 알림 창은 그 탭의 스크립트를 멈춰

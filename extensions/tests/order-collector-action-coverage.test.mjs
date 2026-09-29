@@ -232,9 +232,21 @@ test('order-collection route actions are handled by the extension worker', () =>
   for (const match of externalActions.matchAll(/^\s*([A-Za-z_$][\w$]*)\s*:\s*\{/gm)) {
     handledActions.add(match[1]);
   }
+  // 한 번에 끝나는 entry 액션(KID-366)은 새 런타임 dispatch가 받는다 — 이름은 shared 계약 하나에 있다.
+  const entryContract = readFileSync(
+    path.join(repoRoot, 'packages/shared/src/schemas/extension-actions.ts'),
+    'utf8',
+  );
+  for (const match of entryContract.matchAll(/_ACTION = ['"]([^'"]+)['"] as const/g)) {
+    handledActions.add(match[1]);
+  }
+  // 호출부가 없는 죽은 액션(KID-366)은 확장에서 지웠다 — 웹에 남은 죽은 호출 코드는 웹 트랙이 지운다.
+  const retiredActions = new Set(['clickCoupangShipmentDownloads', 'uploadDomeggookTracking']);
+  for (const action of retiredActions) assert.equal(handledActions.has(action), false, `${action} must stay retired`);
   const missingActions = [...requestedActions].filter(
     (action) =>
       !handledActions.has(action) &&
+      !retiredActions.has(action) &&
       !new Set(['restartCollectionSession', 'finalizeCollectionSession']).has(action),
   );
 
@@ -398,21 +410,16 @@ test('automatic order correlation guard rejects arbitrary spreads', () => {
 test('only explicit user actions route focus through the interactive helper', () => {
   const worker = readFileSync(workerPath, 'utf8');
   assert.doesNotMatch(worker, /active:\s*true|focused:\s*true/);
+  // 쿠팡 쉽먼트 화면 열기는 새 런타임 entry 액션이다(KID-366, `sites/coupang-supplier/shipment-files.ts`가 앞으로 가져온다).
   for (const action of [
     'sendOrderFileToSellpia',
-    'openCoupangShipmentPage',
-    'clickCoupangShipmentDownloads',
     'uploadOnchTracking',
-    'uploadDomeggookTracking',
   ]) {
     assert.match(worker, new RegExp(`msg\\?\\.action === ["']${action}["']`), action);
   }
   for (const [functionName, reason] of [
     ['findOrCreateSellpiaTab', 'ORDER_FILE_UPLOAD'],
-    ['openCoupangShipmentPage', 'SHIPMENT_PAGE'],
-    ['clickCoupangShipmentDownloads', 'SHIPMENT_DOWNLOAD'],
     ['uploadOnchTracking', 'TRACKING_MUTATION'],
-    ['uploadDomeggookTracking', 'TRACKING_MUTATION'],
   ]) {
     const start = worker.indexOf(`async function ${functionName}(`);
     const next = worker.indexOf('\nasync function ', start + 1);
