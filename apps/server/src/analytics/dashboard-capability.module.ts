@@ -17,14 +17,12 @@ import { DashboardSalesRepositoryAdapter } from './adapter/out/repository/dashbo
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard/dashboard-inventory.repository.adapter';
-import { CollectionFreshnessRepositoryAdapter } from './adapter/out/repository/dashboard/collection-freshness.repository.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/dashboard/analytics-overview-capability.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/dashboard/profit-calculation.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from './application/port/out/repository/dashboard/dashboard-sales.repository.port';
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/dashboard/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard/dashboard-inventory.repository.port';
-import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/dashboard/collection-freshness.repository.port';
 import { DashboardSalesService } from './application/service/dashboard/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard/dashboard-ad.service';
 import { DashboardInventoryService } from './application/service/dashboard/dashboard-inventory.service';
@@ -38,7 +36,6 @@ const repositoryAdapters = [
   DashboardTrendRepositoryAdapter,
   WingTrafficAggregationRepositoryAdapter,
   DashboardInventoryRepositoryAdapter,
-  CollectionFreshnessRepositoryAdapter,
 ];
 
 const repositoryPorts = [
@@ -48,7 +45,6 @@ const repositoryPorts = [
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
   { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
-  { provide: COLLECTION_FRESHNESS_REPOSITORY_PORT, useExisting: CollectionFreshnessRepositoryAdapter },
 ];
 
 const dashboardServices = [
