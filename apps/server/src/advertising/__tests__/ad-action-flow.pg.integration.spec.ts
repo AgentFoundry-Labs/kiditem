@@ -3,7 +3,6 @@ import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports'
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
-import { ConflictException } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdvertisingModule } from '../advertising.module';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
@@ -215,75 +214,11 @@ describe('AdAction flow (PG integration)', () => {
     });
   }
 
-  /**
-   * An approved action with one queued attempt, written directly: what a
-   * database cut over before migration 015 (KID-230) existed still holds for
-   * an approval made before KID-138 decision A.
-   */
-  async function legacyQueuedAction(actionType: string, targetLabel: string) {
-    const action = await seedPendingAction(targetLabel, TEST_ORGANIZATION_ID, actionType);
-    await prisma.adAction.update({
-      where: { id: action.id },
-      data: { approvalStatus: 'approved', approvedAt: new Date() },
-    });
-    await prisma.executionTask.create({ data: { actionId: action.id, status: 'queued' } });
-    return action;
-  }
-
-  async function approvedAction(targetLabel: string) {
-    const action = await seedPendingAction(targetLabel);
-    await adActionService.approveActions([action.id], TEST_ORGANIZATION_ID);
-    return action;
-  }
-
   async function reviewItem(actionId: string) {
     const { items } = await adActionService.getActions({ limit: 200 }, TEST_ORGANIZATION_ID);
     const item = items.find((candidate) => candidate.id === actionId);
     if (!item) throw new Error('action missing from the review list: ' + actionId);
     return item;
-  }
-
-  /** The attempt an executor reports for: the latest task id the action listing carries. */
-  async function attemptOf(actionId: string) {
-    const { executionTaskId } = await reviewItem(actionId);
-    if (!executionTaskId) throw new Error('action has no execution attempt: ' + actionId);
-    return executionTaskId;
-  }
-
-  /** The 409 body of a refused execution report. */
-  async function refusal(report: Promise<unknown>) {
-    const error = await report.then(
-      () => {
-        throw new Error('the execution report was accepted');
-      },
-      (reason: unknown) => reason,
-    );
-    expect(error).toBeInstanceOf(ConflictException);
-    return (error as ConflictException).getResponse();
-  }
-
-  /** The browser extension's queue: GET /api/ads/actions?approvalStatus=approved&executeStatus=queued. */
-  async function extensionQueueIds() {
-    const { items } = await adActionService.getActions(
-      { approvalStatus: 'approved', executeStatus: 'queued', limit: 50 },
-      TEST_ORGANIZATION_ID,
-    );
-    return items.map((item) => item.id);
-  }
-
-  /** Moves an attempt's start into the past, as if its executor reported running that long ago. */
-  async function backdateStart(taskId: string, minutes: number, extraMs = 0) {
-    await prisma.executionTask.update({
-      where: { id: taskId },
-      data: { startedAt: new Date(Date.now() - minutes * 60 * 1000 - extraMs) },
-    });
-  }
-
-  function tasksOf(actionId: string) {
-    return prisma.executionTask.findMany({
-      where: { actionId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    });
   }
 
   beforeAll(async () => {
@@ -488,7 +423,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(action.currentValue).toBe(20000);
       expect(action.proposedValue).toBe(10000);
     });
-    it('#6b does not propose pausing a keyword again while a pause of it made in the measured window stands approved or done', async () => {
+    it('#6b does not propose pausing a keyword again while a pause of it stands approved, until the operator closes it', async () => {
       const { listing, option, listingOption } = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'B',
@@ -512,8 +447,7 @@ describe('AdAction flow (PG integration)', () => {
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 1 });
       const pause = await prisma.adAction.findFirstOrThrow({ where: { organizationId: TEST_ORGANIZATION_ID } });
       await adActionService.approveActions([pause.id], TEST_ORGANIZATION_ID);
-      // The operator paused it in the ad center; an attempt from before decision A reads done.
-      await prisma.executionTask.updateMany({ where: { actionId: pause.id }, data: { status: 'done', finishedAt: new Date() } });
+      // The operator paused it in the ad center; the approval stands for the window's rows.
       const backdate = (days: number) => prisma.adAction.update({
         where: { id: pause.id },
         data: { createdAt: new Date(Date.now() - days * 86_400_000) },
@@ -523,14 +457,16 @@ describe('AdAction flow (PG integration)', () => {
       await backdate(3);
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 0 });
 
-      // A pause older than the window's first measured day no longer stands for these rows.
+      // Older than the window's first measured day, the approved pause is still open work until the
+      // operator closes it (a keyword pause is applied by hand, KID-138 decision A).
       await backdate(20);
+      await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 0 });
+      await adActionService.rejectActions([pause.id], TEST_ORGANIZATION_ID);
       await expect(adActionService.generateActions(TEST_ORGANIZATION_ID)).resolves.toMatchObject({ generated: 1 });
     });
   });
 
   describe('reviews that name the review they expect (KID-138 review)', () => {
-    const MANUAL_MESSAGE = '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
     const keywordPause = (label: string) =>
       seedPendingAction(label, TEST_ORGANIZATION_ID, 'pause_keyword');
 
@@ -547,10 +483,11 @@ describe('AdAction flow (PG integration)', () => {
       ).resolves.toEqual({ updated: 1 });
 
       expect(await reviewItem(pending.id)).toMatchObject({ approvalStatus: 'rejected' });
+      // A keyword pause is applied by hand, so its approval prepares no run (KID-386).
       expect(await reviewItem(confirmed.id)).toMatchObject({
         approvalStatus: 'approved',
-        executeStatus: 'failed',
-        errorMessage: MANUAL_MESSAGE,
+        executeStatus: 'not_prepared',
+        errorMessage: null,
       });
     });
 
@@ -569,12 +506,10 @@ describe('AdAction flow (PG integration)', () => {
 
       expect(await reviewItem(pending.id)).toMatchObject({
         approvalStatus: 'approved',
-        executeStatus: 'failed',
+        executeStatus: 'not_prepared',
       });
       expect(await reviewItem(closed.id)).toMatchObject({ approvalStatus: 'rejected' });
-      expect(await tasksOf(closed.id)).toEqual([]);
-      // The confirmation is not recorded a second time.
-      expect((await tasksOf(confirmed.id)).map((task) => task.status)).toEqual(['failed']);
+      expect(await prisma.operation.count()).toBe(0);
     });
 
     it('#22 closing approved proposals skips one still awaiting review', async () => {
@@ -590,12 +525,11 @@ describe('AdAction flow (PG integration)', () => {
 
       expect(await reviewItem(confirmed.id)).toMatchObject({
         approvalStatus: 'rejected',
-        executeStatus: 'failed',
-        errorMessage: MANUAL_MESSAGE,
+        executeStatus: 'not_prepared',
       });
       expect(await reviewItem(pending.id)).toMatchObject({
         approvalStatus: 'pending_review',
-        executionTaskId: null,
+        operationId: null,
       });
     });
   });
@@ -677,9 +611,9 @@ describe('AdAction flow (PG integration)', () => {
     });
 
     it('#14 approve and reject answer how many distinct actions of the organization they found (KID-212)', async () => {
-      const first = await seedPendingAction('CAMP-COUNT-1');
-      const second = await seedPendingAction('CAMP-COUNT-2');
-      const foreign = await seedPendingAction('CAMP-COUNT-FOREIGN', OTHER_ORGANIZATION_ID);
+      const first = await seedPendingAction('CAMP-COUNT-1', TEST_ORGANIZATION_ID, 'change_daily_budget');
+      const second = await seedPendingAction('CAMP-COUNT-2', TEST_ORGANIZATION_ID, 'change_daily_budget');
+      const foreign = await seedPendingAction('CAMP-COUNT-FOREIGN', OTHER_ORGANIZATION_ID, 'change_daily_budget');
       const unknownId = '00000000-0000-4000-8000-00000000abcd';
       // A duplicate id, another organization's action and an id no action has.
       const requested = [first.id, second.id, first.id, foreign.id, unknownId];
@@ -695,7 +629,7 @@ describe('AdAction flow (PG integration)', () => {
 
       expect(await prisma.adAction.findUniqueOrThrow({ where: { id: foreign.id } }))
         .toMatchObject({ approvalStatus: 'pending_review' });
-      expect(await tasksOf(foreign.id)).toEqual([]);
+      expect(await prisma.operation.count()).toBe(0);
     });
   });
 });

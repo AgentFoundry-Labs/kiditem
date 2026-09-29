@@ -2,8 +2,8 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -32,6 +32,7 @@ import {
   toRecommendationCards,
 } from '../../domain/ad-strategy.mapper';
 import type {
+  AdCampaignRegisterResponse,
   AdRulesData,
   AdStrategyAction,
   AdStrategyRecommendation,
@@ -162,17 +163,17 @@ export class AdStrategyService {
   }
 
   /**
-   * 캠페인 등록 — listing IDOR guard + 중복 차단 + AdAction + ExecutionTask 생성.
+   * 캠페인 등록 — listing IDOR guard + 한 계정 확인 + 중복 차단 + 승인된 AdAction 생성 + 실행 준비(KID-386).
    *
-   * Write use case kept inside the service because it carries the
-   * IDOR / duplicate / task creation invariants. Agent execution for the
-   * resulting judgment is submitted through Advertising's local port by
-   * `AdStrategyAgentService`; this service has no runtime coupling.
+   * 등록 내용은 액션 `payload`에 둔다: 광고센터 등록 폼이 쓰는 `campaignName`·`adGroupName`·`productIds`(리스팅의
+   * 외부 id = 광고센터 상품 검색 키)·`dailyBudget`·`targetRoas`와 화면이 보낸 나머지 값. 계정은 `channelAccountId`
+   * 칸이다. 액션을 커밋한 뒤 `advertising.ad_action` 실행을 준비하고, 준비가 실패하면 그 오류를 올린다(액션은
+   * 승인·`not_prepared`로 남고 다시 승인하면 준비된다).
    */
   async registerCampaign(
     dto: RegisterCampaignDto,
     organizationId: string,
-  ): Promise<{ ok: true; actionId: string; taskId: string | null }> {
+  ): Promise<AdCampaignRegisterResponse> {
     // 1. listingId 검증 (per-item IDOR guard)
     for (const listing of dto.listings) {
       const owned = await this.listingRepo.verifyListingOwnership(
@@ -186,15 +187,28 @@ export class AdStrategyService {
       }
     }
 
-    // 2. 중복 캠페인 체크
+    // 2. 한 캠페인은 한 쿠팡 계정의 광고센터에 등록된다.
+    const listings = await this.listingRepo.readCampaignListings(
+      organizationId,
+      dto.listings.map((listing) => listing.listingId),
+    );
+    const accountIds = [...new Set(listings.map((listing) => listing.channelAccountId))];
+    if (accountIds.length !== 1) {
+      throw new KiditemInvalidValueError('ADVERTISING_CAMPAIGN_ACCOUNTS_MIXED', {
+        details: { channelAccountIds: accountIds },
+      });
+    }
+    const externalIdByListing = new Map(listings.map((listing) => [listing.id, listing.externalId]));
+
+    // 3. 중복 캠페인 체크
     const existing = await this.actionRepo.findOpenCreateCampaignAction(
       organizationId,
       dto.campaignName,
     );
     if (existing) {
-      throw new ConflictException(
-        `캠페인 '${dto.campaignName}'이 이미 ${existing.executeStatus === 'done' ? '등록 완료' : '등록 진행 중'}입니다. (ActionID: ${existing.id})`,
-      );
+      throw new KiditemConflictError('ADVERTISING_CAMPAIGN_ALREADY_REQUESTED', {
+        details: { actionId: existing.id, executeStatus: existing.executeStatus },
+      });
     }
 
     const priority: Priority = dto.grade === 'A' ? 'high' : dto.grade === 'B' ? 'medium' : 'low';
@@ -207,6 +221,10 @@ export class AdStrategyService {
       dailyBudget: dto.dailyBudget,
       operationMode: dto.operationMode,
       listings: dto.listings,
+      productIds: [...new Set(dto.listings.flatMap((listing) => {
+        const externalId = externalIdByListing.get(listing.listingId);
+        return externalId ? [externalId] : [];
+      }))],
       smartTargetingBid: dto.smartTargetingBid ?? null,
       keywords: dto.keywords ?? [],
       nonSearchBid: dto.nonSearchBid ?? null,
@@ -214,20 +232,16 @@ export class AdStrategyService {
       pageType: 'campaign_registration',
     };
 
-    const { actionId, taskId } =
-      await this.actionRepo.createCampaignActionWithTask({
-        organizationId,
-        campaignName: dto.campaignName,
-        priority,
-        reason: `${dto.grade}등급 전략 기반 캠페인 등록`,
-        payload,
-      });
+    const { actionId, operationId } = await this.actionRepo.createCampaignAction({
+      organizationId,
+      channelAccountId: accountIds[0],
+      campaignName: dto.campaignName,
+      priority,
+      reason: `${dto.grade}등급 전략 기반 캠페인 등록`,
+      payload,
+    });
 
-    return {
-      ok: true,
-      actionId,
-      taskId,
-    };
+    return { ok: true, actionId, operationId };
   }
 
   // ─────────────────────────────────────────────────────────────

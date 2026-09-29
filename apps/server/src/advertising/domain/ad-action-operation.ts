@@ -11,6 +11,8 @@ import {
   type AdActionResult,
 } from '@kiditem/shared/advertising-operations';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
+import type { AdActionExecuteStatus } from '@kiditem/shared/advertising';
+import { isManualAdActionType } from './manual-ad-action-types';
 
 type AdActionProviderOutcome = AdActionResult['providerOutcome'];
 
@@ -125,4 +127,20 @@ function parseEvidence(row: unknown): AdActionEvidence {
 
 function invalid(reason: string, message: string): never {
   throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason }, message });
+}
+
+/**
+ * An action still open as work, which a new proposal for the same target must
+ * not duplicate and which keeps a campaign name taken: awaiting review; an
+ * approved action the operator applies by hand, until the operator closes it by
+ * rejecting it; or an approved action whose run is queued or running.
+ */
+export function isOpenAdAction(
+  action: { approvalStatus: string; actionType: string },
+  executeStatus: AdActionExecuteStatus,
+): boolean {
+  if (action.approvalStatus === 'pending_review') return true;
+  if (action.approvalStatus !== 'approved') return false;
+  if (isManualAdActionType(action.actionType)) return true;
+  return executeStatus === 'queued' || executeStatus === 'running';
 }

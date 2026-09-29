@@ -41,6 +41,7 @@ export function buildMockAdListingRepo(): MockAdListingRepo {
       abcOfficialCutoffDate: null,
     }),
     verifyListingOwnership: vi.fn(),
+    readCampaignListings: vi.fn(),
   };
 }
 
@@ -84,7 +85,7 @@ export function buildMockAdActionRepo(): MockAdActionRepo {
     approveAdActions: vi.fn(),
     rejectAdActions: vi.fn(),
     findOpenCreateCampaignAction: vi.fn(),
-    createCampaignActionWithTask: vi.fn(),
+    createCampaignAction: vi.fn(),
   };
 }
 

@@ -160,7 +160,7 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter());
+    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, listingReader, profitCatalogTestReaders(prisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never);
 
     expect((await listingReader.findScopedAdListings(ORG, [listing.id]))
       .get(listing.id)?.masterProduct.abcGrade).toBe('A');

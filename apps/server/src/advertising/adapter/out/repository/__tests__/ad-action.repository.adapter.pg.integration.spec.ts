@@ -92,11 +92,11 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
     const firstRepository = new AdActionRepositoryAdapter(channelFactTestPorts(firstPrisma as never).listings, channelFactTestPorts(firstPrisma as never).recipes,
       firstPrisma as never,
-      {} as never, profitCatalogTestReaders(firstPrisma as never).accounts, new AdLedgerReadPersistenceAdapter()
+      {} as never, profitCatalogTestReaders(firstPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never
     );
     const secondRepository = new AdActionRepositoryAdapter(channelFactTestPorts(secondPrisma as never).listings, channelFactTestPorts(secondPrisma as never).recipes,
       secondPrisma as never,
-      {} as never, profitCatalogTestReaders(secondPrisma as never).accounts, new AdLedgerReadPersistenceAdapter()
+      {} as never, profitCatalogTestReaders(secondPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never
     );
     const competingCalls = [
       firstRepository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]),
@@ -137,7 +137,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('keeps one open pause_keyword proposal across duplicates in a run and a serial rerun', async () => {
     const candidate = pauseCandidate();
-    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter());
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never);
 
     const first = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [
       candidate,
@@ -146,7 +146,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
     const rerun = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
 
     expect(first.map((action) => [action.approvalStatus, action.executeStatus])).toEqual([
-      ['pending_review', 'queued'],
+      ['pending_review', 'not_prepared'],
     ]);
     expect(rerun).toEqual([]);
     expect(await observerPrisma.adAction.count({
@@ -156,7 +156,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('keeps an approved keyword pause open until the operator closes it, and proposes the keyword again once it is closed (KID-138 decision A)', async () => {
     const candidate = pauseCandidate();
-    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter());
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never);
     const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
 
     const [confirmed] = await propose();
@@ -184,7 +184,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('blocks a keyword only with the proposal the keyword read shows: an older approved pause behind a newer rejected proposal neither shows nor blocks (KID-138 review)', async () => {
     const candidate = pauseCandidate();
-    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter());
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never);
     const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
     const shown = async () =>
       (await repository.findKeywordPauseProposals(TEST_ORGANIZATION_ID)).map(
@@ -198,35 +198,26 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
       targetLabel: candidate.targetLabel,
       reason: candidate.reason,
     };
-    // Approved before decision A; the row executor could not find the keyword.
-    // Written directly, since executors can no longer report for a pause.
+    // An approved pause the operator has not closed yet.
     const older = await observerPrisma.adAction.create({
       data: {
         ...proposal,
         approvalStatus: 'approved',
         approvedAt: minutesAgo(60),
         createdAt: minutesAgo(60),
-        executionTasks: {
-          create: {
-            status: 'failed',
-            createdAt: minutesAgo(59),
-            finishedAt: minutesAgo(59),
-            errorMessage: '대상 행을 찾지 못했습니다: 콩순이 비눗방울',
-          },
-        },
       },
     });
     expect(await shown()).toEqual([
-      { actionId: older.id, approvalStatus: 'approved', executeStatus: 'failed' },
+      { actionId: older.id, approvalStatus: 'approved', executeStatus: 'not_prepared' },
     ]);
     await expect(propose()).resolves.toEqual([]);
 
-    // Before decision A a failed pause released the keyword, so a newer proposal followed it.
+    // A newer proposal for the same keyword (written directly) is the one the keyword read shows.
     const newer = await observerPrisma.adAction.create({
       data: { ...proposal, approvalStatus: 'pending_review', createdAt: minutesAgo(1) },
     });
     expect(await shown()).toEqual([
-      { actionId: newer.id, approvalStatus: 'pending_review', executeStatus: 'queued' },
+      { actionId: newer.id, approvalStatus: 'pending_review', executeStatus: 'not_prepared' },
     ]);
     await expect(propose()).resolves.toEqual([]);
 
@@ -237,18 +228,13 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
     const [again] = await propose();
     expect(again).toMatchObject({ approvalStatus: 'pending_review', targetLabel: candidate.targetLabel });
     expect(await shown()).toEqual([
-      { actionId: again.id, approvalStatus: 'pending_review', executeStatus: 'queued' },
+      { actionId: again.id, approvalStatus: 'pending_review', executeStatus: 'not_prepared' },
     ]);
   });
 
   it('never blocks a keyword the keyword read does not show, whatever its latest proposal holds (KID-138 review)', async () => {
-    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter());
-    const keywordProposal = async (
-      targetLabel: string,
-      approvalStatus: string,
-      attempt: { status: string; startedAt?: Date; finishedAt?: Date; errorMessage?: string } | null,
-      createdAt = minutesAgo(10),
-    ) => {
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never);
+    const keywordProposal = async (targetLabel: string, approvalStatus: string, createdAt = minutesAgo(10)) => {
       const base = pauseCandidate();
       await observerPrisma.adAction.create({
         data: {
@@ -260,28 +246,16 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
           reason: base.reason,
           approvalStatus,
           createdAt,
-          ...(attempt ? { executionTasks: { create: { ...attempt, createdAt } } } : {}),
         },
       });
     };
-    await keywordProposal('승인 대기', 'pending_review', null);
-    await keywordProposal('승인함', 'approved', {
-      status: 'failed',
-      errorMessage: '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.',
-    });
-    // Approvals from before decision A.
-    await keywordProposal('옛 실행 대기', 'approved', { status: 'queued' });
-    await keywordProposal('옛 실행 중', 'approved', { status: 'running', startedAt: minutesAgo(1) });
-    await keywordProposal('옛 기한 초과', 'approved', { status: 'running', startedAt: minutesAgo(31) });
-    await keywordProposal('옛 완료', 'approved', { status: 'done', finishedAt: minutesAgo(1) });
-    // A task status outside the lifecycle, which the keyword read does not offer.
-    await keywordProposal('모르는 상태', 'approved', { status: 'paused' });
+    await keywordProposal('승인 대기', 'pending_review');
+    // An approved pause is applied by hand and stays open until the operator closes it.
+    await keywordProposal('승인함', 'approved');
     // An older approved pause behind a newer rejected proposal.
-    await keywordProposal('닫은 키워드', 'approved', { status: 'failed' }, minutesAgo(60));
-    await keywordProposal('닫은 키워드', 'rejected', { status: 'cancelled' }, minutesAgo(1));
-    const labels = [
-      '승인 대기', '승인함', '옛 실행 대기', '옛 실행 중', '옛 기한 초과', '옛 완료', '모르는 상태', '닫은 키워드',
-    ];
+    await keywordProposal('닫은 키워드', 'approved', minutesAgo(60));
+    await keywordProposal('닫은 키워드', 'rejected', minutesAgo(1));
+    const labels = ['승인 대기', '승인함', '닫은 키워드'];
 
     const shownLabels = (await repository.findKeywordPauseProposals(TEST_ORGANIZATION_ID))
       .map((row) => row.targetLabel);
@@ -291,47 +265,8 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
     );
     const blocked = labels.filter((label) => !created.some((action) => action.targetLabel === label));
 
-    expect([...shownLabels].sort()).toEqual(
-      ['승인 대기', '승인함', '옛 실행 대기', '옛 실행 중', '옛 기한 초과', '옛 완료'].sort(),
-    );
-    // A pause that already ran before decision A is shown as done and releases the keyword.
-    expect([...blocked].sort()).toEqual(
-      ['승인 대기', '승인함', '옛 실행 대기', '옛 실행 중', '옛 기한 초과'].sort(),
-    );
-    expect(blocked.filter((label) => !shownLabels.includes(label))).toEqual([]);
-  });
-
-  it('releases a keyword whose approved pause ran before decision A, and keeps one whose earlier attempt failed', async () => {
-    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts, new AdLedgerReadPersistenceAdapter());
-    const paused = { ...pauseCandidate(), targetLabel: '이미 끈 키워드' };
-    const unpaused = { ...pauseCandidate(), targetLabel: '못 끈 키워드' };
-    // Before decision A the extension still executed keyword pauses. Executors
-    // can no longer report, so these attempts are written directly.
-    for (const [candidate, attempt] of [
-      [paused, { status: 'done', finishedAt: new Date() }],
-      [unpaused, { status: 'failed', finishedAt: new Date(), errorMessage: '대상 행을 찾지 못했습니다' }],
-    ] as const) {
-      await observerPrisma.adAction.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          actionType: candidate.actionType,
-          targetType: candidate.targetType,
-          externalId: candidate.externalId,
-          targetLabel: candidate.targetLabel,
-          reason: candidate.reason,
-          approvalStatus: 'approved',
-          approvedAt: new Date(),
-          executionTasks: { create: attempt },
-        },
-      });
-    }
-
-    const created = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [
-      paused,
-      unpaused,
-    ]);
-
-    expect(created.map((action) => action.targetLabel)).toEqual(['이미 끈 키워드']);
+    expect([...shownLabels].sort()).toEqual(['승인 대기', '승인함'].sort());
+    expect([...blocked].sort()).toEqual(['승인 대기', '승인함'].sort());
   });
 });
 
@@ -392,7 +327,7 @@ describe('AdActionRepositoryAdapter reviews under row locks (PG integration)', (
 
     try {
       await locked;
-      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(rejectingPrisma as never).listings, channelFactTestPorts(rejectingPrisma as never).recipes, rejectingPrisma as never, {} as never, profitCatalogTestReaders(rejectingPrisma as never).accounts, new AdLedgerReadPersistenceAdapter())
+      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(rejectingPrisma as never).listings, channelFactTestPorts(rejectingPrisma as never).recipes, rejectingPrisma as never, {} as never, profitCatalogTestReaders(rejectingPrisma as never).accounts, new AdLedgerReadPersistenceAdapter(), {} as never)
         .rejectAdActions([proposal.id], TEST_ORGANIZATION_ID, {
           expectedApprovalStatus: 'pending_review',
         });

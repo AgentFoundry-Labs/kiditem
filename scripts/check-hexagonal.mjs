@@ -48,7 +48,6 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/in/web/settlement/dto', removeWith: 'KID-335' },
   { owner: 'finance', file: 'finance/application/service/supplier-payment/supplier-payments.service.ts', specifier: '../../../adapter/in/web/supplier-payment/dto', removeWith: 'KID-335' },
   // Advertising outgoing ports take read-helper types until KID-334.
-  { owner: 'advertising', file: 'advertising/application/port/out/repository/ad-action.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/ad-action-execution', removeWith: 'KID-334' },
   { owner: 'advertising', file: 'advertising/application/port/out/repository/keyword-rank.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/keyword-rank-facts', removeWith: 'KID-334' },
   // Advertising services take incoming DTOs until KID-335.
   { owner: 'advertising', file: 'advertising/application/service/ad-export.service.ts', specifier: '../../adapter/in/http/dto/ad-export.dto', removeWith: 'KID-335' },

@@ -1002,6 +1002,34 @@
       "text": "광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 다시 승인해 주세요.",
       "retryable": true
     },
+    "ADVERTISING_AD_ACTION_EXECUTING": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "광고센터에 반영하는 중인 광고 액션은 거절할 수 없습니다. 실행이 끝난 뒤 다시 확인해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_AD_ACTION_ALREADY_APPLIED": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이미 광고센터에 반영한 광고 액션은 거절할 수 없습니다. 광고센터에서 직접 확인해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_CAMPAIGN_ACCOUNTS_MIXED": {
+      "owner": "advertising",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "한 캠페인에는 같은 쿠팡 계정의 상품만 담을 수 있습니다. 계정별로 나눠 등록해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_CAMPAIGN_ALREADY_REQUESTED": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "같은 이름의 캠페인 등록이 이미 진행 중이거나 끝났습니다. 캠페인 이름을 바꿔 다시 요청해 주세요.",
+      "retryable": false
+    },
     "ANALYTICS_QUERY_FAILED": {
       "owner": "analytics",
       "kind": "internal",

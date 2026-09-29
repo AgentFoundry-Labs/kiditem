@@ -120,6 +120,16 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     const row = await this.channelListings.readDisplayFacts(ownerTransaction(this.prisma), { organizationId, listingIds: [listingId], activeOnly: true });
     return row.length === 1;
   }
+
+  async readCampaignListings(organizationId: string, listingIds: readonly string[]) {
+    if (listingIds.length === 0) return [];
+    const rows = await this.channelListings.readDisplayFacts(ownerTransaction(this.prisma), {
+      organizationId,
+      listingIds: uniqueListingIds([...listingIds]),
+      activeOnly: true,
+    });
+    return rows.map((row) => ({ id: row.id, externalId: row.externalId, channelAccountId: row.accountId }));
+  }
 }
 
 function uniqueListingIds(listingIds: Array<string | null | undefined>): string[] {
