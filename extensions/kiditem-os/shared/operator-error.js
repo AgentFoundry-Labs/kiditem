@@ -999,7 +999,7 @@
       "owner": "advertising",
       "kind": "external",
       "httpStatus": 502,
-      "text": "광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 다시 승인해 주세요.",
+      "text": "광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 같은 이름으로 다시 등록하면 준비합니다.",
       "retryable": true
     },
     "ADVERTISING_AD_ACTION_EXECUTING": {

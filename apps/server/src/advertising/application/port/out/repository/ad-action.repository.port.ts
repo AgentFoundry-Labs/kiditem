@@ -3,7 +3,6 @@
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type {
-  AdActionExecuteStatus,
   AdActionExecution,
   AdActionExpectedApprovalStatus,
   AdKeywordPauseProposal,
@@ -231,19 +230,12 @@ export interface AdActionRepositoryPort {
   ): Promise<number>;
 
   /**
-   * Look up an open `actionType='create_campaign'` AdAction by campaign label.
-   * Returns the newest one that is not rejected and whose run is queued,
-   * running, done or uncertain, so the caller can refuse a second registration.
-   */
-  findOpenCreateCampaignAction(
-    organizationId: string,
-    campaignName: string,
-  ): Promise<{ id: string; executeStatus: AdActionExecuteStatus } | null>;
-
-  /**
-   * Create an approved `create_campaign` AdAction for the account, commit it,
-   * then prepare its run (KID-386). A failed preparation is thrown and leaves
-   * the action approved and `not_prepared`.
+   * Register a campaign under an organization + name advisory lock: refuse
+   * the name while an action of it is queued, running, done or uncertain
+   * (`ADVERTISING_CAMPAIGN_ALREADY_REQUESTED`), reuse an approved one left
+   * without a run, or create an approved `create_campaign` action for the
+   * account. Commit, then prepare its run (KID-386); a failed preparation is
+   * thrown and leaves the action approved and `not_prepared`.
    */
   createCampaignAction(input: {
     organizationId: string;

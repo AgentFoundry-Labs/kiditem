@@ -207,17 +207,7 @@ export class AdStrategyService {
       });
     }
 
-    // 3. 중복 캠페인 체크
-    const existing = await this.actionRepo.findOpenCreateCampaignAction(
-      organizationId,
-      dto.campaignName,
-    );
-    if (existing) {
-      throw new KiditemConflictError('ADVERTISING_CAMPAIGN_ALREADY_REQUESTED', {
-        details: { actionId: existing.id, executeStatus: existing.executeStatus },
-      });
-    }
-
+    // 3. 같은 이름의 열린 등록은 저장소가 조직·이름 잠금 안에서 거절하거나(진행·반영) 다시 준비한다(준비 안 됨).
     const priority: Priority = dto.grade === 'A' ? 'high' : dto.grade === 'B' ? 'medium' : 'low';
 
     const payload: Record<string, unknown> = {

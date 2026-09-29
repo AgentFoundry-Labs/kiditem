@@ -575,29 +575,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     });
   }
 
-  async findOpenCreateCampaignAction(
-    organizationId: string,
-    campaignName: string,
-  ): Promise<{ id: string; executeStatus: AdActionExecuteStatus } | null> {
-    const rows = await this.prisma.adAction.findMany({
-      where: {
-        organizationId,
-        actionType: 'create_campaign',
-        targetLabel: campaignName,
-        // A rejected registration is not in progress (KID-138).
-        approvalStatus: { in: [...OPEN_ACTION_APPROVAL_STATUSES] },
-      },
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, operationId: true },
-    });
-    const executions = await readAdActionExecutions(this.prisma, { organizationId, actions: rows });
-    for (const row of rows) {
-      const executeStatus = executions.get(row.id)?.executeStatus ?? 'not_prepared';
-      if (['queued', 'running', ...APPLIED_EXECUTE_STATUSES].includes(executeStatus)) return { id: row.id, executeStatus };
-    }
-    return null;
-  }
-
   async createCampaignAction(input: {
     organizationId: string;
     channelAccountId: string;
@@ -606,25 +583,43 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     reason: string;
     payload: Record<string, unknown>;
   }): Promise<{ actionId: string; operationId: string | null }> {
-    const action = await this.prisma.adAction.create({
-      data: {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        actionType: 'create_campaign',
-        targetType: 'campaign',
-        targetLabel: input.campaignName,
-        reason: input.reason,
-        priority: input.priority,
-        approvalStatus: 'approved',
-        approvedAt: new Date(),
-        payload: input.payload as Prisma.InputJsonValue,
-      },
-      select: { id: true },
+    const actionId = await this.prisma.$transaction(async (tx) => {
+      // Two registrations of one name serialize here, so only one creates the action.
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(
+          hashtext(${`kiditem_ad_action_create_campaign:${input.organizationId}`}::text),
+          hashtext(${input.campaignName}::text)
+        )::text AS locked
+      `);
+      const open = await findOpenCreateCampaignAction(tx, input.organizationId, input.campaignName);
+      // An approved registration left without a run is prepared again instead of registered twice.
+      if (open?.executeStatus === 'not_prepared') return open.id;
+      if (open) {
+        throw new KiditemConflictError('ADVERTISING_CAMPAIGN_ALREADY_REQUESTED', {
+          details: { actionId: open.id, executeStatus: open.executeStatus },
+        });
+      }
+      const created = await tx.adAction.create({
+        data: {
+          organizationId: input.organizationId,
+          channelAccountId: input.channelAccountId,
+          actionType: 'create_campaign',
+          targetType: 'campaign',
+          targetLabel: input.campaignName,
+          reason: input.reason,
+          priority: input.priority,
+          approvalStatus: 'approved',
+          approvedAt: new Date(),
+          payload: input.payload as Prisma.InputJsonValue,
+        },
+        select: { id: true },
+      });
+      return created.id;
     });
-    // Created committed first so the owner's `plan` reads it (KID-386); a
-    // failure here leaves it approved and `not_prepared`.
-    const operationId = await this.prepareExecution(input.organizationId, action.id);
-    return { actionId: action.id, operationId };
+    // Committed first so the owner's `plan` reads it (KID-386); a failure here
+    // leaves it approved and `not_prepared`, and registering the name again prepares it.
+    const operationId = await this.prepareExecution(input.organizationId, actionId);
+    return { actionId, operationId };
   }
 
   /**
@@ -696,6 +691,38 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       };
     });
   }
+}
+
+/**
+ * The newest `create_campaign` action of this name that keeps the name taken:
+ * not rejected, and either approved without a run (`not_prepared`, prepared
+ * again by the next registration) or with a run queued, running, done or
+ * uncertain. A failed or cancelled run frees the name.
+ */
+async function findOpenCreateCampaignAction(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  campaignName: string,
+): Promise<{ id: string; executeStatus: AdActionExecuteStatus } | null> {
+  const rows = await tx.adAction.findMany({
+    where: {
+      organizationId,
+      actionType: 'create_campaign',
+      targetLabel: campaignName,
+      approvalStatus: { in: [...OPEN_ACTION_APPROVAL_STATUSES] },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true, operationId: true, approvalStatus: true },
+  });
+  const executions = await readAdActionExecutions(tx, { organizationId, actions: rows });
+  for (const row of rows) {
+    const executeStatus = executions.get(row.id)?.executeStatus ?? 'not_prepared';
+    if (executeStatus === 'not_prepared' && row.approvalStatus === 'approved' && row.operationId === null) {
+      return { id: row.id, executeStatus };
+    }
+    if (['queued', 'running', ...APPLIED_EXECUTE_STATUSES].includes(executeStatus)) return { id: row.id, executeStatus };
+  }
+  return null;
 }
 
 /**

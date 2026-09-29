@@ -255,7 +255,7 @@ export const ERROR_DEFINITIONS = {
   ADVERTISING_AD_ACTION_NOT_EXECUTABLE: def('advertising', 'precondition', '자동으로 실행할 수 없는 광고 액션입니다. 승인한 캠페인 등록만 광고센터에 자동으로 반영합니다.'),
   ADVERTISING_AD_ACTION_ACCOUNT_MISSING: def('advertising', 'precondition', '광고 액션을 실행할 쿠팡 계정이 정해지지 않았습니다. 캠페인 등록을 다시 요청해 주세요.'),
   ADVERTISING_AD_CENTER_FORM_CHANGED: def('advertising', 'external', '광고센터 캠페인 등록 화면에서 입력할 칸을 찾지 못했습니다. 광고센터 화면이 바뀌었을 수 있으니 관리자에게 알려 주세요.'),
-  ADVERTISING_AD_ACTION_NOT_APPLIED: def('advertising', 'external', '광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 다시 승인해 주세요.', { retryable: true }),
+  ADVERTISING_AD_ACTION_NOT_APPLIED: def('advertising', 'external', '광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 같은 이름으로 다시 등록하면 준비합니다.', { retryable: true }),
   ADVERTISING_AD_ACTION_EXECUTING: def('advertising', 'conflict', '광고센터에 반영하는 중인 광고 액션은 거절할 수 없습니다. 실행이 끝난 뒤 다시 확인해 주세요.'),
   ADVERTISING_AD_ACTION_ALREADY_APPLIED: def('advertising', 'conflict', '이미 광고센터에 반영한 광고 액션은 거절할 수 없습니다. 광고센터에서 직접 확인해 주세요.'),
   ADVERTISING_AD_ACTION_UNCERTAIN: def('advertising', 'conflict', '광고센터에서 캠페인이 만들어졌는지 확인이 필요합니다. 확인 뒤 거절하거나 새 이름으로 다시 등록해 주세요.'),

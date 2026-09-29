@@ -284,6 +284,40 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
     expect(await statusOf(action.id)).toMatchObject({ executeStatus: 'queued', operationId: expect.any(String) });
   });
 
+  it('registering the same name again prepares an approved registration left without a run instead of creating a second action', async () => {
+    const listing = await seedListing('P-1');
+    const stranded = await prisma.adAction.create({
+      data: {
+        organizationId: ORG,
+        actionType: 'create_campaign',
+        targetType: 'campaign',
+        targetLabel: '끊긴 등록',
+        reason: 'A등급 전략 기반 캠페인 등록',
+        approvalStatus: 'approved',
+        channelAccountId: accountId,
+        payload: { campaignName: '끊긴 등록', productIds: ['P-1-OPT'], dailyBudget: 30_000, targetRoas: null },
+      },
+    });
+    const again = await register('끊긴 등록', [listing.id]);
+    expect(again).toEqual({ ok: true, actionId: stranded.id, operationId: expect.any(String) });
+    expect(await prisma.adAction.count()).toBe(1);
+    expect(await statusOf(stranded.id)).toMatchObject({ executeStatus: 'queued', operationId: again.operationId });
+  });
+
+  it('two concurrent registrations of one name end on one action and one run', async () => {
+    const listing = await seedListing('P-1');
+    const results = await Promise.allSettled([register('동시', [listing.id]), register('동시', [listing.id])]);
+    // The second waits on the name lock; it either finds the first queued (refused) or not yet prepared (the same action).
+    const actionIds = new Set<string>();
+    for (const result of results) {
+      if (result.status === 'fulfilled') actionIds.add(result.value.actionId);
+      else expect(result.reason).toMatchObject({ code: 'ADVERTISING_CAMPAIGN_ALREADY_REQUESTED' });
+    }
+    expect(actionIds.size).toBe(1);
+    expect(await prisma.adAction.count()).toBe(1);
+    expect(await prisma.operation.count({ where: { kind: AD_ACTION_KIND } })).toBe(1);
+  });
+
   it('rejecting cancels a prepared run, and is refused while the extension runs it or after it applied', async () => {
     const prepared = await register('취소', [(await seedListing('P-1')).id]);
     await expect(actions.rejectActions([prepared.actionId], ORG)).resolves.toEqual({ updated: 1 });
