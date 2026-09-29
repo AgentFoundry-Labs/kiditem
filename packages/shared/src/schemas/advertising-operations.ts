@@ -993,5 +993,7 @@ export const AdActionResultSchema = z.object({
   providerOutcome: AdActionProviderOutcomeSchema,
   campaignId: z.string().min(1).nullable(),
   message: z.string().max(500).nullable(),
+  /** 같은 이름의 캠페인이 이미 있어 쓰지 않고 그 id에 연결만 했다(옛 KID-160 규칙). `created`와 함께 온다. */
+  linkedExisting: z.boolean().default(false),
 }).strict();
 export type AdActionResult = z.infer<typeof AdActionResultSchema>;
