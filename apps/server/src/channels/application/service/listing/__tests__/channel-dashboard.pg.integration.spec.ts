@@ -12,7 +12,10 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../../../../test-helpers/real-prisma';
-import { kstBusinessDate } from '../../../../../common/kst';
+import { randomUUID } from 'node:crypto';
+import { COUPANG_DIRECTSHIP_KIND } from '@kiditem/shared/orders-operations';
+import { businessDateKey, kstBusinessDate } from '../../../../../common/kst';
+import { seedMallOrderCoverageOperation } from '../../../../../test-helpers/__tests__/mall-order-coverage-operation';
 import { CHANNEL_ACCOUNT_PORT } from '../../../port/in/account/channel-account.port';
 import { ChannelAccountService } from '../../account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../../../adapter/out/persistence/channel-account.persistence.adapter';
@@ -28,8 +31,8 @@ const PRIMARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000001';
 const SECONDARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000002';
 const ORDER_COLLECTION_ACCOUNT_ID = '10000000-0000-4000-8000-000000000003';
 const OTHER_ACCOUNT_ID = '20000000-0000-4000-8000-000000000001';
-const ORDER_FACT_RUN_ID = '10000000-0000-4000-8000-000000000004';
-const OTHER_ORDER_FACT_RUN_ID = '20000000-0000-4000-8000-000000000002';
+const ORDER_FACT_OPERATION_ID = '10000000-0000-4000-8000-000000000004';
+const OTHER_ORDER_FACT_OPERATION_ID = '20000000-0000-4000-8000-000000000002';
 
 /**
  * Plan B2c.dashboard T15 — channel-dashboard.pg integration spec.
@@ -122,22 +125,18 @@ describe('Channel dashboard (PG integration)', () => {
         },
       ],
     });
-    await prisma.sourceImportRun.createMany({
-      data: [
-        {
-          id: ORDER_FACT_RUN_ID,
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceType: 'test_order_facts',
-          status: 'completed',
+    // 주문 사실은 실행이 쓴 주문뿐이다(KID-365): 테스트 주문을 쓴 성공 실행 하나씩.
+    for (const [id, organizationId] of [
+      [ORDER_FACT_OPERATION_ID, TEST_ORGANIZATION_ID],
+      [OTHER_ORDER_FACT_OPERATION_ID, OTHER_ORGANIZATION_ID],
+    ] as const) {
+      await prisma.operation.create({
+        data: {
+          id, organizationId, kind: COUPANG_DIRECTSHIP_KIND, status: 'succeeded', token: randomUUID(),
+          expiresAt: new Date(), finishedAt: new Date(), attempts: 1,
         },
-        {
-          id: OTHER_ORDER_FACT_RUN_ID,
-          organizationId: OTHER_ORGANIZATION_ID,
-          sourceType: 'test_order_facts',
-          status: 'completed',
-        },
-      ],
-    });
+      });
+    }
   }
 
   async function seedSecondaryAccountListing() {
@@ -203,7 +202,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
-        sourceImportRunId: ORDER_FACT_RUN_ID,
+        operationId: ORDER_FACT_OPERATION_ID,
         externalOrderId: 'ORD-1',
         orderedAt: new Date('2026-04-14T15:00:00.000Z'), // KST 2026-04-15 00:00
         status: 'paid',
@@ -238,7 +237,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
-        sourceImportRunId: ORDER_FACT_RUN_ID,
+        operationId: ORDER_FACT_OPERATION_ID,
         externalOrderId: 'ORD-2',
         orderedAt: new Date('2026-04-15T15:00:00.000Z'), // KST 2026-04-16 00:00
         status: 'paid',
@@ -263,7 +262,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: PRIMARY_ACCOUNT_ID,
-        sourceImportRunId: ORDER_FACT_RUN_ID,
+        operationId: ORDER_FACT_OPERATION_ID,
         externalOrderId: 'ORD-3',
         orderedAt: new Date('2026-04-16T15:00:00.000Z'), // KST 2026-04-17 00:00 — boundary
         status: 'paid',
@@ -303,7 +302,7 @@ describe('Channel dashboard (PG integration)', () => {
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
         channelAccountId: OTHER_ACCOUNT_ID,
-        sourceImportRunId: OTHER_ORDER_FACT_RUN_ID,
+        operationId: OTHER_ORDER_FACT_OPERATION_ID,
         externalOrderId: 'ORD-OTHER',
         orderedAt: new Date('2026-04-14T15:30:00.000Z'),
         status: 'paid',
@@ -358,18 +357,14 @@ describe('Channel dashboard (PG integration)', () => {
       expect(result.todayOrders).toEqual({ count: null, revenue: null });
     });
 
-    it('returns measured zero after a completed run confirms empty coverage today', async () => {
-      const today = kstBusinessDate(new Date());
-      await prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: ORDER_COLLECTION_ACCOUNT_ID,
-          sourceType: 'order_collection_mall',
-          status: 'completed',
-          importedAt: new Date(),
-          coverageStartDate: today,
-          coverageEndDate: today,
-        },
+    it('returns measured zero after a succeeded mall order operation confirms empty coverage today', async () => {
+      const today = businessDateKey(kstBusinessDate(new Date()));
+      await seedMallOrderCoverageOperation(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: ORDER_COLLECTION_ACCOUNT_ID,
+        mallKey: 'haebub-mall',
+        startDate: today,
+        endDate: today,
       });
 
       const result = await service.getSummary(TEST_ORGANIZATION_ID);
@@ -471,7 +466,7 @@ describe('Channel dashboard (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: SECONDARY_ACCOUNT_ID,
-          sourceImportRunId: ORDER_FACT_RUN_ID,
+          operationId: ORDER_FACT_OPERATION_ID,
           externalOrderId: 'ORD-SECONDARY',
           orderedAt: new Date('2026-04-15T16:00:00.000Z'),
           status: 'paid',
@@ -508,7 +503,7 @@ describe('Channel dashboard (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: PRIMARY_ACCOUNT_ID,
-          sourceImportRunId: ORDER_FACT_RUN_ID,
+          operationId: ORDER_FACT_OPERATION_ID,
           externalOrderId: 'ORD-MISMATCHED-ACCOUNT',
           orderedAt: new Date('2026-04-15T16:00:00.000Z'),
           status: 'paid',
@@ -630,7 +625,7 @@ describe('Channel dashboard (PG integration)', () => {
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: PRIMARY_ACCOUNT_ID,
-          sourceImportRunId: ORDER_FACT_RUN_ID,
+          operationId: ORDER_FACT_OPERATION_ID,
           externalOrderId: 'UNRESOLVED-PROVIDER-1',
           orderedAt: new Date('2026-04-14T15:00:00.000Z'),
           status: 'paid',

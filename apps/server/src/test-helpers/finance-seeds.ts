@@ -12,6 +12,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { seedMallOrderCoverageOperation } from './__tests__/mall-order-coverage-operation';
 
 // ---------------------------------------------------------------------------
 // setupMaster — MasterProduct
@@ -307,10 +308,11 @@ export async function seedOrderWithLineItems(
 }
 
 /**
- * Publish an explicit Order owner coverage window and attach the fixture rows
- * inside that KST business-date range to the completed run. Tests must call
- * this deliberately: observing an order row never proves that the collector
- * exhausted the requested mall/window.
+ * Publish an explicit Order owner coverage window: one succeeded
+ * `orders.mall_orders` operation whose result declares the range, and attach
+ * the fixture rows inside that KST business-date range to it
+ * (`Order.operationId`). Tests must call this deliberately: observing an order
+ * row never proves that the collector exhausted the requested mall/window.
  */
 export async function seedCompletedOrderCoverageRun(
   prisma: PrismaClient,
@@ -340,34 +342,24 @@ export async function seedCompletedOrderCoverageRun(
     update: {},
     select: { id: true },
   });
-  const run = await prisma.sourceImportRun.create({
-    data: {
-      organizationId: opts.organizationId,
-      sourceType: 'order_collection_mall',
-      channelAccountId: account.id,
-      status: 'completed',
-      coverageStartDate: new Date(`${opts.startDate}T00:00:00.000Z`),
-      coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
-      plan: { mallKey, testCoverage: true },
-      importedAt: new Date(`${opts.endDate}T15:00:00.000Z`),
-    },
-    select: { id: true },
+  const operationId = await seedMallOrderCoverageOperation(prisma, {
+    organizationId: opts.organizationId,
+    channelAccountId: account.id,
+    mallKey,
+    startDate: opts.startDate,
+    endDate: opts.endDate,
   });
   const from = new Date(`${opts.startDate}T00:00:00+09:00`);
   const through = new Date(`${opts.endDate}T00:00:00+09:00`);
   const to = new Date(through.getTime() + 86_400_000);
-  const attached = await prisma.order.updateMany({
+  await prisma.order.updateMany({
     where: {
       organizationId: opts.organizationId,
       orderedAt: { gte: from, lt: to },
     },
-    data: { sourceImportRunId: run.id },
+    data: { operationId },
   });
-  await prisma.sourceImportRun.update({
-    where: { id: run.id },
-    data: { providerBackedEmptyProof: attached.count === 0 },
-  });
-  return run.id;
+  return operationId;
 }
 
 /**
@@ -422,24 +414,21 @@ export async function seedCompletedOrderCollection(
         externalAccountId: 'finance-fixture-mall',
       },
     });
-    const run = await tx.sourceImportRun.create({
-      data: {
-        organizationId: opts.organizationId,
-        channelAccountId: account.id,
-        sourceType: 'order_collection_mall',
-        status: 'completed',
-        importedAt: new Date(`${opts.endDate}T15:00:00.000Z`),
-        coverageStartDate: new Date(`${opts.startDate}T00:00:00.000Z`),
-        coverageEndDate: new Date(`${opts.endDate}T00:00:00.000Z`),
-      },
+    const operationId = await seedMallOrderCoverageOperation(tx, {
+      organizationId: opts.organizationId,
+      channelAccountId: account.id,
+      mallKey: 'finance-fixture-mall',
+      startDate: opts.startDate,
+      endDate: opts.endDate,
     });
-    // The run owns the orders it published; each order keeps the channel
+    // The operation published the orders; each order keeps the channel
     // account it was sold through, which decides whether a sales commission
     // and other per-sale cost apply to its lines (KID-114).
     await tx.order.updateMany({
       where: { organizationId: opts.organizationId, id: { in: [...opts.orderIds] } },
-      data: { sourceImportRunId: run.id },
+      data: { operationId },
     });
-    return run.id;
+    return operationId;
   });
 }
+

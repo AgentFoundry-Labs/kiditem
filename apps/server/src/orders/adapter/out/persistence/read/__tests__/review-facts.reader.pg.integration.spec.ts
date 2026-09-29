@@ -1,5 +1,8 @@
 import { realRegistrationStates } from '../../../../../../test-helpers/registration-state';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { COUPANG_DIRECTSHIP_KIND } from '@kiditem/shared/orders-operations';
+import { seedMallOrderCoverageOperation } from '../../../../../../test-helpers/__tests__/mall-order-coverage-operation';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -218,19 +221,17 @@ describe('Review facts reader over disposable PostgreSQL', () => {
     const unmeasured = await service.list(TEST_ORGANIZATION_ID, {});
     expect(unmeasured.items[0]?.orderCount).toBeNull();
 
-    const orderRun = await prisma.sourceImportRun.create({
+    const orderOperation = await prisma.operation.create({
       data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: SOURCE_ACCOUNT_ID,
-        sourceType: 'order_collection_mall',
-        status: 'completed',
+        organizationId: TEST_ORGANIZATION_ID, kind: COUPANG_DIRECTSHIP_KIND, status: 'succeeded', token: randomUUID(),
+        expiresAt: new Date(), finishedAt: new Date(), attempts: 1,
       },
     });
     const order = await prisma.order.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
-        sourceImportRunId: orderRun.id,
+        operationId: orderOperation.id,
         externalOrderId: 'REVIEW-ORDER',
         orderedAt: new Date('2026-05-01T03:00:00.000Z'),
         status: 'paid',
@@ -250,15 +251,12 @@ describe('Review facts reader over disposable PostgreSQL', () => {
     const partiallyObserved = await service.list(TEST_ORGANIZATION_ID, {});
     expect(partiallyObserved.items[0]?.orderCount).toBeNull();
 
-    await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: SOURCE_ACCOUNT_ID,
-        sourceType: 'order_collection_mall',
-        status: 'completed',
-        coverageStartDate: new Date('2026-05-01T00:00:00.000Z'),
-        coverageEndDate: new Date('2026-05-01T00:00:00.000Z'),
-      },
+    await seedMallOrderCoverageOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: SOURCE_ACCOUNT_ID,
+      mallKey: 'haebub-mall',
+      startDate: '2026-05-01',
+      endDate: '2026-05-01',
     });
 
     const measured = await service.list(TEST_ORGANIZATION_ID, {});
