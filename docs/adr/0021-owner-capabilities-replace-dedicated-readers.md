@@ -2,9 +2,9 @@
 status: accepted
 ---
 
-# Owners expose business capabilities
+# Owners expose incoming use-case ports
 
-Mandatory reader modules couple callers to storage layout without defining a business boundary, so owners expose cohesive application capabilities while retaining canonical mutation authority, organization scope, evidence completeness, and required transaction consistency. Cross-owner references use scalar IDs validated through owner contracts, including organization, user, and collection-attempt identities when they cross an owner boundary; same-owner constraints remain. Channels implements reads and writes through input adapters, application input ports and services, output ports, and output adapters to isolate persistence and provider IO; backend code may use NestJS directly so framework independence does not require forwarding layers or manual constructor factories.
+Mandatory reader modules couple callers to storage layout without defining a business boundary, so owners expose cohesive incoming use-case ports (`application/port/in`) while retaining canonical mutation authority, organization scope, evidence completeness, and required transaction consistency. Cross-owner references use scalar IDs validated through owner contracts, including organization, user, and collection-attempt identities when they cross an owner boundary; same-owner constraints remain. Channels implements reads and writes through input adapters, application input ports and services, output ports, and output adapters to isolate persistence and provider IO; backend code may use NestJS directly so framework independence does not require forwarding layers or manual constructor factories.
 
 ## Consequences
 
@@ -25,10 +25,13 @@ its implementation is outside this Channels migration.
 
 Owner persistence adapters may query their canonical ledgers without
 registering each query file. Transitional owner `read/` helpers remain valid
-internal implementations. Other owners consume public capabilities, and
-existing direct consumers remain explicit migration exceptions. The ledger
+internal implementations. Other owners inject the provider's incoming port
+directly; consumers keep no anti-corruption output ports of their own. Existing
+direct consumers remain explicit migration exceptions (KID-324). The ledger
 guard continues to restrict mutations to declared owner publication paths;
-permission to read does not grant permission to publish.
+permission to read does not grant permission to publish. A capability is a
+domain ability listed in the owner's Agent capability catalog; an incoming port
+that is not catalogued is not a capability.
 
 The automatic platform-target exceptions in
 [ADR-0013](0013-cross-owner-references-are-ids-not-foreign-keys.md) no longer
