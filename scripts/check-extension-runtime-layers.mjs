@@ -8,15 +8,15 @@ import { fileURLToPath } from 'node:url';
 //   core       : core 와 @kiditem/shared 만
 //   collectors : core 중 site-caller·errors 와 collectors, shared. operation-client·runner·browser·api 금지
 //   sites      : core 중 site-caller·errors 와 shared 만
-// 옛 전역(KidItem*, sourceOwnerEnvironmentContext …)은 entry/legacy-bridge.ts 만 참조한다.
+// 옛 전역(KidItem*, sourceOwnerEnvironmentContext …)은 어느 파일도 참조하지 않는다(KID-366: 과도기 옛 워커 표는
+// 서비스워커가 `KidItemRuntime.attachLegacyActions`로 넘긴다).
 // 상대 import 는 extensions/src 밖으로 나가지 못하고, entry 밖의 층은 층 밖(루트 index 등)도 못 본다.
 // 루트 index.ts 는 entry 와 같고, src 바로 아래에는 index.ts·스펙·선언 파일·README·네 층 폴더만 둔다.
-// 도메인 코드는 chrome.* 만 쓴다: import.meta 와 번들러 전용 API 금지. declare const·let·var·function·global 은
-// legacy-bridge 만 쓴다. 동적 import()·require() 의 상대 경로에도 같은 층 규칙이 걸린다.
+// 도메인 코드는 chrome.* 만 쓴다: import.meta 와 번들러 전용 API 금지. declare const·let·var·function·global 도 금지.
+// 동적 import()·require() 의 상대 경로에도 같은 층 규칙이 걸린다.
 
 export const LAYERS = ['entry', 'core', 'collectors', 'sites'];
 const CORE_FOR_LOWER_LAYERS = new Set(['site-caller', 'errors']);
-const LEGACY_BRIDGE = 'entry/legacy-bridge.ts';
 // KidItemRuntime 은 이 번들 자신의 전역 이름이라 옛 전역이 아니다.
 const LEGACY_GLOBAL = /\b(KidItem(?!Runtime\b)[A-Z]\w*|sourceOwnerEnvironmentContext|sharedEnvironmentContext|collectionSessions)\b/;
 const COMMENT_RE = /\/\*[\s\S]*?\*\/|(^|[^:'"`])\/\/.*$/gm;
@@ -68,11 +68,11 @@ export function violationsFor(relative, source) {
   const isSpec = /\.spec\.ts$/.test(relative);
   if (/\bimport\.meta\b/.test(source)) violations.push(`${relative}: import.meta 는 번들러 전용 — chrome.* 만 쓴다`);
   const code = stripComments(source);
-  if (relative !== LEGACY_BRIDGE && !isSpec && DECLARE_RE.test(code)) {
-    violations.push(`${relative}: declare ${code.match(DECLARE_RE)[1]} 는 ${LEGACY_BRIDGE} 만 쓴다(옛 전역 접근 경로)`);
+  if (!isSpec && DECLARE_RE.test(code)) {
+    violations.push(`${relative}: declare ${code.match(DECLARE_RE)[1]} 는 쓰지 않는다(옛 전역 접근 경로)`);
   }
-  if (relative !== LEGACY_BRIDGE && !isSpec && LEGACY_GLOBAL.test(code)) {
-    violations.push(`${relative}: 옛 전역(${code.match(LEGACY_GLOBAL)[1]})은 ${LEGACY_BRIDGE} 만 참조한다`);
+  if (!isSpec && LEGACY_GLOBAL.test(code)) {
+    violations.push(`${relative}: 옛 전역(${code.match(LEGACY_GLOBAL)[1]})을 참조하지 않는다 — 과도기 옛 표는 서비스워커가 넘긴다`);
   }
   if (!layer) return violations;
   for (const match of code.matchAll(IMPORT_RE)) {
