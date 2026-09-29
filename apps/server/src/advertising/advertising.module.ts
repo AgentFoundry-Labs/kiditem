@@ -22,6 +22,9 @@ import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/ou
 import { AD_REPORT_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/ad-report-operation.repository.port";
 import { AdReportOperationRepository } from "./adapter/out/repository/ad-report-operation.repository";
 import { AdReportOperationOwner } from "./adapter/in/operation/ad-report-operation-owner";
+import { AdActionOperationOwner } from "./adapter/in/operation/ad-action-operation-owner";
+import { AdActionOperationRepository } from "./adapter/out/repository/ad-action-operation.repository";
+import { AD_ACTION_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/ad-action-operation.repository.port";
 import { OperationModule } from "../common/operation/operation.module";
 import { WingTrafficOperationRepository } from "./adapter/out/repository/wing-traffic-operation.repository";
 import { WingTrafficReadRepository } from "./adapter/out/repository/wing-traffic-read.repository";
@@ -192,6 +195,13 @@ const REPOSITORY_PORT_BINDINGS = [
       useExisting: AdLedgerReadPersistenceAdapter,
     },
     AdReportOperationOwner,
+    // 광고 액션 실행 kind(ADR-0025, KID-386)
+    AdActionOperationRepository,
+    {
+      provide: AD_ACTION_OPERATION_REPOSITORY_PORT,
+      useExisting: AdActionOperationRepository,
+    },
+    AdActionOperationOwner,
     WingTrafficReadRepository,
     {
       provide: AD_TRAFFIC_READ_PORT,

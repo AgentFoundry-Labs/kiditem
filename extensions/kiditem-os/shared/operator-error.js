@@ -1002,6 +1002,34 @@
       "text": "어제 광고비가 아직 집계되지 않았습니다. 잠시 뒤 다시 수집해 주세요.",
       "retryable": true
     },
+    "ADVERTISING_AD_ACTION_NOT_EXECUTABLE": {
+      "owner": "advertising",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "자동으로 실행할 수 없는 광고 액션입니다. 승인한 캠페인 등록만 광고센터에 자동으로 반영합니다.",
+      "retryable": false
+    },
+    "ADVERTISING_AD_ACTION_ACCOUNT_MISSING": {
+      "owner": "advertising",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "광고 액션을 실행할 쿠팡 계정이 정해지지 않았습니다. 캠페인 등록을 다시 요청해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_AD_CENTER_FORM_CHANGED": {
+      "owner": "advertising",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "광고센터 캠페인 등록 화면에서 입력할 칸을 찾지 못했습니다. 광고센터 화면이 바뀌었을 수 있으니 관리자에게 알려 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_AD_ACTION_NOT_APPLIED": {
+      "owner": "advertising",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 다시 승인해 주세요.",
+      "retryable": true
+    },
     "ANALYTICS_QUERY_FAILED": {
       "owner": "analytics",
       "kind": "internal",

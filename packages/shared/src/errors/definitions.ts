@@ -256,6 +256,11 @@ export const ERROR_DEFINITIONS = {
   // 광고 보고서 kind(KID-371): 광고센터 세션의 업체코드가 계정의 업체코드와 다르다(확장·서버 finalize 모두 보낸다).
   ADVERTISING_IDENTITY_MISMATCH: def('advertising', 'conflict', '광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.'),
   ADVERTISING_AD_REPORT_DAY_NOT_READY: def('advertising', 'conflict', '어제 광고비가 아직 집계되지 않았습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
+  // 광고 액션 kind(KID-386): 승인한 캠페인 등록을 광고센터에 적용하는 실행.
+  ADVERTISING_AD_ACTION_NOT_EXECUTABLE: def('advertising', 'precondition', '자동으로 실행할 수 없는 광고 액션입니다. 승인한 캠페인 등록만 광고센터에 자동으로 반영합니다.'),
+  ADVERTISING_AD_ACTION_ACCOUNT_MISSING: def('advertising', 'precondition', '광고 액션을 실행할 쿠팡 계정이 정해지지 않았습니다. 캠페인 등록을 다시 요청해 주세요.'),
+  ADVERTISING_AD_CENTER_FORM_CHANGED: def('advertising', 'external', '광고센터 캠페인 등록 화면에서 입력할 칸을 찾지 못했습니다. 광고센터 화면이 바뀌었을 수 있으니 관리자에게 알려 주세요.'),
+  ADVERTISING_AD_ACTION_NOT_APPLIED: def('advertising', 'external', '광고센터에 캠페인을 등록하지 못했습니다. 광고센터 화면을 확인한 뒤 다시 승인해 주세요.', { retryable: true }),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED: def('analytics', 'conflict', '수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.'),
   ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN: def('analytics', 'validation', '셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.'),
