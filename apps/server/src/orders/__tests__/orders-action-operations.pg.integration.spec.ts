@@ -43,7 +43,7 @@ import { MallOrdersOperationOwner } from '../adapter/in/operation/mall-orders-op
 import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
 import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
-import type { CoupangDirectOrderCollectionRequest } from '../application/port/in/coupang-direct-order-collection.port';
+import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupang-direct-order';
 import { SellpiaShipmentTrackingOperationOwner } from '../adapter/in/operation/sellpia-shipment-tracking-operation-owner';
 import { SellpiaOrderTransferOperationOwner } from '../adapter/in/operation/sellpia-order-transfer-operation-owner';
 import { SellpiaPostTransferOperationOwner } from '../adapter/in/operation/sellpia-post-transfer-operation-owner';
@@ -112,15 +112,18 @@ function directshipCapture() {
 }
 
 /**
- * Python 생성기(외부 프로세스) 자리. 받은 운송유형의 발주서마다 셀피아 양식의 '주문번호' 한 줄을 적은 xls를 만든다 —
- * 전송 plan이 이 파일에서 대상을 읽는 길은 실제 코드다. 받은 요청을 남겨 소비 기록이 거른 발주서만 왔는지 본다.
+ * Python 생성기(외부 프로세스) 자리. 실제 `generate.py`와 같은 머리(`판매처 주문번호\n(예,20221115_0001)`)와 번호
+ * (`YYYYMMDD_0001`, 파일마다 1부터)로 받은 운송유형의 발주서마다 한 줄을 적은 xls를 만든다 — 전송 plan이 이 파일에서 대상을
+ * 읽는 길은 실제 코드다. 받은 요청을 남겨 소비 기록이 거른 발주서만 왔는지 본다.
  */
 class DirectshipGeneratorStub {
   readonly requests: CoupangDirectOrderCollectionRequest[] = [];
   async generate(input: CoupangDirectOrderCollectionRequest) {
     this.requests.push(input);
+    const header = ['No', '판매처 주문번호\n(예,20221115_0001)', '센터'];
+    const rows = input.pos.map((po, index) => [String(index + 1), `${TODAY.replace(/-/g, '')}_${String(index + 1).padStart(4, '0')}`, po.center]);
     const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['주문번호', '센터'], ...input.pos.map((po) => [po.seq, po.center])]), 'sellpia');
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([header, ...rows]), 'sellpia');
     const buffer = XLSX.write(book, { type: 'buffer', bookType: 'biff8' }) as Buffer;
     return { buffer, fileName: `쿠팡직배송_${input.transport}.xls`, poCount: input.pos.length, rowCount: input.pos.length };
   }
@@ -287,8 +290,9 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
         sourceOperationId,
         shopName: '쿠팡직배송',
         transport: 'MILKRUN',
+        resendOf: null,
         fileName: '쿠팡직배송_MILKRUN.xls',
-        targetOrderNumbers: ['PO-MILK'],
+        targetOrderNumbers: ['20260929_0001'],
       });
       expect(generator.requests.map((request) => ({ transport: request.transport, pos: request.pos.map((po) => po.seq) })))
         .toEqual([{ transport: 'MILKRUN', pos: ['PO-MILK'] }]);
@@ -297,7 +301,7 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
       expect(source.headers['content-type']).toContain('application/vnd.ms-excel');
       expect(source.headers['content-disposition']).toContain(encodeURIComponent('쿠팡직배송_MILKRUN.xls'));
       const rows = XLSX.utils.sheet_to_json<unknown[]>(XLSX.read(source.body as Buffer, { type: 'buffer' }).Sheets.sellpia!, { header: 1 });
-      expect(rows).toEqual([['주문번호', '센터'], ['PO-MILK', 'Busan FC']]);
+      expect(rows).toEqual([['No', '판매처 주문번호\n(예,20221115_0001)', '센터'], ['1', '20260929_0001', 'Busan FC']]);
     });
 
     it('다시 만든 파일의 주문번호가 plan과 다르면 source 라우트가 거절한다', async () => {
@@ -323,6 +327,19 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
       const confirmed = await post(`${run.operation.id}/confirm`, {}).expect(201);
       expect(confirmed.body.operation).toMatchObject({ status: 'succeeded', result: { outcome: 'submitted', acceptedOrderNumbers: [sellpiaNo(1), sellpiaNo(2)], targetOrderCount: 2 } });
       await readSource(run.operation.id).expect(404);
+    });
+
+    it('재전송 울타리: 같은 원천의 성공 전송이 있으면 ORDERS_TRANSFER_ALREADY_SENT, resend: true면 앞선 실행을 resendOf로 남기고 보낸다', async () => {
+      const sourceOperationId = await mallSource(['K-1']);
+      const first = await harness.beginRun(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈' });
+      expect(first.operation.plan).toMatchObject({ resendOf: null });
+      await harness.put(first, [{ chunkKind: SELLPIA_ORDER_TRANSFER_CHUNK_KIND, payload: [{ outcome: 'submitted', acceptedOrderNumbers: [sellpiaNo(1)], baselineRows: 0, afterRows: 1, mallMessage: null }] }]);
+      await harness.finish(first).expect(200);
+
+      const refused = await harness.begin(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈' }).expect(409);
+      expect(refused.body).toMatchObject({ code: 'ORDERS_TRANSFER_ALREADY_SENT' });
+      const resent = await harness.beginRun(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈', resend: true });
+      expect(resent.operation.plan).toMatchObject({ sourceOperationId, resendOf: first.operation.id, targetOrderNumbers: [sellpiaNo(1)] });
     });
 
     it('운영자 close는 미접수(SELLPIA_TRANSFER_NOT_SUBMITTED)로 닫고 잠금을 놓는다; reconciling이 아닌 실행은 거절', async () => {
@@ -385,13 +402,15 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
       await harness.begin(SELLPIA_AUTO_INVOICE_KIND, {}).expect(422);
     });
 
-    it('reconciling 전송은 운영자가 confirm하기 전에는 송장 대상이 아니다', async () => {
+    it('닫힌 전송은 송장 대상이 아니고, 같은 원천은 재전송 표시 없이 다시 보낼 수 있다', async () => {
       const sourceOperationId = await mallSource(['K-1']);
       const run = await harness.beginRun(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈' });
       await harness.put(run, [{ chunkKind: SELLPIA_ORDER_TRANSFER_CHUNK_KIND, payload: [{ outcome: 'unknown', acceptedOrderNumbers: [], baselineRows: 0, afterRows: 0, mallMessage: null }] }]);
       await harness.finish(run, { outcome: 'reconciling', result: {} }).expect(200);
       await post(`${run.operation.id}/close`, { reason: '미접수' }).expect(201);
       expect((await harness.begin(SELLPIA_AUTO_INVOICE_KIND, {}).expect(422)).body).toMatchObject({ code: 'ORDERS_SELLPIA_INVOICE_NO_TARGETS' });
+      const again = await harness.beginRun(SELLPIA_ORDER_TRANSFER_KIND, { sourceOperationId, shopName: '키드키즈' });
+      expect(again.operation.plan).toMatchObject({ sourceOperationId, resendOf: null });
     });
   });
 
