@@ -36,7 +36,6 @@ describe("sourcing display-state reset migration", () => {
     expect(source).not.toContain("liveCommerceProductDailySnapshot.deleteMany");
     expect(source).not.toContain("tiktokCreativeTrendDailySnapshot.deleteMany");
     expect(source).not.toContain("sourcing1688OfferKeywordObservation.deleteMany");
-    expect(source).not.toContain("sourcingEvidenceIngestionRun.deleteMany");
     expect(source).not.toContain("sourcingEvidenceObservation.deleteMany");
     expect(source).toContain("sourcing_evidence_observations");
     expect(source).toContain("retainedProvenance");
@@ -52,17 +51,6 @@ describe("sourcing display-state reset migration", () => {
     expect(retainedCanonicalInputs).toBeDefined();
     expect(retainedCanonicalInputs).not.toContain(
       "sourcing_1688_hot_product_daily_snapshots",
-    );
-  });
-
-  it("keeps the active evidence-run index in PostgreSQL canonical form", () => {
-    const schema = readFileSync(
-      resolve(import.meta.dirname, "../../prisma/models/sourcing.prisma"),
-      "utf8",
-    );
-
-    expect(schema).toContain(
-      `where: raw("((status)::text = 'RUNNING'::text)")`,
     );
   });
 });

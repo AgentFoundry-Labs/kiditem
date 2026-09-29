@@ -19,6 +19,11 @@ import {
 } from '../test-helpers/legacy-channel-scrape-tables';
 import { dropLegacySourceImportRunReferences, restoreLegacySourceImportRunReferences } from '../test-helpers/legacy-source-import-run-references';
 import {
+  dropLegacySourcingEvidenceIngestionRunsTable,
+  insertLegacySourcingEvidenceIngestionRun,
+  restoreLegacySourcingEvidenceIngestionRunsTable,
+} from '../test-helpers/legacy-sourcing-evidence-ingestion-runs-table';
+import {
   foreignKeysInto,
   referencingColumn,
   tablesDeletedBy,
@@ -144,6 +149,8 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     await prisma.$connect();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    // 014 still meets the ingestion-run table KID-389 dropped.
+    await restoreLegacySourcingEvidenceIngestionRunsTable(prisma);
     [retiredAlertId] = await seedOrganization(prisma, TEST_ORGANIZATION_ID, ['pencil', 'eraser'], 3);
     await seedOrganization(prisma, OTHER_ORGANIZATION_ID, ['crayon'], 2);
     // 014 runs before 030 (KID-360): the schema it meets still names the run and holds its foreign keys.
@@ -161,6 +168,7 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
       await dropLegacyChannelScrapeTables(prisma);
       await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
+      await dropLegacySourcingEvidenceIngestionRunsTable(prisma);
     } finally {
       await resetDb(prisma);
       await prisma.$disconnect();
@@ -238,6 +246,22 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     });
     await expect(rowCounts(prisma, TABLES)).resolves.toEqual(SEEDED);
     await expect(carriedCounts(prisma)).resolves.toEqual(carried);
+  });
+
+  it('skips the ingestion-run table once KID-389 has dropped it (a new database), deleting nothing', async () => {
+    await expect(prisma.$transaction(async (tx) => {
+      // CASCADE takes the run foreign keys with it, as `db push` does.
+      await tx.$executeRaw`DROP TABLE sourcing_evidence_ingestion_runs CASCADE`;
+      await expect(runMigration(tx)).resolves.toEqual({
+        affectedRows: 0,
+        requiredColumns: Object.fromEntries(TABLES.map((table) => [table, table === RUNS ? absent(table) : kept(table)])),
+        uniqueKeys: indexedKeys(),
+      });
+      await expect(rowCounts(tx, ROW_TABLES)).resolves.toEqual(
+        Object.fromEntries(ROW_TABLES.map((table) => [table, SEEDED[table]])),
+      );
+      throw new Error(ROLLBACK);
+    })).rejects.toThrow(ROLLBACK);
   });
 
   it('on the Office 0.1.30 shape, deletes the unlinked sourcing rows and the signal alerts 005 keeps, so each column can be added', async () => {
@@ -512,6 +536,7 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
     await prisma.$connect();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await restoreLegacySourcingEvidenceIngestionRunsTable(prisma);
     await toPre030Shape(prisma);
     await toPre373Shape(prisma);
     // 014 still meets the channel_scrape_* tables KID-365 dropped.
@@ -526,6 +551,7 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
       await dropLegacyChannelScrapeTables(prisma);
       await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
+      await dropLegacySourcingEvidenceIngestionRunsTable(prisma);
     } finally {
       await resetDb(prisma);
       await prisma.$disconnect();
@@ -697,6 +723,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
   it('stops the cutover while listed rows lack their required column or duplicate a new key, and passes once 014 has run', async () => {
     const db = survey!;
     await seedBaseFixture(db);
+    await restoreLegacySourcingEvidenceIngestionRunsTable(db);
     await seedOrganization(db, TEST_ORGANIZATION_ID, ['pencil'], 2);
     await toPre373Shape(db);
     await restoreLegacyChannelScrapeTables(db);
@@ -1171,10 +1198,8 @@ async function seedIngestionRunChain(tx: Prisma.TransactionClient) {
 
 async function seedIngestionRunChainRows(tx: Prisma.TransactionClient) {
   const organizationId = TEST_ORGANIZATION_ID;
-  const runA = await tx.sourcingEvidenceIngestionRun.create({ data: ingestionRun(organizationId, '1688.offer') });
-  const runB = await tx.sourcingEvidenceIngestionRun.create({
-    data: ingestionRun(OTHER_ORGANIZATION_ID, 'market_shadow_signals'),
-  });
+  const runA = { id: await insertLegacySourcingEvidenceIngestionRun(tx, ingestionRun(organizationId, '1688.offer')) };
+  const runB = { id: await insertLegacySourcingEvidenceIngestionRun(tx, ingestionRun(OTHER_ORGANIZATION_ID, 'market_shadow_signals')) };
   const original = await tx.sourcingEvidenceObservation.create({ data: observation(organizationId, runA.id, 'original') });
   const revision = await tx.sourcingEvidenceObservation.create({
     data: { ...observation(organizationId, runA.id, 'revision'), revision: 2, supersedesObservationId: original.id },
@@ -1540,9 +1565,6 @@ function ingestionRun(organizationId: string, sourceKey: string) {
     idempotencyKey,
     requestHash: sha256(idempotencyKey),
     collectorKey: 'kid-239-cleanup-test',
-    collectorVersion: 'v1',
-    triggerKind: 'manual',
-    status: 'COMPLETE',
   };
 }
 
@@ -1577,23 +1599,10 @@ async function seedOrganization(
   naverKeywords: string[],
   alertCount: number,
 ): Promise<string[]> {
-  const idempotencyKey = randomUUID();
-  const run = await db.sourcingEvidenceIngestionRun.create({
-    data: {
-      organizationId,
-      sourceKey: 'kid-239.cleanup',
-      targetKey: 'kid-239',
-      idempotencyKey,
-      requestHash: sha256(idempotencyKey),
-      collectorKey: 'kid-239-cleanup-test',
-      collectorVersion: 'v1',
-      triggerKind: 'manual',
-      status: 'COMPLETE',
-    },
-  });
+  const runId = await insertLegacySourcingEvidenceIngestionRun(db, ingestionRun(organizationId, 'kid-239.cleanup'));
   const observed = {
     organizationId,
-    operationId: run.id,
+    operationId: runId,
     businessDate: BUSINESS_DATE,
     capturedAt: CAPTURED_AT,
   };

@@ -295,6 +295,19 @@ removed for the same reason (it read `channel_scrape_chunks`, dropped by
 KID-365); the next Wing catalog collection fills `channel_listings.image_url`.
 A ledger row for either id is reported as `unregistered`.
 
+### Sourcing ingestion-run publications (0.1.31, removed)
+
+The unpromoted post-schema `031_publish_complete_sourcing_runs` copied each
+COMPLETE `sourcing_evidence_ingestion_runs` row into
+`sourcing_source_publications`. KID-389 moved the server-run sources onto
+operation kinds and dropped the run table, so after the cutover's `db push`
+031 would read a table that no longer exists. It is removed rather than
+replaced: Office 0.1.30 has no publication table to fill, and its completed run
+history is discarded under the data-loss policy (ADR-0010). Each source is
+collected once again after the cutover. Pre-schema `014` still empties the
+run table and its dependents on the Office shape and skips a database without
+it. A ledger row for 031 (the local QA database) is reported as `unregistered`.
+
 ### ABC formula states still counting advertising (0.1.31)
 
 `034_move_ad_counting_abc_formula_states` runs post-schema. `016` moved the
