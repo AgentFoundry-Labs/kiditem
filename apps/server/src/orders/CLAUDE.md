@@ -101,6 +101,25 @@ Action, collection, transmission, and reconciliation behavior is executable in
   Channels observed identities (`lastOperationId`) and the snapshot
   (`operationId`) in the finish transaction. Supply reads a published
   collection by `rocketPoOperationId` through `ROCKET_PO_CATALOG_PORT`.
+- Sellpia and mall write actions are operation kinds
+  (`@kiditem/shared/orders-action-operations`, KID-355): Sellpia order
+  transfer, post-transfer, auto invoice and order snapshot (all on
+  `resource:sellpia:login`), Coupang shipment list
+  (`resource:coupang-supplier:login`) and mall tracking upload
+  (`account:<channelAccountId>`). Results live only in the operation `result`.
+- The transfer file is never uploaded: plan regenerates it from the succeeded
+  source operation (`orders.mall_orders`, or `orders.coupang_directship` with
+  its consumed `transport`) and freezes the file's order numbers;
+  `GET …/action-operations/:id/source` regenerates it again and refuses when
+  the numbers differ from the plan.
+- Auto-invoice targets are the accepted numbers of transfers that succeeded in
+  the last 24 hours minus every number a succeeded invoice already selected.
+  A `reconciling` transfer is not a source until confirmed. No targets refuses
+  the start; an issued row outside the plan fails the finish.
+- Transfer, auto invoice and tracking upload may finish `reconciling`. The
+  operator closes them with `POST …/action-operations/:id/confirm {result?}` or
+  `/close {reason?}`; a closed transfer is `SELLPIA_TRANSFER_NOT_SUBMITTED`
+  (resend allowed), the others `ORDERS_ACTION_CLOSED_BY_OPERATOR`.
 
 ## Boundaries
 

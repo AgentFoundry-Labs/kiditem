@@ -167,6 +167,15 @@ transaction. The calendar keeps, per date, the latest succeeded operation's
 value; untagged existing dates remain unverified. Shipment PDF/file collection
 remains a separate existing action.
 
+The old extension worker's Sellpia and mall write actions are Orders operation
+kinds (KID-355 wave8b): Sellpia order transfer, post-transfer, auto invoice and
+order snapshot, Coupang shipment list, and mall tracking upload. The server
+holds their outcome in the operation `result` instead of browser storage. The
+transfer file is regenerated from the succeeded source operation, not uploaded.
+Auto-invoice targets come from the last 24 hours of succeeded transfer results.
+Writes whose outcome the extension cannot read stop as `reconciling` until an
+operator confirms or closes them through the Orders action-operation routes.
+
 Business owners retain their own facts and source status. An Alert is a human
 notification, not execution state. Owner attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
