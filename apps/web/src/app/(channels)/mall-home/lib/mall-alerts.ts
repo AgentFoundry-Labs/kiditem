@@ -339,13 +339,27 @@ export function mallStatusTiles(
 }
 
 /**
- * 이유 코드만 있는 관찰 기록의 툴팁 — 오류 registry에 등록된 코드면 그 한국어 문장, 아니면 `null`(KID-329).
- * 모르는 코드에 일반 실패 문장을 지어 붙이지 않는다.
+ * 로그인 확인(`checkMallLogin`)이 내는 관찰 이유 코드의 한국어 문장(KID-329). 확장 로그인 확인 단계의 코드라 오류 registry에
+ * 없어서 여기서 이름 붙인다 — wave8에서 로그인 확인이 새 런타임으로 옮겨지면 registry 코드로 합친다(KID-366).
+ */
+const LOGIN_CHECK_REASON_TEXT: Readonly<Record<string, string>> = {
+  login_page: '몰이 로그인 화면을 보여 줍니다 — 저장된 계정으로 다시 로그인이 필요합니다',
+  login_required_response: '몰이 로그인이 필요하다고 응답했습니다',
+  redirected_away: '몰이 다른 페이지로 넘겨 로그인 상태를 확인하지 못했습니다',
+  login_page_not_reachable: '몰 로그인 페이지에 닿지 못했습니다',
+  network_error: '몰에 연결하지 못했습니다',
+  extension_no_answer: '확장이 로그인 확인에 답하지 않았습니다',
+};
+
+/**
+ * 이유 코드만 있는 관찰 기록의 툴팁 — 오류 registry에 등록된 코드면 그 한국어 문장, 로그인 확인 이유 코드면 위 문장,
+ * 아니면 `null`(KID-329). 모르는 코드에 일반 실패 문장을 지어 붙이지 않는다.
  */
 function registeredReasonText(reason: string | undefined): string | null {
   if (!reason) return null;
   const described = describeOperatorError({ code: reason });
-  return described.code ? described.text : null;
+  if (described.code) return described.text;
+  return LOGIN_CHECK_REASON_TEXT[reason] ?? null;
 }
 
 export interface MallAlertCounts {

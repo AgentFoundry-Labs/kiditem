@@ -174,7 +174,7 @@ describe('derivedMallAlerts', () => {
       detail: '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
     });
     // 등록되지 않은 이유 코드는 일반 실패 문장을 지어 붙이지 않는다.
-    expect(byMall.art09?.detail ?? null).toBeNull();
+    expect(byMall.art09?.detail).toBe('몰이 다른 페이지로 넘겨 로그인 상태를 확인하지 못했습니다');
   });
 
   it('로그인 이유 문장은 로그인이 풀린 타일에만 붙고, 로그인 정보 없음 · 발주확인 대기 타일에는 붙지 않는다', () => {
