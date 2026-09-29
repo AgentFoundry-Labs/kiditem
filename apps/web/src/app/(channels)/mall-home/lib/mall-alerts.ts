@@ -157,6 +157,7 @@ export interface DerivedMallAlertInput {
 }
 
 const NAME_PREVIEW = 3;
+const SESSION_EXPIRED_ALERT_ID = 'derived:session-expired';
 
 function nameList(names: readonly string[]): string {
   const shown = names.slice(0, NAME_PREVIEW).join(', ');
@@ -204,7 +205,7 @@ export function derivedMallAlerts({
   }
   if (signedOut.length > 0) {
     alerts.push({
-      id: 'derived:session-expired',
+      id: SESSION_EXPIRED_ALERT_ID,
       title: `로그인이 풀린 몰 ${formatNumber(signedOut.length)}곳`,
       message: `${nameList(signedOut.map((channel) => channel.mallName))} — 이 브라우저에서 몰 관리자에 로그인해야 수집 · 등록이 됩니다.`,
       href: '/mall-settings',
@@ -319,9 +320,12 @@ export function mallStatusTiles(
       if (latest && (latest.tone === 'failed' || latest.tone === 'attention')) {
         return { ...base, ...latest };
       }
-      const tileLabel = current.find((alert) => alert.tileLabel !== null)?.tileLabel;
-      if (tileLabel) {
-        return { ...base, tone: 'attention', label: tileLabel, detail: registeredReasonText(loginReasons[channel.mallKey]), at: null };
+      const tileAlert = current.find((alert) => alert.tileLabel !== null);
+      if (tileAlert?.tileLabel) {
+        // 이유 문장은 로그인 확인에서 나온 것이라 로그인이 풀린 타일에만 붙인다(KID-329).
+        const loginTile = tileAlert.id === SESSION_EXPIRED_ALERT_ID || login === 'signed_out';
+        const detail = loginTile ? registeredReasonText(loginReasons[channel.mallKey]) : null;
+        return { ...base, tone: 'attention', label: tileAlert.tileLabel, detail, at: null };
       }
       if (latest) return { ...base, ...latest };
       return { ...base, tone: 'idle', label: '현재 기록 없음', at: null };

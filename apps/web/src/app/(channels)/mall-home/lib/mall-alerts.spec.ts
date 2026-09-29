@@ -177,6 +177,23 @@ describe('derivedMallAlerts', () => {
     expect(byMall.art09?.detail ?? null).toBeNull();
   });
 
+  it('로그인 이유 문장은 로그인이 풀린 타일에만 붙고, 로그인 정보 없음 · 발주확인 대기 타일에는 붙지 않는다', () => {
+    const channels = [channel('onch', '온채널', false), channel('coupang', '쿠팡')];
+    const derived = derivedMallAlerts({ channels, soldOutTotal: null, coupangPendingAccept: 2 });
+    const tiles = mallStatusTiles(
+      channels,
+      [],
+      derived,
+      { onch: 'signed_in', coupang: 'signed_in' },
+      { onch: 'login_page_not_reachable', coupang: 'login_page_not_reachable' },
+    );
+    const byMall = Object.fromEntries(tiles.map((tile) => [tile.mallKey, tile]));
+    expect(byMall.onch).toMatchObject({ label: '로그인 정보 없음' });
+    expect(byMall.onch?.detail ?? null).toBeNull();
+    expect(byMall.coupang).toMatchObject({ label: '발주확인 대기 2건' });
+    expect(byMall.coupang?.detail ?? null).toBeNull();
+  });
+
   it('쿠팡 발주확인 대기와 품절 후보를 센다', () => {
     const alerts = derivedMallAlerts({ channels: [], soldOutTotal: 12, coupangPendingAccept: 3 });
     expect(alerts.map((item) => item.title)).toEqual(['쿠팡 발주확인 대기 3건', '품절 후보 12개']);
