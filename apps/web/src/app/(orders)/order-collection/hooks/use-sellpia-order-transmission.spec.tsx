@@ -11,7 +11,10 @@ const store = vi.hoisted(() => ({ saveGeneratedOrderFile: vi.fn(async () => unde
 const toast = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() }));
 
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
-vi.mock('@/lib/operation-start', () => start);
+vi.mock('@/lib/operation-start', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/operation-start')>()),
+  requestOperationStart: start.requestOperationStart,
+}));
 vi.mock('../lib/order-generated-file-store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/order-generated-file-store')>()),
   saveGeneratedOrderFile: store.saveGeneratedOrderFile,
@@ -65,8 +68,9 @@ function transfer(status: OperationView['status'], patch: Partial<OperationView>
 
 function render(items: StoredOrderCollectionFile[] = []) {
   const onTransmissionRequested = vi.fn();
-  const hook = renderHook(() => useSellpiaOrderTransmission({ items, onTransmissionRequested }));
-  return { hook, onTransmissionRequested };
+  const onAlreadySent = vi.fn();
+  const hook = renderHook(() => useSellpiaOrderTransmission({ items, onTransmissionRequested, onAlreadySent }));
+  return { hook, onTransmissionRequested, onAlreadySent };
 }
 
 beforeEach(() => {
@@ -186,6 +190,37 @@ describe('useSellpiaOrderTransmission (셀피아 전송 = 실행 orders.sellpia_
       const updated = onTransmissionRequested.mock.calls[0]![0] as StoredOrderCollectionFile;
       expect(updated.transmissionRequestedAt).toBe(Date.parse('2026-09-29T00:00:05.000Z'));
       expect(updated).not.toHaveProperty('sellpiaTransferOperationId');
+    });
+  });
+
+  describe('이미 성공한 전송의 재전송 (서버 ORDERS_TRANSFER_ALREADY_SENT)', () => {
+    it('재전송 확인 창을 거친 시작에만 resend를 싣는다', async () => {
+      api.get.mockResolvedValueOnce(transfer('succeeded'));
+      const { hook } = render();
+      await act(async () => { await hook.result.current.transmit(generatedFile({ transmissionRequestedAt: 50 }), { retryConfirmed: true }); });
+      expect(start.requestOperationStart).toHaveBeenCalledWith(
+        SELLPIA_ORDER_TRANSFER_KIND,
+        { sourceOperationId: SOURCE, shopName: '키드키즈', resend: true },
+        expect.anything(),
+      );
+    });
+
+    it('기록이 어긋나 확인 창 없이 보낸 전송이 이미 보냈다고 거절되면 기록을 요청됨으로 맞추고 재전송 확인 창을 띄운다', async () => {
+      const { OperationStartFailure } = await import('@/lib/operation-start');
+      start.requestOperationStart.mockRejectedValueOnce(
+        new OperationStartFailure('이 주문 파일은 이미 셀피아로 전송됐습니다. 다시 보내려면 재전송을 선택해 주세요.', 'ORDERS_TRANSFER_ALREADY_SENT'),
+      );
+      const { hook, onTransmissionRequested, onAlreadySent } = render();
+
+      let transmitted = true;
+      await act(async () => { transmitted = await hook.result.current.transmit(generatedFile()); });
+
+      expect(transmitted).toBe(false);
+      expect(start.requestOperationStart.mock.calls[0]![1]).not.toHaveProperty('resend');
+      const updated = onTransmissionRequested.mock.calls.at(-1)![0] as StoredOrderCollectionFile;
+      expect(updated.transmissionRequestedAt).toEqual(expect.any(Number));
+      expect(onAlreadySent).toHaveBeenCalledWith(updated);
+      expect(toast.error).not.toHaveBeenCalled();
     });
   });
 });

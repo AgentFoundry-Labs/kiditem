@@ -12,6 +12,7 @@ import {
   readOrderActionOperation,
   startSellpiaOrderTransfer,
 } from '@/lib/order-action-operations';
+import { OperationStartFailure } from '@/lib/operation-start';
 import {
   saveGeneratedOrderFile,
   withoutSellpiaTransferConfirmation,
@@ -55,11 +56,14 @@ function recordFromServer(file: StoredOrderCollectionFile, operation: OperationV
 export function useSellpiaOrderTransmission({
   items = [],
   onTransmissionRequested,
+  onAlreadySent,
 }: {
   /** 화면의 파일 기록. 끝을 옮기지 못한 전송 실행이 있으면 서버 상태로 맞춘다. */
   items?: readonly StoredOrderCollectionFile[];
   /** 파일 기록이 바뀌었다(전송 요청·진행·확인 필요·해제). */
   onTransmissionRequested: (file: StoredOrderCollectionFile) => void;
+  /** 확인 창 없이 보냈는데 서버가 이미 보낸 파일이라 거절했다(기록이 어긋남) — 화면은 재전송 확인 창을 띄운다. */
+  onAlreadySent?: (file: StoredOrderCollectionFile) => void;
 }) {
   const [sendingId, setSendingId] = useState<string | null>(null);
   const syncedRef = useRef(new Set<string>());
@@ -116,7 +120,8 @@ export function useSellpiaOrderTransmission({
       setSendingId(file.id);
       let current = file;
       try {
-        const outcome = await startSellpiaOrderTransfer(scope, {
+        // 재전송 확인 창을 거친 시작에만 resend를 싣는다 — 서버는 그 밖의 같은 원천 재전송을 거절한다.
+        const outcome = await startSellpiaOrderTransfer(options.retryConfirmed ? { ...scope, resend: true } : scope, {
           onStarted: (operationId) => {
             current = withSellpiaTransferStarted(file, operationId);
             void record(current);
@@ -136,6 +141,12 @@ export function useSellpiaOrderTransmission({
         }
         return true;
       } catch (error) {
+        if (error instanceof OperationStartFailure && error.code === 'ORDERS_TRANSFER_ALREADY_SENT' && !options.retryConfirmed) {
+          const requested = withSellpiaTransmissionRequested(current, Date.now());
+          await record(requested);
+          onAlreadySent?.(requested);
+          return false;
+        }
         if (error instanceof OrderActionStillRunning) {
           toast.warning(STILL_RUNNING, { duration: 12000 });
           return false;
@@ -148,7 +159,7 @@ export function useSellpiaOrderTransmission({
         setSendingId(null);
       }
     },
-    [record],
+    [record, onAlreadySent],
   );
 
   /** 확인·닫기가 거절되면(이미 끝난 실행 등) 그 실행의 서버 상태로 기록을 맞춘다. */
