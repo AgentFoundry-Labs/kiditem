@@ -31,20 +31,13 @@ const ACTION_DEDUP_HOURS = 24;
  * Tenant scoping (`organizationId`) is enforced by the persistence layer; this
  * service supplies it from the controller's `@CurrentOrganization()`.
  *
- * Execution state lives on the action's latest ExecutionTask. The browser
- * extension's markRunning / markDone / markFailed reports name the attempt
- * they report for and move only that task while it is the latest; a second
- * markRunning for a running task is another executor and is refused.
- * Approving a failed action queues a new one. A running attempt past its
- * execution deadline reads failed; approving again or a late report closes it.
- * Rejecting cancels a queued attempt. It is refused while an attempt runs
- * within its deadline, since that executor may already be changing Coupang,
- * and once the latest attempt is done, since Coupang already changed.
+ * Approving a create_campaign prepares its `advertising.ad_action` run; the
+ * browser extension claims it and reports through the operation contract's
+ * finish (KID-386).
  *
  * Keyword pauses, bid changes and daily budget changes are applied by hand in
  * the ad center (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A). Approving one
- * records a failed attempt that says so instead of queuing it, and the
- * extension's running or done report for one is refused.
+ * records the operator's confirmation and prepares nothing.
  */
 @Injectable()
 export class AdActionService {
@@ -183,46 +176,5 @@ export class AdActionService {
     return {
       updated: await this.repo.rejectAdActions(ids, organizationId, options),
     } satisfies AdActionCommandResult;
-  }
-
-  async markRunning(
-    id: string,
-    executionTaskId: string,
-    beforeJson: Record<string, unknown> | undefined,
-    organizationId: string,
-  ) {
-    await this.repo.reportActionExecution(id, organizationId, {
-      executionTaskId,
-      status: 'running',
-      beforeJson,
-    });
-  }
-
-  async markDone(
-    id: string,
-    executionTaskId: string,
-    afterJson: Record<string, unknown> | undefined,
-    organizationId: string,
-  ) {
-    await this.repo.reportActionExecution(id, organizationId, {
-      executionTaskId,
-      status: 'done',
-      afterJson,
-    });
-  }
-
-  async markFailed(
-    id: string,
-    executionTaskId: string,
-    errorMessage: string | undefined,
-    afterJson: Record<string, unknown> | undefined,
-    organizationId: string,
-  ) {
-    await this.repo.reportActionExecution(id, organizationId, {
-      executionTaskId,
-      status: 'failed',
-      errorMessage: errorMessage || '실행 실패',
-      afterJson,
-    });
   }
 }

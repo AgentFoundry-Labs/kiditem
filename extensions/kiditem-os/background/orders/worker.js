@@ -838,11 +838,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     ));
   }
 
-  // 로그인 상태만 본다. 몰 키 하나만 받고, 주소는 모듈의 고정 목록에서만 나온다.
-  if (msg?.action === "probeMallSession") {
-    return respond(probeMallSessionQuietly(typeof msg.mallKey === "string" ? msg.mallKey : ""));
-  }
-
   if (msg?.action === "ensureMallLoggedIn") {
     return respond(ensureMallLoginWithLifecycle(msg));
   }
@@ -2437,14 +2432,6 @@ async function checkMallLogin(mallKey, siteUrl) {
   return { success: true, mallKey, state, reason: found.reason };
 }
 
-/** 조용히 한 번 읽어만 본 로그인 상태. 화면을 열지 않아 모를 수 있다. */
-async function probeMallSessionQuietly(mallKey) {
-  const key = typeof mallKey === "string" ? mallKey : "";
-  const found = await mallSessionDriver().probe(key);
-  const state = found.verdict === "in" ? "signed_in" : found.verdict === "out" ? "signed_out" : "unknown";
-  return { success: true, mallKey: key, state, reason: found.reason };
-}
-
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
 // KID-379: 시도를 싣고 오는 로그인은 옛 몰 소유자 경로(카카오)뿐이다 — 그 시도 안에서 로그인한다.
@@ -3259,15 +3246,11 @@ KidItemDomains.register({
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
     mallCategoryLookupMalls: KidItemMallUtilityActions.CATEGORY_MALL_KEYS,
-    // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
-    mallSessionProbeV1: true,
     mallLoginTestV1: true,
     // 로그인됨 · 인증 필요 · 로그인 필요 셋으로 답하는 확인(모르면 화면을 열어 본다).
     mallLoginCheckV2: true,
     // 수집이 끝나면 우리가 연 몰 탭을 닫는다.
     orderCollectionTabCloseV1: true,
-    mallSessionProbeMalls: (typeof KidItemMallSession !== "undefined"
-      && KidItemMallSession.passiveMalls) || ["domeggook", "onch", "kidsnote", "kidkids", "icecream-mall", "art09", "haebub-mall", "teacher-mall", "boribori", "lotte-on", "gs-shop", "ssg", "thirtymall", "kkomangse"],
     sellpiaPostTransfer: true,
     sellpiaAutoInvoice: true,
   },

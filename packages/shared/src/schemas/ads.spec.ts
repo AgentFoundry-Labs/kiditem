@@ -171,8 +171,8 @@ describe('keyword rows over the chosen period (KID-372)', () => {
     const proposal = {
       actionId: '00000000-0000-4000-8000-0000000000aa',
       approvalStatus: 'approved',
-      executeStatus: 'failed',
-      errorMessage: '실행 기한 초과',
+      executeStatus: 'not_prepared',
+      errorMessage: null,
     };
     const row = { ...keyword, pauseProposal: proposal };
 

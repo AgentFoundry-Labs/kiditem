@@ -44,32 +44,33 @@ const CLOSE: PauseProposalReviewAction = { review: 'close', label: '닫기' };
 
 /**
  * What a keyword's pause proposal shows and which review requests it offers.
- * Approval decides first: a proposal awaiting review reads `queued` only
- * because it has no attempt yet.
+ * Approval decides first.
  *
- * Approving a keyword pause records the operator's confirmation and queues
- * nothing for the extension (KID-138 decision A); the operator pauses the
- * keyword in the ad center. So an approved proposal offers no way to run it:
- * its attempt reads failed with the reason the server recorded, or queued when
- * it was approved before that decision. The operator closes it when done. A
- * running or done attempt comes from an extension before that decision and may
- * already have changed Coupang, so it offers nothing.
+ * Approving a keyword pause records the operator's confirmation and prepares
+ * no run for the extension (KID-138 decision A, KID-386); the operator pauses
+ * the keyword in the ad center. So an approved proposal offers no way to run
+ * it: it reads `not_prepared` (or a word an older approval left) and the
+ * operator closes it when done. A running or applied run would already be
+ * changing Coupang, so it offers nothing.
  *
  * These states and the approve and close messages assume a pause is applied by
  * hand (`MANUAL_AD_ACTION_TYPES` in
- * `apps/server/src/advertising/domain/execution-task-lifecycle.ts`).
+ * `apps/server/src/advertising/domain/manual-ad-action-types.ts`).
  */
 export function pauseProposalState(proposal: AdKeywordPauseProposal): PauseProposalState {
   if (proposal.approvalStatus === 'pending_review') {
     return { label: '승인 대기', note: null, actions: [APPROVE, REJECT] };
   }
   switch (proposal.executeStatus) {
+    case 'not_prepared':
     case 'queued':
     case 'failed':
+    case 'cancelled':
       return { label: '승인함', note: '광고센터에서 직접 꺼 주세요', actions: [CLOSE] };
     case 'running':
       return { label: '실행 중', note: null, actions: [] };
     case 'done':
+    case 'uncertain':
       return { label: '완료', note: null, actions: [] };
   }
 }

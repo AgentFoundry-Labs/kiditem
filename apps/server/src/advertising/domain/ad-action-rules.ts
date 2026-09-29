@@ -18,6 +18,12 @@ import type { AdRuleTarget } from '../application/port/out/repository/ad-action.
 
 export type ActionCandidate = {
   listingId: string | null;
+  /**
+   * The Coupang account the target belongs to (the rule input's campaign
+   * account). Stored on the action so a run of it knows its ad center account
+   * (KID-386); absent where the proposer does not know it.
+   */
+  channelAccountId?: string | null;
   actionType: string;
   targetType: AdActionTargetType;
   externalId: string | null;
@@ -62,6 +68,7 @@ export function createActionCandidate(
     if (!zeroConversionSpend && !poorRoas) return null;
     return {
       listingId: target.listingId,
+      channelAccountId: target.channelAccountId,
       actionType: 'pause_keyword',
       targetType: 'keyword',
       externalId: target.vendorItemId,
@@ -84,6 +91,7 @@ export function createActionCandidate(
     reason: string,
   ): ActionCandidate => ({
     listingId: target.listingId,
+    channelAccountId: target.channelAccountId,
     actionType: 'change_daily_budget',
     targetType: 'campaign',
     externalId: target.campaignId,

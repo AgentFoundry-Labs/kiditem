@@ -109,8 +109,8 @@ export interface OperationTransaction {
    */
   createHeld(operation: NewOperation): Promise<OperationRecord | null>;
   reschedule(organizationId: string, operationId: string, reschedule: OperationReschedule): Promise<OperationRecord>;
-  /** claim 후보 하나를 `FOR UPDATE SKIP LOCKED`로 잠근다(조직 무관, 오래된 순). */
-  lockNextClaimable(kinds: readonly string[], now: Date): Promise<OperationRecord | null>;
+  /** claim 후보 하나를 `FOR UPDATE SKIP LOCKED`로 잠근다(오래된 순). `organizationId`를 주면 그 조직 안에서만(KID-386). */
+  lockNextClaimable(kinds: readonly string[], now: Date, organizationId?: string): Promise<OperationRecord | null>;
   markClaimed(organizationId: string, operationId: string, claim: OperationClaimWrite): Promise<OperationRecord>;
   /**
    * 시도가 남지 않은 채 임대가 끝난 executing 실행을 조직 무관하게 `FOR UPDATE SKIP LOCKED`로 잠근다

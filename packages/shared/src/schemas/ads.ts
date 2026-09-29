@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { AdActionProviderOutcomeSchema } from './advertising-operations.js';
 
 export const AdExtensionReplayIdempotencyKeySchema = z.string()
   .max(160)
@@ -176,6 +177,58 @@ export const AdActionCommandResultSchema = z.object({
 export type AdActionCommandResult = z.infer<typeof AdActionCommandResultSchema>;
 
 /**
+ * An ad action's execution word (KID-386). An action is a decision; its
+ * execution is an `advertising.ad_action` operation, and this word is read from
+ * the action's latest one:
+ *
+ * - `not_prepared`: no operation. A proposal awaiting review, an approved
+ *   action the operator applies by hand (`pause_keyword`, `change_bid`,
+ *   `change_daily_budget`), or an approval from before KID-386 or whose
+ *   preparation did not finish (approving it again prepares it).
+ * - `queued` (prepared, waiting for the extension's popup), `running`
+ *   (claimed), `done` (the ad center showed the new campaign), `uncertain` (the
+ *   form was submitted but no campaign id was read; check the ad center),
+ *   `failed`, `cancelled` (rejected before the extension took it).
+ */
+export const AD_ACTION_EXECUTE_STATUSES = [
+  'not_prepared',
+  'queued',
+  'running',
+  'done',
+  'uncertain',
+  'failed',
+  'cancelled',
+] as const;
+export const AdActionExecuteStatusSchema = z.enum(AD_ACTION_EXECUTE_STATUSES);
+export type AdActionExecuteStatus = z.infer<typeof AdActionExecuteStatusSchema>;
+
+/** An ad action's execution as the action listing reads it from its operation (KID-386). */
+export const AdActionExecutionSchema = z.object({
+  /** The action's latest `advertising.ad_action` operation; null while `not_prepared`. */
+  operationId: z.string().uuid().nullable(),
+  executeStatus: AdActionExecuteStatusSchema,
+  /** What the ad center showed, for a finished run. */
+  providerOutcome: AdActionProviderOutcomeSchema.nullable(),
+  /** The created campaign's ad center id, when it was read. */
+  campaignId: z.string().nullable(),
+  /** Registry code of a failed run. */
+  errorCode: z.string().nullable(),
+  /** Why a run failed; null otherwise. */
+  errorMessage: z.string().nullable(),
+  /** When a succeeded run finished. */
+  executedAt: z.coerce.date().nullable(),
+});
+export type AdActionExecution = z.infer<typeof AdActionExecutionSchema>;
+
+/** `POST /api/ads/campaigns/register`: the approved action and the run it prepared (null if preparing it failed). */
+export const AdCampaignRegisterResponseSchema = z.object({
+  ok: z.literal(true),
+  actionId: z.string().uuid(),
+  operationId: z.string().uuid().nullable(),
+});
+export type AdCampaignRegisterResponse = z.infer<typeof AdCampaignRegisterResponseSchema>;
+
+/**
  * A keyword's latest `pause_keyword` proposal. Once that proposal is rejected
  * the keyword shows none, and an older proposal does not come back. An
  * approved one stays shown until the operator closes it, since the operator
@@ -185,17 +238,12 @@ export const AdKeywordPauseProposalSchema = z.object({
   actionId: z.string().uuid(),
   approvalStatus: z.enum(['pending_review', 'approved']),
   /**
-   * Execution state read from the proposal's latest attempt. A proposal
-   * awaiting review has no attempt and reads `queued`. An approved one reads
-   * `failed`, since its attempt never runs, unless it was approved before
-   * KID-138 decision A; a running attempt past its execution deadline reads
-   * `failed`.
+   * Execution word (`AD_ACTION_EXECUTE_STATUSES`). A keyword pause is applied
+   * by hand, so its proposal reads `not_prepared` whether it awaits review or
+   * stands approved.
    */
-  executeStatus: z.enum(['queued', 'running', 'done', 'failed']),
-  /**
-   * Why the latest attempt failed, such as that the pause is applied by hand or
-   * "실행 기한 초과"; null otherwise.
-   */
+  executeStatus: AdActionExecuteStatusSchema,
+  /** Why the latest run failed; null otherwise. */
   errorMessage: z.string().nullable(),
 });
 export type AdKeywordPauseProposal = z.infer<typeof AdKeywordPauseProposalSchema>;

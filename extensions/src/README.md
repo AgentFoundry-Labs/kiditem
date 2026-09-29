@@ -69,6 +69,24 @@ visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDi
 업체코드는 탭 화면의 "업체코드" 항목을
 파일 주입(`content/ad-center/vendor-code.js`, 읽기만)으로 읽는다.
 
+서버 준비 실행(claim, KID-386): owner가 자기 트랜잭션 안에서 `prepare`로 만들어 둔 실행(`prepared`)은 begin하지 않고
+`runner.runClaimed`가 `POST /api/operations/claim`(세션 조직 안에서만)으로 받아 그 plan·lockKeys·토큰으로 begin 경로와 같은 순서
+(자원 → 청크 → finish, `stopFor` 중지 규칙)를 돈다. 후보가 없으면 null이고, 모르는 kind를 받으면 바로 실패 finish로 돌려준다.
+계기는 팝업 버튼 하나다(`entry/prepared-operations.ts`, 메시지 `runPreparedOperations` — 확장 팝업에서 온 것만, 준비 실행 kind만,
+겹쳐 돌리지 않음). 후보가 없을 때까지(한 번에 20개까지) 하나씩 돌리고 결과 요약을 팝업에 답한다. 백그라운드 폴링은 두지 않는다
+(사무실 PC가 늘 켜져 있지 않다). 수집기는 실패 finish에 실을 result를 `failureResult`로 줄 수 있다.
+
+광고 액션(`advertising.ad_action`, KID-386): 승인된 `create_campaign` 하나를 광고센터에 적용한다. 잠금은
+`resource:ad-action:<actionId>` 하나뿐이다 — 광고센터 계정 키를 쥐지 않으므로 보고서 수집과 같은 광고센터를 동시에 쓸 수 있고,
+한 번에 하나씩 도는 것은 팝업 루프만 지킨다. 브라우저 자원이 탭을 주지 않으므로 `sites/ad-center`가 제 탭(`/marketing`)을 열어
+업체코드를 읽고(보고서 수집과 같은 대조), 수집기가 캠페인 목록에서 같은 이름을 찾은 뒤(있으면 만들지 않는다) `createCampaign`이
+`/marketing/campaign/type` → [다음] → `/registration`에서 이름·광고그룹·상품 검색/선택(계획의 id는 리스팅 옵션 id — `vendor_item` 행의 속성·글자로 맞춘다)·운영 방식·일 예산·목표 광고수익률을 채우고
+[완료] → 확인 대화상자를 누른다(페이지 처리기 `content/page-call/ad-center-campaign-register.js`, ISOLATED). 규칙: 누르기 전 실패는
+던진다(실패 finish, `not_attempted`; 칸이 없으면 `ADVERTISING_AD_CENTER_FORM_CHANGED`), 눌렀거나 누르는 호출의 답이 끊겼으면
+던지지 않고 증거 청크(`ad_action_evidence`)를 낸다 — 캠페인 번호를 읽었거나 목록에서 이름으로 찾으면 `created`, 아니면 성공 finish의
+`uncertain`(사람이 광고센터에서 확인). 쓴 탭은 운영자에게 남긴다. 셀렉터는 옛 content script가 마지막으로 확인한 것이고, 검증은
+fixture jsdom 스펙뿐이다(실광고센터 쓰기 QA 금지).
+
 몰 쓰기(KID-256, `channels.registration`·`channels.mall_availability_read`): 몰마다 `sites/<mall>/registration.ts`(등록 폼 명세나
 전용 흐름 — 페이지 쪽은 `content/page-call/form-fill.js`와 전용 몰 `<mall>-register.js`)와 `sites/<mall>/availability.ts`(품절·재개·
 가격·지금 상태 — 페이지 쪽은 `content/page-call/mall-availability*.js`)를 몰 키로 등록하고, 라우터 사이트 `sites/mall-write`가 plan의

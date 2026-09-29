@@ -28,7 +28,10 @@ describe('createRunner — 연쇄', () => {
     const steps: string[] = [];
     const begunIds: string[] = [];
     const client: OperationClient = {
-      async begin(request) {
+      async claim() {
+      return { operation: null, token: null };
+    },
+    async begin(request) {
         steps.push(`begin:${request.kind}:${JSON.stringify(request.scope)}`);
         if (request.kind === 'a.second') {
           throw new RuntimeError('OPERATION_IN_PROGRESS', '돌고 있습니다', {
@@ -89,7 +92,10 @@ describe('createRunner — 연쇄와 자격(KID-377 리뷰)', () => {
     const leases: Array<{ kind: string; lease: unknown }> = [];
     let n = 0;
     const client: OperationClient = {
-      async begin(request) {
+      async claim() {
+      return { operation: null, token: null };
+    },
+    async begin(request) {
         n += 1;
         return { operation: view(`1111111${n}-1111-4111-8111-111111111111`, request.kind), token: TOKEN, reused: false };
       },

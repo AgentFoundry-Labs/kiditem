@@ -1,8 +1,6 @@
 import { z } from 'zod';
 
 export const BROWSER_COLLECTION_PRODUCERS = [
-  'channels.coupang_catalog',
-  'dashboard.coupang_products',
   'orders.mall',
   'orders.mall_admin_listings',
 ] as const;

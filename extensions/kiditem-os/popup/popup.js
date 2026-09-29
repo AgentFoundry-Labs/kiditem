@@ -145,16 +145,37 @@ async function configureEnvironmentSelector() {
   return selectedEnvironmentId !== null;
 }
 
+// 승인된 광고 액션은 서버가 승인 때 준비해 둔 실행(advertising.ad_action, prepared)이다(KID-386). 목록 한 쪽(200)이 대기 수의 상한이다.
+const AD_ACTION_KIND = 'advertising.ad_action';
+const PREPARED_AD_ACTIONS_PATH = `/api/operations?kinds=${AD_ACTION_KIND}&status=prepared&limit=200`;
+
 async function loadApprovedActions(request, sequence) {
   try {
-    const result = await popupFetch('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50', {}, request);
+    const result = await popupFetch(PREPARED_AD_ACTIONS_PATH, {}, request);
     if (!isCurrentStatusRefresh(request, sequence)) return;
     if (!result.ok) throw new Error(`HTTP ${result.status}`);
-    const count = Array.isArray(result.body?.items) ? result.body.items.length : 0;
-    setCardValue('approvedActions', count > 0 ? `${count}개 대기` : '없음', true, count > 0 ? 'dot-orange' : 'dot-gray');
+    const count = Array.isArray(result.body?.operations) ? result.body.operations.length : 0;
+    const label = count >= 200 ? '200개 이상 대기' : `${count}개 대기`;
+    setCardValue('approvedActions', count > 0 ? label : '없음', true, count > 0 ? 'dot-orange' : 'dot-gray');
   } catch {
     if (isCurrentStatusRefresh(request, sequence)) setCardValue('approvedActions', '조회 실패', true, 'dot-red');
   }
+}
+
+function preparedRunText(summary) {
+  if (!summary?.ok) return { text: `❌ ${summary?.error || '실행 실패'}`, error: true };
+  if (!summary.ran) return { text: '❌ 실행할 승인 광고 액션이 없습니다.', error: true };
+  // 같은 이름 캠페인이 이미 있어 쓰지 않고 연결한 것(linked)은 새로 등록한 것과 따로 보인다.
+  const linked = summary.linked || 0;
+  if (!summary.uncertain && !summary.failed && !summary.stopped) {
+    const linkedText = linked > 0 ? `했고, ${linked}개는 이미 있던 캠페인에 연결했습니다.` : '했습니다.';
+    return { text: `✅ 광고 액션 ${summary.created}개를 광고센터에 등록${linkedText}`, error: false };
+  }
+  const counts = `${summary.created}개 등록, ${linked > 0 ? `${linked}개는 이미 있던 캠페인에 연결, ` : ''}${summary.uncertain}개는 광고센터에서 등록 여부 확인 필요, ${summary.failed}개 실패`;
+  const reasons = Array.isArray(summary.messages) && summary.messages.length > 0 ? ` ${summary.messages.join(' / ')}` : '';
+  // 로그인·업체·등록 화면처럼 액션 하나와 무관한 실패면 런타임이 남은 준비 실행을 건드리지 않고 멈췄다.
+  const stopped = summary.stopped ? ` 남은 액션은 실행하지 않았습니다. ${summary.stopped}` : '';
+  return { text: `⚠️ ${counts}.${reasons}${stopped}`, error: summary.failed > 0 || Boolean(summary.stopped) };
 }
 
 async function loadEnvironmentConnection(request, sequence) {
@@ -184,33 +205,21 @@ function initEnvironmentStatus(request = snapshotEnvironmentRequest()) {
   void loadApprovedActions(request, sequence);
 }
 
+// 새 런타임이 준비된 실행을 claim해 후보가 없을 때까지 하나씩 돌린다(제 광고센터 탭을 연다). 팝업이 닫혀도 실행은 이어진다.
 document.getElementById('btnRunApproved').addEventListener('click', async () => {
   let request;
   try {
     request = snapshotEnvironmentRequest();
-    const tab = await bindActiveTab(request);
+    showResult('승인된 광고 액션을 실행하는 중입니다...');
+    const summary = await runtimeMessage({
+      type: 'runPreparedOperations',
+      environmentId: request.environmentId,
+      kinds: [AD_ACTION_KIND],
+    });
     if (!isCurrentEnvironmentRequest(request)) return;
-    const result = await popupFetch('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', {}, request);
-    if (!isCurrentEnvironmentRequest(request)) return;
-    if (!result.ok) throw new Error(`HTTP ${result.status}`);
-    const actions = Array.isArray(result.body?.items) ? result.body.items : [];
-    if (actions.length === 0) throw new Error('실행할 승인 액션이 없습니다.');
-    chrome.tabs.sendMessage(
-      tab.id,
-      { action: 'executeApprovedAdActions', payload: { actions } },
-      (response) => {
-        if (!isCurrentEnvironmentRequest(request)) return;
-        if (chrome.runtime.lastError || !response?.success) {
-          showResult(`❌ ${chrome.runtime.lastError?.message || response?.error || '실행 실패'}`, true);
-          return;
-        }
-        // A warning (a refused report, a change not recorded) is shown in full;
-        // a plain 보류 count would hide why an action did not run.
-        const unrecorded = response.executedUnrecorded || 0;
-        const counts = `${response.executed || 0}개 실행${unrecorded > 0 ? `, ${unrecorded}개는 실행됐지만 기록되지 않음` : ''}, ${response.skipped || 0}개 보류`;
-        showResult(response.warning ? `⚠️ ${counts}. ${response.warning}` : `✅ ${counts}`);
-      },
-    );
+    const { text, error } = preparedRunText(summary);
+    showResult(text, error);
+    initEnvironmentStatus(request);
   } catch (error) {
     if (request && !isCurrentEnvironmentRequest(request)) return;
     showResult(`❌ ${error.message}`, true);

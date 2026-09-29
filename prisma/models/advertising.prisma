@@ -17,12 +17,17 @@ model AdAction {
   payload        Json?
   approvalStatus String    @default("pending_review") @map("approval_status")
   approvedAt     DateTime? @map("approved_at") @db.Timestamptz
+  /// KID-386: 이 액션이 실행될 광고센터 계정(Channels `ChannelAccount` id, 스칼라 참조). 승인 → prepare가 잠금 키로 쓴다.
+  channelAccountId String? @map("channel_account_id") @db.Uuid
+  /// KID-386: 승인이 준비한 `advertising.ad_action` 실행(스칼라 참조). 실행 상태는 operations에서 읽는다.
+  operationId    String?   @map("operation_id") @db.Uuid
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   executionTasks ExecutionTask[]
 
   @@index([organizationId, approvalStatus])
+  @@index([operationId])
   @@index([externalId])
   @@index([listingId])
   @@index([createdAt])

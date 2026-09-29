@@ -5,6 +5,7 @@ import {
   AD_ACTION_COMMAND_MAX_IDS,
   type AdActionCommandResult,
   type AdActionExpectedApprovalStatus,
+  type AdCampaignRegisterResponse,
   type AdCampaignSnapshot,
   type AdExtensionStatus,
   type AdKeywordsData,
@@ -371,7 +372,7 @@ export function useRegisterCampaign() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: RegisterCampaignPayload) =>
-      apiClient.post('/api/ads/campaigns/register', {
+      apiClient.post<AdCampaignRegisterResponse>('/api/ads/campaigns/register', {
         campaignName: payload.campaignName,
         adGroupName: payload.adGroupName,
         grade: payload.grade,

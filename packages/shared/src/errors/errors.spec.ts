@@ -39,11 +39,10 @@ describe('error registry (ADR-0023)', () => {
     expect(ERROR_DEFINITIONS.ATTEMPT_EXPIRED.owner).toBe('common');
     expect(ERROR_DEFINITIONS.CHANNELS_LISTING_EXECUTION_ACTIVE.owner).toBe('channels');
     expect(ERROR_DEFINITIONS.SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED.owner).toBe('supply');
-    // 확장이 응답 body.code를 철자 그대로 읽는 코드는 접두 없이 등록한다(ads-report.js 실행 보고 거절,
-    // 몰 주문 owner가 변환기의 NO_NEW_ORDERS를 가른다 — 옛 확장 서버 변환기는 KID-380에서 지웠다). 옮기면 접두를 붙인다.
+    // 확장·owner가 응답 body.code를 철자 그대로 읽는 코드는 접두 없이 등록한다(몰 주문 owner가 변환기의 NO_NEW_ORDERS를 가른다 — 옛 확장 서버 변환기는 KID-380에서 지웠다). 옮기면 접두를 붙인다.
     // 웹 use-mall-publish-run·collected-products 화면이 REGISTRATION_ALREADY_REGISTERED 철자를 비교한다
     // (shared registration-state REGISTRATION_ALREADY_REGISTERED_CODE).
-    const wireSpellings = new Set(['NO_NEW_ORDERS', 'EXECUTION_REPORT_MANUAL_ACTION', 'EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION', 'REGISTRATION_ALREADY_REGISTERED']);
+    const wireSpellings = new Set(['NO_NEW_ORDERS', 'REGISTRATION_ALREADY_REGISTERED']);
     for (const code of ERROR_CODES) {
       const { owner } = ERROR_DEFINITIONS[code];
       if (['common', 'auth', 'extension', 'inventory'].includes(owner) || wireSpellings.has(code)) continue;
