@@ -87,15 +87,21 @@ describe('order collection extension session bridge', () => {
     });
   });
 
-  it('never calls an off-contract answer or a bad site address a wrong password', async () => {
+  it('never calls an off-contract answer a wrong password', async () => {
     bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true });
     await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' }))
       .resolves.toMatchObject({ success: false, unavailable: 'extension_outdated' });
 
-    bridge.sendToExtension.mockClear();
-    await expect(testMallLoginViaExtension('art09', { loginId: 'seller', password: 'x', siteUrl: 'cafe24 admin' }))
-      .resolves.toMatchObject({ success: false, unavailable: 'site_url_invalid' });
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
+  it('sends without a saved site address that is not an http address', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true, verified: true, mallMessage: null, errorCode: null });
+    await testMallLoginViaExtension('art09', { loginId: 'seller', password: 'x', siteUrl: 'cafe24 admin' });
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('order-extension', {
+      action: 'testMallLogin',
+      mallKey: 'art09',
+      credentials: { loginId: 'seller', password: 'x' },
+    }, 60_000);
   });
 
   it('preserves the loaded extension version and missing capability diagnosis', async () => {

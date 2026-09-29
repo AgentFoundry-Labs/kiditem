@@ -25,6 +25,21 @@ export class ExtensionMessageInvalidError extends Error {
   }
 }
 
+/**
+ * 몰 로그인 테스트·확인에 실을 저장된 사이트 주소. http·https로 읽히지 않으면 싣지 않는다 —
+ * 확장이 몰의 고정 주소로 확인한다(옛 확장의 저장 주소 규칙).
+ */
+export function mallSiteUrlForMessage(siteUrl: string | null | undefined): string | null {
+  if (!siteUrl) return null;
+  try {
+    const trimmed = siteUrl.trim();
+    const { protocol } = new URL(trimmed);
+    return protocol === 'http:' || protocol === 'https:' ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
 export interface ExtensionEntryContract<M extends z.ZodTypeAny, R extends z.ZodTypeAny> {
   message: M;
   response: R;

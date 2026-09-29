@@ -13,6 +13,7 @@ import {
 import {
   ExtensionContractError,
   ExtensionMessageInvalidError,
+  mallSiteUrlForMessage,
   sendExtensionEntryAction,
 } from '@/lib/extension-entry-action';
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
@@ -202,13 +203,13 @@ export function orderCollectionExtensionUnavailableMessage(
 
 /**
  * 로그인 테스트를 하지 못한 이유. 비밀번호 문제가 아니므로 자동 로그인을 막을 근거가 아니다.
- * `site_url_invalid`는 계정에 저장된 사이트 주소가 주소 모양이 아니라 확장에 보내지 않은 경우다.
+ * `request_invalid`는 계정에 저장된 값이 확장 계약에 맞지 않아(길이 초과 등) 보내지 않은 경우다.
  */
 export type MallLoginTestUnavailable =
   | 'extension_not_found'
   | 'extension_outdated'
   | 'extension_no_answer'
-  | 'site_url_invalid';
+  | 'request_invalid';
 
 /** 로그인 테스트 결과(shared `TestMallLoginResponseSchema`·실패 봉투를 화면이 읽는 모양으로). */
 export interface MallLoginTestResponse {
@@ -246,7 +247,8 @@ export async function testMallLoginViaExtension(
       error: orderCollectionExtensionUnavailableMessage(runtime),
     };
   }
-  const { siteUrl, loginId, password, supplierLoginId } = credentials;
+  const { loginId, password, supplierLoginId } = credentials;
+  const siteUrl = mallSiteUrlForMessage(credentials.siteUrl);
   try {
     const response = await sendExtensionEntryAction(
       runtime.extensionId,
@@ -277,8 +279,8 @@ export async function testMallLoginViaExtension(
     if (error instanceof ExtensionMessageInvalidError) {
       return {
         success: false,
-        unavailable: 'site_url_invalid',
-        error: '계정에 저장된 사이트 주소가 주소 모양이 아닙니다. 주소를 고친 뒤 다시 테스트해 주세요.',
+        unavailable: 'request_invalid',
+        error: '계정에 저장된 값이 확장에 보낼 수 있는 모양이 아닙니다. 아이디·비밀번호 길이를 확인한 뒤 다시 테스트해 주세요.',
       };
     }
     if (error instanceof ExtensionContractError && error.answered) {

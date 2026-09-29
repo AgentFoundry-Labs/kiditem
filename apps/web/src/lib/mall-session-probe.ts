@@ -11,6 +11,7 @@ import { detectOrderCollectionExtensionRuntime } from './extension-bridge';
 import {
   ExtensionContractError,
   ExtensionMessageInvalidError,
+  mallSiteUrlForMessage,
   sendExtensionEntryAction,
 } from './extension-entry-action';
 import { clearMallAutoLoginBlock } from './mall-login-block';
@@ -115,11 +116,12 @@ export async function probeMallSession(
   mallKey: string,
   siteUrl: string | null = null,
 ): Promise<MallSessionProbeResult> {
+  const messageSiteUrl = mallSiteUrlForMessage(siteUrl);
   try {
     const response = await sendExtensionEntryAction(
       extensionId,
       CHECK_MALL_LOGIN,
-      { action: CHECK_MALL_LOGIN_ACTION, mallKey, ...(siteUrl ? { siteUrl } : {}) },
+      { action: CHECK_MALL_LOGIN_ACTION, mallKey, ...(messageSiteUrl ? { siteUrl: messageSiteUrl } : {}) },
       // 조용히 읽어 모르면 화면을 열어 본다 — 화면 로드와 두 번 보기까지 기다린다.
       45_000,
     );
@@ -128,8 +130,7 @@ export async function probeMallSession(
     }
     return { mallKey, state: response.state, reason: readReason(response.reason), checkedAt: Date.now() };
   } catch (error) {
-    // 저장된 사이트 주소가 주소 모양이 아니면 보내지 않았다 — 사람이 계정의 주소를 고쳐야 한다.
-    // 계약 밖의 답은 이유를 알 수 없다. 그 밖(답 없음·전송 실패·시간 초과)은 확장이 답하지 않은 것이다.
+    // 보낼 값이 계약에 맞지 않아 보내지 않았거나(몰 키 길이 등), 계약 밖의 답이면 이유를 알 수 없다. 그 밖(답 없음·전송 실패·시간 초과)은 확장이 답하지 않은 것이다.
     const unexplained = error instanceof ExtensionMessageInvalidError
       || (error instanceof ExtensionContractError && error.answered);
     const reason = unexplained ? null : 'extension_no_answer';

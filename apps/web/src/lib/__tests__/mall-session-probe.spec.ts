@@ -90,12 +90,14 @@ describe('probeMallSession', () => {
     });
   });
 
-  it('does not send a saved site address that is not an address', async () => {
-    await expect(probeMallSession('ext', 'art09', 'zzogzzog1 admin')).resolves.toMatchObject({
-      state: 'signed_out',
-      reason: null,
-    });
-    expect(mockSend).not.toHaveBeenCalled();
+  it('sends without a saved site address that is not an http address — the extension checks its fixed one', async () => {
+    mockSend.mockResolvedValue({ success: true, mallKey: 'art09', state: 'signed_in', reason: null });
+    await probeMallSession('ext', 'art09', 'zzogzzog1 admin');
+    await probeMallSession('ext', 'art09', 'ftp://zzogzzog1.cafe24.com');
+    expect(mockSend.mock.calls.map((call) => call[1])).toEqual([
+      { action: 'checkMallLogin', mallKey: 'art09' },
+      { action: 'checkMallLogin', mallKey: 'art09' },
+    ]);
   });
 });
 
