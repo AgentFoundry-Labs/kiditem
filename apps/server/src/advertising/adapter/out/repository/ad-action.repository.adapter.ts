@@ -8,7 +8,7 @@ import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../
 // Execution words are read from each action's latest ExecutionTask through
 // `read/ad-action-execution.ts`; this adapter writes them only to that task.
 
-import { ConflictException, Injectable, NotFoundException, Optional, Inject } from '@nestjs/common';
+import { ConflictException, Injectable, Optional, Inject } from '@nestjs/common';
 import { Prisma, type AdAction } from '@prisma/client';
 import {
   AD_ACTION_COMMAND_MAX_IDS,
@@ -36,21 +36,16 @@ import {
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
 import type { ActionCandidate } from '../../../domain/ad-action-rules';
-import { scrubExecutionError } from '../../../domain/ad-execution-error-scrubber';
 import {
   EXECUTION_DEADLINE_EXCEEDED_MESSAGE,
-  EXECUTION_REPORT_MANUAL_ACTION,
   isExpiredRunningExecutionTask,
   isManualAdActionType,
   isOpenExecutionTask,
   MANUAL_AD_ACTION_MESSAGE,
   MANUAL_AD_ACTION_TYPES,
-  resolveExecutionReport,
-  type ExecutionReportDecision,
 } from '../../../domain/execution-task-lifecycle';
 import type {
   AdActionExecution,
-  AdActionExecutionReport,
   AdActionQuery,
   AdActionRecord,
   AdActionRepositoryPort,
@@ -743,96 +738,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     return { actionId: action.id, taskId: action.executionTasks[0]?.id ?? null };
   }
 
-  async reportActionExecution(
-    id: string,
-    organizationId: string,
-    report: AdActionExecutionReport,
-  ): Promise<void> {
-    const refusal = await this.prisma.$transaction(async (tx) => {
-      const now = new Date();
-      const action = await tx.adAction.findFirst({
-        where: { id, organizationId },
-        select: { id: true, actionType: true },
-      });
-      if (!action) throw new NotFoundException('AdAction not found');
-
-      const latestTasks = await readLatestExecutionTasks(tx, {
-        organizationId,
-        actionIds: [action.id],
-      });
-      const latest = latestTasks.get(action.id) ?? null;
-      // A report moves only the attempt it names, and only while that attempt
-      // is the action's latest: an older attempt's late report never moves a
-      // retry queued or running after it.
-      const decision = resolveExecutionReport(action.actionType, latest, report, now);
-      if (decision === 'replay') return null;
-      if (decision === 'expired' && latest) {
-        // The executor reports after its attempt's deadline. The attempt is
-        // closed as failed here and the report refused once that commits.
-        await tx.executionTask.updateMany({
-          where: { id: latest.id, actionId: action.id, status: 'running' },
-          data: expiredAttemptClosure(now),
-        });
-        return executionReportConflict(decision, latest, report);
-      }
-      if (decision === 'manual_action' && latest) {
-        // An executor may not start a manual action (KID-138 decision A). A
-        // queued attempt is closed here so it leaves the executor queue, and the
-        // report is refused once that commits. A database cut over before
-        // migration 015 (KID-230) existed still holds such attempts from
-        // approvals before decision A. Compare-and-set on queued: an attempt
-        // that already runs is left to its deadline.
-        if (latest.status === 'queued') {
-          await tx.executionTask.updateMany({
-            where: { id: latest.id, actionId: action.id, status: 'queued' },
-            data: manualAttemptClosure(now),
-          });
-        }
-        return executionReportConflict(decision, latest, report);
-      }
-      if (decision !== 'apply' || !latest) {
-        throw executionReportConflict(decision, latest, report);
-      }
-
-      const data: Prisma.ExecutionTaskUpdateManyMutationInput =
-        report.status === 'running'
-          ? {
-              status: 'running',
-              startedAt: now,
-              errorMessage: null,
-              ...(report.beforeJson !== undefined
-                ? { beforeJson: report.beforeJson as Prisma.InputJsonValue }
-                : {}),
-            }
-          : {
-              status: report.status,
-              startedAt: latest.startedAt ?? now,
-              finishedAt: now,
-              errorMessage:
-                report.status === 'failed'
-                  ? scrubExecutionError(report.errorMessage)
-                  : null,
-              ...(report.afterJson !== undefined
-                ? { afterJson: report.afterJson as Prisma.InputJsonValue }
-                : {}),
-            };
-      // Compare-and-set on the status just read: a concurrent report or
-      // rejection that moved the task first turns this report into a conflict.
-      const updated = await tx.executionTask.updateMany({
-        where: { id: latest.id, actionId: action.id, status: latest.status },
-        data,
-      });
-      if (updated.count !== 1) {
-        throw new ConflictException({
-          code: EXECUTION_REPORT_INVALID_TRANSITION,
-          message: '실행 보고를 반영할 수 없습니다. 실행 작업 상태가 동시에 바뀌었습니다.',
-        });
-      }
-      return null;
-    });
-    if (refusal) throw refusal;
-  }
-
   private async hydrateActionRelations(
     organizationId: string,
     actions: AdActionRecord[],
@@ -865,14 +770,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   }
 }
 
-// 409 codes of a refused execution report, so the executor and an operator can
-// tell a report for a replaced attempt, one for an attempt past its deadline,
-// one for an action applied by hand (`EXECUTION_REPORT_MANUAL_ACTION`, which
-// the lifecycle policy publishes for the extension), and one the attempt
-// cannot take apart.
-const EXECUTION_TASK_NOT_LATEST = 'EXECUTION_TASK_NOT_LATEST';
-const EXECUTION_TASK_EXPIRED = 'EXECUTION_TASK_EXPIRED';
-const EXECUTION_REPORT_INVALID_TRANSITION = 'EXECUTION_REPORT_INVALID_TRANSITION';
 // 409 codes of a refused rejection: an attempt running within its deadline may
 // already be changing Coupang, and a done attempt already changed it.
 const EXECUTION_TASK_RUNNING = 'EXECUTION_TASK_RUNNING';
@@ -962,35 +859,6 @@ async function lockReviewableActions(
     ORDER BY action.id
     FOR UPDATE
   `);
-}
-
-function executionReportConflict(
-  decision: ExecutionReportDecision,
-  latest: { status: string } | null,
-  report: AdActionExecutionReport,
-): ConflictException {
-  if (decision === 'not_latest_attempt') {
-    return new ConflictException({
-      code: EXECUTION_TASK_NOT_LATEST,
-      message: '실행 보고를 반영할 수 없습니다. 보고한 실행 시도가 이 액션의 최신 시도가 아닙니다.',
-    });
-  }
-  if (decision === 'expired') {
-    return new ConflictException({
-      code: EXECUTION_TASK_EXPIRED,
-      message: '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.',
-    });
-  }
-  if (decision === 'manual_action') {
-    return new ConflictException({
-      code: EXECUTION_REPORT_MANUAL_ACTION,
-      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
-    });
-  }
-  return new ConflictException({
-    code: EXECUTION_REPORT_INVALID_TRANSITION,
-    message: `실행 보고를 반영할 수 없습니다. 최근 실행 작업: ${latest?.status ?? '없음'}, 보고: ${report.status}`,
-  });
 }
 
 function pauseKeywordActionKey(input: {

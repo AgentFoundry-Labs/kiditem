@@ -1,6 +1,5 @@
 // Outgoing port for the `AdAction` aggregate. Combines query (review list,
-// latest target rows) with writes (generate, approve, reject, execution
-// reports). Transaction-spanning writes are adapter-internal so
+// latest target rows) with writes (generate, approve, reject). Transaction-spanning writes are adapter-internal so
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type {
@@ -146,21 +145,6 @@ export interface AdActionReviewOptions {
   expectedApprovalStatus?: AdActionExpectedApprovalStatus;
 }
 
-/**
- * A browser execution report for one attempt of an approved action. It names
- * the attempt (`executionTaskId`, from the action listing) so it can move only
- * that attempt, and only while it is the action's latest.
- */
-export type AdActionExecutionReport = { executionTaskId: string } & (
-  | { status: 'running'; beforeJson?: Record<string, unknown> }
-  | { status: 'done'; afterJson?: Record<string, unknown> }
-  | {
-      status: 'failed';
-      errorMessage: string;
-      afterJson?: Record<string, unknown>;
-    }
-);
-
 export interface AdActionRepositoryPort {
   // Reads
   findAdActionsForReview(
@@ -249,22 +233,6 @@ export interface AdActionRepositoryPort {
     organizationId: string,
     options?: AdActionReviewOptions,
   ): Promise<number>;
-
-  /**
-   * Move the attempt a browser execution report names. Throws
-   * NotFoundException for an action outside the organization and
-   * ConflictException, with a `code` saying why, when the named attempt is not
-   * the action's latest, is running past its execution deadline (it is then
-   * closed as failed), belongs to an action the operator applies by hand and
-   * the report is running or done (`EXECUTION_REPORT_MANUAL_ACTION`; a queued
-   * attempt is then closed as failed with `MANUAL_AD_ACTION_MESSAGE`), or
-   * cannot take the report; repeating the recorded status changes nothing.
-   */
-  reportActionExecution(
-    id: string,
-    organizationId: string,
-    report: AdActionExecutionReport,
-  ): Promise<void>;
 
   /**
    * Look up an open `actionType='create_campaign'` AdAction by campaign label.

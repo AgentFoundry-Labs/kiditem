@@ -47,9 +47,6 @@ function makeServices() {
       generateActions: vi.fn(),
       approveActions: vi.fn(),
       rejectActions: vi.fn(),
-      markRunning: vi.fn(),
-      markDone: vi.fn(),
-      markFailed: vi.fn(),
     },
     config: { getConfig: vi.fn(), updateConfig: vi.fn() },
   };
@@ -243,60 +240,6 @@ describe('AdvertisingController — POST /actions sub-action dispatch', () => {
     });
   });
 
-  it('action=markRunning → action.markRunning(id, executionTaskId, beforeJson, organizationId)', () => {
-    ctrl.handleActionCommand(
-      { action: 'markRunning', id: 'x', executionTaskId: 'task-x', beforeJson: { before: 1 } } as any,
-      COMPANY,
-    );
-    expect(svcs.action.markRunning).toHaveBeenCalledWith('x', 'task-x', { before: 1 }, COMPANY);
-  });
-
-  it('action=markDone → action.markDone(id, executionTaskId, afterJson, organizationId)', () => {
-    ctrl.handleActionCommand(
-      { action: 'markDone', id: 'x', executionTaskId: 'task-x', afterJson: { after: 1 } } as any,
-      COMPANY,
-    );
-    expect(svcs.action.markDone).toHaveBeenCalledWith('x', 'task-x', { after: 1 }, COMPANY);
-  });
-
-  it('action=markFailed → action.markFailed(id, executionTaskId, errorMessage, afterJson, organizationId)', () => {
-    ctrl.handleActionCommand(
-      {
-        action: 'markFailed',
-        id: 'x',
-        executionTaskId: 'task-x',
-        errorMessage: 'oops',
-        afterJson: { after: 1 },
-      } as any,
-      COMPANY,
-    );
-    expect(svcs.action.markFailed).toHaveBeenCalledWith(
-      'x',
-      'task-x',
-      'oops',
-      { after: 1 },
-      COMPANY,
-    );
-  });
-
-  // Every execution report names the attempt it reports for, so a report for
-  // an older attempt can never move a newer one (KID-160).
-  it.each(['markRunning', 'markDone', 'markFailed'] as const)(
-    'action=%s without id or executionTaskId → BadRequestException',
-    (action) => {
-      for (const body of [
-        { action },
-        { action, executionTaskId: 'task-x' },
-        { action, id: 'x' },
-      ]) {
-        expect(() => ctrl.handleActionCommand(body as any, COMPANY)).toThrow(
-          BadRequestException,
-        );
-      }
-      expect(svcs.action[action]).not.toHaveBeenCalled();
-    },
-  );
-
   it('action=resetFailed is retired → BadRequestException', () => {
     // Approving a failed action queues a new attempt instead.
     expect(() =>
@@ -315,7 +258,6 @@ describe('AdvertisingController — POST /actions body validation (KID-211)', ()
   // The global pipe main.ts installs, so a refused body is the 400 the route answers.
   const bodyPipe = new ValidationPipe({ whitelist: true, transform: true });
   const ACTION_ID = '11111111-1111-4111-8111-111111111111';
-  const TASK_ID = '22222222-2222-4222-8222-222222222222';
 
   async function statusOf(body: Record<string, unknown>): Promise<number> {
     try {
@@ -331,13 +273,6 @@ describe('AdvertisingController — POST /actions body validation (KID-211)', ()
     for (const action of ['approve', 'reject']) {
       expect(await statusOf({ action, ids: [ACTION_ID] })).toBe(201);
       expect(await statusOf({ action, ids: [ACTION_ID, 'not-a-uuid'] })).toBe(400);
-    }
-  });
-
-  it('answers 400 when an execution report names an action id that is not a UUID', async () => {
-    for (const action of ['markRunning', 'markDone', 'markFailed']) {
-      expect(await statusOf({ action, id: ACTION_ID, executionTaskId: TASK_ID })).toBe(201);
-      expect(await statusOf({ action, id: 'not-a-uuid', executionTaskId: TASK_ID })).toBe(400);
     }
   });
 

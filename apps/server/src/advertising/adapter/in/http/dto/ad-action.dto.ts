@@ -42,7 +42,7 @@ export class AdActionQueryDto {
 
 export class AdActionCommandDto {
   @IsString()
-  @IsIn(['generate', 'approve', 'reject', 'markRunning', 'markDone', 'markFailed'])
+  @IsIn(['generate', 'approve', 'reject'])
   action: string;
 
   /** Actions to approve or reject, at most the action listing's page size. */
@@ -59,24 +59,4 @@ export class AdActionCommandDto {
   @IsOptional()
   @IsIn(AdActionExpectedApprovalStatusSchema.options)
   expectedApprovalStatus?: AdActionExpectedApprovalStatus;
-
-  /** The action an execution report is for. */
-  @IsOptional()
-  @IsUUID()
-  id?: string;
-
-  /** The attempt an execution report is for: the action listing's `executionTaskId`. */
-  @IsOptional()
-  @IsUUID()
-  executionTaskId?: string;
-
-  @IsOptional()
-  beforeJson?: Record<string, unknown>;
-
-  @IsOptional()
-  afterJson?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  errorMessage?: string;
 }

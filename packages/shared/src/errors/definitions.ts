@@ -238,11 +238,6 @@ export const ERROR_DEFINITIONS = {
   CONTENT_REVISION_REQUIRED: def('content', 'precondition', '저장된 상세페이지가 없습니다. 상세페이지를 먼저 저장해 주세요.'),
 
   // advertising · analytics · finance
-  // 확장 content/coupang/ads-report.js가 실행 보고 거절의 body.code를 그대로 읽는다 — 철자 고정(접두 없음).
-  EXECUTION_REPORT_MANUAL_ACTION: def('advertising', 'conflict', '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.'),
-  EXECUTION_TASK_NOT_LATEST: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 보고한 실행 시도가 이 액션의 최신 시도가 아닙니다.'),
-  EXECUTION_TASK_EXPIRED: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.'),
-  EXECUTION_REPORT_INVALID_TRANSITION: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 최근 실행 작업 상태와 맞지 않습니다.'),
   ADVERTISING_RESULT_UNREADABLE: def('advertising', 'external', '광고센터 결과를 읽지 못했습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
   // 키워드·경쟁사 수집 kind(KID-362 K-a).
   ADVERTISING_ACCOUNT_NOT_FOUND: def('advertising', 'not_found', '윙 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.'),

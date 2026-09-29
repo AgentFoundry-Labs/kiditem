@@ -21,11 +21,6 @@ export const EXECUTION_TASK_STATUSES = [
 ] as const;
 export type ExecutionTaskStatus = (typeof EXECUTION_TASK_STATUSES)[number];
 
-export type ExecutionReportStatus = Extract<
-  ExecutionTaskStatus,
-  'running' | 'done' | 'failed'
->;
-
 /**
  * How long a running attempt may go without an outcome report (KID-160). An
  * executor that stopped (a sleeping PC, a closed tab) leaves its attempt
@@ -66,15 +61,6 @@ export const MANUAL_AD_ACTION_TYPES = [
 /** The failure message a manual action's attempt carries. */
 export const MANUAL_AD_ACTION_MESSAGE =
   '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
-
-/**
- * The 409 code of a running or done report refused as `manual_action`. The
- * extension counts a claim refused with it apart and tells the operator to
- * apply the action in the ad center (`MANUAL_ACTION_REFUSAL_CODE` in
- * `extensions/kiditem-os/content/coupang/ads-report.js`, held equal by an
- * extension test).
- */
-export const EXECUTION_REPORT_MANUAL_ACTION = 'EXECUTION_REPORT_MANUAL_ACTION';
 
 export function isManualAdActionType(actionType: string): boolean {
   return (MANUAL_AD_ACTION_TYPES as readonly string[]).includes(actionType);
@@ -117,66 +103,4 @@ export function isOpenExecutionTask(
   if (!task) return false;
   if (task.status === 'queued') return true;
   return task.status === 'running' && !isExpiredRunningExecutionTask(task, now);
-}
-
-/** A browser execution report names the attempt it reports for. */
-export interface ExecutionReportTarget {
-  executionTaskId: string;
-  status: ExecutionReportStatus;
-}
-
-/**
- * Decided in this order:
- *
- * - `not_latest_attempt`: the report names an attempt that is not the action's
- *   latest. A newer attempt replaced it (or the action never had one), and a
- *   report for the old attempt must not move the new one.
- * - `expired`: the report names the latest attempt, but it is running past its
- *   deadline. The report is refused and the attempt is closed as failed, so
- *   approving the action again adds a new one.
- * - `replay`: the latest task already has that outcome; a repeated done or
- *   failed report changes nothing, whatever the action type.
- * - `manual_action`: a running or done report for an action of a
- *   `MANUAL_AD_ACTION_TYPES` type. No executor may apply it, so the report is
- *   refused, and a queued attempt (one left from an approval before KID-138
- *   decision A) is closed as failed with `MANUAL_AD_ACTION_MESSAGE`. A failure
- *   report for such an action changes nothing in the ad center and follows the
- *   rules below.
- * - `apply`: move the latest task to the reported status.
- * - `invalid_transition`: the report names the latest attempt but is not the
- *   executor's to make — the attempt was cancelled, a different outcome is
- *   already recorded, or it is already running. The extension never repeats a
- *   running report the server applied (it retries only a request refused with
- *   401), so a second running report comes from another executor and must not
- *   reach Coupang.
- */
-export type ExecutionReportDecision =
-  | 'apply'
-  | 'replay'
-  | 'not_latest_attempt'
-  | 'expired'
-  | 'manual_action'
-  | 'invalid_transition';
-
-export function resolveExecutionReport(
-  actionType: string,
-  latestTask: ({ id: string } & ExecutionTaskTiming) | null,
-  report: ExecutionReportTarget,
-  now: Date,
-): ExecutionReportDecision {
-  if (!latestTask || latestTask.id !== report.executionTaskId) {
-    return 'not_latest_attempt';
-  }
-  if (isExpiredRunningExecutionTask(latestTask, now)) return 'expired';
-  // A running report is never a replay: the extension does not repeat one the
-  // server applied.
-  if (report.status !== 'running' && latestTask.status === report.status) return 'replay';
-  if (isManualAdActionType(actionType) && report.status !== 'failed') {
-    return 'manual_action';
-  }
-  if (latestTask.status === 'queued') return 'apply';
-  if (latestTask.status === 'running') {
-    return report.status === 'running' ? 'invalid_transition' : 'apply';
-  }
-  return 'invalid_transition';
 }

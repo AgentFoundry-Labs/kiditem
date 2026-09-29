@@ -897,34 +897,6 @@
       "text": "저장된 상세페이지가 없습니다. 상세페이지를 먼저 저장해 주세요.",
       "retryable": false
     },
-    "EXECUTION_REPORT_MANUAL_ACTION": {
-      "owner": "advertising",
-      "kind": "conflict",
-      "httpStatus": 409,
-      "text": "자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.",
-      "retryable": false
-    },
-    "EXECUTION_TASK_NOT_LATEST": {
-      "owner": "advertising",
-      "kind": "conflict",
-      "httpStatus": 409,
-      "text": "실행 보고를 반영할 수 없습니다. 보고한 실행 시도가 이 액션의 최신 시도가 아닙니다.",
-      "retryable": false
-    },
-    "EXECUTION_TASK_EXPIRED": {
-      "owner": "advertising",
-      "kind": "conflict",
-      "httpStatus": 409,
-      "text": "실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.",
-      "retryable": false
-    },
-    "EXECUTION_REPORT_INVALID_TRANSITION": {
-      "owner": "advertising",
-      "kind": "conflict",
-      "httpStatus": 409,
-      "text": "실행 보고를 반영할 수 없습니다. 최근 실행 작업 상태와 맞지 않습니다.",
-      "retryable": false
-    },
     "ADVERTISING_RESULT_UNREADABLE": {
       "owner": "advertising",
       "kind": "external",
