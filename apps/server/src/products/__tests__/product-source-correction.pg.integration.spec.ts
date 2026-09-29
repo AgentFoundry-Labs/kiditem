@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
@@ -27,6 +28,7 @@ describe('product source correction (PostgreSQL)', () => {
         new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
         new ChannelCredentialsAdapter(),
       ), {} as never,
+      channelFactTestPorts(prisma as never).listings,
     );
     const query = {
       getProduct: (organizationId: string, id: string) => prisma.masterProduct.findFirstOrThrow({ where: { id, organizationId } }),

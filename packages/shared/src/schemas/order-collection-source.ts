@@ -98,9 +98,23 @@ export function mallOrdersOrderCount(input: Readonly<{
  * 몰마다 **마지막 수집 한 번만** 센다. 같은 몰을 두 번 걷어도 주문이 불어나지 않는다.
  * 오늘 완료된 수집이 하나도 없으면 `total` 은 `null` — 0 은 "걷었는데 없었다"이다.
  */
+/**
+ * 몰 한 칸(KID-234, 사장님 2026-09-29 Q3 (a)): `orderCount`는 오늘 성공 수집들이 실어 온 **서로 다른 주문번호 수**(모든 몰·
+ * 수동 업로드·직배송이 변환 파일에서 주문번호를 뽑아 result에 적는다 — 전송 대상 번호와 같은 규칙), `newCount`는 그중
+ * 아직 성공한 셀피아 전송(`orders.sellpia_order_transfer` result `acceptedOrderNumbers`, 원천 실행 id로 몰별 매칭)에 없는 수.
+ * 브라우저 기록·셀피아 대조는 표시용 참고이고 카드의 당일·신규는 이 값이다.
+ */
+export const OrderCollectionTodayMallSchema = z.object({
+  orderCount: z.number().int().nonnegative(),
+  newCount: z.number().int().nonnegative(),
+}).strict();
+export type OrderCollectionTodayMall = z.infer<typeof OrderCollectionTodayMallSchema>;
+
 export const OrderCollectionTodayOrdersSchema = z.object({
   total: z.number().int().nonnegative().nullable(),
-  /** 몰 키 → 그 몰이 오늘 실어 온 주문 수. 오늘 안 걷은 몰은 칸이 없다. */
-  byMall: z.record(z.string(), z.number().int().nonnegative()),
+  /** 오늘 걷은 몰 전체의 신규 합. 오늘 완료된 수집이 없으면 null. */
+  newTotal: z.number().int().nonnegative().nullable(),
+  /** 몰 키 → 오늘 주문·신규. 오늘 안 걷은 몰은 칸이 없다. */
+  byMall: z.record(z.string(), OrderCollectionTodayMallSchema),
 }).strict();
 export type OrderCollectionTodayOrders = z.infer<typeof OrderCollectionTodayOrdersSchema>;

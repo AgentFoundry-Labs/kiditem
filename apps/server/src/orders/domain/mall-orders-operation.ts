@@ -52,6 +52,15 @@ function distinctOrderNumbers(values: readonly unknown[]): string[] {
 }
 
 /**
+ * result에 싣는 주문번호(KID-234 Q3): 변환 파일에서 상한 없이 뽑은 번호(`orderNumbersFromSellpiaFile`)를 2,000개까지. 넘으면 잘랐다고
+ * 표시한다 — 오류로 수집을 실패시키지 않는다.
+ */
+export function mallOrdersResultOrderNumbers(fileOrderNumbers: readonly string[]): { orderNumbers: string[]; orderNumbersTruncated?: true } {
+  const orderNumbers = fileOrderNumbers.filter((value) => value.length <= 200).slice(0, MALL_ORDERS_ORDER_NUMBERS_MAX);
+  return fileOrderNumbers.length > MALL_ORDERS_ORDER_NUMBERS_MAX ? { orderNumbers, orderNumbersTruncated: true } : { orderNumbers };
+}
+
+/**
  * 몰마다 청크를 옛 변환 라우트가 받던 본문으로 모으는 규칙. 청크 원소 모양은 몰의 확장 수집기와 같다.
  * 여기 없는 몰은 아직 옮기지 않은 몰이라 plan이 거절한다(1차 몰을 하나씩 옮긴다).
  */

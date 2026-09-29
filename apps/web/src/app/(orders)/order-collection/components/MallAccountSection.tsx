@@ -200,8 +200,8 @@ export function MallAccountSection({
                 disabled={reconciling}
                 title={
                   reconcileCheckedAt
-                    ? `셀피아 대조 ${formatMallCollectionTime(reconcileCheckedAt)} · 신규 = 아직 셀피아에 안 올라간 주문`
-                    : "셀피아를 조회해 아직 안 올라간 주문을 신규로 표시합니다"
+                    ? `셀피아 대조 ${formatMallCollectionTime(reconcileCheckedAt)} · 참고용 — 카드의 신규는 서버의 전송 기록입니다`
+                    : "셀피아를 조회해 아직 안 올라간 주문을 알려 줍니다(참고용 — 카드의 신규는 서버의 전송 기록)"
                 }
                 className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >

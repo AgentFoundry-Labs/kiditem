@@ -2,6 +2,7 @@ import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../../../orders/application/
 import { seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
 import { seedWingTrafficOperation } from '../../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
+import { seedSellpiaTransferOperation } from '../../../test-helpers/__tests__/sellpia-transfer-operation';
 import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
@@ -382,6 +383,27 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       trafficObservedAt: null,
     });
     expect(result.lastSyncAt).toBeNull();
+  });
+
+  it('today collectedOrders is the Orders today-orders total (distinct collected order numbers), not the not-yet-sent count (KID-234)', async () => {
+    const now = new Date();
+    const collection = await prisma.operation.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID, kind: 'orders.mall_orders', status: 'succeeded', token: randomUUID(),
+        expiresAt: now, startedAt: now, finishedAt: now, attempts: 1,
+        plan: { channelAccountId: randomUUID(), mallKey: 'onch' },
+        result: { rowCount: 3, mallKey: 'onch', captured: 3, orderNumbers: ['OC-1', 'OC-2', 'OC-3'] },
+      },
+      select: { id: true },
+    });
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, sourceOperationId: collection.id, transport: null, status: 'succeeded',
+      startedAt: now, acceptedOrderNumbers: ['OC-1', 'OC-2'],
+    });
+
+    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+    expect(result.today.collectedOrders).toBe(3);
   });
 
   it('treats a completed provider-backed empty Wing window as collected zero traffic', async () => {

@@ -2,7 +2,7 @@ import { readUnresolvedCompositionOptionIds } from "./registration-operation-fac
 import { Inject, Injectable } from '@nestjs/common';
 import { KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
-import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
+import { listingSaleState } from '../../../domain/listing/listing-sale-state';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
@@ -10,7 +10,6 @@ import {
   PUBLISHED_CATALOG_LISTING_WHERE,
   publishedCatalogOptionWhere,
 } from './published-catalog-listing';
-import { readLatestListingSaleStatusFacts } from '../persistence/channel-listing-daily-facts';
 import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -93,6 +92,7 @@ function listingSelect(organizationId: string) {
         salePrice: true,
         safetyStock: true,
         status: true,
+        isActive: true,
         updatedAt: true,
         inventoryComponents: {
           where: { organizationId },
@@ -123,9 +123,6 @@ type ListingRow = Omit<RawListingRow, 'options'> & {
     }>;
   }>;
 };
-type ListingWithSaleStatus = ListingRow & {
-  latestSnapshotSaleStatus: string | null;
-};
 type OptionRow = ListingRow['options'][number];
 type InventorySellpiaSku = ProductMatchingCandidate;
 
@@ -155,19 +152,7 @@ implements ChannelProductMatchingRepositoryPort {
     query: { channelAccountId?: string; search?: string },
   ) {
     const rawListings = await this.prisma.$transaction(async (tx) => {
-      const listingRows = await this.loadListings(tx, organizationId, query, 'matching');
-      const statusFacts = await readLatestListingSaleStatusFacts(tx, {
-        organizationId,
-        listingIds: listingRows.map((listing) => listing.id),
-      });
-      const latestStatus = new Map(statusFacts.map((fact) => [
-        fact.listingId,
-        fact.saleStatus,
-      ]));
-      return listingRows.map((listing): ListingWithSaleStatus => ({
-        ...listing,
-        latestSnapshotSaleStatus: latestStatus.get(listing.id) ?? null,
-      }));
+      return this.loadListings(tx, organizationId, query, 'matching');
     }, READ_TRANSACTION_OPTIONS);
     const listings = await this.hydrateListings(organizationId, rawListings);
     const products = listings.map(toProductQueueRow);
@@ -734,7 +719,7 @@ function availabilityListingWhere(organizationId: string): Prisma.ChannelListing
   };
 }
 
-function toProductQueueRow(listing: ListingWithSaleStatus): ChannelProductMatchingQueueRow {
+function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow {
   return {
     channelAccount: listing.channelAccount,
     listing: {
@@ -742,7 +727,7 @@ function toProductQueueRow(listing: ListingWithSaleStatus): ChannelProductMatchi
       externalId: listing.externalId,
       displayName: listing.displayName,
       status: listing.status,
-      saleStatus: saleStatusFromListing(listing),
+      saleState: listingSaleState(listing),
       masterProductId: listing.masterProductId,
       channelImageUrl: null,
       updatedAt: listing.updatedAt,
@@ -793,22 +778,6 @@ function optionRecipeIdentity(option: OptionRow) {
       quantity: component.quantity,
     })),
   };
-}
-
-function saleStatusFromListing(listing: ListingWithSaleStatus): string | null {
-  const raw = asRecord(listing.rawJson);
-  return resolveChannelListingSaleStatus({
-    latestSnapshotStatus: listing.latestSnapshotSaleStatus,
-    rawStatus: firstString(raw, [
-      'saleStatus',
-      'salesStatus',
-      'sale_status',
-      '판매상태',
-    ]),
-    optionStatuses: listing.options.map((option) => option.status),
-    listingStatus: listing.status,
-    isActive: listing.isActive,
-  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

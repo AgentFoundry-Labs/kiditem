@@ -256,6 +256,8 @@ export async function collectMallOrderOperation({
     mallName: account.name,
     // 일일 건수·중복 판정이 쓰는 주문번호(서버가 고른 행에서 뽑은 것, 최대 2,000개).
     ...(result?.orderNumbers ? { orderNumbers: result.orderNumbers } : {}),
+    // 중복 판정은 몰이 준 주문 신원으로(KID-234) — 신규 셈은 서버가 전송 기준 번호(orderNumbers)로 한다.
+    ...(result?.capturedOrderNumbers ? { capturedOrderNumbers: result.capturedOrderNumbers } : {}),
     // 셀피아 전송은 서버가 이 실행에서 파일을 다시 만든다(KID-366).
     sourceOperationId: operationId,
   });

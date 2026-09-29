@@ -797,6 +797,108 @@
         }
       ],
       "legacyReaders": []
+    },
+    {
+      "name": "Channel listing",
+      "owner": "channels",
+      "table": "channel_listings",
+      "prismaModel": "channelListing",
+      "prismaType": "ChannelListing",
+      "relationNames": [
+        "channelListings",
+        "listing",
+        "listings"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/channels/adapter/out/persistence/sales-product.repository.adapter.ts",
+          "reason": "Channels owner adapter that writes its own listing rows (publication, registration finalize or absence deactivation)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/catalog-absence.ts",
+          "reason": "Channels owner adapter that writes its own listing rows (publication, registration finalize or absence deactivation)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/channel-catalog-identity-upsert.ts",
+          "reason": "Channels owner adapter that writes its own listing rows (publication, registration finalize or absence deactivation)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/channel-catalog-publication.repository.adapter.ts",
+          "reason": "Channels owner adapter that writes its own listing rows (publication, registration finalize or absence deactivation)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/channel-dashboard.repository.adapter.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/channel-listing-row-lock.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/channel-product-matching.repository.adapter.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/channel-recipe-suggestion-context.repository.adapter.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/mall-admin-listings.repository.adapter.ts",
+          "reason": "Channels owner adapter that writes its own listing rows (publication, registration finalize or absence deactivation)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/mall-listing-errors.reader.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/mall-publishing.repository.adapter.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/published-catalog-listing.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/registration-operation.repository.adapter.ts",
+          "reason": "Channels owner adapter that writes its own listing rows (publication, registration finalize or absence deactivation)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/sellpia-manual-match.repository.adapter.ts",
+          "reason": "Channels owner repository adapter reading its own listing rows (ADR-0021); not a cross-owner reader."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/common/product-sale-age.ts",
+          "removeWith": "KID-333",
+          "reason": "Direct channel_listings read from another owner, locked when the table was registered (KID-333); move to a Channels capability. Not a selling-state judgement."
+        },
+        {
+          "path": "apps/server/src/finance/application/service/sales-analysis/sales-analysis.service.ts",
+          "removeWith": "KID-333",
+          "reason": "Direct channel_listings read from another owner, locked when the table was registered (KID-333); move to a Channels capability. Not a selling-state judgement."
+        },
+        {
+          "path": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts",
+          "removeWith": "KID-333",
+          "reason": "Direct channel_listings read from another owner, locked when the table was registered (KID-333); move to a Channels capability. Not a selling-state judgement."
+        },
+        {
+          "path": "apps/server/src/products/adapter/out/persistence/read/product-source-availability.ts",
+          "removeWith": "KID-333",
+          "reason": "Direct channel_listings read from another owner, locked when the table was registered (KID-333); move to a Channels capability. Not a selling-state judgement."
+        },
+        {
+          "path": "apps/server/src/products/application/service/category/coupang-category-suggestion.service.ts",
+          "removeWith": "KID-333",
+          "reason": "Direct channel_listings read from another owner, locked when the table was registered (KID-333); move to a Channels capability. Not a selling-state judgement."
+        },
+        {
+          "path": "apps/server/src/readiness/readiness.service.ts",
+          "removeWith": "KID-333",
+          "reason": "Direct channel_listings read from another owner, locked when the table was registered (KID-333); move to a Channels capability. Not a selling-state judgement."
+        }
+      ]
     }
   ],
   "importExceptions": [
@@ -1003,12 +1105,6 @@
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
-    },
-    {
-      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-324",
-      "from": "apps/server/src/products/adapter/out/persistence/selling-master-product.query.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",

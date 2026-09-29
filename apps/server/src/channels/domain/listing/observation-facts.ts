@@ -30,14 +30,6 @@ export type ListingTrafficWindowFacts = Readonly<{
   latestObservedAt: Date | null;
 }>;
 
-export type ListingSaleStatusFact = Readonly<{
-  listingId: string;
-  businessDate: string;
-  saleStatus: string | null;
-  observedAt: Date;
-}>;
-
-
 export type ListingStateFact = Readonly<{
   listingId: string;
   channel: string;
@@ -46,14 +38,8 @@ export type ListingStateFact = Readonly<{
   lastObservedAt: Date;
   sampleCount: number;
   productName: string | null;
-  status: string | null;
-  exposureStatus: string | null;
-  saleStatus: string | null;
-  channelPrice: number | null;
   isOfferWinner: boolean | null;
   myPrice: number | null;
   winnerPrice: number | null;
   winnerGapPrice: number | null;
-  productRank: number | null;
-  categoryRank: number | null;
 }>;

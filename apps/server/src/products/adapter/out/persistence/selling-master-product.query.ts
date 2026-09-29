@@ -1,111 +1,45 @@
-import { Prisma } from '@prisma/client';
-import {
-  isChannelListingOnSale,
-  resolveChannelListingSaleStatus,
-} from '@kiditem/shared/channel-listing';
-import { readLatestListingSaleStatusFacts } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
+import type { Prisma } from '@prisma/client';
+import type { ChannelListingFactQueries } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import type { ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 
-const SELLING_CHANNELS = ['coupang', 'rocket'];
+export type SellingListingReader = Pick<ChannelListingFactQueries, 'readSellingListings'>;
 
 /**
  * MasterProducts that can actually sell now. This predicate is shared by ABC
  * publication and the product-operation selling filter so their populations
  * cannot diverge.
  *
- * The selling decision is based on the same latest channel snapshot that the
- * channel matching workspace uses. A record-level `ChannelListing.status`
- * such as "승인완료" is not by itself a sale status.
+ * 판매중은 Channels 정본 판정(`readSellingListings`, KID-333 ②)을 읽는다 — 전 채널, 쓸 수 있는 계정.
+ * 재고와 무관하다. 재고 조건은 상품 허브 거르기에서만 쓴다(`listInStockMasterProductIds`, KID-333 Q2).
  */
 export async function listSellingMasterProductIds(
   transaction: Prisma.TransactionClient,
   organizationId: string,
   candidateIds: readonly string[] | undefined,
-  inventory: ProductTransactionalReadPort,
+  listings: SellingListingReader,
 ): Promise<string[]> {
   if (candidateIds && candidateIds.length === 0) return [];
   const candidateIdSet = candidateIds ? new Set(candidateIds) : null;
-  const listings = await transaction.channelListing.findMany({
-    where: {
-      organizationId,
-      channelAccount: {
-        is: {
-          organizationId,
-          status: 'active',
-          channel: { in: SELLING_CHANNELS },
-        },
-      },
-    },
-    select: {
-      id: true,
-      isActive: true,
-      status: true,
-      rawJson: true,
-      options: {
-        where: { organizationId },
-        select: {
-          status: true,
-          inventoryComponents: {
-            where: { organizationId },
-            select: {
-              masterProductId: true,
-            },
-          },
-        },
-      },
-    },
-  });
-  const statusFacts = await readLatestListingSaleStatusFacts(transaction, {
+  const selling = (await listings.readSellingListings(ownerTransaction(transaction), {
     organizationId,
-    listingIds: listings.map((listing) => listing.id),
-  });
-  const saleStatusByListing = new Map(statusFacts.map((fact) => [
-    fact.listingId,
-    fact.saleStatus,
-  ]));
-  const masterProductIdsToRead = [...new Set(listings.flatMap((listing) =>
-    listing.options.flatMap((option) => option.inventoryComponents.map(
-      (component) => component.masterProductId,
-    ))))];
-  const availability = masterProductIdsToRead.length === 0
-    ? []
-    : (await readInventoryAvailabilityThroughPort(
-      transaction,
-      organizationId,
-      masterProductIdsToRead,
-      inventory,
-    )).items;
-  const availabilityBySkuId = new Map(availability.map((item) => [
-    item.masterProductId,
-    item,
-  ]));
-  const masterProductIds = new Set<string>();
-  for (const listing of listings) {
-    const saleStatus = resolveChannelListingSaleStatus({
-      latestSnapshotStatus: saleStatusByListing.get(listing.id) ?? null,
-      rawStatus: rawSaleStatus(listing.rawJson),
-      optionStatuses: listing.options.map((option) => option.status),
-      listingStatus: listing.status,
-      isActive: listing.isActive,
-    });
-    if (!isChannelListingOnSale(saleStatus)) continue;
+    usableAccountsOnly: true,
+  })).filter((listing) => listing.saleState === 'on_sale');
+  const masterProductIds = new Set(selling.flatMap((listing) =>
+    listing.options.flatMap((option) => option.components.map((component) => component.masterProductId))));
+  return [...masterProductIds].filter((id) => !candidateIdSet || candidateIdSet.has(id)).sort();
+}
 
-    for (const option of listing.options) {
-      for (const component of option.inventoryComponents) {
-        const masterProductId = component.masterProductId;
-        const stock = availabilityBySkuId.get(component.masterProductId);
-        if (
-          stock !== undefined
-          && stock.currentStock > 0
-          && masterProductId !== null
-          && (!candidateIdSet || candidateIdSet.has(masterProductId))
-        ) {
-          masterProductIds.add(masterProductId);
-        }
-      }
-    }
-  }
-  return [...masterProductIds].sort();
+/** 재고 있는(`currentStock > 0`) 상품만 — 상품 허브 `selling_in_stock` 거르기와 카드 칸(KID-333 Q2). */
+export async function listInStockMasterProductIds(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  masterProductIds: readonly string[],
+  inventory: ProductTransactionalReadPort,
+): Promise<string[]> {
+  if (masterProductIds.length === 0) return [];
+  const availability = await readInventoryAvailabilityThroughPort(transaction, organizationId, [...masterProductIds], inventory);
+  return availability.items.filter((item) => item.currentStock > 0).map((item) => item.masterProductId).sort();
 }
 
 async function readInventoryAvailabilityThroughPort(
@@ -120,14 +54,4 @@ async function readInventoryAvailabilityThroughPort(
     organizationId,
     masterProductIds: masterProductIdsToRead,
   });
-}
-
-function rawSaleStatus(value: unknown): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
-    const candidate = record[key];
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-  }
-  return null;
 }

@@ -9,7 +9,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
-import { listSellingMasterProductIds } from '../adapter/out/persistence/selling-master-product.query';
+import { listInStockMasterProductIds } from '../adapter/out/persistence/selling-master-product.query';
 
 describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -76,7 +76,7 @@ describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
     });
 
     await expect(prisma.$transaction((tx) =>
-      listSellingMasterProductIds(tx, TEST_ORGANIZATION_ID, undefined, inventory)))
+      listInStockMasterProductIds(tx, TEST_ORGANIZATION_ID, [publishedProductId, retainedProductId], inventory)))
       .resolves.toEqual([publishedProductId, retainedProductId].sort());
   });
 });

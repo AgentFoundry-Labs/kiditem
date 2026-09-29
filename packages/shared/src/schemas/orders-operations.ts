@@ -286,7 +286,19 @@ export const MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
   coverage: z.object({ startDate: isoDay, endDate: isoDay }).strict().optional(),
   /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
   masked: z.boolean().optional(),
-  /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
+  /**
+   * 이번 수집의 서로 다른 주문번호, 최대 2,000개(KID-234 Q3). 모든 몰·수동 업로드가 **변환 파일**(셀피아 양식)에서
+   * 셀피아 전송 대상과 같은 규칙(`판매처주문번호|주문번호|주문코드` 열)으로 뽑는다 — 그래서 오늘 주문의 신규(= 이 번호 −
+   * 성공 전송의 `acceptedOrderNumbers`)가 같은 기준으로 빠진다. 주문이 없던 수집은 빈 목록. 웹의 생성 파일 항목도 쓴다.
+   */
   orderNumbers: z.array(z.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional(),
+  /**
+   * 캡처가 몰의 주문번호를 줬으면(JSON 목록 몰) 그 번호 그대로, 최대 2,000개. 중복 판정은 몰이 준 주문 신원으로,
+   * 신규 셈은 전송 기준 번호(`orderNumbers`)로 한다 — 변환기가 번호를 새로 매기는 몰(키드키즈)도 다른 주문 파일을 같은
+   * 파일로 보지 않는다(KID-234).
+   */
+  capturedOrderNumbers: z.array(z.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional(),
+  /** 변환 파일의 주문번호가 2,000개를 넘어 `orderNumbers`가 잘렸다(그때만 `true`) — 오늘 주문 수가 모자랄 수 있다. */
+  orderNumbersTruncated: z.literal(true).optional(),
 });
 export type MallOrdersResult = z.infer<typeof MallOrdersResultSchema>;

@@ -305,6 +305,45 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
     });
   }
 
+  describe('listAccountsWithListings — 판매중 정본 판정(KID-333 ②)', () => {
+    it('⭐ 승인완료라도 원본 판매중지면 판매중이 아니고, 매칭률 분모도 같은 판정을 쓴다', async () => {
+      const masterProductId = randomUUID();
+      const seed = async (externalId: string, status: string, rawJson: Record<string, string> | null, linked: boolean) => {
+        const listing = await prisma.channelListing.create({
+          data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: COUPANG_ACCOUNT, externalId, status, ...(rawJson ? { rawJson } : {}) },
+          select: { id: true },
+        });
+        const option = await prisma.channelListingOption.create({
+          data: { organizationId: TEST_ORGANIZATION_ID, listingId: listing.id, externalOptionId: `${externalId}-1`, status: null },
+          select: { id: true },
+        });
+        if (linked) {
+          await prisma.channelListingOptionInventoryComponent.create({
+            data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId, quantity: 1 },
+          });
+        }
+      };
+      await seed('P-SELLING', '승인완료', { saleStatus: '판매중' }, true);
+      await seed('P-RAW-STOPPED', '승인완료', { saleStatus: '판매중지' }, true);
+      await seed('P-OBSERVED', 'observed', null, false);
+
+      const [row] = await repository.listAccountsWithListings(TEST_ORGANIZATION_ID);
+
+      expect(row).toMatchObject({
+        channelAccountId: COUPANG_ACCOUNT,
+        listingCount: 3,
+        onSaleListingCount: 1,
+        productCount: 1,
+        onSaleProductCount: 1,
+        onSaleLinkedListingCount: 1,
+        optionCount: 3,
+        matchedOptionCount: 2,
+        onSaleOptionCount: 1,
+        onSaleMatchedOptionCount: 1,
+      });
+    });
+  });
+
   describe('listMatrixProducts', () => {
     /** 재고는 Inventory가 발행한 셀피아 스냅샷에서만 온다. 재고 연결이 없는 마스터는 0이 아니라 null이다. */
     it('reads each master stock from the published Sellpia snapshot and none for an unlinked master', async () => {

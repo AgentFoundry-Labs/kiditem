@@ -31,6 +31,7 @@ const INVENTORY_FOCUSES: readonly ProductInventoryFocusFilter[] = [
 ];
 const ACTIVE_STATUSES: readonly ProductOperationsActiveStatus[] = [
   'active',
+  'selling_in_stock',
   'inactive',
   'all',
 ];

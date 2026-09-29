@@ -9,7 +9,8 @@ import { readProductSaleAgeEvidence } from '../../../../common/product-sale-age'
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { readProductAbcPublication } from './read/product-abc-publication.reader';
-import { listSellingMasterProductIds } from './selling-master-product.query';
+import { listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
+import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 import type {
   MasterProductAbcCandidateRecord,
@@ -49,6 +50,8 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: SellingListingReader,
   ) {}
 
   async getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord> {
@@ -72,7 +75,7 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
         tx,
         organizationId,
         undefined,
-        this.inventoryTransactionalRead,
+        this.channelListings,
       ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -81,7 +84,7 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
   async publish(input: ProductAbcPublicationInput): Promise<MasterProductAbcPublicationResult> {
     assertPublicationInput(input);
     return this.prisma.$transaction(
-      (tx) => publishTx(tx, input, this.inventoryTransactionalRead),
+      (tx) => publishTx(tx, input, this.inventoryTransactionalRead, this.channelListings),
       { maxWait: 10_000, timeout: 30_000, isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
     );
   }
@@ -92,6 +95,7 @@ async function publishTx(
   tx: Prisma.TransactionClient,
   input: ProductAbcPublicationInput,
   inventoryTransactionalRead: ProductTransactionalReadPort,
+  channelListings: SellingListingReader,
 ): Promise<MasterProductAbcPublicationResult> {
   // The Sellpia profitability finalize (operation kind
   // analytics.sellpia_product_profitability) takes only
@@ -125,7 +129,7 @@ async function publishTx(
       tx,
       input.organizationId,
       undefined,
-      inventoryTransactionalRead,
+      channelListings,
     ),
   );
   if (!sameIds(targetProductIds, input.targetProductIds)) return inputChanged();

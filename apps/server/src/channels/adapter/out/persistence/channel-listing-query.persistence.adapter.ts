@@ -4,8 +4,9 @@ import { readListingRawSections, readOptionRawSections } from '../../../domain/c
 import { normalizeStoredAttributes } from '../../../domain/collection/channel-listing-attributes';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { readRegistrationFailureCounts } from '../repository/registration-operation-facts';
+import { readSellingListingFacts } from './channel-selling-listings';
 import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
-import { readListingTrafficWindowFacts, readLatestListingStateFacts, readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
+import { readListingTrafficWindowFacts, readLatestListingStateFacts } from './channel-listing-daily-facts';
 import { Injectable } from '@nestjs/common';
 import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
@@ -97,6 +98,10 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
     });
     return rows.map(row => ({ externalOptionId: row.externalOptionId, optionId: row.id,
       listingId: row.listingId, accountId: row.listing.channelAccountId, itemName: row.itemName }));
+  }
+
+  readSellingListings(transaction: Parameters<ChannelListingFactQueries['readSellingListings']>[0], input: Parameters<ChannelListingFactQueries['readSellingListings']>[1]) {
+    return readSellingListingFacts(ownerTransactionClient(transaction), input);
   }
 
   readRegistrationFailureCounts(transaction: Parameters<ChannelListingFactQueries['readRegistrationFailureCounts']>[0], input: Parameters<ChannelListingFactQueries['readRegistrationFailureCounts']>[1]) {
@@ -197,9 +202,6 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
   }
   readLatestState(transaction: Parameters<ChannelListingFactQueries['readLatestState']>[0], input: Parameters<ChannelListingFactQueries['readLatestState']>[1]) {
     return readLatestListingStateFacts(ownerTransactionClient(transaction), input);
-  }
-  readLatestSaleStatus(transaction: Parameters<ChannelListingFactQueries['readLatestSaleStatus']>[0], input: Parameters<ChannelListingFactQueries['readLatestSaleStatus']>[1]) {
-    return readLatestListingSaleStatusFacts(ownerTransactionClient(transaction), input);
   }
   async lockActiveOwner(transaction: Parameters<ChannelListingFactQueries['lockActiveOwner']>[0], input: Parameters<ChannelListingFactQueries['lockActiveOwner']>[1]) {
     const rows = await ownerTransactionClient(transaction).$queryRaw<Array<{ id: string; sourceRecordId: string | null; accountId: string }>>(Prisma.sql`
