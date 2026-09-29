@@ -3,19 +3,13 @@ import { describe, it, expect, vi } from "vitest";
 import { ProfitCalculationRepositoryAdapter } from "../../adapter/out/persistence/dashboard/profit-calculation.repository";
 import type { PrismaService } from "../../../prisma/prisma.service";
 import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
-import { readOrderLineWindowFacts } from "../../../orders/adapter/out/persistence/read/order-facts.reader";
+import type { OrderFactsPort } from "../../../orders/application/port/in/facts/order-facts.port";
 import type { AdvertisingLedgerReadPort } from "../../../advertising/application/port/in/ledger/advertising-ledger-read.port";
 import { businessDateKey, kstBusinessDate } from "../../../common/kst";
 import { businessDatesInWindow } from "../../domain/dashboard/period/dashboard-period";
 import { periodOf } from "./test-helpers/period";
 
-vi.mock("../../../orders/adapter/out/persistence/read/order-facts.reader", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../../../orders/adapter/out/persistence/read/order-facts.reader")
-  >()),
-  readOrderLineWindowFacts: vi.fn(),
-}));
-const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
+const mockedReadOrderLineWindowFacts = vi.fn<OrderFactsPort["readOrderLineWindowFacts"]>();
 /**
  * Ad days come from Advertising's ledger capability (`ADVERTISING_LEDGER_READ_PORT`),
  * an owner boundary this unit spec fakes; the ledger rules themselves run on
@@ -204,6 +198,7 @@ function makeAdapter(
   return new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
     prisma as unknown as PrismaService,
     prisma.productTransactionalRead as unknown as ProductTransactionalReadPort, adLedger as unknown as AdvertisingLedgerReadPort,
+    { readOrderLineWindowFacts: mockedReadOrderLineWindowFacts } as unknown as OrderFactsPort,
   );
 }
 
@@ -348,7 +343,6 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           "refunded",
         ]),
       }),
-      expect.objectContaining({ findByIds: expect.any(Function) }),
     );
   });
 });

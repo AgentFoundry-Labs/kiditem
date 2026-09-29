@@ -1,28 +1,30 @@
-import { realRegistrationStates } from '../../../../../../test-helpers/registration-state';
+import { realRegistrationStates } from '../../../../../test-helpers/registration-state';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { COUPANG_DIRECTSHIP_KIND } from '@kiditem/shared/orders-operations';
-import { seedMallOrderCoverageOperation } from '../../../../../../test-helpers/__tests__/mall-order-coverage-operation';
+import { seedMallOrderCoverageOperation } from '../../../../../test-helpers/__tests__/mall-order-coverage-operation';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
-} from '../../../../../../test-helpers/real-prisma';
-import { readCurrentReviewItems } from '../review-facts.reader';
-import { ReviewsService } from '../../../../../application/service/reviews.service';
+} from '../../../../../test-helpers/real-prisma';
+import { ReviewFactsRepository } from '../review-facts.repository';
+import { OrderFactsRepository } from '../order-facts.repository';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { ReviewsService } from '../../../../application/service/reviews.service';
 import type { PrismaClient } from '@prisma/client';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../../../../products/adapter/out/persistence/product-transactional-read.repository';
-import { ChannelListingQueryService } from '../../../../../../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-listing-query.repository';
-import { ChannelOptionRecipeService } from '../../../../../../channels/application/service/listing/channel-option-recipe.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../../../../../../channels/adapter/out/persistence/channel-option-recipe.repository';
-import { ChannelAccountService } from '../../../../../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-account.repository';
-import { ChannelCredentialsAdapter } from '../../../../../../channels/adapter/out/credentials/channel-credentials.adapter';
-import { ChannelsProductMappingGenerationAdapter } from "../../../../../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
+import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository';
+import { ChannelListingQueryService } from '../../../../../channels/application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../../../../../channels/adapter/out/persistence/channel-listing-query.repository';
+import { ChannelOptionRecipeService } from '../../../../../channels/application/service/listing/channel-option-recipe.service';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../../../../channels/adapter/out/persistence/channel-option-recipe.repository';
+import { ChannelAccountService } from '../../../../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../../../../channels/adapter/out/persistence/channel-account.repository';
+import { ChannelCredentialsAdapter } from '../../../../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../../../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 const ACCOUNT_ID = '73000000-0000-4000-8000-000000000001';
 const SOURCE_ACCOUNT_ID = '73000000-0000-4000-8000-000000000002';
@@ -41,14 +43,15 @@ function createReviewsService(prisma: PrismaClient) {
     new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(prisma as never, products, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
     ),
-    new ChannelAccountService(
+    new OrderFactsRepository(new ChannelAccountService(
       new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       new ChannelCredentialsAdapter(),
-    ),
+    )),
+    new ReviewFactsRepository(),
   );
 }
 
-describe('Review facts reader over disposable PostgreSQL', () => {
+describe('Review fact port over disposable PostgreSQL', () => {
   let prisma: PrismaClient;
 
   beforeAll(async () => {
@@ -144,10 +147,36 @@ describe('Review facts reader over disposable PostgreSQL', () => {
     });
 
     const result = await prisma.$transaction((tx) =>
-      readCurrentReviewItems(tx, TEST_ORGANIZATION_ID, {}, 1, 50),
+      new ReviewFactsRepository().readCurrentReviewItems(ownerTransaction(tx), { organizationId: TEST_ORGANIZATION_ID, filter: {}, page: 1, limit: 50 }),
     );
 
     expect(result.map((item) => item.content).sort()).toEqual(['operation current', 'operation only']);
+  });
+
+  it('answers listing review stats for other owners from current operation rows of the organization only — hidden, deleted and foreign rows do not count, and a listing with no review is absent', async () => {
+    const reviewed = randomUUID();
+    const unreviewed = randomUUID();
+    const operationId = '74000000-0000-4000-8000-000000000004';
+    const current = { organizationId: TEST_ORGANIZATION_ID, operationId, publishedAt: new Date('2026-05-01T00:00:00.000Z'), listingId: reviewed, platform: 'coupang' };
+    await prisma.review.createMany({
+      data: [
+        { ...current, externalReviewId: 'stats-5', rating: 5 },
+        { ...current, externalReviewId: 'stats-2', rating: 2 },
+        { ...current, externalReviewId: 'stats-deleted', rating: 1, isDeleted: true },
+        { ...current, externalReviewId: 'stats-blinded', rating: 1, isBlinded: true },
+        { organizationId: TEST_ORGANIZATION_ID, listingId: reviewed, platform: 'coupang', externalReviewId: 'stats-unowned', rating: 1 },
+        { ...current, organizationId: OTHER_ORGANIZATION_ID, externalReviewId: 'stats-foreign', rating: 1 },
+      ],
+    });
+
+    const stats = await prisma.$transaction((tx) =>
+      new ReviewFactsRepository().readCurrentReviewListingStats(ownerTransaction(tx), {
+        organizationId: TEST_ORGANIZATION_ID,
+        listingIds: [reviewed, unreviewed],
+      }),
+    );
+
+    expect(stats).toEqual([{ listingId: reviewed, totalReviews: 2, avgRating: 3.5 }]);
   });
 
   it('reports listing order count only after canonical order facts are observed', async () => {

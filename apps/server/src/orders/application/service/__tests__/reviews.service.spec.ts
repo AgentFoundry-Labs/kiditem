@@ -1,30 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeSummary, ReviewsService } from '../reviews.service';
-import {
-  readCurrentReviewListingAggregates,
-  readCurrentReviewRecentCounts,
-} from '../../../adapter/out/persistence/read/review-facts.reader';
-import {
-  readListingOptionOrderFacts,
-  readObservedOrderBounds,
-  readOrderWindowFacts,
-} from '../../../adapter/out/persistence/read/order-facts.reader';
+import type { OrderReadRepositoryPort } from '../../port/out/repository/order-read.repository.port';
+import type { ReviewReadRepositoryPort } from '../../port/out/repository/review-read.repository.port';
 
-vi.mock('../../../adapter/out/persistence/read/review-facts.reader', () => ({
-  readCurrentReviewContentCount: vi.fn(),
-  readCurrentReviewItemCount: vi.fn(),
-  readCurrentReviewItems: vi.fn(),
-  readCurrentReviewListingAggregates: vi.fn(),
-  readCurrentReviewListingStats: vi.fn(),
-  readCurrentReviewRatingCounts: vi.fn(),
-  readCurrentReviewRecentCounts: vi.fn(),
-}));
-vi.mock('../../../adapter/out/persistence/read/order-facts.reader', () => ({
-  ORDER_FACT_EXCLUDED_STATUSES: ['cancelled', 'returned', 'refunded'],
-  readListingOptionOrderFacts: vi.fn(),
-  readObservedOrderBounds: vi.fn(),
-  readOrderWindowFacts: vi.fn(),
-}));
+/** Orders' own order and review reads — the persistence boundary this unit spec fakes. */
+const readCurrentReviewListingAggregates = vi.fn<ReviewReadRepositoryPort['readCurrentReviewListingAggregates']>();
+const readCurrentReviewRecentCounts = vi.fn<ReviewReadRepositoryPort['readCurrentReviewRecentCounts']>();
+const readListingOptionOrderFacts = vi.fn<OrderReadRepositoryPort['readListingOptionOrderFacts']>();
+const readObservedOrderBounds = vi.fn<OrderReadRepositoryPort['readObservedOrderBounds']>();
+const readOrderWindowFacts = vi.fn<OrderReadRepositoryPort['readOrderWindowFacts']>();
+const orderReads = { readListingOptionOrderFacts, readObservedOrderBounds, readOrderWindowFacts } as unknown as OrderReadRepositoryPort;
+const reviewReads = { readCurrentReviewListingAggregates, readCurrentReviewRecentCounts } as unknown as ReviewReadRepositoryPort;
 vi.mock('../../../../products/adapter/out/persistence/read/product-abc-publication.reader', () => ({
   readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
 }));
@@ -45,7 +31,6 @@ describe('ReviewsService', () => {
     readListingProductSummaries: vi.fn(),
     readConfirmedCompositions: vi.fn(),
   };
-  const channelAccounts = { findByIds: vi.fn(async () => []) };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -108,7 +93,8 @@ describe('ReviewsService', () => {
       products as never,
       channelListings as never,
       channelRecipes as never,
-      channelAccounts as never,
+      orderReads,
+      reviewReads,
     ).list('organization-1', {
       page: 1,
       limit: 1,
@@ -161,7 +147,8 @@ describe('ReviewsService', () => {
       products as never,
       channelListings as never,
       channelRecipes as never,
-      channelAccounts as never,
+      orderReads,
+      reviewReads,
     ).list('organization-1', {});
 
     expect(result.items[0]?.orderCount).toBeNull();

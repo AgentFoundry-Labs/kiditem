@@ -43,7 +43,7 @@ import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-produ
 import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, advertisingLedgerTestReader, orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository";
@@ -57,20 +57,19 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let sellpia: SellpiaProfitabilitySourceService;
   let dataStatus: ProductDataStatusUseCase;
   let recipes: ChannelOptionRecipeService;
-  let channelAccounts: ReturnType<typeof channelFactTestPorts>['accounts'];
+  let orderFacts: ReturnType<typeof orderFactsTestReader>;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
     const transactionalRead = new ProductTransactionalReadRepositoryAdapter();
-    const channelFacts = channelFactTestPorts(prismaService);
-    channelAccounts = channelFacts.accounts;
+    orderFacts = orderFactsTestReader(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService);
     const dataStatusRepository = new ProductOperationsDataStatusRepositoryAdapter(
       prismaService,
       new MasterProductProfitabilityReadService(sellpia, prismaService, transactionalRead),
-      channelAccounts,
+      orderFacts,
       channelFactTestPorts(prismaService as never).listings,
     );
     dataStatus = new ProductDataStatusUseCase(dataStatusRepository);
@@ -84,7 +83,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts, advertisingLedgerTestReader(prismaService),
+        orderFacts, advertisingLedgerTestReader(prismaService),
         channelFactTestPorts(prismaService as never).listings,
       ),
       inventory,
@@ -514,7 +513,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const adapter = new ProductOperationsDataStatusRepositoryAdapter(
       extendedPrisma as unknown as PrismaService,
       originalEvidence,
-      channelAccounts,
+      orderFacts,
       channelFactTestPorts(extendedPrisma as never).listings,
     );
 
@@ -1785,7 +1784,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const selectedStatus = new ProductDataStatusUseCase(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
         load: async (input) => ({ ...await profitability.load(input), actualCutoff: cutoff }),
-      }, channelAccounts, channelFactTestPorts(prisma as never).listings),
+      }, orderFacts, channelFactTestPorts(prisma as never).listings),
     );
     const result = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
 

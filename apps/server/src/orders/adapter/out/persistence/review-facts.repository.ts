@@ -1,42 +1,73 @@
+import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { CurrentReviewListingStats } from '../../../application/port/in/facts/review-facts.port';
+import type {
+  CurrentReviewItemFact,
+  CurrentReviewItemFilter,
+  CurrentReviewListingAggregate,
+  ReviewReadRepositoryPort,
+} from '../../../application/port/out/repository/review-read.repository.port';
 
-export interface CurrentReviewItemFact {
-  id: string;
-  platform: string;
-  listingId: string | null;
-  itemName: string | null;
-  externalOptionId: string | null;
-  externalProductId: string | null;
-  rating: number;
-  title: string | null;
-  content: string | null;
-  reviewerName: string | null;
-  reviewedAt: Date;
-  imageCount: number;
-  videoCount: number;
+/**
+ * `REVIEW_FACTS_PORT` and `REVIEW_READ_REPOSITORY_PORT` implementation (KID-392).
+ * Unwraps the caller's `OwnerTransaction` and reads the current complete review
+ * facts; the SQL below is the former `read/review-facts.reader.ts`.
+ */
+@Injectable()
+export class ReviewFactsRepository implements ReviewReadRepositoryPort {
+  readCurrentReviewListingStats(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; listingIds: readonly string[] }>,
+  ): Promise<CurrentReviewListingStats[]> {
+    return readCurrentReviewListingStats(ownerTransactionClient(transaction), input.organizationId, input.listingIds);
+  }
+
+  readCurrentReviewListingAggregates(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string }>,
+  ): Promise<CurrentReviewListingAggregate[]> {
+    return readCurrentReviewListingAggregates(ownerTransactionClient(transaction), input.organizationId);
+  }
+
+  readCurrentReviewRecentCounts(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; listingIds: readonly string[]; since: Date }>,
+  ): Promise<Array<{ listingId: string; count: number }>> {
+    return readCurrentReviewRecentCounts(ownerTransactionClient(transaction), input.organizationId, input.listingIds, input.since);
+  }
+
+  readCurrentReviewItemCount(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; filter: CurrentReviewItemFilter }>,
+  ): Promise<number> {
+    return readCurrentReviewItemCount(ownerTransactionClient(transaction), input.organizationId, input.filter);
+  }
+
+  readCurrentReviewContentCount(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; filter: CurrentReviewItemFilter }>,
+  ): Promise<number> {
+    return readCurrentReviewContentCount(ownerTransactionClient(transaction), input.organizationId, input.filter);
+  }
+
+  readCurrentReviewRatingCounts(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; filter: CurrentReviewItemFilter }>,
+  ): Promise<Array<{ rating: number; count: number }>> {
+    return readCurrentReviewRatingCounts(ownerTransactionClient(transaction), input.organizationId, input.filter);
+  }
+
+  readCurrentReviewItems(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; filter: CurrentReviewItemFilter; page: number; limit: number }>,
+  ): Promise<CurrentReviewItemFact[]> {
+    return readCurrentReviewItems(ownerTransactionClient(transaction), input.organizationId, input.filter, input.page, input.limit);
+  }
 }
 
-export interface CurrentReviewListingAggregate {
-  listingId: string;
-  totalReviews: number;
-  avgRating: number;
-  lastReviewAt: Date | null;
-}
-
-export interface CurrentReviewListingStats {
-  listingId: string;
-  totalReviews: number;
-  avgRating: number;
-}
-
-export interface CurrentReviewItemFilter {
-  listingId?: string;
-  rating?: number;
-  hasContent?: boolean;
-  search?: string;
-}
-
-export async function readCurrentReviewListingStats(
+async function readCurrentReviewListingStats(
   tx: Prisma.TransactionClient,
   organizationId: string,
   listingIds: readonly string[],
@@ -60,7 +91,7 @@ export async function readCurrentReviewListingStats(
   }));
 }
 
-export async function readCurrentReviewRecentCounts(
+async function readCurrentReviewRecentCounts(
   tx: Prisma.TransactionClient,
   organizationId: string,
   listingIds: readonly string[],
@@ -81,7 +112,7 @@ export async function readCurrentReviewRecentCounts(
   return rows.map((row) => ({ listingId: row.listingId, count: Number(row.count) }));
 }
 
-export async function readCurrentReviewListingAggregates(
+async function readCurrentReviewListingAggregates(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<CurrentReviewListingAggregate[]> {
@@ -108,7 +139,7 @@ export async function readCurrentReviewListingAggregates(
   }));
 }
 
-export async function readCurrentReviewItemCount(
+async function readCurrentReviewItemCount(
   tx: Prisma.TransactionClient,
   organizationId: string,
   query: CurrentReviewItemFilter,
@@ -123,7 +154,7 @@ export async function readCurrentReviewItemCount(
   return Number(rows[0]?.count ?? 0);
 }
 
-export async function readCurrentReviewContentCount(
+async function readCurrentReviewContentCount(
   tx: Prisma.TransactionClient,
   organizationId: string,
   query: CurrentReviewItemFilter,
@@ -138,7 +169,7 @@ export async function readCurrentReviewContentCount(
   return Number(rows[0]?.count ?? 0);
 }
 
-export async function readCurrentReviewRatingCounts(
+async function readCurrentReviewRatingCounts(
   tx: Prisma.TransactionClient,
   organizationId: string,
   query: CurrentReviewItemFilter,
@@ -155,7 +186,7 @@ export async function readCurrentReviewRatingCounts(
   return rows.map((row) => ({ rating: row.rating, count: Number(row.count) }));
 }
 
-export async function readCurrentReviewItems(
+async function readCurrentReviewItems(
   tx: Prisma.TransactionClient,
   organizationId: string,
   query: CurrentReviewItemFilter,

@@ -3,7 +3,7 @@ import { seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests
 import { seedWingTrafficOperation } from '../../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
 import { seedSellpiaTransferOperation } from '../../../test-helpers/__tests__/sellpia-transfer-operation';
-import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader, orderFactsTestReader } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -1169,7 +1169,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     function buildAdapter(): ProfitCalculationRepositoryAdapter {
       return new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
         prisma as unknown as PrismaService,
-        new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(prisma as unknown as PrismaService),
+        new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(prisma as unknown as PrismaService), orderFactsTestReader(prisma as unknown as PrismaService),
       );
     }
 
@@ -1336,7 +1336,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       await publishedRows();
       const failed = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
         prisma as unknown as PrismaService,
-        new ProductTransactionalReadRepositoryAdapter(), failingAds,
+        new ProductTransactionalReadRepositoryAdapter(), failingAds, orderFactsTestReader(prisma as unknown as PrismaService),
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO));
       const emptyPublication = await buildAdapter().calculateForRange(
@@ -1492,16 +1492,16 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const client = prisma as unknown as PrismaService;
       const card = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).recipes,
         client,
-        new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(client),
+        new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(client), orderFactsTestReader(client),
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
       const topProducts = await new DashboardSalesRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).listings, channelFactTestPorts(client).recipes,
         client,
         new ProductTransactionalReadRepositoryAdapter(),
-        productAbcRead(prisma), profitCatalogTestReaders(client as never).content, todayOrdersTestAdapter(prisma), advertisingLedgerTestReader(client as never),
+        productAbcRead(prisma), profitCatalogTestReaders(client as never).content, todayOrdersTestAdapter(prisma), advertisingLedgerTestReader(client as never), orderFactsTestReader(client as never),
       )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content, advertisingLedgerTestReader(client as never))
+      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content, advertisingLedgerTestReader(client as never), orderFactsTestReader(client as never))
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

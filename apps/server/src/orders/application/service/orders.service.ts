@@ -1,22 +1,20 @@
 import { Inject, Injectable, NotFoundException, BadRequestException, NotImplementedException } from '@nestjs/common';
 import { OrderStatusSchema } from '@kiditem/shared/order';
 import { PrismaService } from '../../../prisma/prisma.service';
+import type { OrderWindowFacts } from '../port/in/facts/order-facts.port';
 import {
-  readOrderByIdFact,
-  readOrderListFacts,
-  readOrderStatusCounts,
-  readOrderWindowFacts,
-  type OrderWindowFacts,
-} from '../../adapter/out/persistence/read/order-facts.reader';
+  ORDER_READ_REPOSITORY_PORT,
+  type OrderReadRepositoryPort,
+} from '../port/out/repository/order-read.repository.port';
+import { ownerTransaction } from '../../../prisma/owner-transaction';
 import { addDays, kstBusinessDate, kstDayStart } from '../../../common/kst';
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../channels/application/port/in/account/channel-account.port';
 import type { OrderActionResponse, OrderListItem, OrderListResponse, OrderStatsResponse } from '@kiditem/shared/order';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CHANNEL_ACCOUNT_PORT) private readonly accounts: ChannelAccountPort,
+    @Inject(ORDER_READ_REPOSITORY_PORT) private readonly orders: OrderReadRepositoryPort,
   ) {}
 
   private toListItem(order: {
@@ -128,12 +126,12 @@ export class OrdersService {
         : dbStatus;
 
     const orders = await this.prisma.$transaction((tx) =>
-      readOrderListFacts(tx, {
+      this.orders.readOrderList(ownerTransaction(tx), {
         organizationId,
         status: statusFilter,
         from: orderedAtFilter.gte,
         to: orderedAtFilter.lte,
-      }, this.accounts),
+      }),
     );
 
     return {
@@ -145,7 +143,7 @@ export class OrdersService {
   async findOne(id: string, organizationId: string) {
     // findUnique({ where: { id } }) 금지 — organizationId 필수
     const order = await this.prisma.$transaction((tx) =>
-      readOrderByIdFact(tx, organizationId, id),
+      this.orders.readOrderById(ownerTransaction(tx), { organizationId, id }),
     );
     if (!order) throw new NotFoundException('Order not found');
     return order;
@@ -158,17 +156,17 @@ export class OrdersService {
     const dayOfWeek = kstBusinessDate(now).getUTCDay();
     const weekStart = addDays(todayStart, -(dayOfWeek === 0 ? 6 : dayOfWeek - 1));
     const { statuses, today, week } = await this.prisma.$transaction(async (tx) => ({
-      statuses: await readOrderStatusCounts(tx, organizationId),
-      today: await readOrderWindowFacts(tx, {
+      statuses: await this.orders.readOrderStatusCounts(ownerTransaction(tx), { organizationId }),
+      today: await this.orders.readOrderWindowFacts(ownerTransaction(tx), {
         organizationId,
         from: todayStart,
         to: tomorrowStart,
-      }, this.accounts),
-      week: await readOrderWindowFacts(tx, {
+      }),
+      week: await this.orders.readOrderWindowFacts(ownerTransaction(tx), {
         organizationId,
         from: weekStart,
         to: tomorrowStart,
-      }, this.accounts),
+      }),
     }));
 
     return {

@@ -30,7 +30,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository';
 import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository';
-import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, advertisingLedgerTestReader, orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
 import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
@@ -67,8 +67,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     await prisma.$connect();
 
     const prismaService = prisma as unknown as PrismaService;
-    const channelFacts = channelFactTestPorts(prismaService);
-    const channelAccounts = channelFacts.accounts;
+    const orderFacts = orderFactsTestReader(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService);
     profitability = new MasterProductProfitabilityReadService(
       sellpia,
@@ -107,7 +106,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts, advertisingLedgerTestReader(prismaService),
+        orderFacts, advertisingLedgerTestReader(prismaService),
         channelFactTestPorts(prismaService as never).listings,
       ),
       inventory,
@@ -116,7 +115,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(
         prismaService,
         profitability,
-        channelAccounts,
+        orderFacts,
         channelFactTestPorts(prismaService as never).listings,
       ),
       new MasterProductContributionReadService(

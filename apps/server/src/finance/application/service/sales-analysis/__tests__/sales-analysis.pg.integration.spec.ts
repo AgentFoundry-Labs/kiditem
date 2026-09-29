@@ -1,4 +1,4 @@
-import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader, orderFactsTestReader } from '../../../../../test-helpers/channel-fact-ports';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
@@ -14,7 +14,7 @@ import {
 import { seedAdReportWindow, seedListingAdDay } from '../../../../../test-helpers/ad-ledger-seeds';
 
 const prisma = makeTestPrisma();
-const service = new SalesAnalysisService(prisma as any, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as any as never).accounts, profitCatalogTestReaders(prisma as any as never).listings, profitCatalogTestReaders(prisma as any as never).recipes, profitCatalogTestReaders(prisma as any as never).content, advertisingLedgerTestReader(prisma as any as never));
+const service = new SalesAnalysisService(prisma as any, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as any as never).accounts, profitCatalogTestReaders(prisma as any as never).listings, profitCatalogTestReaders(prisma as any as never).recipes, profitCatalogTestReaders(prisma as any as never).content, advertisingLedgerTestReader(prisma as any as never), orderFactsTestReader(prisma as any as never));
 
 async function setupChannelFixture(organizationId: string, channel: string, suffix: string) {
   const master = await setupMaster(prisma, { organizationId, code: `M-${suffix}`, name: `Product ${suffix}` });

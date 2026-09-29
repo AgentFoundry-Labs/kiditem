@@ -35,9 +35,10 @@ import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
-  readOrderLineWindowFacts,
+  ORDER_FACTS_PORT,
+  type OrderFactsPort,
   type OrderWindowFacts,
-} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
+} from '../../../../../orders/application/port/in/facts/order-facts.port';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
@@ -89,6 +90,7 @@ export class ProfitCalculationRepositoryAdapter
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async calculateForRange(
@@ -376,12 +378,12 @@ export class ProfitCalculationRepositoryAdapter
     period: ResolvedDashboardPeriod,
     includeAdvertising: boolean,
   ): Promise<CalculationInputs> {
-      const facts = await readOrderLineWindowFacts(tx, {
+      const facts = await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), {
         organizationId,
         from: period.queryWindow.from,
         to: period.queryWindow.to,
         excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-      }, this.channelAccounts);
+      });
       const optionIds = [...new Set(facts.orders.flatMap((order) =>
         order.lines.flatMap((line) => line.listingOptionId ? [line.listingOptionId] : [])))];
       const options = await this.channelRecipes.readConfirmedCompositions(ownerTransaction(tx), { organizationId, optionIds }).then(rows => rows.map(row => ({ id: row.optionId, inventoryComponents: row.components })));

@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../orders/order-facts.module';
 import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { SellpiaProductSalesModule } from './sellpia-product-sales/sellpia-product-sales.module';
@@ -57,7 +58,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [AiListingContentQueryModule, ChannelCatalogModule, SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule, OrderCollectionTodayOrdersModule],
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule, OrderCollectionTodayOrdersModule, OrderFactsModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

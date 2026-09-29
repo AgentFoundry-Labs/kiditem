@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../orders/order-facts.module';
 import { MALL_PUBLISHING_PORT } from "./application/port/in/registration/mall-publishing.port";
 import { SELLPIA_MANUAL_MATCH_PORT } from "./application/port/in/listing/sellpia-manual-match.port";
 import { CHANNEL_PRODUCT_MATCHING_PORT } from "./application/port/in/listing/channel-product-matching.port";
@@ -107,7 +108,7 @@ import { ChannelsRegistrationStateModule } from './channels-registration-state.m
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
 
 @Module({
-  imports: [AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule, ChannelsRegistrationStateModule,
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, SalesProductModule, ChannelsRegistrationStateModule, OrderFactsModule,
     AiModule,
     InventoryModule,
     ProductCollectionRuntimeModule,

@@ -1,3 +1,4 @@
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import { Injectable } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -39,7 +40,7 @@ import { ORDER_OPERATION_CAPTURE_PORT } from '../application/port/in/order-opera
 import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/repository/order-mall-account.port';
 import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
-import { readOrderWindowFacts } from '../adapter/out/persistence/read/order-facts.reader';
+import { OrderFactsRepository } from '../adapter/out/persistence/order-facts.repository';
 import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';
 
 // 확장 수집기(orders.mall_orders)가 밟는 길을 서버에서 그대로: begin → order_rows 청크 → finish. 보관 캡처와
@@ -482,11 +483,11 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const kidkids = await harness.beginRun(MALL_ORDERS_KIND, scope({ collectionDate: '2026-09-21' }));
     await harness.finish(kidkids).expect(200);
 
-    const facts = await prisma.$transaction((tx) => readOrderWindowFacts(tx, {
+    const facts = await prisma.$transaction((tx) => new OrderFactsRepository(accountFacts).readOrderWindowFacts(ownerTransaction(tx), {
       organizationId: ORG,
       from: new Date('2026-09-19T15:00:00.000Z'),
       to: new Date('2026-09-21T15:00:00.000Z'),
-    }, accountFacts));
+    }));
     expect(facts.sourceCoverage).toEqual([expect.objectContaining({
       sourceType: 'order_collection_mall',
       channelAccountId: domeggookAccount,

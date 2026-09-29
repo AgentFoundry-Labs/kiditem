@@ -842,76 +842,16 @@
       "removeWith": "KID-335"
     },
     {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/review-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/adapter/out/persistence/dashboard/dashboard-inventory.repository.ts"
-    },
-    {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-394",
       "from": "apps/server/src/analytics/adapter/out/persistence/dashboard/dashboard-inventory.repository.ts"
     },
     {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/adapter/out/persistence/dashboard/dashboard-sales.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/adapter/out/persistence/dashboard/dashboard-trend.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/adapter/out/persistence/dashboard/profit-calculation.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/adapter/out/persistence/dashboard/wing-traffic-aggregation.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/application/service/statistics/statistics.service.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/analytics/application/service/supplier-stats/supplier-stats.service.ts"
-    },
-    {
       "from": "apps/server/src/auth/adapter/in/cli/auth-admin.ts",
       "to": "apps/server/src/auth/adapter/out/prisma/prisma-auth.repository.ts",
       "reason": "adapter/in → adapter/out 직접 import(입구가 구현을 부름)",
       "removeWith": "KID-335"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/channels/adapter/out/persistence/channel-dashboard.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/channels/adapter/out/persistence/mall-publishing.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/common/per-listing-profit.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
@@ -924,12 +864,6 @@
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-397",
       "from": "apps/server/src/finance/adapter/out/persistence/master-product-contribution.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/finance/application/service/sales-analysis/sales-analysis-scraper.service.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/product-transactional-read.repository.ts",
@@ -950,21 +884,9 @@
       "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.ts"
     },
     {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
-      "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.ts"
-    },
-    {
       "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-395",
-      "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-392",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.ts"
     },
     {
@@ -1008,30 +930,6 @@
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-396",
       "from": "apps/server/src/supply/adapter/out/persistence/supply-sourcing-procurement.repository.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "KID-311 moved the Orders read helpers under adapter/out/persistence/read; the Orders services keep this import until their read port lands.",
-      "removeWith": "KID-334",
-      "from": "apps/server/src/orders/application/service/orders.service.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "KID-311 moved the Orders read helpers under adapter/out/persistence/read; the Orders services keep this import until their read port lands.",
-      "removeWith": "KID-334",
-      "from": "apps/server/src/orders/application/service/return-transfers/return-transfers.service.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/review-facts.reader.ts",
-      "reason": "KID-311 moved the Orders read helpers under adapter/out/persistence/read; the Orders services keep this import until their read port lands.",
-      "removeWith": "KID-334",
-      "from": "apps/server/src/orders/application/service/reviews.service.ts"
-    },
-    {
-      "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
-      "reason": "KID-311 moved the Orders read helpers under adapter/out/persistence/read; the Orders services keep this import until their read port lands.",
-      "removeWith": "KID-334",
-      "from": "apps/server/src/orders/application/service/reviews.service.ts"
     },
     {
       "to": "apps/server/src/finance/adapter/out/persistence/read/settlement/settlement-facts.ts",

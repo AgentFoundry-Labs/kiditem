@@ -1,22 +1,12 @@
 import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaService } from "../../../../../prisma/prisma.service";
-import { readOrderLineWindowFacts } from "../../../../../orders/adapter/out/persistence/read/order-facts.reader";
+import type { OrderFactsPort } from "../../../../../orders/application/port/in/facts/order-facts.port";
 import { ProfitCalculationRepositoryAdapter } from "./profit-calculation.repository";
 import { periodOf } from "../../../../__tests__/dashboard/test-helpers/period";
 import { ProductTransactionalReadRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-transactional-read.repository";
 
-vi.mock(
-  "../../../../../orders/adapter/out/persistence/read/order-facts.reader",
-  async (importOriginal) => ({
-    ...(await importOriginal<
-      typeof import("../../../../../orders/adapter/out/persistence/read/order-facts.reader")
-    >()),
-    readOrderLineWindowFacts: vi.fn(),
-  }),
-);
-
-const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
+const mockedReadOrderLineWindowFacts = vi.fn<OrderFactsPort["readOrderLineWindowFacts"]>();
 
 const JULY_START_KST = new Date("2026-06-30T15:00:00.000Z");
 const AUGUST_START_KST = new Date("2026-07-31T15:00:00.000Z");
@@ -58,6 +48,7 @@ describe("dashboard business-date boundaries", () => {
     await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter(), adLedger as never,
+      { readOrderLineWindowFacts: mockedReadOrderLineWindowFacts } as unknown as OrderFactsPort,
     ).calculateForRange(
       "organization-id",
       periodOf(JULY_START_KST, AUGUST_START_KST),
@@ -66,7 +57,6 @@ describe("dashboard business-date boundaries", () => {
     expect(mockedReadOrderLineWindowFacts).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ from: JULY_START_KST, to: AUGUST_START_KST }),
-      expect.objectContaining({ findByIds: expect.any(Function) }),
     );
     // The ad ledger is read over the window's KST business dates, half-open.
     expect(adLedger.readAdWindowFacts).toHaveBeenCalledWith(

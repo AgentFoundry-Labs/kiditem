@@ -1,124 +1,103 @@
 import { MALL_ORDERS_KIND, MallOrdersResultSchema } from '@kiditem/shared/orders-operations';
-import { readSucceededOperationWindows } from '../../../../../common/operation/transaction/succeeded-operation-windows';
-import { readLatestSucceededFinishedAt } from '../../../../../common/operation/transaction/operation-finished-at';
+import { readSucceededOperationWindows } from '../../../../common/operation/transaction/succeeded-operation-windows';
+import { readLatestSucceededFinishedAt } from '../../../../common/operation/transaction/operation-finished-at';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   findChannel,
   findMallChannel,
   MALL_CHANNELS,
 } from '@kiditem/shared/channel-registry';
-import { businessDateKey, datesInclusive, kstBusinessDate } from '../../../../../common/kst';
-import { ownerTransaction } from '../../../../../prisma/owner-transaction';
-import type { ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { businessDateKey, datesInclusive, kstBusinessDate } from '../../../../common/kst';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import {
+  type ChannelAccountOrderCount,
+  type DailyOrderFacts,
+  type ListingOptionOrderFacts,
+  type OrderLineFact,
+  type OrderLineWindowFacts,
+  type OrderWindowFacts,
+  type OrderWindowInput,
+  type PublishedOrderLineFact,
+  type PublishedOrderLinesInput,
+  type RepurchaseOrderFact,
+} from '../../../application/port/in/facts/order-facts.port';
+import type {
+  OrderDetailFact,
+  OrderListFact,
+  OrderListInput,
+  OrderReadRepositoryPort,
+  OrderStatusCounts,
+} from '../../../application/port/out/repository/order-read.repository.port';
 
-export const ORDER_FACT_EXCLUDED_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
+/**
+ * `ORDER_FACTS_PORT` and `ORDER_READ_REPOSITORY_PORT` implementation (KID-392).
+ * Unwraps the caller's `OwnerTransaction` and reads canonical Order,
+ * OrderLineItem and declared collection coverage facts; the queries below are
+ * the former `read/order-facts.reader.ts`. Channel account facts come from
+ * Channels through `CHANNEL_ACCOUNT_PORT` — consumers never pass them.
+ */
+@Injectable()
+export class OrderFactsRepository implements OrderReadRepositoryPort {
+  constructor(@Inject(CHANNEL_ACCOUNT_PORT) private readonly accounts: ChannelAccountPort) {}
 
-export interface OrderWindowInput {
-  organizationId: string;
-  from: Date;
-  to: Date;
-  excludedStatuses?: readonly string[];
-}
+  readOrderWindowFacts(transaction: OwnerTransaction, input: OrderWindowInput): Promise<OrderWindowFacts> {
+    return readOrderWindowFacts(ownerTransactionClient(transaction), input, this.accounts);
+  }
 
-export interface OrderWindowFacts {
-  revenue: number | null;
-  orderCount: number | null;
-  quantity: number | null;
-  observedAt: Date | null;
-  observedTotals: {
-    revenue: number;
-    orderCount: number;
-    quantity: number;
-  } | null;
-  requestedDates: string[];
-  includedDates: string[];
-  missingDates: string[];
-  sourceCoverage: OrderSourceCoverageFacts[];
-}
+  readOrderLineWindowFacts(transaction: OwnerTransaction, input: OrderWindowInput): Promise<OrderLineWindowFacts> {
+    return readOrderLineWindowFacts(ownerTransactionClient(transaction), input, this.accounts);
+  }
 
-export interface OrderSourceCoverageFacts {
-  sourceType: string;
-  channelAccountId: string | null;
-  mallKey: string | null;
-  includedDates: string[];
-  missingDates: string[];
-  observedAt: Date | null;
-}
+  readDailyOrderFacts(transaction: OwnerTransaction, input: OrderWindowInput): Promise<DailyOrderFacts[]> {
+    return readDailyOrderFacts(ownerTransactionClient(transaction), input);
+  }
 
-type OrderListPayload = Prisma.OrderGetPayload<{
-  include: {
-    lineItems: true;
-  };
-}>;
+  readListingOptionOrderFacts(transaction: OwnerTransaction, input: OrderWindowInput): Promise<ListingOptionOrderFacts[]> {
+    return readListingOptionOrderFacts(ownerTransactionClient(transaction), input);
+  }
 
-type OrderDetailPayload = Prisma.OrderGetPayload<{
-  include: { lineItems: true };
-}>;
+  readRepurchaseOrderFacts(transaction: OwnerTransaction, input: OrderWindowInput): Promise<RepurchaseOrderFact[]> {
+    return readRepurchaseOrderFacts(ownerTransactionClient(transaction), input);
+  }
 
-export type OrderListFact = Omit<OrderListPayload, 'totalPrice'> & {
-  totalPrice: number;
-  channelAccount: { channel: string } | null;
-};
-export type OrderDetailFact = Omit<OrderDetailPayload, 'totalPrice'> & { totalPrice: number };
+  readPublishedOrderLines(transaction: OwnerTransaction, input: PublishedOrderLinesInput): Promise<PublishedOrderLineFact[]> {
+    return readPublishedOrderLines(ownerTransactionClient(transaction), input);
+  }
 
-export interface OrderListInput {
-  organizationId: string;
-  status: string | { in: string[] };
-  from?: Date;
-  to?: Date;
-}
+  readObservedOrderBounds(transaction: OwnerTransaction, input: Readonly<{ organizationId: string }>): Promise<{ from: Date; to: Date } | null> {
+    return readObservedOrderBounds(ownerTransactionClient(transaction), input.organizationId);
+  }
 
-export interface OrderStatusCounts {
-  total: number;
-  byStatus: Record<string, number>;
-}
+  readObservedOrderCount(transaction: OwnerTransaction, input: Readonly<{ organizationId: string }>): Promise<number> {
+    return readObservedOrderCount(ownerTransactionClient(transaction), input.organizationId);
+  }
 
-export interface DailyOrderFacts {
-  day: string;
-  revenue: number;
-  orderCount: number;
-  quantity: number;
-}
+  readOrderStatusCount(transaction: OwnerTransaction, input: Readonly<{ organizationId: string; status: string }>): Promise<number> {
+    return readOrderStatusCount(ownerTransactionClient(transaction), input.organizationId, input.status);
+  }
 
-export interface ListingOptionOrderFacts {
-  orderId: string;
-  channelAccountId: string;
-  listingOptionId: string;
-  revenue: number;
-  quantity: number;
-}
+  readOrderCountsByChannelAccount(transaction: OwnerTransaction, input: Readonly<{ organizationId: string }>): Promise<ChannelAccountOrderCount[]> {
+    return readOrderCountsByChannelAccount(ownerTransactionClient(transaction), input.organizationId);
+  }
 
-export interface OrderLineFact {
-  orderId: string;
-  channelAccountId: string;
-  orderedAt: Date;
-  businessDate: string;
-  shippingPrice: number;
-  lineItemId: string;
-  listingOptionId: string | null;
-  sku: string | null;
-  productName: string;
-  revenue: number;
-  quantity: number;
-}
+  readOrderList(transaction: OwnerTransaction, input: OrderListInput): Promise<OrderListFact[]> {
+    return readOrderListFacts(ownerTransactionClient(transaction), input, this.accounts);
+  }
 
-export interface OrderLineWindowFacts {
-  window: OrderWindowFacts;
-  orders: readonly Readonly<{
-    orderId: string;
-    channelAccountId: string;
-    orderedAt: Date;
-    businessDate: string;
-    shippingPrice: number;
-    lines: readonly OrderLineFact[];
-  }>[];
-}
+  readOrderById(transaction: OwnerTransaction, input: Readonly<{ organizationId: string; id: string }>): Promise<OrderDetailFact | null> {
+    return readOrderByIdFact(ownerTransactionClient(transaction), input.organizationId, input.id);
+  }
 
-export interface RepurchaseOrderFact {
-  orderId: string;
-  receiverName: string | null;
-  orderedAt: Date;
-  revenue: number;
+  readOrderIdentity(transaction: OwnerTransaction, input: Readonly<{ organizationId: string; id: string }>): Promise<{ id: string } | null> {
+    return readOrderIdentityFact(ownerTransactionClient(transaction), input.organizationId, input.id);
+  }
+
+  readOrderStatusCounts(transaction: OwnerTransaction, input: Readonly<{ organizationId: string }>): Promise<OrderStatusCounts> {
+    return readOrderStatusCounts(ownerTransactionClient(transaction), input.organizationId);
+  }
 }
 
 type WindowRow = {
@@ -132,7 +111,7 @@ type WindowRow = {
 type CoverageRun = Awaited<ReturnType<typeof readMallOrderCoverage>>[number];
 type AccountFacts = Pick<ChannelAccountPort, 'findByIds'>;
 
-export async function readOrderListFacts(
+async function readOrderListFacts(
   tx: Prisma.TransactionClient,
   input: OrderListInput,
   accounts: AccountFacts,
@@ -170,7 +149,7 @@ export async function readOrderListFacts(
   }));
 }
 
-export async function readOrderByIdFact(
+async function readOrderByIdFact(
   tx: Prisma.TransactionClient,
   organizationId: string,
   id: string,
@@ -192,7 +171,7 @@ export async function readOrderByIdFact(
     : null;
 }
 
-export async function readOrderIdentityFact(
+async function readOrderIdentityFact(
   tx: Prisma.TransactionClient,
   organizationId: string,
   id: string,
@@ -203,7 +182,7 @@ export async function readOrderIdentityFact(
   });
 }
 
-export async function readOrderStatusCounts(
+async function readOrderStatusCounts(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<OrderStatusCounts> {
@@ -225,7 +204,7 @@ export async function readOrderStatusCounts(
  * How many orders operations published for each channel account,
  * whatever their status: whether an account has collected orders at all.
  */
-export async function readOrderCountsByChannelAccount(
+async function readOrderCountsByChannelAccount(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<Array<{ channelAccountId: string; orderCount: number }>> {
@@ -244,7 +223,7 @@ export async function readOrderCountsByChannelAccount(
  * Reads canonical Order, OrderLineItem, and declared collection coverage facts.
  * The caller owns the transaction; this reader has no cache or lifecycle state.
  */
-export async function readOrderWindowFacts(
+async function readOrderWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
   accounts: AccountFacts,
@@ -327,7 +306,7 @@ export async function readOrderWindowFacts(
  * diagnostics, but a window scalar is publishable only when `window` is
  * complete.
  */
-export async function readOrderLineWindowFacts(
+async function readOrderLineWindowFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
   accounts: AccountFacts,
@@ -392,7 +371,7 @@ export async function readOrderLineWindowFacts(
   };
 }
 
-export async function readDailyOrderFacts(
+async function readDailyOrderFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
 ): Promise<DailyOrderFacts[]> {
@@ -422,7 +401,7 @@ export async function readDailyOrderFacts(
   }));
 }
 
-export async function readListingOptionOrderFacts(
+async function readListingOptionOrderFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
 ): Promise<ListingOptionOrderFacts[]> {
@@ -459,7 +438,7 @@ export async function readListingOptionOrderFacts(
   }));
 }
 
-export async function readRepurchaseOrderFacts(
+async function readRepurchaseOrderFacts(
   tx: Prisma.TransactionClient,
   input: OrderWindowInput,
 ): Promise<RepurchaseOrderFact[]> {
@@ -481,7 +460,7 @@ export async function readRepurchaseOrderFacts(
   return rows.map((row) => ({ ...row, revenue: Number(row.revenue) }));
 }
 
-export async function readObservedOrderBounds(
+async function readObservedOrderBounds(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<{ from: Date; to: Date } | null> {
@@ -504,7 +483,7 @@ export async function readObservedOrderBounds(
  * whatever their status: whether a collection published orders at all, not
  * what they earned.
  */
-export async function readObservedOrderCount(
+async function readObservedOrderCount(
   tx: Prisma.TransactionClient,
   organizationId: string,
 ): Promise<number> {
@@ -517,22 +496,13 @@ export async function readObservedOrderCount(
   return Number(row?.count ?? 0n);
 }
 
-/** One line of an order an operation published, without window facts. */
-export interface PublishedOrderLineFact {
-  orderId: string;
-  lineItemId: string;
-  listingOptionId: string | null;
-  revenue: number;
-  quantity: number;
-}
-
 /**
  * Every line of every order an operation published for the
  * organization, whatever its date. It declares no window and reads no
  * coverage, so an all-history consumer can issue it on the client rather than
  * inside an interactive transaction; nothing it returns is a window total.
  */
-export async function readPublishedOrderLines(
+async function readPublishedOrderLines(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; excludedStatuses?: readonly string[] },
 ): Promise<PublishedOrderLineFact[]> {
@@ -564,7 +534,7 @@ export async function readPublishedOrderLines(
   }));
 }
 
-export async function readOrderStatusCount(
+async function readOrderStatusCount(
   tx: Prisma.TransactionClient,
   organizationId: string,
   status: string,

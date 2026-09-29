@@ -32,11 +32,13 @@ import {
   type ProductSourceReadPort,
 } from '../../../../../products/application/port/in/product-source-read.port';
 import { readCurrentProductAbcGradeChanges } from "../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
-import { readCurrentReviewListingStats } from "../../../../../orders/adapter/out/persistence/read/review-facts.reader";
+import { REVIEW_FACTS_PORT, type ReviewFactsPort } from "../../../../../orders/application/port/in/facts/review-facts.port";
 import {
   buildPerListingMetricsCoverage,
+  profitOrderWindowInput,
   readAdEvidenceFromLedger,
 } from "../../../../../common/per-listing-profit";
+import { ORDER_FACTS_PORT, type OrderFactsPort } from "../../../../../orders/application/port/in/facts/order-facts.port";
 import {
   PRODUCT_ABC_READ_PORT,
   type ProductAbcReadPort,
@@ -67,6 +69,8 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(REVIEW_FACTS_PORT) private readonly reviewFacts: ReviewFactsPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async readProductAbcFacts(
@@ -223,6 +227,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           to,
           accountAdEvidence,
           undefined,
+          await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), profitOrderWindowInput(organizationId, from, to)),
           this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
         );
         return {
@@ -336,10 +341,9 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         const listings = await this.channelRecipes.findListingsBySourceProducts(ownerTransaction(tx), { organizationId, masterProductIds, activeOnly: true }).then(rows => rows.map(row => ({ id: row.listingId })));
         const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: listings.map((listing) => listing.id) });
         const listingIds = listings.filter((listing) => masterProductIds.includes(summaries.get(listing.id) ?? "")).map((listing) => listing.id);
-        const stats = await readCurrentReviewListingStats(
-          tx,
-          organizationId,
-          listingIds,
+        const stats = await this.reviewFacts.readCurrentReviewListingStats(
+          ownerTransaction(tx),
+          { organizationId, listingIds },
         );
         const countByListingId = new Map(
           stats.map((row) => [row.listingId, row.totalReviews]),

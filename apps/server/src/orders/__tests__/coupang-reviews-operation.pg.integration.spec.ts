@@ -1,3 +1,5 @@
+import { reviewFactsTestReader } from '../../test-helpers/channel-fact-ports';
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import { createHash } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
@@ -38,7 +40,6 @@ import { ChannelListingQueryService } from '../../channels/application/service/l
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
 import { CoupangReviewsOperationOwner } from '../adapter/in/operation/coupang-reviews-operation-owner';
 import { ReviewIngestService } from '../application/service/review-ingest.service';
-import { readCurrentReviewItems } from '../adapter/out/persistence/read/review-facts.reader';
 
 // 확장 수집기(orders.coupang_reviews)가 밟는 길을 서버에서 그대로: begin → reviews 청크(창별) →
 // review_windows 표식 → finish. 원장 쓰기는 finish 트랜잭션 안에서만(ADR-0025).
@@ -220,7 +221,7 @@ describe('orders.coupang_reviews owner over the operation contract + disposable 
       ['r-2', 'content r-2', second.operation.id],
     ]);
     await expect(prisma.review.count({ where: { organizationId: ORG, sourceImportRunId: legacyRun.id } })).resolves.toBe(1);
-    const current = await prisma.$transaction((tx) => readCurrentReviewItems(tx, ORG, {}, 1, 50));
+    const current = await prisma.$transaction((tx) => reviewFactsTestReader().readCurrentReviewItems(ownerTransaction(tx), { organizationId: ORG, filter: {}, page: 1, limit: 50 }));
     expect(current.map((item) => item.content).sort()).toEqual(['content r-2', 'second']);
   });
 

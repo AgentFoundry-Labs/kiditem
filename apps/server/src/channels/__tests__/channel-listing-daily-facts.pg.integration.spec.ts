@@ -1,4 +1,4 @@
-import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { orderFactsTestReader, profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { seedWingTrafficOperation } from '../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -501,7 +501,7 @@ describe('listing daily facts reader (PG integration)', () => {
 
     try {
       await publicationLocked.promise;
-      const repository = new WingTrafficAggregationRepositoryAdapter(profitCatalogTestReaders(prisma as unknown as PrismaService).listings, prisma as unknown as PrismaService, profitCatalogTestReaders(prisma as unknown as PrismaService).accounts,
+      const repository = new WingTrafficAggregationRepositoryAdapter(profitCatalogTestReaders(prisma as unknown as PrismaService).listings, prisma as unknown as PrismaService, orderFactsTestReader(prisma as unknown as PrismaService),
         profitCatalogTestReaders(prisma as unknown as PrismaService).ads,
       );
       const reading = repository.aggregateTraffic(TEST_ORGANIZATION_ID, {

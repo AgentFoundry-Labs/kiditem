@@ -11,7 +11,7 @@ import {
   type ProductSourceReadModel,
   type ProductSourceReadPort,
 } from '../../../../products/application/port/in/product-source-read.port';
-import { readOrderCountsByChannelAccount } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { MALL_ACCOUNT_ROW_ORDER, mallAccountRowsWhere } from './mall-account-rows';
 import { readMallListingProfile } from '../../../domain/account/mall-listing-profile';
@@ -78,6 +78,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     @Inject(PRODUCT_AVAILABILITY_PORT)
     private readonly productAvailability: ProductAvailabilityPort,
     @Inject(CHANNEL_LISTING_CONTENT_PORT) private readonly content: ChannelListingContentPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async listMallAccounts(organizationId: string): Promise<MallAccountRow[]> {
@@ -449,7 +450,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
   }
 
   countOrdersByAccount(organizationId: string): Promise<MallOrderCountRow[]> {
-    return readOrderCountsByChannelAccount(this.prisma, organizationId);
+    return this.orderFacts.readOrderCountsByChannelAccount(ownerTransaction(this.prisma), { organizationId });
   }
 
   async countActiveMasterProducts(organizationId: string): Promise<number> {

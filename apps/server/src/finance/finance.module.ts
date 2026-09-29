@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../orders/order-facts.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { Module } from '@nestjs/common';
@@ -33,6 +34,7 @@ import { FinanceReportExportService } from './application/service/report-export/
     ProductCollectionRuntimeModule,
     ProductSourceModule,
     ProfitabilityEvidenceModule,
+    OrderFactsModule,
   ],
   controllers: [
     ProfitLossController,

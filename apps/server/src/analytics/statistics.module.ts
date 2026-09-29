@@ -1,3 +1,4 @@
+import { OrderFactsModule } from '../orders/order-facts.module';
 import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { Module } from '@nestjs/common';
@@ -7,7 +8,7 @@ import { StatisticsController } from './adapter/in/http/statistics/statistics.co
 import { StatisticsService } from './application/service/statistics/statistics.service';
 
 @Module({
-  imports: [AiListingContentQueryModule, ChannelCatalogModule, AdvertisingModule, ProductCollectionRuntimeModule],
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, AdvertisingModule, ProductCollectionRuntimeModule, OrderFactsModule],
   controllers: [StatisticsController],
   providers: [StatisticsService],
 })

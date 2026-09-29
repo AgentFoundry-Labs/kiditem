@@ -1,3 +1,7 @@
+import { OrderFactsRepository } from '../adapter/out/persistence/order-facts.repository';
+import { ReviewFactsRepository } from '../adapter/out/persistence/review-facts.repository';
+import { ORDER_READ_REPOSITORY_PORT } from '../application/port/out/repository/order-read.repository.port';
+import { REVIEW_READ_REPOSITORY_PORT } from '../application/port/out/repository/review-read.repository.port';
 import { ShipmentsModule } from '../shipments.module';
 import { RocketPoSourceModule } from '../rocket-po-source.module';
 import { CoupangRocketPoOperationOwner } from '../adapter/in/operation/coupang-rocket-po-operation-owner';
@@ -115,6 +119,8 @@ describe('OrdersModule owner wiring', () => {
       SellpiaOrderSnapshotOperationOwner,
       CoupangShipmentListOperationOwner,
       MallTrackingUploadOperationOwner,
+      OrderFactsRepository,
+      ReviewFactsRepository,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,
@@ -139,6 +145,8 @@ describe('OrdersModule owner wiring', () => {
         provide: SELLPIA_ACTION_OUTCOMES_PORT,
         useExisting: SellpiaActionOutcomesPersistenceAdapter,
       },
+      { provide: ORDER_READ_REPOSITORY_PORT, useExisting: OrderFactsRepository },
+      { provide: REVIEW_READ_REPOSITORY_PORT, useExisting: ReviewFactsRepository },
     ]);
     expect(exports).toEqual([]);
   });

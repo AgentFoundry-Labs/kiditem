@@ -12,10 +12,9 @@ each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`,
 `__tests__/<bundle>/`, …) with `<bundle>.module.ts` at the analytics root. The
 `sellpia-sales/` and `sellpia-product-sales/` bundles keep their own layout.
 Documented legacy exception: the statistics and supplier-stats application
-services inject `PrismaService` directly and read Orders through
-`orders/adapter/out/persistence/read/order-facts.reader` (frozen in
-`check:hexagonal` `CROSS_OWNER_EXCEPTIONS`, removed with KID-392); the dashboard
-architecture spec therefore scopes its Prisma-free rules to `*/dashboard/`.
+services inject `PrismaService` directly; they read Orders only through
+`ORDER_FACTS_PORT` (KID-392). The dashboard architecture spec therefore scopes
+its Prisma-free rules to `*/dashboard/`.
 
 ## Ownership and source boundaries
 

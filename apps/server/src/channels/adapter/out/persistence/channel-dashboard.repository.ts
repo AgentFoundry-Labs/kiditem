@@ -1,13 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, kstDayStart } from '../../../../common/kst';
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../application/port/in/account/channel-account.port';
-import {
-  readDailyOrderFacts,
-  readListingOptionOrderFacts,
-  readOrderStatusCount,
-  readOrderWindowFacts,
-} from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
 import type {
   ChannelDashboardSummary,
   RevenueTrendPoint,
@@ -40,20 +35,20 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
 export class ChannelDashboardRepositoryAdapter implements ChannelDashboardRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CHANNEL_ACCOUNT_PORT)
-    private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ORDER_FACTS_PORT)
+    private readonly orderFacts: OrderFactsPort,
   ) {}
 
   async getSummary(organizationId: string): Promise<ChannelDashboardSummary> {
     const todayStart = kstDayStart(new Date());
     const tomorrowStart = addDays(todayStart, 1);
     return this.prisma.$transaction(async (tx) => {
-      const todayOrders = await readOrderWindowFacts(
-        tx,
+      const transaction = ownerTransaction(tx);
+      const todayOrders = await this.orderFacts.readOrderWindowFacts(
+        transaction,
         { organizationId, from: todayStart, to: tomorrowStart },
-        this.channelAccounts,
       );
-      const pendingAccept = await readOrderStatusCount(tx, organizationId, 'accept_wait');
+      const pendingAccept = await this.orderFacts.readOrderStatusCount(transaction, { organizationId, status: 'accept_wait' });
       const lastSync = await tx.channelListing.findFirst({
         where: { organizationId },
         orderBy: { updatedAt: 'desc' },
@@ -77,7 +72,7 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     to: Date,
   ): Promise<RevenueTrendPoint[]> {
     return this.prisma.$transaction(async (tx) => {
-      const rows = await readDailyOrderFacts(tx, { organizationId, from, to });
+      const rows = await this.orderFacts.readDailyOrderFacts(ownerTransaction(tx), { organizationId, from, to });
       return rows.map(({ day, revenue, orderCount }) => ({
         day,
         revenue,
@@ -92,7 +87,7 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
     to: Date,
   ): Promise<ProductRankingRow[]> {
     return this.prisma.$transaction(async (tx) => {
-      const facts = await readListingOptionOrderFacts(tx, { organizationId, from, to });
+      const facts = await this.orderFacts.readListingOptionOrderFacts(ownerTransaction(tx), { organizationId, from, to });
       const optionIds = [...new Set(facts.map((fact) => fact.listingOptionId))];
       const options = optionIds.length === 0
         ? []

@@ -139,6 +139,12 @@ Action, collection, transmission, and reconciliation behavior is executable in
   otherwise the latest transfer's status (`none`, `in_progress`,
   `reconciling`, `failed`), read through
   `readOperationsByPlan` in the caller's transaction (KID-388).
+- Other owners read order and review facts only through `ORDER_FACTS_PORT`
+  and `REVIEW_FACTS_PORT` (`order-facts.module.ts`, KID-392), passing their
+  transaction as `ownerTransaction(tx)`; Orders resolves channel accounts
+  itself. Orders' own services read through `ORDER_READ_REPOSITORY_PORT` and
+  `REVIEW_READ_REPOSITORY_PORT`, which extend those ports. Both are
+  implemented by `adapter/out/persistence/{order,review}-facts.repository.ts`.
 
 ## Boundaries
 
@@ -147,7 +153,7 @@ Action, collection, transmission, and reconciliation behavior is executable in
 - Time filters use ISO values plus the established hour-boundary normalization.
 - Keep the hexagonal layout: HTTP in `adapter/in/web/`, services in
   `application/service/`, database adapters in `adapter/out/persistence/`
-  (ledger helpers in its transitional `read/`),
+  (remaining ledger helpers in its transitional `read/`),
   pure mappers in `domain/`. Coupang shipments add a `shipments/` folder per
   layer. `coupang-directship/` stays at the root because `nest-cli.json` and
   the Dockerfile bind its Python and template assets to that path. Verify with

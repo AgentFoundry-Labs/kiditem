@@ -20,7 +20,7 @@ import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence
 import { ProductAvailabilityUseCase } from '../application/service/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository';
 import { ProductSourceReadUseCase } from '../application/service/product-source-read.usecase';
-import { channelFactTestPorts, profitCatalogTestReaders, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, profitCatalogTestReaders, advertisingLedgerTestReader, reviewFactsTestReader, orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
@@ -72,7 +72,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     const prismaService = prisma as unknown as PrismaService;
     const channelFacts = channelFactTestPorts(prismaService);
     const profitCatalogReaders = profitCatalogTestReaders(prismaService);
-    const channelAccounts = channelFacts.accounts;
+    const orderFacts = orderFactsTestReader(prismaService);
     const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(prismaService);
     evidence = new MasterProductProfitabilityReadService(sellpia, prismaService, new ProductTransactionalReadRepositoryAdapter());
@@ -98,7 +98,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductTransactionalReadRepositoryAdapter(),
         new ProductSourceReadUseCase(new ProductSourceReadRepositoryAdapter(prismaService)),
         channelFacts.accounts,
-        profitCatalogReaders.content, advertisingLedgerTestReader(prismaService),
+        profitCatalogReaders.content, advertisingLedgerTestReader(prismaService), reviewFactsTestReader(), orderFactsTestReader(prismaService),
       ),
     );
     sellpiaInventory = new SellpiaProductInventoryReader(
@@ -115,7 +115,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts, advertisingLedgerTestReader(prismaService),
+        orderFacts, advertisingLedgerTestReader(prismaService),
         channelFactTestPorts(prismaService as never).listings,
       ),
       inventory,
@@ -124,7 +124,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(
         prismaService,
         evidence,
-        channelAccounts,
+        orderFacts,
         channelFactTestPorts(prismaService as never).listings,
       ),
       { readContribution: async () => null } as never,

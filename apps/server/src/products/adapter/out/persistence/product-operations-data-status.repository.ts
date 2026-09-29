@@ -10,7 +10,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readListingTrafficWindowFacts,
 } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
-import { readOrderWindowFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { productAbcEvidenceCutoff } from '../../../domain/product-abc-display-status';
 import {
   businessDateKey,
@@ -18,7 +19,6 @@ import {
   parseBusinessDate,
   shiftBusinessDateKey,
 } from '../../../../common/kst';
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { readProductAbcPublication } from './read/product-abc-publication.reader';
 import { listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
 import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -38,8 +38,8 @@ implements ProductOperationsDataStatusRepositoryPort {
     private readonly prisma: PrismaService,
     @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
     private readonly evidence: ProfitabilityEvidence,
-    @Inject(CHANNEL_ACCOUNT_PORT)
-    private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ORDER_FACTS_PORT)
+    private readonly orderFacts: OrderFactsPort,
     @Inject(CHANNEL_LISTING_QUERY_PORT)
     private readonly channelListings: SellingListingReader,
   ) {}
@@ -62,11 +62,11 @@ implements ProductOperationsDataStatusRepositoryPort {
           to: utcCalendarDate(addCalendarDays(cutoffDate, 1)),
           requireMasterProductLink: true,
         }),
-        readOrderWindowFacts(tx, {
+        this.orderFacts.readOrderWindowFacts(ownerTransaction(tx), {
           organizationId,
           from: kstDayStart(periodStart),
           to: kstDayStart(utcCalendarDate(addCalendarDays(cutoffDate, 1))),
-        }, this.channelAccounts),
+        }),
         readProductAbcPublication(tx, { organizationId }),
         listSellingMasterProductIds(
           tx,

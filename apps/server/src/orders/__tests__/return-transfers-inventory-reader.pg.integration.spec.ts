@@ -1,3 +1,4 @@
+import { orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { NotFoundException } from "@nestjs/common";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -25,6 +26,7 @@ describe("return transfers through the Products reader (PG integration)", () => 
     service = new ReturnTransfersService(
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
+      orderFactsTestReader(prisma as never),
     );
   });
 

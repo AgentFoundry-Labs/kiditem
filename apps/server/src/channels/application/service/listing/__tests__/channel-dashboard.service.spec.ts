@@ -1,19 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChannelDashboardRepositoryAdapter } from '../../../../adapter/out/persistence/channel-dashboard.repository';
-import {
-  readDailyOrderFacts,
-  readListingOptionOrderFacts,
-  readOrderStatusCount,
-  readOrderWindowFacts,
-} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import type { OrderFactsPort } from '../../../../../orders/application/port/in/facts/order-facts.port';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
-vi.mock('../../../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
-  readDailyOrderFacts: vi.fn(),
-  readListingOptionOrderFacts: vi.fn(),
-  readOrderStatusCount: vi.fn(),
-  readOrderWindowFacts: vi.fn(),
-}));
+/** Orders' fact capability — an owner boundary this unit spec fakes. */
+const readDailyOrderFacts = vi.fn<OrderFactsPort['readDailyOrderFacts']>();
+const readListingOptionOrderFacts = vi.fn<OrderFactsPort['readListingOptionOrderFacts']>();
+const readOrderStatusCount = vi.fn<OrderFactsPort['readOrderStatusCount']>();
+const readOrderWindowFacts = vi.fn<OrderFactsPort['readOrderWindowFacts']>();
 
 const ORGANIZATION_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
@@ -31,8 +25,11 @@ describe('ChannelDashboardRepositoryAdapter', () => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation((callback) => callback(tx));
     service = new ChannelDashboardRepositoryAdapter(prisma as unknown as PrismaService, {
-      findByIds: vi.fn(async () => []),
-    } as never);
+      readDailyOrderFacts,
+      readListingOptionOrderFacts,
+      readOrderStatusCount,
+      readOrderWindowFacts,
+    } as unknown as OrderFactsPort);
   });
 
   it('keeps unobserved today metrics null and returns operational counts', async () => {
