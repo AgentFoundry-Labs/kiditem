@@ -13,7 +13,7 @@ import {
 } from '../../../../products/application/port/in/product-source-read.port';
 import { readOrderCountsByChannelAccount } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { MALL_ACCOUNT_ROW_ORDER } from './mall-account-rows';
+import { MALL_ACCOUNT_ROW_ORDER, mallAccountRowsWhere } from './mall-account-rows';
 import { readMallListingProfile } from '../../../domain/account/mall-listing-profile';
 import { PUBLISHED_LISTING_STATUSES } from '../../../domain/listing/mall-listing-state';
 import { withListingProductSummary } from '../../../domain/listing/listing-product-summary';
@@ -82,7 +82,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
 
   async listMallAccounts(organizationId: string): Promise<MallAccountRow[]> {
     const rows = await this.prisma.channelAccount.findMany({
-      where: { organizationId },
+      where: mallAccountRowsWhere(organizationId),
       orderBy: MALL_ACCOUNT_ROW_ORDER,
       select: { id: true, name: true, channel: true, status: true, config: true },
     });

@@ -159,6 +159,28 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         .toEqual([secondary.id]);
     });
 
+    it('⭐ reads the same mall rows as the account screen — a row whose external id is not the mall key is not the mall row (ADR-0012)', async () => {
+      await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'kidsnote',
+          name: '키즈노트 옛 행',
+          externalAccountId: 'vendor-77',
+          status: 'active',
+          isPrimary: true,
+        },
+      });
+      const accountRows = await new ChannelAccountPersistenceAdapter(
+        prisma as unknown as PrismaService,
+        new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
+      ).listMallAccounts(TEST_ORGANIZATION_ID);
+      const accounts = await repository.listMallAccounts(TEST_ORGANIZATION_ID);
+
+      expect(accounts.find((account) => account.mallKey === 'kidsnote')?.channelAccountId).toBe(KIDSNOTE_ACCOUNT);
+      expect(accounts.map((account) => account.channelAccountId).sort())
+        .toEqual([...new Set(accountRows.map((row) => row.id))].sort());
+    });
+
     it('never creates an account row', async () => {
       await repository.listMallAccounts(TEST_ORGANIZATION_ID);
       expect(await prisma.channelAccount.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(2);

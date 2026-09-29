@@ -32,7 +32,7 @@ import type {
   MallAccountTransaction,
   MallAccountWrite,
 } from '../../../application/port/out/persistence/channel-account.persistence.port';
-import { LOGIN_ACCOUNT_MARKETS } from '../../../application/port/out/persistence/channel-account.persistence.port';
+import { mallAccountRowsWhere } from '../repository/mall-account-rows';
 
 const CHANNEL_ACCOUNT_LIST_SELECT = {
   id: true,
@@ -260,7 +260,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
 
   listMallAccounts(organizationId: string): Promise<MallAccountRecord[]> {
     return this.prisma.channelAccount.findMany({
-      where: mallAccountWhere(organizationId),
+      where: mallAccountRowsWhere(organizationId),
       orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
       select: MALL_ACCOUNT_SELECT,
     });
@@ -279,7 +279,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
 
       const accounts: MallAccountTransaction = {
         list: () => tx.channelAccount.findMany({
-          where: mallAccountWhere(organizationId),
+          where: mallAccountRowsWhere(organizationId),
           orderBy: [...ORDER_COLLECTION_MALL_ACCOUNT_ROW_ORDER],
           select: MALL_ACCOUNT_SELECT,
         }),
@@ -466,19 +466,6 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
     });
     return account?.id ?? null;
   }
-}
-
-function mallAccountWhere(organizationId: string) {
-  const { own, shared } = orderCollectionMallAccountChannels();
-  // 로그인만 두는 마켓 행(쿠팡 윙, KID-377)도 읽는다 — 몰 목록은 몰 행만 고르므로 목록에는 들어가지 않는다.
-  const loginMarkets = LOGIN_ACCOUNT_MARKETS.map((market) => market.sharedAccountChannel);
-  return {
-    organizationId,
-    OR: [
-      { channel: { in: own }, externalAccountId: { in: own } },
-      { channel: { in: [...new Set([...shared, ...loginMarkets])] } },
-    ],
-  };
 }
 
 async function saveMallAccount(
