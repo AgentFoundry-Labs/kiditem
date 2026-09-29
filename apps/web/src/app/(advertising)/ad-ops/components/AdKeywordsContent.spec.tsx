@@ -77,10 +77,10 @@ function keyword(text: string, pauseProposal: AdKeywordPauseProposal | null): Ad
 const MANUAL_ACTION_MESSAGE = '자동 실행하지 않는 액션입니다. 광고센터에서 직접 처리해 주세요.';
 
 const KEYWORDS = [
-  keyword('콩순이', proposal(ACTION.pending, 'pending_review', 'queued')),
-  keyword('쥬쥬', proposal(ACTION.otherPending, 'pending_review', 'queued')),
+  keyword('콩순이', proposal(ACTION.pending, 'pending_review', 'not_prepared')),
+  keyword('쥬쥬', proposal(ACTION.otherPending, 'pending_review', 'not_prepared')),
   // Approved before decision A: its attempt still waits in the extension queue.
-  keyword('타요', proposal(ACTION.queued, 'approved', 'queued')),
+  keyword('타요', proposal(ACTION.queued, 'approved', 'not_prepared')),
   keyword('뽀로로', proposal(ACTION.running, 'approved', 'running')),
   keyword('핑크퐁', proposal(ACTION.failed, 'approved', 'failed', MANUAL_ACTION_MESSAGE)),
   keyword('브레드', proposal(ACTION.done, 'approved', 'done')),
@@ -117,7 +117,7 @@ function pendingKeywords(count: number): AdKeywordSnapshot[] {
   return Array.from({ length: count }, (_, index) =>
     keyword(
       `키워드${index}`,
-      proposal(`00000000-0000-4000-8000-${String(100 + index).padStart(12, '0')}`, 'pending_review', 'queued'),
+      proposal(`00000000-0000-4000-8000-${String(100 + index).padStart(12, '0')}`, 'pending_review', 'not_prepared'),
     ),
   );
 }
