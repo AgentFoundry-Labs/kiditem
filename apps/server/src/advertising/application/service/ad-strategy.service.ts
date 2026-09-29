@@ -58,8 +58,9 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
  *   - composes the per-endpoint Promise.all batches,
  *   - delegates calculation to the sub-services,
  *   - assembles response shapes via mappers,
- *   - and writes for `registerCampaign()` (kept here because of its IDOR +
- *     duplicate-guard + ExecutionTask creation contract).
+ *   - and writes for `registerCampaign()` (kept here because of its IDOR,
+ *     one-account and runnable-payload checks; the repository decides the
+ *     name under its lock and prepares the `advertising.ad_action` run).
  */
 @Injectable()
 export class AdStrategyService {
