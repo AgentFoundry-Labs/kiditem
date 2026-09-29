@@ -438,10 +438,13 @@ describe("Sellpia authoritative final-schema contract", () => {
   });
 
   it("reads canonical Orders facts and the public Products ABC view for dashboard ranking", () => {
+    // Orders 사실은 Orders incoming 포트(`ORDER_FACTS_PORT`)로만, 트랜잭션은 OwnerTransaction 손잡이로 넘긴다(KID-392).
     assert.match(
       dashboardSalesRepository,
-      /readOrderLineWindowFacts\(tx/,
+      /this\.orderFacts\.readOrderLineWindowFacts\(ownerTransaction\(tx\)/,
     );
+    assert.match(dashboardSalesRepository, /@Inject\(ORDER_FACTS_PORT\)/);
+    assert.doesNotMatch(dashboardSalesRepository, /orders\/adapter\/out/);
     assert.match(
       dashboardSalesRepository,
       /this\.productAbc\.readAbc\(/,
