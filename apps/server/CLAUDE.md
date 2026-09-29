@@ -51,15 +51,16 @@ owns its identity and mutation rules.
   `queryraw-tenancy-exempt: global lock — <reason>` within eight lines of the
   lock call; verify with `npm run check:idor`.
 - Incoming adapters live under `adapter/in/{web,agent,workflow,cli}` (existing `http` adapters move when their owner is refactored).
-  Incoming ports describe capabilities, not caller types.
+  Incoming ports describe use cases, not caller types; `port/in/capability/`
+  holds only Agent-catalog abilities.
 - Application services depend on the narrowest
   `application/port/out/<lane>` contract: repository, transaction, provider,
-  storage, runtime, event, sink, workflow, or a named external owner. Products
-  uses the `persistence` lane for database contracts.
+  storage, runtime, event, sink, or workflow. Database adapters are
+  `adapter/out/persistence/<name>.repository.ts`.
 - Application code does not import concrete `adapter/out/**`
   implementations or another owner's service. Prisma belongs in outgoing
   persistence adapters or a documented legacy CRUD exception.
-- Owner persistence adapters implement fact queries behind public capabilities;
+- Owner persistence adapters implement fact queries behind incoming ports;
   a dedicated reader per ledger is optional (ADR-0021). Existing `read/` helpers
   remain internal pure transaction functions. Preserve organization, completed
   generation, coverage, and required lock evidence at the query boundary.
@@ -68,9 +69,9 @@ owns its identity and mutation rules.
 - `<owner>/transaction/` (not the `application/port/out/transaction/` lane)
   exports plain lock and fence functions that run in the caller's transaction.
   A reader takes the lock evidence and only verifies it.
-- The owner publishes a cross-domain capability. Consumers use that incoming
-  interface or a narrow anti-corruption port; shared behavior does not move to
-  `common` merely for reuse.
+- Other owners inject the owner's `application/port/in` token directly, with
+  no anti-corruption port; shared behavior does not move to `common` merely
+  for reuse.
 - Source owner services own the transaction for attempt terminality, staged
   fact visibility, the current complete snapshot, coverage status, and any
   owner-side failure alert that must commit with the source result. Consumers

@@ -86,7 +86,8 @@ in Supply, but the backend capability owner is finance.
 
 - Finance keeps one folder per capability (`profit-loss`, `sales-analysis`,
   `report-export`, `sales-plan`, `settlement`, `supplier-payment`) under
-  `adapter/in/web/` and `application/service/`; shared period rules live in
+  `adapter/in/web/` and `application/service/`, with database adapters in
+  `adapter/out/persistence/`; shared period rules live in
   `adapter/in/web/dto/finance-period.ts`. Verify with `npm run check:hexagonal`. Provider calls, raw SQL reporting, cross-domain
   mutations, or long transaction invariants require a scoped reconstruction
   plan.
