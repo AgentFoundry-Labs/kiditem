@@ -134,7 +134,8 @@ describe('manual excel upload → orders.mall_orders (manual-upload) over the op
     const response = await upload('icecream-mall', { bytes: encrypted, name: '배송목록.xlsx' }, { password: 'icecream' }).expect(201);
     expect(response.body.operation).toMatchObject({
       status: 'succeeded',
-      result: { rowCount: 2, mallKey: 'icecream-mall', captured: 1 },
+      // 수동 업로드도 변환 파일의 주문번호를 적는다(KID-234 Q3) — 오늘 주문·신규가 브라우저 수집과 같은 기준으로 센다.
+      result: { rowCount: 2, mallKey: 'icecream-mall', captured: 1, orderNumbers: ['20260926M0001', '20260926M0002'] },
     });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: response.body.operation.id } });
     expect(artifact).toMatchObject({ sourceFileName: '배송목록.xlsx', sourceContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -153,7 +154,7 @@ describe('manual excel upload → orders.mall_orders (manual-upload) over the op
     expect(operation).toMatchObject({
       status: 'succeeded',
       plan: { mallKey: 'gs-shop', mallName: 'GS샵', collectionDate: null, collectionMode: 'manual-upload' },
-      result: { rowCount: 3, mallKey: 'gs-shop', captured: 1 },
+      result: { rowCount: 3, mallKey: 'gs-shop', captured: 1, orderNumbers: ['G-1', 'G-2', 'G-3'] },
     });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: operation.id } });
     expect(artifact).toMatchObject({ sourceFileName: 'GS샵_직송주문.xlsx', sourceContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });

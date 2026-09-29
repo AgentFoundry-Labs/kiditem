@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { icecreamContinuation, mallOrdersCapture, mallOrdersScope, readMallOrdersPlan } from './mall-orders-operation';
+import { icecreamContinuation, mallOrdersCapture, mallOrdersResultOrderNumbers, mallOrdersScope, readMallOrdersPlan } from './mall-orders-operation';
 
 const plan = (patch: Record<string, unknown> = {}) => readMallOrdersPlan({
   channelAccountId: '5f0c2f7e-7a9e-4f3f-9d61-0a4b2b8f1c11',
@@ -12,6 +12,17 @@ const plan = (patch: Record<string, unknown> = {}) => readMallOrdersPlan({
 const chunk = (chunkKind: string, sequence: number, payload: unknown[]) => ({ chunkKind, sequence, itemCount: payload.length, payload });
 
 describe('mall orders capture rules (KID-359 H3)', () => {
+  it('result 주문번호(KID-234): 변환 파일 번호를 2,000개까지 싣고, 넘으면 수집을 실패시키지 않고 잘렸다고(orderNumbersTruncated) 적는다', () => {
+    expect(mallOrdersResultOrderNumbers([])).toEqual({ orderNumbers: [] });
+    expect(mallOrdersResultOrderNumbers(['A', 'B'])).toEqual({ orderNumbers: ['A', 'B'] });
+    const many = Array.from({ length: 2_001 }, (_, index) => `N-${index}`);
+    const truncated = mallOrdersResultOrderNumbers(many);
+    expect(truncated.orderNumbers).toHaveLength(2_000);
+    expect(truncated.orderNumbers.at(-1)).toBe('N-1999');
+    expect(truncated.orderNumbersTruncated).toBe(true);
+    expect(mallOrdersResultOrderNumbers(many.slice(0, 2_000))).not.toHaveProperty('orderNumbersTruncated');
+  });
+
   it('아이스크림몰 continuation: 보관 캡처에서 화면이 쓰는 칸만 돌려준다(몰이 준 파일 이름 등은 내지 않는다)', () => {
     const bytes = Buffer.from(JSON.stringify({
       headers: ['주문번호', '배송번호', '배송순번'],

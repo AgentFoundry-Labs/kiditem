@@ -21,11 +21,13 @@ import {
   icecreamContinuation,
   mallOrdersCapture,
   mallOrdersCoverage,
+  mallOrdersResultOrderNumbers,
   mallOrdersScope,
   readMallOrdersPlan,
   type IcecreamContinuation,
   type MallOrdersPlan,
 } from '../../domain/mall-orders-operation';
+import { sellpiaOrderNumbersFromFile } from '../../domain/sellpia-order-targets';
 import { OrderCollectionService, type OrderCollectionConversion } from './order-collection.service';
 
 /** 실행 id로 다시 변환한 결과. 주문이 없던 수집은 `conversion`이 null(파일 없음). */
@@ -101,7 +103,8 @@ export class MallOrdersOperationService {
       captured: capture.captured,
       ...(coverage ? { coverage } : {}),
       ...(capture.masked !== undefined ? { masked: capture.masked } : {}),
-      ...(capture.orderNumbers ? { orderNumbers: capture.orderNumbers } : {}),
+      // 주문번호는 캡처가 아니라 변환 파일에서 — 셀피아 전송 대상과 같은 규칙이라 오늘 주문의 신규가 같은 기준으로 빠진다(KID-234 Q3).
+      ...mallOrdersResultOrderNumbers(conversion ? sellpiaOrderNumbersFromFile(conversion.buffer) : []),
     });
   }
 

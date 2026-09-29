@@ -158,8 +158,9 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [kidkidsOrder('K-2')] },
     ]);
     const finished = await harness.finish(run).expect(200);
-    // 주문 수 = 변환 출력 줄 − 상품 줄(주문마다 택배비 한 줄) — 사장님 2026-09-21·22 규칙.
-    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2, orderNumbers: ['K-1', 'K-2'] } });
+    // 주문 수 = 변환 출력 줄 − 상품 줄(주문마다 택배비 한 줄) — 사장님 2026-09-21·22 규칙. 주문번호는 변환 파일(셀피아 양식)의 번호다
+    // — 키드키즈 변환기는 주문일+파일 안 순번을 새로 매기므로 캡처의 om(K-1)과 다르다(KID-234: 전송 대상과 같은 기준이 파일 번호).
+    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2, orderNumbers: ['202609260001', '202609260002'] } });
 
     const artifacts = await prisma.orderCollectionArtifact.findMany({ where: { organizationId: ORG } });
     expect(artifacts).toHaveLength(1);
@@ -371,22 +372,25 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   });
 
   it('도매꾹: 나눠 올린 CSV 조각을 이어 파일 캡처(text/csv)로 보관하고 수집일로 거른 행 수를 적는다, 빈 날은 조각 없이 0건', async () => {
-    const csv = Buffer.from('orderNo,qty\r\nD-1,1\r\nD-2,2\r\n', 'utf8').toString('base64');
+    // 도매꾹 CSV는 EUC-KR 원본 바이트 그대로 온다 — 머리 `주문번호`도 EUC-KR(c1d6b9aeb9f8c8a3).
+    const csvBytes = Buffer.concat([Buffer.from('c1d6b9aeb9f8c8a3', 'hex'), Buffer.from(',qty\r\nD-1,1\r\nD-2,2\r\n', 'ascii')]);
+    const csv = csvBytes.toString('base64');
     const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
     await harness.put(run, [
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 1, parts: 2, base64: csv.slice(20) }] },
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 0, parts: 2, base64: csv.slice(0, 20) }] },
     ]);
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'domeggook', captured: 1, coverage: { startDate: TODAY, endDate: TODAY } });
+    // 파일로 받는 몰도 변환 파일(셀피아 양식)의 주문번호를 result에 적는다 — 전송 대상 번호와 같은 규칙(KID-234 Q3).
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'domeggook', captured: 1, coverage: { startDate: TODAY, endDate: TODAY }, orderNumbers: ['D-1', 'D-2'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(artifact).toMatchObject({ sourceFileName: 'ORDER_ALL.csv', sourceContentType: 'text/csv' });
-    expect(Buffer.from(artifact.sourceBytes).toString('utf8')).toBe('orderNo,qty\r\nD-1,1\r\nD-2,2\r\n');
+    expect(Buffer.from(artifact.sourceBytes).equals(csvBytes)).toBe(true);
     const converted = await convert('domeggook/convert', run.operation.id).expect(201);
     expect(converted.headers['x-order-collection-output-rows']).toBe('2');
 
     const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
-    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'domeggook', captured: 0, coverage: { startDate: TODAY, endDate: TODAY } });
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'domeggook', captured: 0, coverage: { startDate: TODAY, endDate: TODAY }, orderNumbers: [] });
 
     const missingPart = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
     await harness.put(missingPart, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 1, parts: 2, base64: csv }] }]);
@@ -508,7 +512,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'kkomangse' }));
     await harness.put(run, fileParts('kkomangse.xlsx', xlsx));
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'kkomangse', captured: 1 });
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'kkomangse', captured: 1, orderNumbers: ['KM-1'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(artifact).toMatchObject({ sourceContentType: 'application/json' });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ xlsxBase64: xlsx.toString('base64'), date: TODAY });
@@ -516,7 +520,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(converted.headers['x-order-collection-output-rows']).toBe('1');
 
     const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'kkomangse' }));
-    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'kkomangse', captured: 0 });
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'kkomangse', captured: 0, orderNumbers: [] });
   });
 
   /**
@@ -529,7 +533,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: input.mallKey }));
     await harness.put(run, fileParts(input.fileName, bytes));
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: input.mallKey, captured: 1 });
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: input.mallKey, captured: 1, orderNumbers: ['O-1', 'O-2'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(artifact).toMatchObject({ sourceFileName: input.fileName, sourceContentType: input.contentType });
     expect(Buffer.from(artifact.sourceBytes).equals(bytes)).toBe(true);
@@ -537,7 +541,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(converted.headers).toMatchObject({ 'x-order-collection-source-rows': '2', 'x-order-collection-output-rows': '2' });
 
     const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: input.mallKey }));
-    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: input.mallKey, captured: 0 });
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: input.mallKey, captured: 0, orderNumbers: [] });
   };
 
   it('티쳐몰: SpreadsheetML(.xls) 조각을 이어 application/vnd.ms-excel 파일 캡처로 보관하고 teacherville 변환 라우트로 다시 변환한다', async () => {
