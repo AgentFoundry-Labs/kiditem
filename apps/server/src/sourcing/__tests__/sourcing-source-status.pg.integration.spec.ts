@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { SourcingServerOperationRepositoryAdapter } from '../adapter/out/repository/sourcing-server-operation.repository.adapter';
+import { SourcingSourcePublicationRepositoryAdapter } from '../adapter/out/repository/sourcing-source-publication.repository.adapter';
 import { SourcingServerOperationRunner } from '../application/service/sourcing-server-operation.runner';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -63,7 +64,8 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
       },
     } });
     const reader = new SourcingServerOperationRunner(operations,
-      new SourcingServerOperationRepositoryAdapter(readClient as unknown as PrismaService));
+      new SourcingServerOperationRepositoryAdapter(readClient as unknown as PrismaService,
+        new SourcingSourcePublicationRepositoryAdapter(readClient as unknown as PrismaService)));
     const reading = reader.readSourceStatus(STATUS_QUERY);
     await latestRead.promise;
     try {

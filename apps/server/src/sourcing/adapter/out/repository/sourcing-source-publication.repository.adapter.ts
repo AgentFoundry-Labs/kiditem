@@ -7,6 +7,10 @@ import type {
   SourcingSourcePublicationPort,
   SourcingSourcePublicationView,
 } from '../../../application/port/in/sourcing-source-publication.port';
+import type {
+  SourcingCurrentSourcePublication,
+  SourcingSourceTarget,
+} from '../../../application/port/out/repository/sourcing-server-operation.repository.port';
 
 export interface PublishSourceSnapshotInput {
   organizationId: string;
@@ -104,4 +108,41 @@ export class SourcingSourcePublicationRepositoryAdapter implements SourcingSourc
         : null,
     };
   }
+
+  /**
+   * 서버 구동 원천 상태(KID-389)가 읽는 현재 발행: 원천 plan·품질 보고·건수·지문까지. 상태 리더가 최신 실행과 같은
+   * 스냅숏에서 읽도록 호출자의 트랜잭션(`tx`, repeatable read)으로만 읽는다.
+   */
+  async currentPublicationForStatus(
+    tx: Prisma.TransactionClient,
+    target: SourcingSourceTarget,
+  ): Promise<SourcingCurrentSourcePublication | null> {
+    const row = await tx.sourcingSourcePublication.findFirst({
+      where: {
+        organizationId: target.organizationId,
+        sourceKey: target.sourceKey,
+        scopeKey: target.scopeKey,
+        targetKey: target.targetKey,
+        isCurrent: true,
+      },
+    });
+    if (!row) return null;
+    return {
+      operationId: row.operationId,
+      sourceKey: row.sourceKey,
+      scopeKey: row.scopeKey,
+      targetKey: row.targetKey,
+      plan: jsonObject(row.plan),
+      windowStartAt: row.windowStartAt,
+      windowEndAt: row.windowEndAt,
+      acceptedCount: row.acceptedCount,
+      contentChecksum: row.contentChecksum,
+      qualityReport: jsonObject(row.qualityReport),
+      completedAt: row.completedAt,
+    };
+  }
+}
+
+function jsonObject(value: Prisma.JsonValue | null): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }

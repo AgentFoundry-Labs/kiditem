@@ -23,6 +23,7 @@ import { SalesProductModule } from "../channels/sales-product.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentGatewayAdapter } from "./adapter/out/agent/sourcing-agent.gateway.adapter";
 import { SourcingSourceRecordModule } from "./sourcing-source-record.module";
+import { SourcingSourcePublicationModule } from "./sourcing-source-publication.module";
 import { SourceRecordController } from "./adapter/in/http/source-record.controller";
 import { SourcingInterestTargetRepositoryAdapter } from "./adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation.repository.adapter";
@@ -173,6 +174,7 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
   imports: [
     PrismaModule,
     SourcingSourceRecordModule,
+    SourcingSourcePublicationModule,
     AlertsModule,
     OperationModule,
     AiAgentRuntimeModule,

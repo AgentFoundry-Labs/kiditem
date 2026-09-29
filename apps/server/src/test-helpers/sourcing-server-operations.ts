@@ -7,6 +7,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import { SOURCING_SERVER_OPERATION_OWNERS } from '../sourcing/adapter/in/operation/sourcing-server-operation-owners';
 import { SourcingOperationLedgerRepositoryAdapter } from '../sourcing/adapter/out/repository/sourcing-operation-ledger.repository.adapter';
 import { SourcingServerOperationRepositoryAdapter } from '../sourcing/adapter/out/repository/sourcing-server-operation.repository.adapter';
+import { SourcingSourcePublicationRepositoryAdapter } from '../sourcing/adapter/out/repository/sourcing-source-publication.repository.adapter';
 import type { SalesProductDraftPort } from '../sourcing/application/port/out/cross-domain/sales-product-draft.port';
 import { SourcingServerOperationService } from '../sourcing/application/service/sourcing-server-operation.service';
 import { SourcingServerOperationRunner } from '../sourcing/application/service/sourcing-server-operation.runner';
@@ -23,6 +24,7 @@ export function sourcingServerOperations(prisma: PrismaClient, drafts: SalesProd
   const registry = new OperationOwnerRegistry(undefined as never, undefined as never);
   for (const Owner of SOURCING_SERVER_OPERATION_OWNERS) registry.register(new Owner(service));
   const operations = new OperationService(new OperationRepositoryAdapter(db), registry);
-  const runner = new SourcingServerOperationRunner(operations, new SourcingServerOperationRepositoryAdapter(db));
+  const runner = new SourcingServerOperationRunner(operations, new SourcingServerOperationRepositoryAdapter(
+    db, new SourcingSourcePublicationRepositoryAdapter(db)));
   return { operations, runner, service };
 }

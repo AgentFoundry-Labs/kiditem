@@ -13,6 +13,7 @@ import { SOURCING_SOURCE_PUBLICATION_PORT } from './application/port/in/sourcing
     SourcingSourcePublicationRepositoryAdapter,
     { provide: SOURCING_SOURCE_PUBLICATION_PORT, useExisting: SourcingSourcePublicationRepositoryAdapter },
   ],
-  exports: [SOURCING_SOURCE_PUBLICATION_PORT],
+  // Sourcing 안의 서버 구동 상태 리더(KID-389)가 발행 어댑터의 트랜잭션 읽기를 쓴다.
+  exports: [SOURCING_SOURCE_PUBLICATION_PORT, SourcingSourcePublicationRepositoryAdapter],
 })
 export class SourcingSourcePublicationModule {}

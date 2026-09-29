@@ -2,8 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { readLatestOperationForPlan, type PlannedOperationRow } from '../../../../common/operation/transaction/latest-operation-for-plan';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { SourcingSourcePublicationRepositoryAdapter } from './sourcing-source-publication.repository.adapter';
 import type {
-  SourcingCurrentSourcePublication,
   SourcingServerOperationRecord,
   SourcingServerOperationRepositoryPort,
   SourcingSourceTarget,
@@ -11,11 +11,14 @@ import type {
 
 /**
  * 서버 구동 소싱 kind(KID-389)의 읽기. 실행은 계약 모듈의 리더(`readLatestOperationForPlan`)로만 읽고 — 실행 표를 직접
- * 질의하지 않는다(`check:operation-owner-boundary`) — 현재 완결은 이 owner의 발행 표에서 읽는다.
+ * 질의하지 않는다(`check:operation-owner-boundary`) — 현재 완결은 발행 어댑터가 같은 트랜잭션에서 읽는다(`check:ledger-readers`).
  */
 @Injectable()
 export class SourcingServerOperationRepositoryAdapter implements SourcingServerOperationRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly publications: SourcingSourcePublicationRepositoryAdapter,
+  ) {}
 
   async latestForTarget(input: Omit<SourcingSourceTarget, 'targetKey'> & { targetKey?: string; kinds: readonly string[] }) {
     const row = await readLatestOperationForPlan(this.prisma, {
@@ -46,34 +49,10 @@ export class SourcingServerOperationRepositoryAdapter implements SourcingServerO
         kinds: input.kinds,
         planEquals: { sourceKey: input.sourceKey, scopeKey: input.scopeKey, targetKey: input.targetKey },
       });
-      const row = await tx.sourcingSourcePublication.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          sourceKey: input.sourceKey,
-          scopeKey: input.scopeKey,
-          targetKey: input.targetKey,
-          isCurrent: true,
-        },
-      });
-      return { latest: latest ? toRecord(latest) : null, publication: row ? toPublication(row) : null };
+      const publication = await this.publications.currentPublicationForStatus(tx, input);
+      return { latest: latest ? toRecord(latest) : null, publication };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
-}
-
-function toPublication(row: Prisma.SourcingSourcePublicationGetPayload<object>): SourcingCurrentSourcePublication {
-  return {
-    operationId: row.operationId,
-    sourceKey: row.sourceKey,
-    scopeKey: row.scopeKey,
-    targetKey: row.targetKey,
-    plan: jsonObject(row.plan),
-    windowStartAt: row.windowStartAt,
-    windowEndAt: row.windowEndAt,
-    acceptedCount: row.acceptedCount,
-    contentChecksum: row.contentChecksum,
-    qualityReport: jsonObject(row.qualityReport),
-    completedAt: row.completedAt,
-  };
 }
 
 function toRecord(row: PlannedOperationRow): SourcingServerOperationRecord {

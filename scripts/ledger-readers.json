@@ -281,10 +281,6 @@
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-source-publication.repository.adapter.ts",
           "reason": "KID-360: the only publication writer (publishSourceSnapshot, called in the finish transaction) and the public current-publication capability (SOURCING_SOURCE_PUBLICATION_PORT) Supply reads."
-        },
-        {
-          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-server-operation.repository.adapter.ts",
-          "reason": "KID-389: the server-run source status reader; reads the current publication with the latest operation in one repeatable-read snapshot. Read-only."
         }
       ],
       "legacyReaders": [
