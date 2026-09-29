@@ -21,20 +21,6 @@
     }),
   });
 
-  // 한 서비스워커에 컨텍스트가 여럿(쿠팡·주문·공용)이고 모두 같은 프로필 키를 읽고-고쳐-쓴다. 컨텍스트마다 줄을 따로
-  // 세우면 주문의 connect()가 쿠팡의 setAccessToken 사이에 끼어 토큰을 지운다(KID-360). 같은 저장소·키는 줄 하나.
-  const PROFILE_MUTATION_QUEUES = new WeakMap();
-
-  function profileQueueFor(storageArea, storageKey) {
-    let byKey = PROFILE_MUTATION_QUEUES.get(storageArea);
-    if (!byKey) {
-      byKey = new Map();
-      PROFILE_MUTATION_QUEUES.set(storageArea, byKey);
-    }
-    if (!byKey.has(storageKey)) byKey.set(storageKey, { tail: Promise.resolve() });
-    return byKey.get(storageKey);
-  }
-
   function createError(code, message, environmentId) {
     const error = new Error(message);
     error.code = code;
@@ -91,7 +77,6 @@
       options.profileStorageKey || DEFAULT_PROFILE_STORAGE_KEY;
     const legacyStorageKeys = [...new Set(options.legacyStorageKeys || [])]
       .filter((key) => typeof key === 'string' && key && key !== profileStorageKey);
-    const now = options.now || Date.now;
     const requestTimeoutMs =
       options.requestTimeoutMs || DEFAULT_REQUEST_TIMEOUT_MS;
     const authResyncTimeoutMs =
@@ -124,40 +109,14 @@
       }
     }
 
+    // 프로필(토큰)은 새 런타임 저장소(`extensions/src/core/auth-store.ts`, KID-366)만 쓴다 — 이 어댑터는 읽기만 한다.
+    // 여기서 다른 줄로 읽고-고쳐-쓰면 새 저장소의 쓰기와 겹쳐 토큰이 지워진다.
     async function readProfiles() {
       const stored = await chromeApi.storage.local.get(profileStorageKey);
       const value = stored?.[profileStorageKey];
       return value && typeof value === 'object' && !Array.isArray(value)
         ? value
         : {};
-    }
-
-    function mutateProfiles(operation) {
-      const queue = profileQueueFor(chromeApi.storage.local, profileStorageKey);
-      const result = queue.tail.catch(() => undefined).then(async () => {
-        const profiles = await readProfiles();
-        const next = await operation({ ...profiles });
-        await chromeApi.storage.local.set({ [profileStorageKey]: next });
-        return next;
-      });
-      queue.tail = result.then(
-        () => undefined,
-        () => undefined,
-      );
-      return result;
-    }
-
-    async function connect(environmentId) {
-      requireEnvironment(environmentId);
-      if (requiresAuth) return;
-      // 하나의 확장이 requiresAuth 를 켠 컨텍스트(쿠팡/소싱)와 끈 컨텍스트
-      // (주문수집)를 동시에 들고 같은 프로필 저장소를 쓴다. 프로필을 통째로
-      // 갈아끼우면 주문수집 메시지 한 번에 다른 도메인의 accessToken 이 지워지므로
-      // 기존 프로필 위에 병합한다.
-      await mutateProfiles((profiles) => ({
-        ...profiles,
-        [environmentId]: { ...profiles[environmentId], updatedAt: now() },
-      }));
     }
 
     async function connectedEnvironmentIds() {
@@ -170,35 +129,6 @@
           typeof profile.accessToken === 'string' &&
           profile.accessToken.trim().length > 0
         );
-      });
-    }
-
-    async function setAccessToken(environmentId, token) {
-      requireEnvironment(environmentId);
-      if (!requiresAuth) {
-        throw new Error('Access tokens are disabled for this extension');
-      }
-      if (typeof token !== 'string' || !token.trim()) {
-        throw createError(
-          'environment_auth_required',
-          'KidItem access token is required',
-          environmentId,
-        );
-      }
-      await mutateProfiles((profiles) => ({
-        ...profiles,
-        [environmentId]: {
-          accessToken: token,
-          updatedAt: now(),
-        },
-      }));
-    }
-
-    async function clearAccessToken(environmentId) {
-      requireEnvironment(environmentId);
-      await mutateProfiles((profiles) => {
-        delete profiles[environmentId];
-        return profiles;
       });
     }
 
@@ -431,8 +361,6 @@
     return Object.freeze({
       alarmName,
       authedFetch,
-      clearAccessToken,
-      connect,
       connectedEnvironmentIds,
       getAccessToken,
       migrateLegacyStorage,
@@ -441,7 +369,6 @@
       queryWebTabs,
       requireEnvironment,
       resolveSender,
-      setAccessToken,
       storageKey,
       environmentIds: ENVIRONMENT_IDS,
     });
