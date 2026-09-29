@@ -7345,7 +7345,7 @@ var KidItemRuntime = (() => {
     { key: "art09", name: "\uC544\uD2B8\uACF5\uAD6C", kind: "mall", collector: "extension", uploadTracking: false, delivery: "sheet", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/art09.ico" },
     { key: "tekville-edu", name: "\uD14C\uD06C\uBE4C\uAD50\uC721", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/tekville-edu.ico" },
     { key: "benepia-mul", name: "\uBCA0\uB124\uD53C\uC544\uBB3C", kind: "mall", collector: "none", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/benepia-mul.png" },
-    { key: "domeggook", name: "\uB3C4\uB9E4\uAFB9", kind: "mall", collector: "extension", uploadTracking: true, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/domeggook.ico" },
+    { key: "domeggook", name: "\uB3C4\uB9E4\uAFB9", kind: "mall", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/domeggook.ico" },
     { key: "lotte-on", name: "\uB86F\uB370ON", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: true, logo: "/mall-logos/lotte-on.png" },
     { key: "boribori", name: "\uBCF4\uB9AC\uBCF4\uB9AC", kind: "mall", collector: "extension", uploadTracking: false, delivery: "api", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/boribori.ico" },
     { key: "always", name: "\uC62C\uC6E8\uC774\uC988", kind: "mall", collector: "extension", uploadTracking: false, delivery: "none", representativeImage: false, soldOutScope: "listing", verified: false, logo: "/mall-logos/always.png" },
@@ -14292,7 +14292,7 @@ var KidItemRuntime = (() => {
     });
     function shipments() {
       shipmentPage ??= (async () => {
-        const tab = shipmentTab ?? await deps.tabs.open("about:blank");
+        const tab = shipmentTab ?? await deps.tabs.reclaimKept(COUPANG_SUPPLIER_ORIGIN) ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
         await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS11, continueOnTimeout: true });
         return supplierPage(tab);
@@ -14334,11 +14334,17 @@ var KidItemRuntime = (() => {
       enterScmContext(poNumber) {
         return onPurchaseOrders(() => enterScmContext(poTab, poNumber));
       },
-      /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
+      /**
+       * 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다 — 쉽먼트 탭은
+       * 운영자에게 남긴 탭으로 적고(다음 호출이 다시 쓴다) 앞으로 가져온다.
+       */
       async close() {
         if (!keepOpen) {
           if (shipmentTab) await shipmentTab.close();
           if (poTab) await poTab.close();
+        } else if (shipmentTab) {
+          await deps.tabs.keep(COUPANG_SUPPLIER_ORIGIN, shipmentTab);
+          await shipmentTab.focus().catch(() => void 0);
         }
         shipmentTab = null;
         shipmentPage = null;
@@ -20501,7 +20507,7 @@ var KidItemRuntime = (() => {
     /** base64 PDF(성공했을 때). 파일은 부른 쪽(웹)이 합친다 — 서버 사실이 아니다. */
     b64: external_exports.string().nullable(),
     bytes: external_exports.number().int().nonnegative().nullable(),
-    /** 실패 이유(`coupang_cookie_bloat` 등). */
+    /** 한 장의 실패 이유. 쿠키 과다(400·413·431)는 장별 실패가 아니라 액션 전체가 `SITE_COOKIE_BLOAT`로 실패한다. */
     error: external_exports.string().max(200).nullable()
   }).strict();
   var FetchCoupangShipmentPdfBatchResponseSchema = external_exports.object({
@@ -20818,7 +20824,8 @@ var KidItemRuntime = (() => {
         return false;
       }
       if (message.action === PING_ACTION) {
-        respond({ success: true, version: deps.version(), capabilities: { ...legacy?.capabilities() ?? {}, ...deps.capabilities } });
+        const legacyFlags = Object.fromEntries(Object.entries(legacy?.capabilities() ?? {}).filter(([, value]) => typeof value === "boolean"));
+        respond({ success: true, version: deps.version(), capabilities: { ...legacyFlags, ...deps.capabilities } });
         return false;
       }
       const context = { environmentId: environment.environmentId, sender };
