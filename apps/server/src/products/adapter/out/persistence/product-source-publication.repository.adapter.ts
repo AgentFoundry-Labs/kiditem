@@ -8,7 +8,6 @@ import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
-import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { lockProductSource } from './transaction/product-source-lock';
 import type {
   ProductSourcePublicationRepositoryPort,
@@ -16,7 +15,6 @@ import type {
   SellpiaSnapshotPublicationInput,
 } from '../../../application/port/out/persistence/product-source-publication.repository.port';
 
-const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
 const SOURCE_ACCOUNT_KEY = 'kiditem';
 const UPSERT_BATCH_SIZE = 500;
@@ -49,7 +47,6 @@ implements ProductSourcePublicationRepositoryPort {
     assertConfirmedBinding(state);
 
     const changes = await replaceProductSources(tx, input);
-    await allocatePublicationSequence(tx, input.organizationId, SOURCE_TYPE);
     const generation = nextGeneration(state);
     const now = new Date();
     const updated = await tx.sellpiaInventoryState.updateMany({

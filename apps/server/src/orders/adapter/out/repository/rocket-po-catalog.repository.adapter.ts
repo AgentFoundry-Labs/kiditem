@@ -24,7 +24,7 @@ import {
 /**
  * 로켓 PO 원장(Orders, KID-359). 쓰기는 실행 `orders.coupang_rocket_po`의 finish 트랜잭션에서만(ADR-0025) —
  * 계정 잠금·임대·멱등은 실행 계약이 맡는다. 발행 순서는 옛 완료와 같다: 공급자 식별 확정 → Channels 관측 식별 →
- * 스냅샷. 옛 `allocatePublicationSequence`는 `source_import_runs`에만 번호를 매기므로 실행 발행에는 쓰지 않는다.
+ * 스냅샷.
  */
 @Injectable()
 export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogRepositoryPort {
