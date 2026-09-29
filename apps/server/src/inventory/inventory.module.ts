@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
+import { SellpiaTransferOutcomeModule } from '../orders/sellpia-transfer-outcome.module';
 import { TransfersController } from './adapter/in/web/transfers.controller';
 import { WarehousesController } from './adapter/in/web/warehouses.controller';
 import { RocketWorkbookProgressRepositoryAdapter } from './adapter/out/persistence/rocket-workbook-progress.repository.adapter';
@@ -16,7 +17,7 @@ import { TransfersService } from './application/usecase/transfers.service';
 import { WarehousesService } from './application/usecase/warehouses.service';
 
 @Module({
-  imports: [PrismaModule, ProductCollectionRuntimeModule],
+  imports: [PrismaModule, ProductCollectionRuntimeModule, SellpiaTransferOutcomeModule],
   controllers: [WarehousesController, TransfersController],
   providers: [
     RocketWorkbookProgressRepositoryAdapter, WarehousesRepositoryAdapter, TransfersRepositoryAdapter,

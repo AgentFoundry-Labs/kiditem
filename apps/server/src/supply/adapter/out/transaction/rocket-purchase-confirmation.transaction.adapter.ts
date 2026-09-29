@@ -335,13 +335,10 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
       allPositiveLinesCollected: positiveLines.every(
         ({ collectedAt }) => collectedAt !== null,
       ),
-      intentKeys: record.transmissions.flatMap(({ intentKey }) =>
-        intentKey ? [intentKey] : [],
-      ),
+      transmissionSources: transmissionSources(record.transmissions),
     });
-    // Every open state, a failed transmission included, is derived again from
-    // the lines and the Orders-owned intents on each read. Only completion is
-    // persisted.
+    // Every open state is derived again from the lines and the Orders-owned
+    // Sellpia transfer operations on each read. Only completion is persisted.
     if (projected.status !== 'completed') {
       return { record, status: projected.status };
     }
@@ -352,6 +349,20 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
     });
     return { record: updated, status: projected.status };
   }
+}
+
+/**
+ * 비어 있지 않은 관측(`intentKey`가 있는 전송 관측)마다 그 파일의 셀피아 전송 원천 — 관측한 직배송 실행과 운송유형
+ * (KID-388). 옛 attempt run만 가진 관측은 전송 실행 원천이 없어 건너뛴다(pre-schema 035가 옛 intent로 완료를 옮긴다).
+ */
+function transmissionSources(
+  transmissions: ExportRecord['transmissions'],
+): Array<{ sourceOperationId: string; transport: 'SHIPMENT' | 'MILKRUN' }> {
+  return transmissions.flatMap(({ intentKey, directshipOperationId, transport }) =>
+    intentKey && directshipOperationId && (transport === 'SHIPMENT' || transport === 'MILKRUN')
+      ? [{ sourceOperationId: directshipOperationId, transport }]
+      : [],
+  );
 }
 
 async function lockWorkflow(

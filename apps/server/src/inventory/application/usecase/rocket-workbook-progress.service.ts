@@ -31,22 +31,15 @@ export class RocketWorkbookProgressService implements RocketWorkbookProgressPort
     const snapshot = await this.repository.read({
       transaction: input.transaction,
       organizationId: input.organizationId,
-      intentKeys: input.intentKeys,
+      transmissionSources: input.transmissionSources,
     });
-    if (input.intentKeys.length === 0 || snapshot.intents.length !== input.intentKeys.length) {
-      return {
-        status: 'orders_collected',
-        verifiedGeneration: snapshot.verifiedGeneration,
-      };
+    const statuses = snapshot.transferStatuses;
+    // 전송 실행이 없거나 가장 최근 실행이 실패·닫힘이면 그 파일은 다시 보낼 수 있다 — 수집된 상태로 돌아간다(KID-388).
+    if (statuses.length === 0 || statuses.some((status) => status === 'none' || status === 'failed')) {
+      return { status: 'orders_collected', verifiedGeneration: snapshot.verifiedGeneration };
     }
-    if (snapshot.intents.some(({ status }) => status === 'aborted')) {
-      return { status: 'failed', verifiedGeneration: snapshot.verifiedGeneration };
-    }
-    if (snapshot.intents.some(({ status }) => status === 'prepared')) {
-      return {
-        status: 'sellpia_transmitting',
-        verifiedGeneration: snapshot.verifiedGeneration,
-      };
+    if (statuses.some((status) => status !== 'succeeded')) {
+      return { status: 'sellpia_transmitting', verifiedGeneration: snapshot.verifiedGeneration };
     }
     return { status: 'completed', verifiedGeneration: snapshot.verifiedGeneration };
   }
