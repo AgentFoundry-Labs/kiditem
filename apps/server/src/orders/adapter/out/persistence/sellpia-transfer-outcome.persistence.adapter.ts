@@ -11,7 +11,8 @@ import type {
 
 /**
  * 셀피아 전송 결과 capability(KID-388). 실행 표는 계약 리더(`readOperationsByPlan`)로만 읽는다
- * (ADR-0025, `check:operation-owner-boundary`). 원천마다 시작이 가장 늦은 전송 실행 하나의 상태를 비춘다.
+ * (ADR-0025, `check:operation-owner-boundary`). 원천마다 성공 실행이 있으면 가장 최근 성공, 없으면 가장 최근
+ * 전송 실행의 상태를 비춘다.
  */
 @Injectable()
 export class SellpiaTransferOutcomePersistenceAdapter implements SellpiaTransferOutcomePort {
@@ -24,8 +25,10 @@ export class SellpiaTransferOutcomePersistenceAdapter implements SellpiaTransfer
       planContainsAny: input.sources.map(({ sourceOperationId, transport }) => ({ sourceOperationId, transport })),
       plan: { payloadKeys: [] },
     });
-    // 행은 시작 역순이다 — 원천마다 처음 만난 행이 가장 최근 실행이다.
+    // 행은 시작 역순이다 — 원천마다 처음 만난 행이 가장 최근 실행이다. 셀피아로 간 적이 있는 파일(성공 실행이 하나라도
+    // 있음)은 뒤의 재전송이 실패해도 `succeeded`다 — 그 성공 실행으로 답한다(리더 결정 2026-09-29, KID-388).
     const latest = new Map<string, (typeof rows)[number]>();
+    const succeeded = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
       const plan = row.plan as { sourceOperationId?: unknown; transport?: unknown } | null;
       if (typeof plan?.sourceOperationId !== 'string') continue;
@@ -34,9 +37,11 @@ export class SellpiaTransferOutcomePersistenceAdapter implements SellpiaTransfer
         transport: typeof plan.transport === 'string' ? plan.transport as SellpiaTransferSourceRef['transport'] : null,
       });
       if (!latest.has(key)) latest.set(key, row);
+      if (row.status === 'succeeded' && !succeeded.has(key)) succeeded.set(key, row);
     }
     return input.sources.map((source) => {
-      const row = latest.get(sourceKey(source));
+      const key = sourceKey(source);
+      const row = succeeded.get(key) ?? latest.get(key);
       return {
         source: { sourceOperationId: source.sourceOperationId, transport: source.transport },
         status: row ? outcomeStatus(row.status) : 'none',

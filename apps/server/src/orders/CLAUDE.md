@@ -122,8 +122,9 @@ Action, collection, transmission, and reconciliation behavior is executable in
   (resend allowed), the others `ORDERS_ACTION_CLOSED_BY_OPERATOR`.
 - Other owners ask whether a source file reached Sellpia only through
   `SELLPIA_TRANSFER_OUTCOME_PORT` (`sellpia-transfer-outcome.module.ts`): per
-  `{sourceOperationId, transport}` the latest transfer's status (`none`,
-  `in_progress`, `reconciling`, `succeeded`, `failed`), read through
+  `{sourceOperationId, transport}` `succeeded` once any transfer succeeded,
+  otherwise the latest transfer's status (`none`, `in_progress`,
+  `reconciling`, `failed`), read through
   `readOperationsByPlan` in the caller's transaction (KID-388).
 
 ## Boundaries

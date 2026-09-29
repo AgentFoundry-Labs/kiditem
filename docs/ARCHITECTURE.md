@@ -1127,10 +1127,11 @@ source of any physical stock decrease.
 Rocket workbook progress (Inventory, read by Supply to complete a workbook and
 fence a new export) asks Orders' Sellpia transfer outcome capability
 (`SELLPIA_TRANSFER_OUTCOME_PORT`) about each non-empty directship observation
-`{directship operation, transport}`: the latest `orders.sellpia_order_transfer`
-of every observed file succeeded → completed; one running or `reconciling` →
-Sellpia transmitting; none or a failed/closed latest transfer → orders
-collected, so the file can be sent again (KID-388). No owner reads the retired
+`{directship operation, transport}`, read from the observed file key: every
+observed file has a succeeded `orders.sellpia_order_transfer` → completed (a
+failed resend does not undo it); otherwise one running or `reconciling` →
+Sellpia transmitting; none or only failed/closed transfers → orders collected,
+so the file can be sent again (KID-388). No owner reads the retired
 transmission intent tables.
 
 Analytics owns direct Sellpia SKU sales facts and depletion policy, but reads

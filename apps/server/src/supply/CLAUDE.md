@@ -72,8 +72,8 @@ are executable in [the Supply tests](__tests__/).
   evidence. Matching classifies rows but does not filter collection output or
   mutate Orders/Products tables.
 - Completion depends on the Orders Sellpia transfer outcome of every non-empty
-  directship observation (latest transfer succeeded), not a Products refresh;
-  a failed or closed transfer reopens the file for resending (KID-388). Abandonment uses the tested empty-probe policy and takes no reason.
+  directship observation, keyed by the observation's file key (a transfer of
+  that file succeeded), not a Products refresh (KID-388). Abandonment uses the tested empty-probe policy and takes no reason.
 
 Read
 [sellpia-rocket-inventory-sync.md](../../../../docs/runbooks/sellpia-rocket-inventory-sync.md)

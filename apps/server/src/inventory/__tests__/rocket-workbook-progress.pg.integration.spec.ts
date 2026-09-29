@@ -59,9 +59,15 @@ describe('RocketWorkbookProgressService (PG)', () => {
   });
 
   it('falls back to orders_collected after a failed or closed transfer so the file can be sent again', async () => {
-    await transfer(SHIPMENT_SOURCE, 'succeeded', 120_000);
+    await transfer(SHIPMENT_SOURCE, 'failed', 120_000);
     await transfer(SHIPMENT_SOURCE, 'cancelled');
     await expect(read([SHIPMENT_SOURCE])).resolves.toMatchObject({ status: 'orders_collected' });
+  });
+
+  it('stays completed when a resend of a file that already reached Sellpia fails', async () => {
+    await transfer(SHIPMENT_SOURCE, 'succeeded', 120_000);
+    await transfer(SHIPMENT_SOURCE, 'failed');
+    await expect(read([SHIPMENT_SOURCE])).resolves.toMatchObject({ status: 'completed' });
   });
 
   it('completes only when the latest transfer of every collected file succeeded', async () => {

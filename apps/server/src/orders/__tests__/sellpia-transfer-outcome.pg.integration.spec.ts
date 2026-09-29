@@ -29,7 +29,7 @@ describe('SellpiaTransferOutcomePersistenceAdapter', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('answers each source with its latest transfer in input order: none, in progress, succeeded', async () => {
+  it('answers each source in input order: none, in progress, succeeded', async () => {
     const now = Date.now();
     await seedSellpiaTransferOperation(prisma, {
       organizationId: ORG, sourceOperationId: RUNNING_SOURCE, transport: 'SHIPMENT', status: 'executing', startedAt: new Date(now - 60_000),
@@ -56,9 +56,9 @@ describe('SellpiaTransferOutcomePersistenceAdapter', () => {
     expect(outcomes[2]).toMatchObject({ operationId: sentId, finishedAt: expect.any(Date) });
   });
 
-  it('keeps transports and organizations apart and lets a newer failure replace an older success', async () => {
+  it('keeps transports and organizations apart, and a file that ever reached Sellpia stays succeeded after a failed resend', async () => {
     const now = Date.now();
-    await seedSellpiaTransferOperation(prisma, {
+    const sentId = await seedSellpiaTransferOperation(prisma, {
       organizationId: ORG, sourceOperationId: SENT_SOURCE, transport: 'SHIPMENT', status: 'succeeded', startedAt: new Date(now - 300_000),
     });
     await seedSellpiaTransferOperation(prisma, {
@@ -80,6 +80,20 @@ describe('SellpiaTransferOutcomePersistenceAdapter', () => {
       ],
     });
 
-    expect(outcomes.map(({ status }) => status)).toEqual(['failed', 'reconciling', 'none']);
+    expect(outcomes.map(({ status }) => status)).toEqual(['succeeded', 'reconciling', 'none']);
+    expect(outcomes[0]).toMatchObject({ operationId: sentId, finishedAt: expect.any(Date) });
+  });
+
+  it('answers the latest transfer of a file that never succeeded', async () => {
+    const now = Date.now();
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: ORG, sourceOperationId: RUNNING_SOURCE, transport: 'MILKRUN', status: 'executing', startedAt: new Date(now - 300_000),
+    });
+    const closedId = await seedSellpiaTransferOperation(prisma, {
+      organizationId: ORG, sourceOperationId: RUNNING_SOURCE, transport: 'MILKRUN', status: 'cancelled', startedAt: new Date(now - 60_000),
+    });
+
+    await expect(adapter.readLatestOutcomes({ organizationId: ORG, sources: [{ sourceOperationId: RUNNING_SOURCE, transport: 'MILKRUN' }] }))
+      .resolves.toMatchObject([{ status: 'failed', operationId: closedId }]);
   });
 });

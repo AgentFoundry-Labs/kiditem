@@ -9,7 +9,8 @@ export const SELLPIA_TRANSFER_OUTCOME_PORT = Symbol('SELLPIA_TRANSFER_OUTCOME_PO
  * 직접 읽던 자리를 대신한다(wave8b 뒤 intent를 만드는 곳이 0이라 워크북이 `orders_collected`에 멈추던 회귀).
  *
  * 원천은 전송 실행 `orders.sellpia_order_transfer`의 plan `{sourceOperationId, transport}`로 찾는다(옛 intent 키
- * `rocket-final-order:<directshipOperationId>:<transport>`와 1:1). 같은 원천에 실행이 여럿이면 가장 최근 것 하나.
+ * `rocket-final-order:<directshipOperationId>:<transport>`와 1:1). 같은 원천에 실행이 여럿이면 성공한 실행이 하나라도
+ * 있을 때 가장 최근 성공(셀피아로 간 파일은 재전송 실패로 되돌아가지 않는다), 없으면 가장 최근 실행 하나.
  * 상태 → 워크북 진행(리더 결정 2026-09-29): `succeeded` → completed, `in_progress`·`reconciling` → sellpia_transmitting,
  * `none`·`failed` → orders_collected(재전송 가능; 옛 aborted→failed 판정은 없앤다).
  * 구현은 `common/operation/transaction/operations-by-plan.ts`(`readOperationsByPlan`)로만 읽는다 — owner 어댑터가
@@ -25,7 +26,7 @@ export interface SellpiaTransferSourceRef {
 export interface SellpiaTransferOutcome {
   source: SellpiaTransferSourceRef;
   status: SellpiaTransferOutcomeStatus;
-  /** 그 원천의 가장 최근 전송 실행 id(없으면 null). */
+  /** 답한 전송 실행 id — 가장 최근 성공, 없으면 가장 최근 실행(없으면 null). */
   operationId: string | null;
   finishedAt: Date | null;
 }
