@@ -34,6 +34,8 @@ export interface OperationPrepareResult {
 /** begin을 부른 사람. HTTP는 세션 사용자, 서버 내부 호출(엑셀 업로드 등)은 호출자가 넘긴다. */
 export interface OperationActor {
   userId?: string | null;
+  /** 어느 문으로 왔나. HTTP 컨트롤러만 `'http'`를 넘기고, 서버 내부 호출은 비운다(= 서버). `serverDriven` kind는 `'http'`를 거절한다(KID-389). */
+  origin?: 'http' | 'server';
 }
 
 export interface OperationResolveInput {

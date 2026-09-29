@@ -106,6 +106,7 @@ export class OperationService implements OperationPort {
   ) {}
 
   async begin(organizationId: string, request: OperationBeginRequest, actor: OperationActor = {}): Promise<OperationBeginResponse> {
+    this.assertOpenToHttp(actor.origin, [request.kind]);
     const planned = await this.planFor(organizationId, request.kind, request.scope, request.fileHash ?? null, actor.userId ?? null);
     try {
       return await this.admit(organizationId, request, planned);
@@ -113,6 +114,15 @@ export class OperationService implements OperationPort {
       // 동시에 들어온 begin이 같은 잠금·멱등 키를 먼저 잡았다. 한 번 더 판정하면 그 실행이 보인다.
       if (!isUniqueViolation(error)) throw error;
       return this.admit(organizationId, request, planned);
+    }
+  }
+
+  /** HTTP 문(KID-389): `serverDriven` kind는 브라우저가 begin하거나 claim하지 못한다. 서버 내부 호출(origin 없음)은 통과. */
+  private assertOpenToHttp(origin: OperationActor['origin'], kinds: readonly string[]): void {
+    if (origin !== 'http') return;
+    const closed = kinds.filter((kind) => this.owners.isServerDriven(kind));
+    if (closed.length > 0) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'server_driven_kind', kinds: closed } });
     }
   }
 
@@ -236,6 +246,7 @@ export class OperationService implements OperationPort {
 
   /** 조직 범위 claim(KID-386): 확장의 `POST /api/operations/claim`. 세션 조직의 후보만 집는다. */
   async claimForOrganization(organizationId: string, request: OperationClaimRequest): Promise<OperationClaimResult | null> {
+    this.assertOpenToHttp('http', request.kinds);
     const claimed = await this.claimNext(request, organizationId);
     return claimed ? { operation: claimed.operation, token: claimed.token } : null;
   }
