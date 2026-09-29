@@ -66,6 +66,17 @@ describe('integration test runtime contract', () => {
     expect(prJobSource).not.toContain('actions/setup-node');
     expect(prJobSource).not.toContain('npm ci');
     expect(prJobSource).not.toContain('npm run build');
+    // KID-399: hygiene decides whether the Gateway job runs; the Gateway job
+    // only runs when its inputs changed and no longer repeats the Office
+    // deployment contract tests that test:scripts already covers.
+    expect(prJobSource).toContain('gateway: ${{ steps.changes.outputs.gateway }}');
+    expect(prJobSource).toContain('echo "gateway=true" >> "$GITHUB_OUTPUT"');
+    expect(prJobSource).toContain(
+      "grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\\.json$|package\\.json$|package-lock\\.json$|\\.github/workflows/pr-checks\\.yml$)'",
+    );
+    expect(gatewayFastJob).toContain('needs: pr-hygiene');
+    expect(gatewayFastJob).toContain("if: needs.pr-hygiene.outputs.gateway == 'true'");
+    expect(gatewayFastJob).not.toContain('office-deployment-contract.test.mjs');
     expect(gatewayFastJob).toContain('runs-on: ubuntu-latest');
     expect(gatewayFastJob).toContain('node-version: 22');
     expect(gatewayFastJob).toContain('npm ci --ignore-scripts');
@@ -169,15 +180,26 @@ describe('integration test runtime contract', () => {
     expect(jobLines).toContain('runs-on: ubuntu-latest');
     expect(jobLines).toContain('contents: read');
     expect(jobLines).toContain('node-version: 22');
-    expect(jobLines.filter((line) => line.startsWith('run:'))).toEqual([
+    // KID-399: full-history checkout brings every origin/* branch, so the
+    // cutover coverage check and check:schema-artifact-sync (origin/develop...HEAD)
+    // both resolve without a separate shallow fetch.
+    expect(jobLines).toContain('fetch-depth: 0');
+    expect(scriptJob).not.toContain('git fetch');
+    expect(jobLines.filter((line) => line.startsWith('run:') || line.startsWith('npm '))).toEqual([
       'run: npm ci --ignore-scripts',
       'run: npx prisma generate',
       'run: npm exec --workspace=packages/shared tsup -- --no-dts',
-      'run: git fetch --no-tags --depth=1 origin +refs/heads/release/office:refs/remotes/origin/release/office',
       'run: node scripts/check-cutover-blocker-coverage.mjs --base-ref origin/release/office',
       'run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep',
       'run: npm run test:scripts',
+      // KID-399: the convention scanners gate every PR after the script suite.
+      'run: |',
+      'npm run build --workspace=packages/shared',
+      'npm run build --workspace=packages/copilotkit-sqlite-runner',
+      'npm run build --workspace=packages/templates',
+      'run: npm run check:conventions',
     ]);
+    expect(jobLines).toContain('NODE_OPTIONS: --max-old-space-size=4096');
     expect(scriptJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
     expect(scriptJob.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
     expect(generateStep).toBeGreaterThan(-1);

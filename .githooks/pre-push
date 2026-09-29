@@ -1,0 +1,30 @@
+#!/bin/sh
+#
+# Pre-push hook: catch the fast PR-check failures before CI (KID-399).
+# Install: git config core.hooksPath .githooks
+#
+# 1. git diff --check on the commits being pushed (PR hygiene job)
+# 2. agent instruction hygiene (PR hygiene job)
+# 3. extension runtime bundle + types when shared or extension sources changed (unit job)
+#
+# CI still runs every check; this hook only shortens the feedback loop and can be
+# bypassed with --no-verify, so it is not a gate.
+
+set -e
+
+BASE=$(git merge-base origin/develop HEAD 2>/dev/null || true)
+if [ -z "$BASE" ]; then
+  echo "pre-push: origin/develop not found, skipping fast checks"
+  exit 0
+fi
+
+echo "pre-push: git diff --check ${BASE}...HEAD"
+git diff --check "${BASE}...HEAD"
+
+echo "pre-push: agent instruction hygiene"
+node scripts/check-agents-hygiene.mjs
+
+if git diff --name-only "${BASE}...HEAD" | grep -Eq '^(packages/shared/|extensions/)'; then
+  echo "pre-push: shared/extensions changed, checking the extension runtime bundle"
+  npm run --silent extension:check
+fi

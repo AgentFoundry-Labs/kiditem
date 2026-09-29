@@ -18,6 +18,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      # Gateway build/unit only runs when its inputs changed (KID-399).
+      gateway: ${{ steps.changes.outputs.gateway }}
     steps:
       - name: Checkout pull request head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -32,9 +35,22 @@ jobs:
 
       - name: Check agent instruction hygiene
         run: node scripts/check-agents-hygiene.mjs
+      - name: Detect Gateway changes
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --name-only "${BASE_SHA}...HEAD" | grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\.json$|package\.json$|package-lock\.json$|\.github/workflows/pr-checks\.yml$)'; then
+            echo "gateway=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gateway=false" >> "$GITHUB_OUTPUT"
+          fi
 
   gateway_fast_checks:
     name: Gateway fast checks
+    # Skipped unless Gateway sources, the Shared entry points it consumes, the lockfile, or this workflow changed.
+    needs: pr-hygiene
+    if: needs.pr-hygiene.outputs.gateway == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -50,11 +66,6 @@ jobs:
         with:
           node-version: 22
           cache: npm
-
-      - name: Check local Office deployment contracts
-        run: |
-          node --test scripts/__tests__/office-deployment-contract.test.mjs
-          node --test scripts/__tests__/office-gateway-launcher.test.mjs
 
       - name: Install dependencies without repository lifecycle scripts
         run: npm ci --ignore-scripts
@@ -132,13 +143,16 @@ jobs:
   script_contract_checks:
     name: Script contract tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
       - name: Checkout pull request head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          # Full history with every branch: the cutover coverage check diffs against
+          # origin/release/office and check:schema-artifact-sync diffs against the PR base (KID-399).
+          fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Use Node 22
@@ -160,9 +174,6 @@ jobs:
         # Script specs import runtime JS only; the DTS build exhausts the hosted runner heap.
         run: npm exec --workspace=packages/shared tsup -- --no-dts
 
-      - name: Fetch the Office release schema
-        run: git fetch --no-tags --depth=1 origin +refs/heads/release/office:refs/remotes/origin/release/office
-
       - name: Check cutover blocker coverage
         # Diffs the schema against release/office offline; no database or secret is used.
         run: node scripts/check-cutover-blocker-coverage.mjs --base-ref origin/release/office
@@ -172,3 +183,15 @@ jobs:
 
       - name: Run script contract tests
         run: npm run test:scripts
+      - name: Build workspace types for the convention scanners
+        # The type-baseline scanners run tsc over apps/server and apps/web, which resolve
+        # @kiditem/shared, the runner and templates from dist; the shared DTS worker needs more heap than the runner default.
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: |
+          npm run build --workspace=packages/shared
+          npm run build --workspace=packages/copilotkit-sqlite-runner
+          npm run build --workspace=packages/templates
+      - name: Run the convention scanners
+        # check:conventions is the architecture gate (hexagonal, ledger readers, tenant scope, error codes, ...); KID-399 put it in CI.
+        run: npm run check:conventions

@@ -442,11 +442,13 @@ PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로�
 
 | Workflow / Job | 실행 시점 | 역할 |
 | --- | --- | --- |
-| `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
-| `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
+| `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증, base…HEAD 변경 파일로 Gateway 잡 실행 여부(`gateway` output) 판정 |
+| `PR Checks / Gateway fast checks` | 동일 PR 중 `apps/agent-gateway/**`, `packages/shared/src/agent-runtime/**`·`identifiers/**`, `packages/shared/package.json`, 루트 `package.json`·`package-lock.json`, 워크플로 파일이 바뀐 PR만(그 외 skipped) | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests. Office 배포 계약 node 테스트는 `test:scripts`에 들어 있어 여기서 다시 돌리지 않는다 |
 | `PR Checks / Shared and server unit tests` | 동일 PR | lifecycle script 없는 install, `npm rebuild better-sqlite3`, ripgrep 설치, Prisma client 생성, runner/templates build 뒤 shared·server vitest, Shared JS 빌드(DTS 제외) 뒤 `npm run extension:check`(커밋된 `runtime/kiditem-runtime.js`가 `extensions/src` 새 빌드와 바이트 동일한지 + `tsc --noEmit`), `npm run extension:test`(확장 `src/` Vitest), 확장 `node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs` 실행(2 vCPU 러너에서 기본 동시성은 사실상 순차라 8로 고정). PostgreSQL 통합 spec은 제외 |
-| `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), `origin/release/office`를 depth 1로 fetch해 기존 행이 막을 스키마 변경마다 `scripts/cutover-blocker-coverage.json` 항목이 있는지 DB 없이 확인(`check-cutover-blocker-coverage.mjs`), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
+| `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), 전체 이력 checkout(`fetch-depth: 0`, 모든 `origin/*` 포함)에서 기존 행이 막을 스키마 변경마다 `scripts/cutover-blocker-coverage.json` 항목이 있는지 DB 없이 확인(`check-cutover-blocker-coverage.mjs`), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행, 이어서 shared(heap 4096)·runner·templates 빌드 뒤 `npm run check:conventions`(hexagonal·ledger-readers·directory-architecture·tenant-scope·idor·error-codes 등 스캐너 전부, KID-399) |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build(heap 4096MB), web/extension tests, real PostgreSQL integration suite 실행 |
+
+로컬 `.githooks/pre-push`(`git config core.hooksPath .githooks`)는 push 전에 같은 빠른 검사 셋만 미리 돌린다: `git diff --check`(merge-base…HEAD), `check:agents-hygiene`, shared·extensions가 바뀐 경우 `extension:check`. `--no-verify`로 건너뛸 수 있으므로 게이트는 CI다.
 
 확장 새 런타임(`extensions/src`)의 4층 import 경계(entry → core → collectors → sites, 옛 전역 참조 없음)는 테스트가 아니라 `npm run check:extension-runtime-layers`(`check:conventions`에 포함)가 막는다.
 
