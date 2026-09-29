@@ -1,0 +1,30 @@
+<!-- 쿠팡 광고센터 캠페인 등록 화면 fixture(KID-386). 실화면 저장본이 아니라 옛 `content/coupang/ads-report.js`
+     캠페인 등록 실행이 마지막으로 기대한 셀렉터(2026-09)로 만든 모형이다. 화면 반응(다음·검색·완료·확인)은 스펙이 건다.
+     검색 결과 행(`li[data-bigfoot-component="vendor_item"]`)은 스펙이 리스팅 옵션 id(`data-vendor-item-id`)로 만든다. -->
+<section id="type-step">
+  <h2>광고 목표</h2>
+  <label><input type="radio" name="goal" value="SALES" checked>매출 성장</label>
+  <button type="button" id="type-next">다음</button>
+</section>
+<section id="registration-step" hidden>
+  <div><input placeholder="캠페인 이름을 입력해 주세요" id="campaign-name"></div>
+  <div><input id="reg_ad_group_name" placeholder="광고 그룹 이름"></div>
+  <div class="search">
+    <input placeholder="판매 상품을 검색해 보세요" id="product-search">
+    <button type="button" id="product-search-button">검색</button>
+  </div>
+  <ul id="product-results"></ul>
+  <ul id="selected-products"></ul>
+  <label><input type="radio" name="operation" value="AUTO">자동 운영</label>
+  <label><input type="radio" name="operation" value="MANUAL">직접 운영</label>
+  <label><input type="radio" name="bidding" value="PRODUCT_TARGET_ROAS">매출 최적화</label>
+  <label><input type="radio" name="bidding" value="PRODUCT_TARGET_BUDGET">매출 스타트</label>
+  <div><input data-testid="budget-input" placeholder="예)30,000"></div>
+  <div data-bigfoot-component="target_roas"><input data-bigfoot-component="entry"></div>
+  <button type="button" id="complete">완료</button>
+</section>
+<div role="dialog" id="confirm-dialog" hidden>
+  <p>광고를 등록하시겠습니까?</p>
+  <button type="button" id="dialog-cancel">취소</button>
+  <button type="button" id="dialog-confirm">등록</button>
+</div>

@@ -7,7 +7,6 @@
   const reasons = Object.freeze({
     PRODUCT_EDIT: "product_edit",
     THUMBNAIL_REGISTRATION: "thumbnail_registration",
-    AD_MUTATION: "ad_mutation",
     ORDER_FILE_UPLOAD: "order_file_upload",
     SHIPMENT_PAGE: "shipment_page",
     SHIPMENT_DOWNLOAD: "shipment_download",

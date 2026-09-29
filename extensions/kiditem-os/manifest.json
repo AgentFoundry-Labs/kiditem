@@ -111,16 +111,6 @@
     },
     {
       "matches": [
-        "https://advertising.coupang.com/*"
-      ],
-      "js": [
-        "utils/dom.js",
-        "content/coupang/ads-report.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://ads.tiktok.com/*"
       ],
       "js": [

@@ -133,7 +133,6 @@ test('retires the advertising account-day KPI owner from every extension surface
     'background/service-worker.js': read('background/service-worker.js'),
     'background/source-owner-manifest.js': sourceOwnerManifest,
     'background/coupang/worker.js': worker,
-    'content/coupang/ads-report.js': read('content/coupang/ads-report.js'),
     'popup/popup.js': read('popup/popup.js'),
     'popup/popup.html': read('popup/popup.html'),
     'manifest.json': JSON.stringify(manifest),
@@ -145,6 +144,18 @@ test('retires the advertising account-day KPI owner from every extension surface
     fs.existsSync(path.join(extensionRoot, 'background/coupang/ad-account-daily-kpi-source-owner.js')),
     false,
   );
+});
+
+// 승인된 광고 액션 실행은 런타임 kind `advertising.ad_action`(claim)이다 — 광고센터 content script와 옛 워커 실행 경로는 없다(KID-386).
+test('approved ad actions run only as the runtime ad_action kind, with no ad-center content script or worker path', () => {
+  assert.equal(fs.existsSync(path.join(extensionRoot, 'content/coupang/ads-report.js')), false);
+  assert.equal(fs.existsSync(path.join(extensionRoot, 'utils/dom.js')), false);
+  const contentScripts = manifest.content_scripts.flatMap((entry) => entry.js);
+  assert.ok(!contentScripts.some((file) => /ads-report|utils\/dom/.test(file)), 'manifest content script');
+  assert.ok(manifest.host_permissions.includes('https://advertising.coupang.com/*'), 'runtime still reaches the ad center');
+  assert.doesNotMatch(worker, /ExecuteAdActions|QueuedAdActions|ExecuteActions=|AD_ACTION_URL/);
+  const interactiveTabs = fs.readFileSync(path.join(extensionRoot, 'background/interactive-tabs.js'), 'utf8');
+  assert.doesNotMatch(interactiveTabs, /AD_MUTATION/);
 });
 
 test('lists no Coupang browser session producer and still advertises the capability', () => {
@@ -245,5 +256,4 @@ test('interactive focus helper requires a deliberate user-action reason', async 
   assert.deepEqual(JSON.parse(JSON.stringify(calls.focus)), [
     { windowId: 7, properties: { focused: true } },
   ]);
-  assert.match(worker, /interactiveTabs\.createTab/);
 });
