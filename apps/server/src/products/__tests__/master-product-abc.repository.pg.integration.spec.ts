@@ -49,6 +49,13 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
+  it('재고 0인 판매중 상품도 ABC 대상이다(KID-333 Q2 — 판매중은 재고와 무관)', async () => {
+    const { productId } = await seedSellingProduct(prisma);
+    await prisma.masterProduct.update({ where: { id: productId }, data: { currentStock: 0 } });
+
+    await expect(repository.listCurrentAbcTargetIds(TEST_ORGANIZATION_ID)).resolves.toEqual([productId]);
+  });
+
   it('publishes the baseline atomically without creating history', async () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
     const result = await repository.publish(publication({
