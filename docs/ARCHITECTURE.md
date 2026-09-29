@@ -393,7 +393,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts stay in `adapter/out/persistence/read/`. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
-| `apps/server/src/orders` | Hexagonal | Controllers and DTOs under `adapter/in/web/`, services under `application/service/`, ledger read helpers in `adapter/out/persistence/read/`, pure mappers in `domain/`; Coupang shipments use a `shipments/` folder per layer and `coupang-directship/` stays at the root. Sellpia transmission fencing keeps its `application/port` + `adapter/out/repository` lanes. |
+| `apps/server/src/orders` | Hexagonal | Controllers and DTOs under `adapter/in/web/`, services under `application/service/`, ledger read helpers in `adapter/out/persistence/read/`, pure mappers in `domain/`; Coupang shipments use a `shipments/` folder per layer and `coupang-directship/` stays at the root. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, `application/service` orchestration, pure domain rules and outgoing adapters; the `/api/categories` compatibility capability sits in the `category/` folders. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
@@ -1123,6 +1123,16 @@ or physical stock. A barcode mismatch, ambiguous confirmation, or persistence
 failure rolls back the entire import and no Sellpia workbook is returned.
 Replays are idempotent. A later completed Sellpia snapshot remains the only
 source of any physical stock decrease.
+
+Rocket workbook progress (Inventory, read by Supply to complete a workbook and
+fence a new export) asks Orders' Sellpia transfer outcome capability
+(`SELLPIA_TRANSFER_OUTCOME_PORT`) about each non-empty directship observation
+`{directship operation, transport}`, read from the observed file key: every
+observed file has a succeeded `orders.sellpia_order_transfer` → completed (a
+failed resend does not undo it); otherwise one running or `reconciling` →
+Sellpia transmitting; none or only failed/closed transfers → orders collected,
+so the file can be sent again (KID-388). No owner reads the retired
+transmission intent tables.
 
 Analytics owns direct Sellpia SKU sales facts and depletion policy, but reads
 Products' canonical physical availability. Exact product code, exact option

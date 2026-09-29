@@ -1,12 +1,20 @@
 import { InventoryImportConflictError } from '../../../application/exception/inventory-operation.error';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { RocketWorkbookProgressRepositoryPort } from '../../../application/port/out/persistence/rocket-workbook-progress.repository.port';
-import type { RocketWorkbookTransmissionIntentRecord } from '../../../application/port/out/persistence/rocket-workbook-progress.repository.port';
+import {
+  SELLPIA_TRANSFER_OUTCOME_PORT,
+  type SellpiaTransferOutcomePort,
+} from '../../../../orders/application/port/in/capability/sellpia-transfer-outcome.port';
 
 @Injectable()
 export class RocketWorkbookProgressRepositoryAdapter
 implements RocketWorkbookProgressRepositoryPort {
+  constructor(
+    @Inject(SELLPIA_TRANSFER_OUTCOME_PORT)
+    private readonly transferOutcomes: SellpiaTransferOutcomePort,
+  ) {}
+
   async read(
     input: Parameters<RocketWorkbookProgressRepositoryPort['read']>[0],
   ) {
@@ -18,30 +26,14 @@ implements RocketWorkbookProgressRepositoryPort {
     if (!state) {
       throw new InventoryImportConflictError('Sellpia inventory state was not found.');
     }
-    const rows = input.intentKeys.length === 0 ? [] : await tx.sellpiaOrderTransmissionIntent.findMany({
-      where: {
-        organizationId: input.organizationId,
-        intentKey: { in: input.intentKeys },
-      },
-      select: { intentKey: true, status: true },
-      orderBy: { intentKey: 'asc' },
+    const outcomes = await this.transferOutcomes.readLatestOutcomes({
+      organizationId: input.organizationId,
+      sources: input.transmissionSources,
+      transaction: tx,
     });
     return {
       verifiedGeneration: state.verifiedGeneration,
-      intents: rows.map((row) => {
-        const status = row.status;
-        if (
-          status !== 'prepared'
-          && status !== 'finalized'
-          && status !== 'aborted'
-        ) {
-          throw new InventoryImportConflictError('Sellpia order transmission intent has an invalid status.');
-        }
-        return {
-          intentKey: row.intentKey,
-          status: status as RocketWorkbookTransmissionIntentRecord['status'],
-        };
-      }),
+      transferStatuses: outcomes.map(({ status }) => status),
     };
   }
 }
@@ -51,7 +43,7 @@ function transactionClient(value: unknown): Prisma.TransactionClient {
     typeof value !== 'object'
     || value === null
     || !('sellpiaInventoryState' in value)
-    || !('sellpiaOrderTransmissionIntent' in value)
+    || !('$queryRaw' in value)
   ) {
     throw new TypeError('A Prisma transaction client is required');
   }

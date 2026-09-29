@@ -68,7 +68,6 @@ export class CoupangDirectshipController {
     'X-Order-Collection-Skipped-Rows',
     'X-Order-Collection-Operation-Id',
     'X-Rocket-Workbook-Export-Id',
-    'X-Sellpia-Transmission-Intent-Key',
     'X-Rocket-Workbook-Matched-Rows',
     'X-Rocket-Workbook-Unmatched-Rows',
   ].join(', '))
@@ -97,9 +96,6 @@ export class CoupangDirectshipController {
     response.setHeader('X-Order-Collection-Operation-Id', projection.operationId);
     if (collected.exportId) {
       response.setHeader('X-Rocket-Workbook-Export-Id', collected.exportId);
-    }
-    if (collected.transmissionIntentKey) {
-      response.setHeader('X-Sellpia-Transmission-Intent-Key', collected.transmissionIntentKey);
     }
     response.setHeader('X-Order-Collection-Skipped-Rows', '0');
     response.setHeader('X-Rocket-Workbook-Matched-Rows', String(collected.matchedLines.length));

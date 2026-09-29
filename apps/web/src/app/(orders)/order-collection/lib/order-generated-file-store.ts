@@ -14,7 +14,7 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   mallName?: string;
   /** 연결된 쿠팡 로켓 워크북 내보내기. 로켓 주문수집 파일에만 존재한다. */
   rocketWorkbookExportId?: string | null;
-  /** 서버가 발급한 Sellpia 전송 멱등 키. 로컬 파일 ID보다 우선한다. */
+  /** 옛 기록 읽기 호환: KID-388 전에 서버가 발급하던 Sellpia 전송 intent 키. 새 기록은 적지 않는다. */
   transmissionIntentKey?: string | null;
   /** 이번 수집에 포함된 서로 다른 주문번호 (있을 때). "당일" 집계에서 재수집한 같은 주문을 중복 카운트하지 않도록 유니크 기준으로 사용. */
   orderNumbers?: string[];

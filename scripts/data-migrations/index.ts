@@ -34,6 +34,7 @@ import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_comp
 import { removeRetiredSourceFailureAlertsMigration } from './v0.1.31/032_remove_retired_source_failure_alerts';
 import { removeRetiredMallAdminListingAlertsMigration } from './v0.1.31/033_remove_retired_mall_admin_listing_alerts';
 import { moveAdCountingAbcFormulaStatesMigration } from './v0.1.31/034_move_ad_counting_abc_formula_states';
+import { stampRocketWorkbookCompletedFromTransmissionIntentsMigration } from './v0.1.31/035_stamp_rocket_workbook_completed_from_transmission_intents';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -86,6 +87,8 @@ export const dataMigrations: readonly DataMigration[] = [
   removeRetiredSourceFailureAlertsMigration,
   removeRetiredMallAdminListingAlertsMigration,
   moveAdCountingAbcFormulaStatesMigration,
+  // 035 reads the Sellpia transmission intent tables the schema step drops (KID-388); pre-schema, before that drop.
+  stampRocketWorkbookCompletedFromTransmissionIntentsMigration,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

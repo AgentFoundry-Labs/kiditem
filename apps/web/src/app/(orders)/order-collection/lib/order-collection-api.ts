@@ -14,7 +14,6 @@ export interface OrderCollectionConversionResult {
   importRunId?: string | null;
   reconciledRows?: number | null;
   rocketWorkbookExportId?: string | null;
-  transmissionIntentKey?: string | null;
 }
 
 export interface IcecreamOrderCollectionContinuation {

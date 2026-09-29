@@ -12,6 +12,7 @@ import {
   COUPANG_ROCKET_PO_SCAN_CHUNK_KIND,
   type CoupangRocketPoScan,
 } from '@kiditem/shared/orders-operations';
+import { SellpiaTransferOutcomePersistenceAdapter } from '../adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG, TEST_USER_ID as USER } from '../../test-helpers/real-prisma';
 import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
@@ -402,7 +403,7 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
       preview,
       new RocketPurchaseConfirmationTransactionAdapter(
         prisma as never,
-        new RocketWorkbookProgressService(new RocketWorkbookProgressRepositoryAdapter()),
+        new RocketWorkbookProgressService(new RocketWorkbookProgressRepositoryAdapter(new SellpiaTransferOutcomePersistenceAdapter(prisma as never))),
         new ProductTransactionalReadRepositoryAdapter(),
         new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter(), new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()))),
         catalog,

@@ -13,14 +13,13 @@ export const ADR_0010_KEPT_TABLES = {
   'channel accounts': ['channel_accounts'],
   'confirmed recipes': ['channel_listing_option_inventory_components'],
   orders: ['orders', 'order_line_items'],
-  // The Coupang direct receipts and consumptions (ADR-0008), and the Sellpia
-  // transmission fence a receipt returns on replay: losing any of them could
-  // apply or transmit the same effect twice.
+  // The Coupang direct receipts and consumptions (ADR-0008): losing any of
+  // them could apply the same effect twice. The Sellpia transmission intent
+  // tables left this list on 2026-09-29 (KID-365/KID-388, owner decision): the
+  // transfer operation is the transmission fence and the tables are dropped.
   'transport receipts': [
     'coupang_direct_transport_receipts',
     'coupang_direct_transport_consumptions',
-    'sellpia_order_transmission_intents',
-    'sellpia_order_transmission_intent_reconciliations',
   ],
 } as const satisfies Readonly<Record<string, readonly string[]>>;
 

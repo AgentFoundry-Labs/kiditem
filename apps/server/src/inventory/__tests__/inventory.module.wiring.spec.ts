@@ -4,6 +4,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
+import { SellpiaTransferOutcomeModule } from '../../orders/sellpia-transfer-outcome.module';
 import { RocketWorkbookProgressRepositoryAdapter } from '../adapter/out/persistence/rocket-workbook-progress.repository.adapter';
 import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/persistence/warehouses.repository.adapter';
@@ -26,9 +27,9 @@ const EXPORTS_KEY = 'exports';
 const PATH_KEY = 'path';
 
 describe('InventoryModule capability wiring', () => {
-  it('imports Products source runtime alongside Prisma', () => {
+  it('imports Products source runtime and the Orders Sellpia transfer outcome capability alongside Prisma', () => {
     expect(Reflect.getMetadata(IMPORTS_KEY, InventoryModule) ?? [])
-      .toEqual([PrismaModule, ProductCollectionRuntimeModule]);
+      .toEqual([PrismaModule, ProductCollectionRuntimeModule, SellpiaTransferOutcomeModule]);
   });
 
   it('mounts only warehouse and stock-transfer controllers', () => {

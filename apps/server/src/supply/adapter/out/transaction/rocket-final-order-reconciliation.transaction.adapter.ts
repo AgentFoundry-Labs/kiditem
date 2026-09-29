@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { KiditemConflictError } from '@kiditem/shared/errors';
+import { rocketTransmissionKey } from '../../../domain/policy/rocket-transmission-key';
 import type { RocketFinalOrderReconciliationTransactionPort } from '../../../application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
 
 @Injectable()
@@ -99,14 +100,14 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
     const exportId =
       [...matchedExportIds][0] ??
       (activeExports.length === 1 ? activeExports[0]!.id : null);
-    const transmissionIntentKey =
+    const intentKey =
       lines.length > 0
-        ? `rocket-final-order:${input.directshipOperationId}:${input.transport.toLowerCase()}`
+        ? rocketTransmissionKey(input.directshipOperationId, input.transport)
         : null;
     if (!exportId) {
       return {
         exportId: null,
-        transmissionIntentKey,
+        intentKey,
         reconciledRows: 0,
         unmatchedLines,
       };
@@ -128,24 +129,24 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
         confirmationId: exportId,
         directshipOperationId: input.directshipOperationId,
         transport: input.transport,
-        intentKey: transmissionIntentKey,
+        intentKey,
       },
       update:
-        transmissionIntentKey === null
+        intentKey === null
           ? {
               directshipOperationId: input.directshipOperationId,
               observedAt: new Date(),
             }
           : {
               directshipOperationId: input.directshipOperationId,
-              intentKey: transmissionIntentKey,
+              intentKey,
               observedAt: new Date(),
             },
     });
 
     return {
       exportId,
-      transmissionIntentKey,
+      intentKey,
       reconciledRows,
       unmatchedLines,
     };

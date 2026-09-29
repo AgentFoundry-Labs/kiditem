@@ -89,7 +89,6 @@ function conversion(patch: Record<string, unknown> = {}) {
     workbookUnmatchedRows: 0,
     importRunId: '66666666-6666-4666-8666-666666666666',
     rocketWorkbookExportId: null,
-    transmissionIntentKey: 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment',
     ...patch,
   };
 }
@@ -101,7 +100,6 @@ const EMPTY_CONVERSION = {
   workbookUnmatchedRows: 0,
   importRunId: null,
   rocketWorkbookExportId: null,
-  transmissionIntentKey: null,
 };
 
 beforeEach(() => {
@@ -171,7 +169,6 @@ describe('createCoupangDirectshipCollector', () => {
   it('still collects MILKRUN when SHIPMENT has no confirmed orders', async () => {
     // 서버는 해당 유형에 발주확정 건이 없으면 예외를 던진다. 쉽먼트가 먼저 돌기 때문에
     // 그 예외를 잡지 않으면 밀크런은 시도조차 못 하고 수집이 끝난다.
-    const intentKey = 'rocket-final-order:66666666-6666-4666-8666-666666666666:milkrun';
     mocks.collectCoupang.mockResolvedValue({
       pos: [{ seq: 'PO-9', transport: 'MILKRUN' }],
       centers: {},
@@ -188,7 +185,6 @@ describe('createCoupangDirectshipCollector', () => {
           outputRows: 1,
           skippedRows: 0,
         },
-        transmissionIntentKey: intentKey,
       }));
     const addGeneratedFile = vi.fn();
 
@@ -196,7 +192,7 @@ describe('createCoupangDirectshipCollector', () => {
 
     expect(mocks.convertCoupang).toHaveBeenCalledTimes(2);
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
-      id: intentKey,
+      id: '66666666-6666-4666-8666-666666666666:MILKRUN',
       mallKey: COUPANG_DIRECT_MALL_KEY,
       mallName: '쿠팡직배송 밀크런',
       // 셀피아 전송 scope: 직배송 실행 id + 운송유형(한 실행이 유형마다 파일 하나, KID-366).
@@ -210,8 +206,8 @@ describe('createCoupangDirectshipCollector', () => {
     );
   });
 
-  it('probes both Rocket transports and stores the server transmission key as the file ID', async () => {
-    const intentKey = 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment';
+  it('probes both Rocket transports and keys the file by its directship operation and transport', async () => {
+    const fileId = '66666666-6666-4666-8666-666666666666:SHIPMENT';
     mocks.collectCoupang.mockResolvedValue({
       pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
       centers: {},
@@ -220,7 +216,6 @@ describe('createCoupangDirectshipCollector', () => {
       .mockResolvedValueOnce(conversion({
         workbookMatchedRows: 0,
         workbookUnmatchedRows: 1,
-        transmissionIntentKey: intentKey,
       }))
       .mockResolvedValueOnce(EMPTY_CONVERSION);
     const addGeneratedFile = vi.fn();
@@ -234,14 +229,14 @@ describe('createCoupangDirectshipCollector', () => {
       'MILKRUN',
     ]);
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
-      id: intentKey,
+      id: fileId,
       sourceName: expect.stringContaining('워크북 미매칭 1품목 포함'),
       rocketWorkbookExportId: null,
-      transmissionIntentKey: intentKey,
       sourceOperationId: '66666666-6666-4666-8666-666666666666',
       transport: 'SHIPMENT',
     }));
-    expect(setPreviewId).toHaveBeenCalledWith(intentKey);
+    expect(addGeneratedFile.mock.calls[0]?.[0]).not.toHaveProperty('transmissionIntentKey');
+    expect(setPreviewId).toHaveBeenCalledWith(fileId);
   });
 
   /**

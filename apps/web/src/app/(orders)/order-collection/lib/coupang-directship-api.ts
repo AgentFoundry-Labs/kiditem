@@ -31,7 +31,6 @@ export interface CoupangDirectConversionResult {
   workbookUnmatchedRows: number;
   importRunId: string;
   rocketWorkbookExportId: string | null;
-  transmissionIntentKey: string | null;
 }
 
 /**
@@ -77,7 +76,6 @@ export async function convertCoupangDirectToSellpiaFile(
   // 변환 기록은 실행 ID로 남는다(옛 import run 칸 이름을 그대로 쓴다).
   const importRunId = requiredHeader(res, 'X-Order-Collection-Operation-Id');
   const rocketWorkbookExportId = res.headers.get('X-Rocket-Workbook-Export-Id');
-  const transmissionIntentKey = res.headers.get('X-Sellpia-Transmission-Intent-Key');
   const outputRows = numHeader(res, 'X-Order-Collection-Output-Rows') ?? 0;
   const workbookMatchedRows = numHeader(res, 'X-Rocket-Workbook-Matched-Rows') ?? 0;
   const workbookUnmatchedRows = numHeader(res, 'X-Rocket-Workbook-Unmatched-Rows') ?? 0;
@@ -89,11 +87,7 @@ export async function convertCoupangDirectToSellpiaFile(
       workbookUnmatchedRows,
       importRunId,
       rocketWorkbookExportId,
-      transmissionIntentKey,
     };
-  }
-  if (!transmissionIntentKey) {
-    throw new Error('쿠팡 로켓 수집 식별 정보가 없어 셀피아 파일을 저장하지 않았습니다.');
   }
   const blob = await res.blob();
   const fileName = fileNameFromContentDisposition(res.headers.get('Content-Disposition'))
@@ -110,14 +104,12 @@ export async function convertCoupangDirectToSellpiaFile(
       skippedRows: numHeader(res, 'X-Order-Collection-Skipped-Rows'),
       importRunId,
       rocketWorkbookExportId,
-      transmissionIntentKey,
     },
     outputRows,
     workbookMatchedRows,
     workbookUnmatchedRows,
     importRunId,
     rocketWorkbookExportId,
-    transmissionIntentKey,
   };
 }
 
