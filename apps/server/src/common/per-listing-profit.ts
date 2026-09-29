@@ -39,6 +39,7 @@ import {
   type OrderWindowFacts,
   type OrderWindowInput,
 } from '../orders/application/port/in/facts/order-facts.port';
+import { FactConflictError } from './errors/fact-errors';
 import { readPublishedProductAbcGrades } from '../products/adapter/out/persistence/read/product-abc-publication.reader';
 
 /** Owner capabilities used by the shared projection in its caller's transaction. */
@@ -61,12 +62,13 @@ export type ProfitAdReader = Pick<
  * (profit/loss, settlements, sales plans, sales analysis), statistics, the
  * dashboard and ad strategy.
  *
- * Every input comes from its owner: order lines from a completed Orders
- * collection, which the caller reads through `ORDER_FACTS_PORT` over
- * `profitOrderWindowInput` and passes in (KID-392), purchase prices from
- * Inventory, advertising from the ad-report ledger (billed spend, KID-368) and
- * grades from the current Products publication. The reads run in the caller's
- * transaction; this module owns no state.
+ * Order facts are an argument: the caller reads a completed Orders
+ * collection through `ORDER_FACTS_PORT` over `profitOrderWindowInput` and
+ * passes the lines in (KID-392); a window other than `[from, to)` is refused.
+ * Listings, accounts, content and advertising stay owner-port I/O here:
+ * purchase prices from Inventory, advertising from the ad-report ledger
+ * (billed spend, KID-368) and grades from the current Products publication.
+ * The reads run in the caller's transaction; this module owns no state.
  *
  * ADR-0006 on both sides of a profit:
  * - Cost (KID-114). Purchase cost is the option recipe priced at Sellpia
@@ -293,9 +295,28 @@ export function profitOrderWindowInput(organizationId: string, from: Date, to: D
   return { organizationId, from, to, excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES };
 }
 
+/**
+ * Refuse order facts Orders answered for another window: their requested KST
+ * business dates must be exactly those of `[from, to)`, the window every other
+ * input of the profit is read over.
+ */
+function assertOrderFactsWindow(facts: OrderLineWindowFacts, from: Date, to: Date): void {
+  const expected = to <= from
+    ? []
+    : datesInclusive(kstBusinessDate(from), kstBusinessDate(new Date(to.getTime() - 1))).map(businessDateKey);
+  const requested = facts.window.requestedDates;
+  if (requested.length !== expected.length || requested.some((date, index) => date !== expected[index])) {
+    throw new FactConflictError(
+      `Order facts cover ${requested[0] ?? '-'}..${requested.at(-1) ?? '-'}, not the profit window ${expected[0] ?? '-'}..${expected.at(-1) ?? '-'}`,
+    );
+  }
+}
+
 async function readProfitLines(
   tx: Prisma.TransactionClient,
   organizationId: string,
+  from: Date,
+  to: Date,
   facts: OrderLineWindowFacts,
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
@@ -303,6 +324,7 @@ async function readProfitLines(
   ProfitWindowFacts,
   'orderWindow' | 'orderShipping' | 'lines' | 'unmappedLineCount' | 'unallocatedShipping'
 >> {
+  assertOrderFactsWindow(facts, from, to);
   const optionIds = [...new Set(facts.orders.flatMap((order) =>
     order.lines.flatMap((line) => (line.listingOptionId ? [line.listingOptionId] : []))))];
   const transaction = ownerTransaction(tx);
@@ -476,7 +498,7 @@ export async function readProfitWindowFacts(
 ): Promise<ProfitWindowFacts> {
   const { from, to } = window.effective;
   const ad = await readAdWindowEvidence(tx, organizationId, from, to, catalog.ads);
-  const lineFacts = await readProfitLines(tx, organizationId, orderFacts, inventory, catalog);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, orderFacts, inventory, catalog);
   const listingBilledSpend = await readListingBilledSpend(tx, organizationId, from, to, catalog.ads);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return { ...lineFacts, window, ad, listingBilledSpend, gradeByProductId };
@@ -814,7 +836,7 @@ async function readPerListingProfit(
   inventory: ProductTransactionalReadPort,
   catalog: ProfitCatalogReaders,
 ): Promise<{ rows: PerListingProfit[]; orderWindow: OrderWindowFacts }> {
-  const lineFacts = await readProfitLines(tx, organizationId, orderFacts, inventory, catalog);
+  const lineFacts = await readProfitLines(tx, organizationId, from, to, orderFacts, inventory, catalog);
   const listingBilledSpend = await readListingBilledSpend(tx, organizationId, from, to, catalog.ads);
   const gradeByProductId = await readGrades(tx, organizationId, lineFacts.lines);
   return {
