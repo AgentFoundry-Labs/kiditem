@@ -95,8 +95,9 @@ describe('committed runtime bundle', () => {
     );
 
     expect(registered).toHaveLength(1);
-    // 알림 창 가드 짝의 "수집 탭인가" 물음(실기기 R1) · 쓰기 탭의 실제 입력 부탁(KID-256) · 팝업 COLLECT_CURRENT · keepalive 포트.
-    expect(runtimeListeners).toEqual(['onMessage', 'onMessage', 'onMessage', 'onConnect']);
+    // 알림 창 가드 짝의 "수집 탭인가" 물음(실기기 R1) · 쓰기 탭의 실제 입력 부탁(KID-256) · 팝업 준비 실행 돌리기(KID-386) ·
+    // 팝업 COLLECT_CURRENT · keepalive 포트.
+    expect(runtimeListeners).toEqual(['onMessage', 'onMessage', 'onMessage', 'onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
     // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
     // operationLoginV1: operation.start의 credentials를 받는 빌드(KID-377) — 웹은 이 표시가 있을 때만 자격을 싣는다.
