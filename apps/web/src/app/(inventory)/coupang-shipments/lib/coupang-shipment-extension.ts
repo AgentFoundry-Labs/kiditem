@@ -1,9 +1,8 @@
 'use client';
 
-import {
-  detectOrderCollectionExtensionId,
-  sendToExtension,
-} from '@/lib/extension-bridge';
+import { detectOrderCollectionExtensionId } from '@/lib/extension-bridge';
+import type { CoupangShipmentListRow } from '@kiditem/shared/orders-action-operations';
+import { OrderActionFailure, readCoupangShipmentList } from '@/lib/order-action-operations';
 import {
   CLEAR_COUPANG_COOKIES_ACTION,
   COUPANG_SHIPMENT_ACTIONS_CAPABILITY,
@@ -113,27 +112,8 @@ export async function clearCoupangCookiesViaExtension(): Promise<number> {
 // 발송일 기준으로 쉽먼트 목록을 받고 각 Label/내역서 PDF 를 세션 fetch → 정확한 발송일·센터가 붙은
 // 병합 대기 draft 로 반환한다. (화면 버튼 클릭 방식과 달리 파일명 파싱에 의존하지 않는다.)
 
-export interface CoupangShipmentListItem {
-  seq: string;
-  status: string;
-  outbound: string;
-  inbound: string;
-  center: string;
-  boxes: string;
-  qty: string;
-  po: string;
-  invoice: string;
-}
-
-interface CoupangShipmentListResult {
-  success: boolean;
-  error?: string;
-  errorCode?: string;
-  date?: string;
-  count?: number;
-  scannedPages?: number;
-  shipments?: CoupangShipmentListItem[];
-}
+/** 배송 목록 한 행(실행 `orders.coupang_shipment_list`의 result). */
+export type CoupangShipmentListItem = CoupangShipmentListRow;
 
 export interface CoupangShipmentCollectProgress {
   phase: 'list' | 'download' | 'build';
@@ -150,16 +130,14 @@ export async function collectCoupangShipmentDraftsViaExtension(
   onProgress?: (progress: CoupangShipmentCollectProgress) => void,
 ): Promise<{ drafts: CoupangShipmentFileDraft[]; shipments: CoupangShipmentListItem[]; failed: string[] }> {
   if (!date) throw new Error('발송일을 선택해주세요.');
-  // 배송 목록(`collectCoupangShipmentList`)은 아직 옛 워커가 답하고 새 런타임이 넘겨준다 — wave8b가 kind로 옮긴다.
   const extensionId = await getOrderCollectorExtensionId();
 
   onProgress?.({ phase: 'list', date });
-  const list = await sendToExtension<CoupangShipmentListResult>(
-    extensionId,
-    { action: 'collectCoupangShipmentList', date },
-    90000,
-  );
-  if (!list?.success) throwExtensionError(list, '쿠팡 쉽먼트 목록 수집에 실패했습니다.');
+  // 배송 목록 = 실행 `orders.coupang_shipment_list`(KID-366). 실패 코드(쿠키 과다·로그인)는 화면 복구 흐름이 읽는 오류로 옮긴다.
+  const list = await readCoupangShipmentList(date).catch((error: unknown) => {
+    if (error instanceof OrderActionFailure) throw new CoupangShipmentExtensionError(error.message, error.code);
+    throw error;
+  });
   const shipments = list.shipments ?? [];
   if (shipments.length === 0) {
     throw new Error(`발송일 ${date} 에 해당하는 쉽먼트가 없습니다.`);
