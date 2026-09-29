@@ -43,6 +43,7 @@ import { OrderCollectionUploadController } from './adapter/in/web/order-collecti
 import { OrderMallAccountPersistenceAdapter } from './adapter/out/persistence/order-mall-account.persistence.adapter';
 import { ORDER_MALL_ACCOUNT_PORT } from './application/port/out/persistence/order-mall-account.port';
 import { OrderCollectionTodayOrdersModule } from './order-collection-today-orders.module';
+import { OrdersActionOperationsController } from './adapter/in/web/orders-action-operations.controller';
 import { SellpiaOrderTransferOperationOwner } from './adapter/in/operation/sellpia-order-transfer-operation-owner';
 import { SellpiaPostTransferOperationOwner } from './adapter/in/operation/sellpia-post-transfer-operation-owner';
 import { SellpiaAutoInvoiceOperationOwner } from './adapter/in/operation/sellpia-auto-invoice-operation-owner';
@@ -51,6 +52,7 @@ import { CoupangShipmentListOperationOwner } from './adapter/in/operation/coupan
 import { MallTrackingUploadOperationOwner } from './adapter/in/operation/mall-tracking-upload-operation-owner';
 import { SellpiaActionOutcomesPersistenceAdapter } from './adapter/out/persistence/sellpia-action-outcomes.persistence.adapter';
 import { SELLPIA_ACTION_OUTCOMES_PORT } from './application/port/out/persistence/sellpia-action-outcomes.port';
+import { OrdersActionOperationService } from './application/service/orders-action-operation.service';
 import { SellpiaInvoiceTargetsService } from './application/service/sellpia-invoice-targets.service';
 import { SellpiaOrderTransferService } from './application/service/sellpia-order-transfer.service';
 
@@ -66,6 +68,7 @@ import { SellpiaOrderTransferService } from './application/service/sellpia-order
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
+    OrdersActionOperationsController,
   ],
   providers: [
     OrdersService,
@@ -89,6 +92,7 @@ import { SellpiaOrderTransferService } from './application/service/sellpia-order
     CoupangDirectshipOperationOwner,
     SellpiaOrderTransferService,
     SellpiaInvoiceTargetsService,
+    OrdersActionOperationService,
     SellpiaActionOutcomesPersistenceAdapter,
     SellpiaOrderTransferOperationOwner,
     SellpiaPostTransferOperationOwner,
