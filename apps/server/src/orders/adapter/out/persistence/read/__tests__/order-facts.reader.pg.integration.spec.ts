@@ -610,4 +610,3 @@ function readOrderListFacts(tx: Prisma.TransactionClient, input: OrderListInput)
 }
 
 let accountsForWindowReads: ChannelAccountPort;
-
