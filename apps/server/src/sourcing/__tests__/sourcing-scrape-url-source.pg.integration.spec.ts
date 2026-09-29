@@ -207,6 +207,11 @@ describe('URL 수집 = 서버 구동 kind sourcing.scrape_url: 원본 기록·�
       salesProductId: draft.id,
       href: `/product-pipeline/collected-products/${draft.id}`,
     });
+    // 원본 기록 · 초안 · 원장 관측 · 현재 발행이 모두 같은 실행(finish 트랜잭션)의 것이다.
+    const operationId = collected.attempt.attemptId as string;
+    expect(await prisma.sourcingEvidenceObservation.count({ where: { operationId } })).toBe(1);
+    expect(await prisma.sourcingSourcePublication.findMany({ select: { operationId: true, isCurrent: true, qualityReport: true } }))
+      .toMatchObject([{ operationId, isCurrent: true, qualityReport: { scrapeUrlResult: { sourceRecordId, salesProductId: draft.id } } }]);
   });
 
   it('reads fixed expiry without mutation and rejects the old provider result after a new explicit attempt', async () => {
