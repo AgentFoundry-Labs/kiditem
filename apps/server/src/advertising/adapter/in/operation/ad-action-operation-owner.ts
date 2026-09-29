@@ -4,6 +4,7 @@ import type { OperationPlanResult, OperationStagedChunk, OperationWindow } from 
 import {
   AD_ACTION_KIND,
   AD_ACTION_LEASE_MS,
+  AdActionProviderOutcomeSchema,
   AdActionPlanSchema,
   AdActionScopeSchema,
   adActionLockKey,
@@ -17,6 +18,7 @@ import type {
   OperationPlanContext,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
 import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
+import { closedByExpiry } from '../../../../common/operation/domain/operation-fence';
 import { assertExecutableAdAction, completeAdAction } from '../../../domain/ad-action-operation';
 import {
   AD_ACTION_OPERATION_REPOSITORY_PORT,
@@ -24,8 +26,6 @@ import {
 } from '../../../application/port/out/repository/ad-action-operation.repository.port';
 import { parseOperationScope } from './operation-scope';
 
-/** 임대가 끝나 닫힌 실행의 오류 코드(`common/operation` 만료 규칙의 `OPERATION_EXPIRED_ERROR_CODE`). 광고센터에 썼는지 모른다. */
-const LEASE_EXPIRED_ERROR_CODE = 'OPERATION_FENCE_LOST';
 
 /**
  * 광고 액션 실행(ADR-0025 kind `advertising.ad_action`, KID-386). 서버가 승인(또는 캠페인 등록) 뒤 `prepare`로 만들어 두고,
@@ -96,15 +96,27 @@ export class AdActionOperationOwner implements OperationOwnerPort {
     return { result };
   }
 
-  /** 실패 finish는 폼까지 못 간 것(`not_attempted`)이다. 임대 만료는 광고센터에 썼는지 모르므로 결과를 비워 둔다. */
+  /**
+   * 실패 finish가 `result.providerOutcome`(`not_attempted`|`uncertain`)을 실어 보냈으면 그대로 적고, 없으면 폼까지 못 간 것
+   * (`not_attempted`)이다. 임대 만료로 닫힌 실행은 광고센터에 썼는지 모르므로 결과를 비워 둔다.
+   */
   async onFailed(context: OperationFailedContext) {
     const plan = AdActionPlanSchema.parse(context.plan);
+    const expired = closedByExpiry({ status: 'failed', errorCode: context.errorCode, errorMessage: context.errorMessage });
+    const reported = expired
+      ? null
+      : await this.repository.readRunResult(context.tx, {
+        organizationId: context.organizationId,
+        actionId: plan.actionId,
+        operationId: context.operationId,
+      });
+    const outcome = AdActionProviderOutcomeSchema.safeParse(reported?.providerOutcome);
     await this.repository.recordExecution(context.tx, {
       organizationId: context.organizationId,
       actionId: plan.actionId,
       execution: {
         operationId: context.operationId,
-        providerOutcome: context.errorCode === LEASE_EXPIRED_ERROR_CODE ? null : 'not_attempted',
+        providerOutcome: expired ? null : outcome.success && outcome.data !== 'created' ? outcome.data : 'not_attempted',
         campaignId: null,
         errorCode: context.errorCode,
         message: context.errorMessage?.slice(0, 500) ?? null,

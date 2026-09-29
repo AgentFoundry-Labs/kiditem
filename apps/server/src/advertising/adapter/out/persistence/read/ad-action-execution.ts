@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { AD_ACTION_KIND, AdActionProviderOutcomeSchema } from '@kiditem/shared/advertising-operations';
 import type { AdActionExecuteStatus, AdActionExecution } from '@kiditem/shared/advertising';
 import { readOperationsByPlan, type OperationByPlanRow } from '../../../../../common/operation/transaction/operations-by-plan';
+import { closedByExpiry } from '../../../../../common/operation/domain/operation-fence';
 
 export type { AdActionExecution };
 
@@ -25,8 +26,6 @@ const EXECUTE_STATUS_BY_OPERATION_STATUS: Readonly<Record<string, AdActionExecut
   cancelled: 'cancelled',
 };
 
-/** The operation contract's code for a run closed because its lease ran out. */
-const LEASE_EXPIRED_ERROR_CODE = 'OPERATION_FENCE_LOST';
 const LEASE_EXPIRED_MESSAGE = '실행 기한(10분)이 지나 결과를 받지 못했습니다. 광고센터에서 캠페인이 만들어졌는지 확인해 주세요.';
 
 export const NOT_PREPARED_EXECUTION: AdActionExecution = {
@@ -59,7 +58,7 @@ export function deriveAdActionExecution(
     campaignId: providerOutcome && typeof result.campaignId === 'string' ? result.campaignId : null,
     errorCode: failed ? operation.errorCode : null,
     errorMessage: failed
-      ? (operation.errorCode === LEASE_EXPIRED_ERROR_CODE ? LEASE_EXPIRED_MESSAGE : operation.errorMessage)
+      ? (closedByExpiry(operation as Parameters<typeof closedByExpiry>[0]) ? LEASE_EXPIRED_MESSAGE : operation.errorMessage)
       : null,
     executedAt: operation.status === 'succeeded' ? operation.finishedAt : null,
   };

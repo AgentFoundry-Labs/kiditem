@@ -13,6 +13,14 @@ export interface AdActionOperationRepositoryPort {
     channelAccountId: string,
     transaction?: OwnerTransaction,
   ): Promise<{ id: string; vendorId: string | null } | null>;
+  /**
+   * 이 실행이 닫힐 때 남은 `result`(없으면 null). 실패 finish의 `result`는 owner `onFailed` 문맥에 실리지 않으므로
+   * 같은 트랜잭션에서 실행 행을 읽는다.
+   */
+  readRunResult(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; actionId: string; operationId: string },
+  ): Promise<Record<string, unknown> | null>;
   /** 액션 `payload.execution`을 이 기록으로 바꾼다(다른 payload 칸은 그대로). */
   recordExecution(
     transaction: OwnerTransaction,

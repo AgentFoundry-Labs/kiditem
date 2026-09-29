@@ -238,6 +238,32 @@ describe('advertising.ad_action owner over the operation contract + disposable P
     expect(await executionOf(action.id)).toBeUndefined();
   });
 
+  it('records the outcome a failed finish reports, so a form submitted before the failure is kept as uncertain', async () => {
+    const action = await seedAction();
+    await prepare(action.id);
+    const claimed = await claim();
+    await finish(claimed, {
+      outcome: 'failed',
+      errorCode: 'ADVERTISING_AD_ACTION_NOT_APPLIED',
+      errorMessage: '완료를 누른 뒤 화면을 읽지 못했습니다.',
+      result: { providerOutcome: 'uncertain' },
+    }).expect(200);
+    expect(await executionOf(action.id)).toMatchObject({
+      providerOutcome: 'uncertain',
+      errorCode: 'ADVERTISING_AD_ACTION_NOT_APPLIED',
+    });
+  });
+
+  it('records no outcome when the lease ran out, since nobody knows whether the ad center was written', async () => {
+    const action = await seedAction();
+    const prepared = await prepare(action.id);
+    await claim();
+    await prisma.operation.update({ where: { id: prepared.operation.id }, data: { expiresAt: new Date(Date.now() - 1_000) } });
+    // The next claim closes the lapsed run (no attempts left) and calls onFailed.
+    await expect(claim()).resolves.toEqual({ operation: null, token: null });
+    expect(await executionOf(action.id)).toMatchObject({ operationId: prepared.operation.id, providerOutcome: null });
+  });
+
   it('records not_attempted with the reported code when the extension could not reach the form', async () => {
     const action = await seedAction();
     const prepared = await prepare(action.id);
