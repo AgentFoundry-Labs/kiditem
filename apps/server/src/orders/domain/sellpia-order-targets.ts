@@ -7,9 +7,24 @@ const ORDER_NUMBER_HEADERS = ['판매처주문번호', '주문번호', '주문�
 
 /**
  * 셀피아 전송 대상 주문번호: 변환 파일(xlsx·xls·UTF-8 CSV)의 시트마다 첫 머리 칸 아래 값. 빈 칸·반복 머리·중복은 뺀다.
- * 이 번호들이 뒤의 자동송장 대상을 정하므로(선택된 번호만 채번) 파일에 실제로 적힌 값만 쓴다.
+ * 이 번호들이 뒤의 자동송장 대상을 정하므로(선택된 번호만 채번) 파일에 실제로 적힌 값만 쓴다. 대상이 1만 개를 넘으면 전송을
+ * 거절한다.
  */
 export function sellpiaOrderNumbersFromFile(bytes: Buffer): string[] {
+  const orderNumbers = orderNumbersFromSellpiaFile(bytes);
+  if (orderNumbers.length > SELLPIA_TRANSFER_TARGETS_MAX) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'too_many_transfer_targets', max: SELLPIA_TRANSFER_TARGETS_MAX },
+    });
+  }
+  return orderNumbers;
+}
+
+/**
+ * 같은 규칙으로 뽑되 상한 없이(KID-234): 몰 주문 수집 result가 쓴다 — 수집은 번호 수로 실패하지 않고, result 쪽에서 2,000개로
+ * 자르고 잘렸다고 표시한다. 전송 상한은 `sellpiaOrderNumbersFromFile`에만 있다.
+ */
+export function orderNumbersFromSellpiaFile(bytes: Buffer): string[] {
   const book = readBook(bytes);
   const orderNumbers = new Set<string>();
   for (const sheetName of book.SheetNames) {
@@ -22,11 +37,6 @@ export function sellpiaOrderNumbersFromFile(bytes: Buffer): string[] {
       const value = String(rows[rowIndex]?.[header.columnIndex] ?? '').trim();
       if (!value || normalizedHeader(value) === header.header) continue;
       orderNumbers.add(value);
-      if (orderNumbers.size > SELLPIA_TRANSFER_TARGETS_MAX) {
-        throw new KiditemInvalidValueError('VALIDATION_FAILED', {
-          details: { reason: 'too_many_transfer_targets', max: SELLPIA_TRANSFER_TARGETS_MAX },
-        });
-      }
     }
   }
   return [...orderNumbers];

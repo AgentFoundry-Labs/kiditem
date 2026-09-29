@@ -52,7 +52,7 @@ function distinctOrderNumbers(values: readonly unknown[]): string[] {
 }
 
 /**
- * result에 싣는 주문번호(KID-234 Q3): 변환 파일에서 뽑은 번호(`sellpiaOrderNumbersFromFile`)를 상한까지. 넘으면 잘랐다고
+ * result에 싣는 주문번호(KID-234 Q3): 변환 파일에서 상한 없이 뽑은 번호(`orderNumbersFromSellpiaFile`)를 2,000개까지. 넘으면 잘랐다고
  * 표시한다 — 오류로 수집을 실패시키지 않는다.
  */
 export function mallOrdersResultOrderNumbers(fileOrderNumbers: readonly string[]): { orderNumbers: string[]; orderNumbersTruncated?: true } {

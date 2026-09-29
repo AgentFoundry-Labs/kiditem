@@ -399,6 +399,17 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect((await harness.finish(missingPart).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'incomplete_file_parts' } });
   });
 
+  it('주문번호가 1만 개를 넘는 변환 파일도 수집은 성공한다 — result는 2,000개로 자르고 orderNumbersTruncated만 표시한다(전송 상한은 전송에만)', async () => {
+    const account = await mallAccount('boribori', '보리보리');
+    const rows = [['주문번호', '상품명', '수량'], ...Array.from({ length: 10_001 }, (_, index) => [`B-${index}`, '색종이', '1'])];
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'boribori' }));
+    await harness.put(run, fileParts('보리보리.xlsx', workbook(rows)));
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.status).toBe('succeeded');
+    expect(finished.body.operation.result.orderNumbers).toHaveLength(2_000);
+    expect(finished.body.operation.result.orderNumbersTruncated).toBe(true);
+  });
+
   it('아이스크림몰: 배송목록 행 + continuation(머리글)을 옛 변환 본문으로 모으고, 자동 선택은 본 행을 빼고 고른 행만 센다', async () => {
     const headers = ['주문번호', '배송번호', '주문완료일시', '주문내역상태', '배송종류', '배송처리유형', '주문판매유형', '합배송여부', '상품번호', '상품명', '단품명', '출고수량', '입점사', '회원ID', '주문자', '수취인', '수취인휴대폰번호', '우편번호', '배송지'];
     const line = (orderNo: string) => [orderNo, `D-${orderNo}`, `${TODAY} 10:00`, '결제완료', '택배', '일반', '일반', 'N', 'P-1', '색종이', '빨강', '1', '키드아이템', 'member', '풍산초', '풍산초', '010-0000-0000', '06000', '서울 강남구'];

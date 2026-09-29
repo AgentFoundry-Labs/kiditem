@@ -77,8 +77,10 @@ Action, collection, transmission, and reconciliation behavior is executable in
   workbook is decrypted before begin, so the stored capture converts without
   the password; the password is never stored.
 - Mall order finalize writes `result.orderNumbers` from the converted Sellpia
-  file with `sellpiaOrderNumbersFromFile` (the transfer-target rule), capped at
-  2,000 with `orderNumbersTruncated: true`; manual uploads too. Directship
+  file by the transfer-target rule without its 10,000 limit
+  (`orderNumbersFromSellpiaFile`), capped at 2,000 with
+  `orderNumbersTruncated: true`, plus the capture's own numbers as
+  `capturedOrderNumbers` (web file dedup); manual uploads too. Directship
   writes none: its file numbers restart at `_0001` per file and finalize has no
   operator selection.
 - Today's orders and `신규` are one Orders capability
