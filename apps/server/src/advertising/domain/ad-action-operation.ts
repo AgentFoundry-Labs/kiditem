@@ -105,7 +105,15 @@ export function completeAdAction(
   const message = typeof reported?.message === 'string' ? reported.message.slice(0, 500) : evidence?.message ?? null;
   return {
     evidence,
-    result: { actionId: plan.actionId, actionType: plan.actionType, providerOutcome, campaignId, message },
+    result: {
+      actionId: plan.actionId,
+      actionType: plan.actionType,
+      providerOutcome,
+      campaignId,
+      message,
+      // The extension found a campaign of this name already there and linked it instead of creating one.
+      linkedExisting: reported?.linkedExisting === true,
+    },
   };
 }
 
@@ -114,6 +122,8 @@ export interface AdActionExecutionRecord {
   operationId: string;
   providerOutcome: AdActionProviderOutcome | null;
   campaignId: string | null;
+  /** The run linked a campaign of the same name that already existed (`AdActionResult.linkedExisting`). */
+  linkedExisting: boolean;
   errorCode: string | null;
   message: string | null;
   finishedAt: string;

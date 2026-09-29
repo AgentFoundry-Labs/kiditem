@@ -202,12 +202,13 @@ describe('advertising.ad_action owner over the operation contract + disposable P
 
     expect(done.body.operation).toMatchObject({
       status: 'succeeded',
-      result: { actionId: action.id, actionType: 'create_campaign', providerOutcome: 'created', campaignId: 'C-777', message: null },
+      result: { actionId: action.id, actionType: 'create_campaign', providerOutcome: 'created', campaignId: 'C-777', message: null, linkedExisting: false },
     });
     expect(await executionOf(action.id)).toEqual({
       operationId: prepared.operation.id,
       providerOutcome: 'created',
       campaignId: 'C-777',
+      linkedExisting: false,
       errorCode: null,
       message: null,
       finishedAt: expect.any(String),
@@ -215,6 +216,16 @@ describe('advertising.ad_action owner over the operation contract + disposable P
     // 등록 내용(payload의 다른 칸)은 그대로다.
     const payload = (await prisma.adAction.findUniqueOrThrow({ where: { id: action.id } })).payload as Record<string, unknown>;
     expect(payload.productIds).toEqual(['PRODUCT-A']);
+  });
+
+  it('records that the extension linked a campaign of the same name that already existed instead of creating one', async () => {
+    const action = await seedAction();
+    await prepare(action.id);
+    const claimed = await claim();
+    await putEvidence(claimed, { campaignId: 'C-OLD', campaignName: '봄 캠페인', observedAt: new Date().toISOString(), message: null });
+    const done = await finish(claimed, { outcome: 'succeeded', result: { providerOutcome: 'created', linkedExisting: true } }).expect(200);
+    expect(done.body.operation.result).toMatchObject({ providerOutcome: 'created', campaignId: 'C-OLD', linkedExisting: true });
+    expect(await executionOf(action.id)).toMatchObject({ providerOutcome: 'created', campaignId: 'C-OLD', linkedExisting: true });
   });
 
   it('records uncertain when the ad center accepted the form but showed no campaign id, as a succeeded run', async () => {
@@ -279,6 +290,7 @@ describe('advertising.ad_action owner over the operation contract + disposable P
       operationId: prepared.operation.id,
       providerOutcome: 'not_attempted',
       campaignId: null,
+      linkedExisting: false,
       errorCode: 'ADVERTISING_AD_CENTER_FORM_CHANGED',
       message: '캠페인 이름 입력창을 찾지 못했습니다.',
       finishedAt: expect.any(String),
