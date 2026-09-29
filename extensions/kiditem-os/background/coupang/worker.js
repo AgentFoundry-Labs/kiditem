@@ -470,9 +470,8 @@ function sleep(ms) {
 }
 
 // ── 통합 서비스워커 등록 ──
-// producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
+// 이 도메인에는 수집 세션 producer가 없다 — 윙 카탈로그·상품은 실행 kind다(KID-365).
 KidItemDomains.register({
-  producerPrefixes: ["channels", "dashboard"],
   capabilities: {
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,

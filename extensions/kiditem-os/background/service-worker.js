@@ -28,7 +28,6 @@ importScripts(
   "sourcing/source-attempt-wire.js",
   // 쿠팡 도메인 모듈
   "coupang/environment-runtime.js",
-  "coupang/collection-runs.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",

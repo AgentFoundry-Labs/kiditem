@@ -4872,7 +4872,9 @@ var KidItemRuntime = (() => {
     actionType: AdActionExecutableTypeSchema,
     providerOutcome: AdActionProviderOutcomeSchema,
     campaignId: external_exports.string().min(1).nullable(),
-    message: external_exports.string().max(500).nullable()
+    message: external_exports.string().max(500).nullable(),
+    /** 같은 이름의 캠페인이 이미 있어 쓰지 않고 그 id에 연결만 했다(옛 KID-160 규칙). `created`와 함께 온다. */
+    linkedExisting: external_exports.boolean().default(false)
   }).strict();
 
   // extensions/src/core/errors.ts
