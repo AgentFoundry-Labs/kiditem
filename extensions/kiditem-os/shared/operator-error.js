@@ -253,6 +253,13 @@
       "text": "사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "SITE_COOKIE_BLOAT": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "쿠팡 공급사 쿠키가 너무 커서 요청이 거절됐습니다. 쿠키를 정리한 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
     "MALL_LOGIN_PAGE_UNREACHABLE": {
       "owner": "extension",
       "kind": "external",
