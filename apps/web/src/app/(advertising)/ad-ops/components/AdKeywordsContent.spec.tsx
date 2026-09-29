@@ -130,12 +130,12 @@ function serveKeywords(keywords: AdKeywordSnapshot[]) {
   });
 }
 
-/** The 409 body the server sends when a rejection names an action that already ran. */
+/** The 409 body the server sends when a rejection names an action whose run already applied (KID-386). */
 const ALREADY_RAN_REFUSAL = new ApiError(
   409,
-  'HTTP_409',
-  '이미 실행된 광고 액션은 거절할 수 없습니다. 광고센터에 이미 반영됐습니다.',
-  { reason: 'EXECUTION_TASK_DONE', },
+  'ADVERTISING_AD_ACTION_ALREADY_APPLIED',
+  '이미 광고센터에 반영한 광고 액션은 거절할 수 없습니다. 광고센터에서 직접 확인해 주세요.',
+  { actionId: '00000000-0000-4000-8000-0000000000aa' },
 );
 
 async function renderExpandedProduct() {
