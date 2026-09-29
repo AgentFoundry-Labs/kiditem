@@ -137,20 +137,6 @@ describe('GlobalExceptionFilter → ADR-0023 envelope', () => {
   });
 
   it('keeps the wire spelling of codes the extension reads from the top-level body.code', () => {
-    // content/coupang/ads-report.js:2431 reads body.code and counts EXECUTION_REPORT_MANUAL_ACTION as "직접 처리".
-    const manual = envelope(new ConflictException({
-      code: 'EXECUTION_REPORT_MANUAL_ACTION',
-      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
-    }));
-    expect(manual).toMatchObject({
-      statusCode: 409,
-      code: 'EXECUTION_REPORT_MANUAL_ACTION',
-      kind: 'conflict',
-      message: '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.',
-    });
-    for (const code of ['EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION'] as const) {
-      expect(envelope(new ConflictException({ code, message: '실행 보고를 반영할 수 없습니다.' }))).toMatchObject({ statusCode: 409, code });
-    }
     // The mall-orders owner (MallOrdersOperationService) reads this code; an empty day is not a failed conversion.
     expect(envelope(new BadRequestException({ code: 'NO_NEW_ORDERS', message: '변환할 키즈노트 주문이 없습니다.' })))
       .toMatchObject({ statusCode: 400, code: 'NO_NEW_ORDERS', message: '변환할 키즈노트 주문이 없습니다.' });

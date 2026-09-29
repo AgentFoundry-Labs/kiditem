@@ -949,7 +949,7 @@ export const AdActionCreateCampaignSchema = z.object({
   name: z.string().min(1).max(200),
   /** 광고그룹 이름(없으면 캠페인 이름). */
   adGroupName: z.string().min(1).max(200).optional(),
-  /** 등록할 상품의 광고센터 검색 키(Wing 상품번호·옵션 id). */
+  /** 등록할 상품의 광고센터 검색 키: 리스팅 옵션 id(광고센터 `vendor_item`, 새 원장 `vendorItemId`). */
   productIds: z.array(z.string().min(1)).min(1).max(50),
   /** 일 예산(원). */
   dailyBudget: z.number().int().positive(),

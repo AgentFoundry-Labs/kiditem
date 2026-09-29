@@ -1,17 +1,16 @@
 // Outgoing port for the `AdAction` aggregate. Combines query (review list,
-// latest target rows) with writes (generate, approve, reject, execution
-// reports). Transaction-spanning writes are adapter-internal so
+// latest target rows) with writes (generate, approve, reject). Transaction-spanning writes are adapter-internal so
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
 import type {
+  AdActionExecution,
   AdActionExpectedApprovalStatus,
   AdKeywordPauseProposal,
 } from '@kiditem/shared/advertising';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
 import type { AdActionRow } from '../../../../domain/ad-action-row';
-import type { AdActionExecution } from '../../../../adapter/out/persistence/read/ad-action-execution';
 
-/** The execution words `read/ad-action-execution.ts` derives from the latest task. */
+/** The execution words `read/ad-action-execution.ts` reads from the action's operation (KID-386). */
 export type { AdActionExecution };
 
 export const AD_ACTION_REPOSITORY_PORT = Symbol('AdActionRepositoryPort');
@@ -84,12 +83,11 @@ export interface AdActionReviewSummary {
   approvedQueued: number;
   running: number;
   done: number;
+  uncertain: number;
   failed: number;
-  latestSnapshotAt: Date | null;
-  latestSnapshotPageType: string | null;
 }
 
-/** An AdAction row with the execution words of its latest ExecutionTask. */
+/** An AdAction row with the execution words of its `advertising.ad_action` operation. */
 export type AdActionRecord = Omit<AdActionRow, keyof AdActionExecution> &
   AdActionExecution;
 
@@ -126,7 +124,7 @@ export interface ExistingAdActionDedupRow {
 
 /**
  * A keyword's latest `pause_keyword` proposal, unless that proposal was
- * rejected, with the execution state its latest attempt reads. The keyword view
+ * rejected, with its execution word. The keyword view
  * shows it as "연관 없음" and offers its review actions.
  */
 export interface KeywordPauseProposalRow extends AdKeywordPauseProposal {
@@ -145,21 +143,6 @@ export interface KeywordPauseProposalRow extends AdKeywordPauseProposal {
 export interface AdActionReviewOptions {
   expectedApprovalStatus?: AdActionExpectedApprovalStatus;
 }
-
-/**
- * A browser execution report for one attempt of an approved action. It names
- * the attempt (`executionTaskId`, from the action listing) so it can move only
- * that attempt, and only while it is the action's latest.
- */
-export type AdActionExecutionReport = { executionTaskId: string } & (
-  | { status: 'running'; beforeJson?: Record<string, unknown> }
-  | { status: 'done'; afterJson?: Record<string, unknown> }
-  | {
-      status: 'failed';
-      errorMessage: string;
-      afterJson?: Record<string, unknown>;
-    }
-);
 
 export interface AdActionRepositoryPort {
   // Reads
@@ -180,12 +163,10 @@ export interface AdActionRepositoryPort {
   findAppliedKeywordPauses(organizationId: string, sinceDate: string): Promise<KeywordPauseKey[]>;
 
   /**
-   * Actions created since `sinceCreatedAt` that are still open work: awaiting
-   * review, or approved with the latest attempt queued or running within its
-   * execution deadline. An approved action of a type the operator applies by
-   * hand (`MANUAL_AD_ACTION_TYPES`) also stays open while its latest attempt
-   * reads failed, which approval records; rejecting it or a done attempt from
-   * before KID-138 decision A releases it.
+   * Actions created since `sinceCreatedAt` that are still open work
+   * (`isOpenAdAction`): awaiting review, an approved action the operator
+   * applies by hand (`MANUAL_AD_ACTION_TYPES`) until it is rejected, or an
+   * approved action whose run is queued or running.
    */
   findExistingInflightActions(
     organizationId: string,
@@ -194,9 +175,9 @@ export interface AdActionRepositoryPort {
 
   /**
    * At most one row per keyword (advertised option and keyword text): its
-   * latest `pause_keyword` proposal while its execution state is one of the
-   * lifecycle's words, and none when that latest proposal was rejected, so an
-   * older one does not come back. A
+   * latest `pause_keyword` proposal while it awaits review or stands approved,
+   * and none when that latest proposal was rejected, so an older one does not
+   * come back. A
    * keyword with one is what the keyword view shows as "연관 없음"; the verdict
    * itself is not a daily fact and is not stored on the fact row.
    */
@@ -219,15 +200,14 @@ export interface AdActionRepositoryPort {
   ): Promise<AdActionRecord[]>;
 
   /**
-   * Approve and, in the same $transaction, add a new ExecutionTask for each
-   * action whose latest task is not open (queued, or running within its
-   * execution deadline). A running task past its deadline is closed as failed
-   * first. The new task is queued for the browser extension, except for an
-   * action of a `MANUAL_AD_ACTION_TYPES` type (KID-138 decision A): approval
-   * records the operator's confirmation, and the task is recorded failed with
-   * `MANUAL_AD_ACTION_MESSAGE` so it never reaches the executor queue. Returns
-   * how many distinct actions of the organization it approved: every one the
-   * ids name, or with `expectedApprovalStatus` only those still in that review.
+   * Approve, commit, then prepare the `advertising.ad_action` run of each
+   * approved action of an executable type (`create_campaign`) that has no live
+   * run and was not applied (KID-386); the owner's `plan` reads the committed
+   * approval. A manual action (`MANUAL_AD_ACTION_TYPES`, KID-138 decision A)
+   * is only confirmed. A failed preparation leaves the action approved and
+   * `not_prepared` and is thrown after the others were tried. Returns how many
+   * distinct actions of the organization it approved: every one the ids name,
+   * or with `expectedApprovalStatus` only those still in that review.
    */
   approveAdActions(
     ids: string[],
@@ -236,13 +216,12 @@ export interface AdActionRepositoryPort {
   ): Promise<number>;
 
   /**
-   * Reject + cancel not-yet-started execution tasks inside a single
-   * $transaction. Returns how many distinct actions of the organization it
-   * rejected: every one the ids name, or with `expectedApprovalStatus` only
-   * those still in that review. Throws ConflictException and rejects none when
-   * one of them has an attempt running within its execution deadline
-   * (`EXECUTION_TASK_RUNNING`) or a latest attempt that is done
-   * (`EXECUTION_TASK_DONE`).
+   * Reject and cancel a prepared run inside a single $transaction. Returns
+   * how many distinct actions of the organization it rejected: every one the
+   * ids name, or with `expectedApprovalStatus` only those still in that
+   * review. Rejects none and throws `ADVERTISING_AD_ACTION_EXECUTING` when the
+   * extension holds one of their runs, or `ADVERTISING_AD_ACTION_ALREADY_APPLIED`
+   * when one already changed the ad center.
    */
   rejectAdActions(
     ids: string[],
@@ -251,41 +230,19 @@ export interface AdActionRepositoryPort {
   ): Promise<number>;
 
   /**
-   * Move the attempt a browser execution report names. Throws
-   * NotFoundException for an action outside the organization and
-   * ConflictException, with a `code` saying why, when the named attempt is not
-   * the action's latest, is running past its execution deadline (it is then
-   * closed as failed), belongs to an action the operator applies by hand and
-   * the report is running or done (`EXECUTION_REPORT_MANUAL_ACTION`; a queued
-   * attempt is then closed as failed with `MANUAL_AD_ACTION_MESSAGE`), or
-   * cannot take the report; repeating the recorded status changes nothing.
+   * Register a campaign under an organization + name advisory lock: refuse
+   * the name while an action of it is queued, running, done or uncertain
+   * (`ADVERTISING_CAMPAIGN_ALREADY_REQUESTED`), reuse an approved one left
+   * without a run, or create an approved `create_campaign` action for the
+   * account. Commit, then prepare its run (KID-386); a failed preparation is
+   * thrown and leaves the action approved and `not_prepared`.
    */
-  reportActionExecution(
-    id: string,
-    organizationId: string,
-    report: AdActionExecutionReport,
-  ): Promise<void>;
-
-  /**
-   * Look up an open `actionType='create_campaign'` AdAction by campaign label.
-   * Returns the row when it is not rejected and its latest task reads
-   * queued/running/done so the caller can throw a deterministic 409 Conflict.
-   */
-  findOpenCreateCampaignAction(
-    organizationId: string,
-    campaignName: string,
-  ): Promise<{ id: string; executeStatus: string } | null>;
-
-  /**
-   * Create an approved `create_campaign` AdAction with a single queued
-   * `ExecutionTask` in one shot. Returns the new ids so the caller can
-   * surface the audit link.
-   */
-  createCampaignActionWithTask(input: {
+  createCampaignAction(input: {
     organizationId: string;
+    channelAccountId: string;
     campaignName: string;
     priority: 'urgent' | 'high' | 'medium' | 'low';
     reason: string;
     payload: Record<string, unknown>;
-  }): Promise<{ actionId: string; taskId: string | null }>;
+  }): Promise<{ actionId: string; operationId: string | null }>;
 }

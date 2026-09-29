@@ -2,13 +2,13 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 
 import { Test } from '@nestjs/testing';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { periodBounds } from '../domain/ad-metrics';
 import { AdvertisingModule } from '../advertising.module';
 import { AdActionService } from '../application/service/ad-action.service';
 import { AdStrategyService } from '../application/service/ad-strategy.service';
-import { deriveAdActionExecution, readLatestExecutionTasks } from '../adapter/out/persistence/read/ad-action-execution';
+import { enableAdActionOperations } from './test-helpers/ad-action-operations';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -299,6 +299,7 @@ describe('AdStrategy flow (PG integration)', () => {
       .overrideProvider(PrismaService)
       .useValue(prisma)
       .compile();
+    enableAdActionOperations(m);
     service = m.get(AdStrategyService);
     adActionService = m.get(AdActionService);
   });
@@ -894,7 +895,7 @@ describe('AdStrategy flow (PG integration)', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('#10 유효 listing → AdAction + ExecutionTask 생성', async () => {
+    it('#10 유효 listing → 승인된 AdAction + advertising.ad_action 실행 준비(KID-386)', async () => {
       const listing = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -917,7 +918,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
       expect(result.ok).toBe(true);
       expect(result.actionId).toBeTruthy();
-      expect(result.taskId).toBeTruthy();
+      expect(result.operationId).toBeTruthy();
 
       const action = await prisma.adAction.findUniqueOrThrow({
         where: { id: result.actionId },
@@ -928,22 +929,12 @@ describe('AdStrategy flow (PG integration)', () => {
       expect(action.targetLabel).toBe('OK campaign');
       expect(action.priority).toBe('high'); // grade A → high
       expect(action.approvalStatus).toBe('approved');
-      const latestTasks = await readLatestExecutionTasks(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        actionIds: [result.actionId],
-      });
-      expect(
-        deriveAdActionExecution(latestTasks.get(result.actionId) ?? null, new Date()).executeStatus,
-      ).toBe('queued');
-
-      const tasks = await prisma.executionTask.findMany({
-        where: { actionId: result.actionId },
-      });
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0].status).toBe('queued');
+      expect(action.operationId).toBe(result.operationId);
+      await expect(prisma.operation.findUniqueOrThrow({ where: { id: result.operationId! } }))
+        .resolves.toMatchObject({ kind: 'advertising.ad_action', status: 'prepared' });
     });
 
-    it('#11 동일 campaignName 재등록 → ConflictException', async () => {
+    it('#11 동일 campaignName 재등록 → ADVERTISING_CAMPAIGN_ALREADY_REQUESTED', async () => {
       const listing = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -962,39 +953,7 @@ describe('AdStrategy flow (PG integration)', () => {
 
       await expect(
         service.registerCampaign(dto, TEST_ORGANIZATION_ID),
-      ).rejects.toThrow(ConflictException);
-    });
-
-    it('#11b a done registration keeps the name taken; a failed one can be registered again', async () => {
-      const listing = await seedGradedListing({
-        organizationId: TEST_ORGANIZATION_ID,
-        abcGrade: 'A',
-        suffix: 'RETRY',
-      });
-      const dto: Parameters<AdStrategyService['registerCampaign']>[0] = {
-        campaignName: 'Retry campaign',
-        adGroupName: 'ag',
-        grade: 'A',
-        dailyBudget: 10000,
-        operationMode: 'manual',
-        listings: [{ listingId: listing.listing.id }],
-      };
-
-      const first = await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
-      await prisma.executionTask.updateMany({
-        where: { actionId: first.actionId },
-        data: { status: 'failed', finishedAt: new Date(), errorMessage: '폼 검증 실패' },
-      });
-      const second = await service.registerCampaign(dto, TEST_ORGANIZATION_ID);
-      expect(second.actionId).not.toBe(first.actionId);
-
-      await prisma.executionTask.updateMany({
-        where: { actionId: second.actionId },
-        data: { status: 'done', finishedAt: new Date() },
-      });
-      await expect(
-        service.registerCampaign(dto, TEST_ORGANIZATION_ID),
-      ).rejects.toThrow(/등록 완료/);
+      ).rejects.toMatchObject({ code: 'ADVERTISING_CAMPAIGN_ALREADY_REQUESTED' });
     });
 
     it('#11c a rejected registration does not keep the name taken (KID-138)', async () => {
@@ -1021,7 +980,7 @@ describe('AdStrategy flow (PG integration)', () => {
       // The new registration is queued, so it takes the name again.
       await expect(
         service.registerCampaign(dto, TEST_ORGANIZATION_ID),
-      ).rejects.toThrow(/등록 진행 중/);
+      ).rejects.toMatchObject({ code: 'ADVERTISING_CAMPAIGN_ALREADY_REQUESTED', details: { executeStatus: 'queued' } });
     });
   });
 

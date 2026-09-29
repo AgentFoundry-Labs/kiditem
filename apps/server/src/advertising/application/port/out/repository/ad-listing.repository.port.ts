@@ -63,4 +63,15 @@ export interface AdListingRepositoryPort {
     listingId: string,
     organizationId: string,
   ): Promise<boolean>;
+
+  /**
+   * The organization's active listings a campaign registration names, with
+   * their account and active option ids — the ad center's registration search
+   * matches `vendor_item` rows, so it searches by option id (KID-386).
+   * Listings out of scope or inactive are left out.
+   */
+  readCampaignListings(
+    organizationId: string,
+    listingIds: readonly string[],
+  ): Promise<Array<{ id: string; externalId: string; channelAccountId: string; optionIds: string[] }>>;
 }

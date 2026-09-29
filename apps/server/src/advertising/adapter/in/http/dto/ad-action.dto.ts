@@ -2,6 +2,7 @@ import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, 
 import { Type } from 'class-transformer';
 import {
   AD_ACTION_COMMAND_MAX_IDS,
+  AD_ACTION_EXECUTE_STATUSES,
   AdActionExpectedApprovalStatusSchema,
   type AdActionExpectedApprovalStatus,
 } from '@kiditem/shared/advertising';
@@ -12,8 +13,9 @@ export class AdActionQueryDto {
   @IsString()
   approvalStatus?: string;
 
+  /** An execution word read from the action's run (KID-386), or `all`. */
   @IsOptional()
-  @IsString()
+  @IsIn([...AD_ACTION_EXECUTE_STATUSES, 'all'])
   executeStatus?: string;
 
   @IsOptional()
@@ -42,7 +44,7 @@ export class AdActionQueryDto {
 
 export class AdActionCommandDto {
   @IsString()
-  @IsIn(['generate', 'approve', 'reject', 'markRunning', 'markDone', 'markFailed'])
+  @IsIn(['generate', 'approve', 'reject'])
   action: string;
 
   /** Actions to approve or reject, at most the action listing's page size. */
@@ -59,24 +61,4 @@ export class AdActionCommandDto {
   @IsOptional()
   @IsIn(AdActionExpectedApprovalStatusSchema.options)
   expectedApprovalStatus?: AdActionExpectedApprovalStatus;
-
-  /** The action an execution report is for. */
-  @IsOptional()
-  @IsUUID()
-  id?: string;
-
-  /** The attempt an execution report is for: the action listing's `executionTaskId`. */
-  @IsOptional()
-  @IsUUID()
-  executionTaskId?: string;
-
-  @IsOptional()
-  beforeJson?: Record<string, unknown>;
-
-  @IsOptional()
-  afterJson?: Record<string, unknown>;
-
-  @IsOptional()
-  @IsString()
-  errorMessage?: string;
 }

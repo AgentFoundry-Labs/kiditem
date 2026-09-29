@@ -2,8 +2,9 @@ import {
   Inject,
   Injectable,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
+import { adActionCreateCampaign } from '../../domain/ad-action-operation';
 import { AdConfigService } from './ad-config.service';
 import { AdGradeRulesService } from './ad-grade-rules.service';
 import { AdBudgetAllocatorService } from './ad-budget-allocator.service';
@@ -32,6 +33,7 @@ import {
   toRecommendationCards,
 } from '../../domain/ad-strategy.mapper';
 import type {
+  AdCampaignRegisterResponse,
   AdRulesData,
   AdStrategyAction,
   AdStrategyRecommendation,
@@ -56,8 +58,9 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
  *   - composes the per-endpoint Promise.all batches,
  *   - delegates calculation to the sub-services,
  *   - assembles response shapes via mappers,
- *   - and writes for `registerCampaign()` (kept here because of its IDOR +
- *     duplicate-guard + ExecutionTask creation contract).
+ *   - and writes for `registerCampaign()` (kept here because of its IDOR,
+ *     one-account and runnable-payload checks; the repository decides the
+ *     name under its lock and prepares the `advertising.ad_action` run).
  */
 @Injectable()
 export class AdStrategyService {
@@ -162,17 +165,17 @@ export class AdStrategyService {
   }
 
   /**
-   * 캠페인 등록 — listing IDOR guard + 중복 차단 + AdAction + ExecutionTask 생성.
+   * 캠페인 등록 — listing IDOR guard + 한 계정 확인 + 중복 차단 + 승인된 AdAction 생성 + 실행 준비(KID-386).
    *
-   * Write use case kept inside the service because it carries the
-   * IDOR / duplicate / task creation invariants. Agent execution for the
-   * resulting judgment is submitted through Advertising's local port by
-   * `AdStrategyAgentService`; this service has no runtime coupling.
+   * 등록 내용은 액션 `payload`에 둔다: 광고센터 등록 폼이 쓰는 `campaignName`·`adGroupName`·`productIds`(리스팅의
+   * 외부 id = 광고센터 상품 검색 키)·`dailyBudget`·`targetRoas`와 화면이 보낸 나머지 값. 계정은 `channelAccountId`
+   * 칸이다. 액션을 커밋한 뒤 `advertising.ad_action` 실행을 준비하고, 준비가 실패하면 그 오류를 올린다(액션은
+   * 승인·`not_prepared`로 남고 다시 승인하면 준비된다).
    */
   async registerCampaign(
     dto: RegisterCampaignDto,
     organizationId: string,
-  ): Promise<{ ok: true; actionId: string; taskId: string | null }> {
+  ): Promise<AdCampaignRegisterResponse> {
     // 1. listingId 검증 (per-item IDOR guard)
     for (const listing of dto.listings) {
       const owned = await this.listingRepo.verifyListingOwnership(
@@ -186,17 +189,26 @@ export class AdStrategyService {
       }
     }
 
-    // 2. 중복 캠페인 체크
-    const existing = await this.actionRepo.findOpenCreateCampaignAction(
+    // 2. 한 캠페인은 한 쿠팡 계정의 광고센터에 등록된다.
+    const listings = await this.listingRepo.readCampaignListings(
       organizationId,
-      dto.campaignName,
+      dto.listings.map((listing) => listing.listingId),
     );
-    if (existing) {
-      throw new ConflictException(
-        `캠페인 '${dto.campaignName}'이 이미 ${existing.executeStatus === 'done' ? '등록 완료' : '등록 진행 중'}입니다. (ActionID: ${existing.id})`,
-      );
+    const accountIds = [...new Set(listings.map((listing) => listing.channelAccountId))];
+    if (accountIds.length !== 1) {
+      throw new KiditemInvalidValueError('ADVERTISING_CAMPAIGN_ACCOUNTS_MIXED', {
+        details: { channelAccountIds: accountIds },
+      });
+    }
+    const withoutOptions = listings.filter((listing) => listing.optionIds.length === 0).map((listing) => listing.id);
+    if (withoutOptions.length > 0) {
+      throw new KiditemPreconditionError('ADVERTISING_AD_ACTION_NOT_EXECUTABLE', {
+        details: { reason: 'listing_without_options', listingIds: withoutOptions },
+        message: '판매 중인 옵션이 없는 상품은 광고센터에서 찾을 수 없습니다. 옵션이 있는 상품으로 다시 등록해 주세요.',
+      });
     }
 
+    // 3. 같은 이름의 열린 등록은 저장소가 조직·이름 잠금 안에서 거절하거나(진행·반영) 다시 준비한다(준비 안 됨).
     const priority: Priority = dto.grade === 'A' ? 'high' : dto.grade === 'B' ? 'medium' : 'low';
 
     const payload: Record<string, unknown> = {
@@ -207,6 +219,8 @@ export class AdStrategyService {
       dailyBudget: dto.dailyBudget,
       operationMode: dto.operationMode,
       listings: dto.listings,
+      // 광고센터 등록 검색은 옵션(`vendor_item`) 단위라 리스팅 옵션 id로 찾는다.
+      productIds: [...new Set(listings.flatMap((listing) => listing.optionIds))],
       smartTargetingBid: dto.smartTargetingBid ?? null,
       keywords: dto.keywords ?? [],
       nonSearchBid: dto.nonSearchBid ?? null,
@@ -214,20 +228,24 @@ export class AdStrategyService {
       pageType: 'campaign_registration',
     };
 
-    const { actionId, taskId } =
-      await this.actionRepo.createCampaignActionWithTask({
-        organizationId,
-        campaignName: dto.campaignName,
-        priority,
-        reason: `${dto.grade}등급 전략 기반 캠페인 등록`,
-        payload,
+    // 실행할 수 없는 등록 내용은 커밋하지 않는다(상품 1~50, 정수 예산·목표 ROAS).
+    if (!adActionCreateCampaign({ targetLabel: dto.campaignName, payload })) {
+      throw new KiditemPreconditionError('ADVERTISING_AD_ACTION_NOT_EXECUTABLE', {
+        details: { reason: 'registration_incomplete' },
+        message: '캠페인 등록 내용(상품 1~50개, 원 단위 예산·목표 ROAS)이 맞지 않아 광고센터에 등록할 수 없습니다.',
       });
+    }
 
-    return {
-      ok: true,
-      actionId,
-      taskId,
-    };
+    const { actionId, operationId } = await this.actionRepo.createCampaignAction({
+      organizationId,
+      channelAccountId: accountIds[0],
+      campaignName: dto.campaignName,
+      priority,
+      reason: `${dto.grade}등급 전략 기반 캠페인 등록`,
+      payload,
+    });
+
+    return { ok: true, actionId, operationId };
   }
 
   // ─────────────────────────────────────────────────────────────
