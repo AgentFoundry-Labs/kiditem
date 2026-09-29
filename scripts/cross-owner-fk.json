@@ -89,7 +89,6 @@
     "SourcingDecisionBatch": "sourcing",
     "SourcingDecisionBatchItem": "sourcing",
     "SourcingDecisionEvidence": "sourcing",
-    "SourcingEvidenceIngestionRun": "sourcing",
     "SourcingEvidenceObservation": "sourcing",
     "SourcingInterestTarget": "sourcing",
     "SourcingKeywordPreference": "sourcing",
