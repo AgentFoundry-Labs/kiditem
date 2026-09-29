@@ -16,10 +16,10 @@ families and NestJS owner APIs; generated files may use `fetchRaw()`.
   never edits physical stock.
 - Rocket catalog and preview use Supply's purchase-order action contract and do
   not create Inventory commitments.
-- Sellpia submission is a durable Orders transmission request. Prepare the
-  stable intent before extension IO, finalize only observed submission, and
-  abort only explicit confirmed non-submission. Unknown outcomes remain
-  reconcilable and do not trigger Inventory work.
+- Sellpia submission is the operation `orders.sellpia_order_transfer`: the
+  server rebuilds the file from the source run, and the run is the idempotency
+  fence. A submitted-but-unconfirmed run stays `reconciling` until the operator
+  confirms or closes it; it never triggers Inventory work.
 - Extension-backed local errors may suppress the global query toast. Local file
   history is convenience state, not order authority.
 

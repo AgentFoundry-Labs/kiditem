@@ -47,7 +47,7 @@ describe('universal extension discovery', () => {
   it('rejects an extension without the new runtime capability', async () => {
     window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'coupang-extension');
     await expect(detectExtensionId(5)).resolves.toBeNull();
-    installChrome({ success: true, capabilities: { orderCollectionIcecreamMall: true } });
+    installChrome({ success: true, capabilities: { orderActionOperationKindsV1: true } });
     await expect(detectExtensionId(5)).resolves.toBeNull();
   });
 
@@ -102,11 +102,11 @@ describe('universal extension discovery', () => {
       KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
       'order-extension',
     );
-    // 옛 워커 표시만 있는 확장은 새 런타임이 없으면 기본 감지에 잡히지 않는다(KID-366).
+    // kind 표시만 있고 새 런타임이 없는 확장은 기본 감지에 잡히지 않는다(KID-366).
     installChrome({
       success: true,
       capabilities: {
-        orderCollectionIcecreamMall: true,
+        orderActionOperationKindsV1: true,
       },
     });
     await expect(detectOrderCollectionExtensionId(5)).resolves.toBeNull();

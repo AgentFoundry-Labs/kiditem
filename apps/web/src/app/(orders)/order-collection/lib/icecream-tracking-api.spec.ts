@@ -21,8 +21,7 @@ it('has no Domeggook tracking upload — nothing called it (KID-366)', async () 
 
 it('온채널·키드키즈 송장 업로드는 실행 orders.mall_tracking_upload로 옮겼다 — 확장 호출·판매처 표 사본이 없다(KID-366)', async () => {
   const module = await import('./icecream-tracking-api');
-  expect(module).not.toHaveProperty('uploadOnchTrackingViaExtension');
-  expect(module).not.toHaveProperty('uploadKidkidsTrackingViaExtension');
+  expect(Object.keys(module).filter((name) => /^upload(Onch|Kidkids)/.test(name))).toEqual([]);
   expect(module).not.toHaveProperty('isTrackingSupportedMall');
   expect(module).not.toHaveProperty('resolveMallKeyFromSellpiaProvider');
 });
