@@ -10,6 +10,11 @@ import {
   parseAllowedSupplierUrl,
 } from '../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourceRecordIdentity } from '../apps/server/src/sourcing/domain/source-record-identity';
+import { hashCollectionRequest } from '../apps/server/src/sourcing/application/service/sourcing-collection-mappers';
+import {
+  SOURCING_OPERATION_KINDS,
+  type SourcingServerScope,
+} from '@kiditem/shared/sourcing-operation';
 import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
 
 export const GENERATED_DATABASE_MARKER = 'kiditem_agent_os_clean_cutover';
@@ -166,21 +171,26 @@ type BrowserQaSalesProductDraft = {
 const BROWSER_QA_FIXTURE_HASH = 'b'.repeat(64);
 
 type BrowserQaRecommendationPlan = {
-  evidenceIngestionRun: {
+  /** The succeeded server-run collection the evidence came from (KID-389: operations replace ingestion runs). */
+  evidenceOperation: {
+    kind: typeof SOURCING_OPERATION_KINDS.scrapeUrl;
+    idempotencyKey: string;
+    scope: SourcingServerScope;
+    startedAt: Date;
+    finishedAt: Date;
+  };
+  /** Its current publication: what makes the evidence a complete snapshot to the owner's readers. */
+  evidencePublication: {
     sourceKey: string;
     scopeKey: string;
     targetKey: string;
-    idempotencyKey: string;
-    requestHash: string;
+    isCurrent: boolean;
     collectorKey: string;
     collectorVersion: string;
-    triggerKind: string;
-    status: string;
     discoveredCount: number;
     acceptedCount: number;
-    rejectedCount: number;
     duplicateCount: number;
-    startedAt: Date;
+    contentChecksum: string;
     completedAt: Date;
   };
   evidenceObservation: {
@@ -289,7 +299,7 @@ export type BrowserQaSeedResult = {
   membershipId: string;
   sourceRecordId?: string;
   salesProductId?: string;
-  evidenceIngestionRunId?: string;
+  evidenceOperationId?: string;
   evidenceObservationId?: string;
   recommendationRunId?: string;
   recommendationItemId?: string;
@@ -789,26 +799,49 @@ function createBrowserQaRecommendationPlan(
     now.getUTCDate(),
   ));
   const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1_000);
+  // The same scope the URL collection freezes for a 1688 offer URL.
+  const attemptPlan = { source: '1688.scrape_url', sourceUrl: supplier.sourceUrl, platform: '1688' };
+  const planChecksum = hashCollectionRequest(attemptPlan);
+  const scope: SourcingServerScope = {
+    sourceKey: attemptPlan.source,
+    scopeKey: 'product-url',
+    targetKey: hashCollectionRequest(supplier.sourceUrl),
+    planChecksum,
+    requestFingerprint: planChecksum,
+    requestIdempotencyKey: 'browser-qa-recommendation-evidence',
+    collectorKey: 'browser-qa-fixture',
+    collectorVersion: 'v1',
+    attemptPlan,
+    failureAlert: {
+      sourceType: attemptPlan.source,
+      dedupeKey: `source:${attemptPlan.source}`,
+      title: '공급사 URL 수집 실패',
+      href: '/product-pipeline/collected-products',
+    },
+  };
   return {
-    evidenceIngestionRun: {
-      sourceKey: 'browser_qa',
-      scopeKey: 'recommendation',
-      targetKey: 'browser-qa-recommendation',
+    evidenceOperation: {
+      kind: SOURCING_OPERATION_KINDS.scrapeUrl,
       idempotencyKey: 'browser-qa-recommendation-evidence',
-      requestHash: BROWSER_QA_FIXTURE_HASH,
-      collectorKey: 'browser-qa-fixture',
-      collectorVersion: 'v1',
-      triggerKind: 'fixture',
-      status: 'complete',
+      scope,
+      startedAt: now,
+      finishedAt: now,
+    },
+    evidencePublication: {
+      sourceKey: scope.sourceKey,
+      scopeKey: scope.scopeKey,
+      targetKey: scope.targetKey,
+      isCurrent: true,
+      collectorKey: scope.collectorKey,
+      collectorVersion: scope.collectorVersion,
       discoveredCount: 1,
       acceptedCount: 1,
-      rejectedCount: 0,
       duplicateCount: 0,
-      startedAt: now,
+      contentChecksum: BROWSER_QA_FIXTURE_HASH,
       completedAt: now,
     },
     evidenceObservation: {
-      sourceKey: 'browser_qa',
+      sourceKey: scope.sourceKey,
       platform: '1688',
       evidenceFamily: 'supplier_offer',
       signalRole: 'source',
@@ -904,14 +937,15 @@ async function seedBrowserQaRecommendationWorkspace({
   plan: BrowserQaSeedPlan;
 }): Promise<Pick<
   BrowserQaSeedResult,
-  | 'evidenceIngestionRunId'
+  | 'evidenceOperationId'
   | 'evidenceObservationId'
   | 'recommendationRunId'
   | 'recommendationItemId'
   | 'workspaceSnapshotId'
 >> {
   if (
-    !plan.evidenceIngestionRun
+    !plan.evidenceOperation
+    || !plan.evidencePublication
     || !plan.evidenceObservation
     || !plan.recommendationRun
     || !plan.recommendationItem
@@ -920,23 +954,62 @@ async function seedBrowserQaRecommendationWorkspace({
     throw new Error('Browser-QA recommendation fixture plan is incomplete.');
   }
 
-  const evidenceIngestionRun = await transaction.sourcingEvidenceIngestionRun.upsert({
+  const { attemptPlan, ...scopeBase } = plan.evidenceOperation.scope;
+  // The row the server-run owner's plan() stores: the frozen attempt plan, the scope keys, and who started it.
+  const operationPlan = { ...attemptPlan, ...scopeBase, startedBy: userId } as Prisma.InputJsonObject;
+  const operationResult = {
+    sourceKey: plan.evidencePublication.sourceKey,
+    scopeKey: plan.evidencePublication.scopeKey,
+    targetKey: plan.evidencePublication.targetKey,
+    discoveredCount: plan.evidencePublication.discoveredCount,
+    acceptedCount: plan.evidencePublication.acceptedCount,
+    duplicateCount: plan.evidencePublication.duplicateCount,
+    rejectedCount: 0,
+    contentChecksum: plan.evidencePublication.contentChecksum,
+    completedAt: plan.evidencePublication.completedAt.toISOString(),
+  };
+  const operationRow = {
+    status: 'succeeded',
+    plan: operationPlan,
+    result: operationResult,
+    attempts: 1,
+    startedAt: plan.evidenceOperation.startedAt,
+    finishedAt: plan.evidenceOperation.finishedAt,
+    expiresAt: plan.evidenceOperation.finishedAt,
+  };
+  const evidenceOperation = await transaction.operation.upsert({
     where: {
-      organizationId_sourceKey_idempotencyKey: {
+      organizationId_kind_idempotencyKey: {
         organizationId,
-        sourceKey: plan.evidenceIngestionRun.sourceKey,
-        idempotencyKey: plan.evidenceIngestionRun.idempotencyKey,
+        kind: plan.evidenceOperation.kind,
+        idempotencyKey: plan.evidenceOperation.idempotencyKey,
       },
     },
-    update: {
-      ...plan.evidenceIngestionRun,
-      triggeredByUserId: userId,
-    },
+    update: operationRow,
     create: {
       organizationId,
-      triggeredByUserId: userId,
-      ...plan.evidenceIngestionRun,
+      kind: plan.evidenceOperation.kind,
+      idempotencyKey: plan.evidenceOperation.idempotencyKey,
+      token: randomUUID(),
+      ...operationRow,
     },
+    select: { id: true },
+  });
+  const publicationRow = {
+    ...plan.evidencePublication,
+    plan: operationPlan,
+    qualityReport: {
+      source: plan.evidencePublication.sourceKey,
+      planChecksum: plan.evidenceOperation.scope.planChecksum,
+      completeSnapshot: true,
+    },
+  };
+  await transaction.sourcingSourcePublication.upsert({
+    where: {
+      organizationId_operationId: { organizationId, operationId: evidenceOperation.id },
+    },
+    update: publicationRow,
+    create: { organizationId, operationId: evidenceOperation.id, ...publicationRow },
     select: { id: true },
   });
   const evidenceObservation = await transaction.sourcingEvidenceObservation.upsert({
@@ -948,13 +1021,13 @@ async function seedBrowserQaRecommendationWorkspace({
       },
     },
     update: {
-      operationId: evidenceIngestionRun.id,
+      operationId: evidenceOperation.id,
       ...plan.evidenceObservation,
       payload: plan.evidenceObservation.payload as Prisma.InputJsonValue,
     },
     create: {
       organizationId,
-      operationId: evidenceIngestionRun.id,
+      operationId: evidenceOperation.id,
       ...plan.evidenceObservation,
       payload: plan.evidenceObservation.payload as Prisma.InputJsonValue,
     },
@@ -1045,7 +1118,7 @@ async function seedBrowserQaRecommendationWorkspace({
   });
 
   return {
-    evidenceIngestionRunId: evidenceIngestionRun.id,
+    evidenceOperationId: evidenceOperation.id,
     evidenceObservationId: evidenceObservation.id,
     recommendationRunId: recommendationRun.id,
     recommendationItemId: recommendationItem.id,
