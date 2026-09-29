@@ -75,7 +75,7 @@ export class WingCatalogOperationService implements WingCatalogOperationPort {
     bytes: Uint8Array;
     observedAt?: string;
   }): Promise<{ operation: OperationView }> {
-    // 같은 파일은 계정마다 한 번 반영한다(옛 `source_import_runs` fileHash가 계정 범위였다). 실행 계약의 fileHash
+    // 같은 파일은 계정마다 한 번 반영한다. 실행 계약의 fileHash
     // unique는 (조직, kind)라 계정 id를 지문에 넣는다.
     const fileHash = this.integrity.sha256Bytes(`${input.channelAccountId.toLowerCase()}\n`, input.bytes);
     const begun: OperationBeginResponse = await this.operations.begin(input.organizationId, {

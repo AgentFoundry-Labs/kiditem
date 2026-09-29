@@ -22,8 +22,8 @@ import { deactivateCatalogAbsence } from './catalog-absence';
 const SOURCE_TYPE = SABANGNET_MALL_LISTINGS_SOURCE_TYPE;
 
 /**
- * 사방넷 몰 목록 kind(KID-363)의 Channels 원장 쓰기. 반영 출처는 `lastOperationId`이고 `source_import_runs`는
- * 읽지도 쓰지도 않는다. 실행 겹침은 실행 잠금(`resource:sabangnet:login`)이, 몰 계정 여러 곳의 리스팅 쓰기와
+ * 사방넷 몰 목록 kind(KID-363)의 Channels 원장 쓰기. 반영 출처는 `lastOperationId`(성공한 실행)다.
+ * 실행 겹침은 실행 잠금(`resource:sabangnet:login`)이, 몰 계정 여러 곳의 리스팅 쓰기와
  * 매칭 세대는 finish 트랜잭션 안의 매칭 잠금이 지킨다.
  */
 @Injectable()

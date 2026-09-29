@@ -93,7 +93,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
           transaction: tx,
           organizationId,
           userId,
-          publicationReference: { type: 'source_import_run', id: importId },
+          publicationReference: { type: 'operation', id: importId },
           publicationScope,
           listings: [{
             listingId: id,
@@ -130,7 +130,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     expect(original).toMatchObject({
       role: 'primary',
       sortOrder: 1,
-      metadata: { publicationReference: { type: 'source_import_run', id: firstRef } },
+      metadata: { publicationReference: { type: 'operation', id: firstRef } },
     });
     const workspaceId = original.contentWorkspaceId;
     const stored = await prisma.contentAsset.findFirstOrThrow({
@@ -203,11 +203,12 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         customDiagnostic: 'keep',
         sourceUrl: url('a'),
         externalOptionId: null,
-        publicationReference: { type: 'source_import_run', id: nextRef },
-        lastImportRunId: nextRef,
+        publicationReference: { type: 'operation', id: nextRef },
         active: true,
       },
     });
+    expect(reused.metadata).not.toHaveProperty('lastImportRunId');
+    expect(reused.metadata).not.toHaveProperty('sourceImportRunId');
     // The URL did not change, so the stored copy stays with it (KID-350).
     expect(reused.metadata).toMatchObject({ materializationStatus: 'ready', materializedAtMs: 100 });
     expect(refreshed.map((row) => row.url).sort()).toEqual(
@@ -395,13 +396,12 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         materializationError: 'old-error',
         nextMaterializationAttemptAtMs: 300,
         operatorNote: 'keep',
-        publicationReference: { type: 'source_import_run', id: importId },
+        publicationReference: { type: 'operation', id: importId },
         publicationScope: 'full',
-        sourceImportRunId: importId,
-        lastImportRunId: importId,
         active: true,
       },
     });
+    expect(preserved.metadata).not.toHaveProperty('lastImportRunId');
   });
 
   it('preserves a pointer the catalog did not set (no representative marker)', async () => {
@@ -454,7 +454,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
           sourceUrl: url('old-unobserved-option'),
           externalOptionId: 'OPTION-C',
           externalOptionIds: ['OPTION-C'],
-          publicationReference: { type: 'source_import_run', id: initialRef },
+          publicationReference: { type: 'operation', id: initialRef },
           publicationScope: 'full',
           sourceImportRunId: initialRef,
           lastImportRunId: initialRef,
@@ -498,7 +498,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       ].sort(),
     );
     expect(afterBasic.find((asset) => asset.url === url('old-detail'))?.metadata).toMatchObject({
-      publicationReference: { type: 'source_import_run', id: initialRef },
+      publicationReference: { type: 'operation', id: initialRef },
       publicationScope: 'full',
     });
     expect(
@@ -507,7 +507,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       }),
     ).toMatchObject({
       isDeleted: true,
-      metadata: { publicationReference: { type: 'source_import_run', id: basicRef }, publicationScope: 'basic' },
+      metadata: { publicationReference: { type: 'operation', id: basicRef }, publicationScope: 'basic' },
     });
     expect(await currentThumbnail()).toBe(url('operator'));
 
@@ -550,16 +550,16 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     expect(shared.metadata).toMatchObject({
       externalOptionId: null,
       externalOptionIds: ['OPTION-A', 'OPTION-B'],
-      publicationReference: { type: 'source_import_run', id: optionRef },
+      publicationReference: { type: 'operation', id: optionRef },
       publicationScope: 'option',
-      sourceImportRunId: optionRef,
     });
+    expect(shared.metadata).not.toHaveProperty('sourceImportRunId');
     expect(shared.id).toBe(oldOptionId);
     const unobservedOption = afterDetail.find((asset) => asset.url === url('old-unobserved-option'))!;
     expect(unobservedOption).toMatchObject({
       metadata: {
         externalOptionIds: ['OPTION-C'],
-        publicationReference: { type: 'source_import_run', id: initialRef },
+        publicationReference: { type: 'operation', id: initialRef },
         active: false,
       },
     });
@@ -571,7 +571,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       }),
     ).toMatchObject({ isDeleted: false });
     expect(afterDetail.find((asset) => asset.url === url('new-primary'))?.metadata).toMatchObject({
-      publicationReference: { type: 'source_import_run', id: basicRef },
+      publicationReference: { type: 'operation', id: basicRef },
       publicationScope: 'basic',
     });
     expect(await currentThumbnail()).toBe(url('operator'));
@@ -608,7 +608,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       metadata: {
         externalOptionId: 'OPTION-B',
         externalOptionIds: ['OPTION-B'],
-        publicationReference: { type: 'source_import_run', id: initialRef },
+        publicationReference: { type: 'operation', id: initialRef },
         active: true,
       },
     });
@@ -621,7 +621,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       metadata: {
         externalOptionId: 'OPTION-A',
         externalOptionIds: ['OPTION-A'],
-        publicationReference: { type: 'source_import_run', id: optionRef },
+        publicationReference: { type: 'operation', id: optionRef },
         active: true,
       },
     });
@@ -658,7 +658,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       metadata: {
         externalOptionId: 'OPTION-B',
         externalOptionIds: ['OPTION-B'],
-        publicationReference: { type: 'source_import_run', id: initialRef },
+        publicationReference: { type: 'operation', id: initialRef },
         active: true,
       },
     });
@@ -671,7 +671,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       metadata: {
         externalOptionId: 'OPTION-A',
         externalOptionIds: ['OPTION-A'],
-        publicationReference: { type: 'source_import_run', id: detailRef },
+        publicationReference: { type: 'operation', id: detailRef },
         active: true,
       },
     });
@@ -950,7 +950,7 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         sortOrder: 5,
         isDeleted: false,
         ...storedCopy,
-        metadata: { ...materialized, lastImportRunId: nextRef, active: true },
+        metadata: { ...materialized, publicationReference: { type: 'operation', id: nextRef }, active: true },
       });
     });
 
@@ -967,12 +967,35 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       });
 
       expect(await rowVersions()).toEqual(before);
-      // An unchanged row keeps the run that last changed it.
+      // An unchanged row keeps the publication that last changed it.
       expect((await assetByUrl(url('same-detail'))).metadata).toMatchObject({
-        lastImportRunId: firstRef,
+        publicationReference: { type: 'operation', id: firstRef },
         ...materialized,
       });
       expect(await currentThumbnail()).toBe(url('same-primary'));
+    });
+
+    it('does not rewrite a row an older publication stamped with run-named keys', async () => {
+      const photos = [media('legacy-primary', 'primary'), media('legacy-detail', 'detail', 1)];
+      await publish(listingId, photos);
+      const legacy = await assetByUrl(url('legacy-detail'));
+      const oldRef = randomUUID();
+      await prisma.contentAsset.update({
+        where: { id_organizationId: { id: legacy.id, organizationId: ORG } },
+        data: {
+          metadata: {
+            ...(legacy.metadata as Record<string, unknown>),
+            sourceImportRunId: oldRef,
+            lastImportRunId: oldRef,
+          },
+        },
+      });
+      const before = await rowVersions();
+
+      await publish(listingId, photos, ORG, USER, randomUUID());
+
+      // Those keys are publication history, so their absence from a new publication is no change.
+      expect(await rowVersions()).toEqual(before);
     });
 
     it('leaves an operator-selected catalog photo and its stored copy alone', async () => {

@@ -30,9 +30,9 @@ export interface CatalogMediaPublicationPort {
     organizationId: string;
     /** 반영을 시작한 사람. 서버 구동 실행처럼 사람이 없으면 `null`(작업공간·자산 작성자가 비어 있다). */
     userId: string | null;
-    /** 반영 출처. 파일 import는 `source_import_run`, 실행 계약으로 옮긴 원천(Wing 카탈로그, KID-354)은 `operation`. */
+    /** 반영 출처: 반영한 성공 실행(KID-354). */
     publicationReference: {
-      type: 'source_import_run' | 'operation';
+      type: 'operation';
       id: string;
     };
     /**

@@ -11,11 +11,11 @@ const storage = {
 const emptyStorage = { storageKey: null, mimeType: null, width: null, height: null, fileSize: null };
 const materialization = { materializationStatus: 'ready', materializedAtMs: 100 };
 const history = (run: string) => ({
-  publicationReference: { type: 'source_import_run', id: run },
-  sourceImportRunId: run,
-  lastImportRunId: run,
+  publicationReference: { type: 'operation', id: run },
   publicationScope: 'full',
 });
+/** Keys older publications wrote; stored rows may still carry them. */
+const retiredHistory = (run: string) => ({ sourceImportRunId: run, lastImportRunId: run });
 const published = (run: string, extra: Record<string, unknown> = {}) => ({
   sourceType: 'channel_catalog',
   channel: 'smartstore',
@@ -47,6 +47,27 @@ describe('planCatalogAssetRepublication', () => {
   it('leaves a row untouched when only the publication history fields differ', () => {
     expect(planCatalogAssetRepublication(stored(), observed(), { preservesManualSelection: false }))
       .toEqual({ kind: 'unchanged' });
+  });
+
+  it('leaves a row untouched when it carries run-named keys a new publication no longer writes', () => {
+    const legacy = stored({
+      metadata: { ...published('run-1'), ...retiredHistory('run-1'), ...materialization, catalogRepresentative: true },
+    });
+    expect(planCatalogAssetRepublication(legacy, observed(), { preservesManualSelection: false }))
+      .toEqual({ kind: 'unchanged' });
+  });
+
+  it('drops run-named keys from a row it rewrites', () => {
+    const legacy = stored({
+      metadata: { ...published('run-1'), ...retiredHistory('run-1'), ...materialization, catalogRepresentative: true },
+    });
+    const plan = planCatalogAssetRepublication(legacy, observed({ sortOrder: 3 }), { preservesManualSelection: false });
+    expect(plan).toMatchObject({
+      kind: 'update',
+      metadata: { ...published('run-2'), ...materialization, catalogRepresentative: true },
+    });
+    expect(plan.kind === 'update' && plan.metadata).not.toHaveProperty('lastImportRunId');
+    expect(plan.kind === 'update' && plan.metadata).not.toHaveProperty('sourceImportRunId');
   });
 
   it('keeps the stored copy and its materialization keys when the same URL gets a new order', () => {

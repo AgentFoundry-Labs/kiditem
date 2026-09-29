@@ -80,7 +80,7 @@ export class RocketSellpiaMatchingCsvImportService implements RocketSellpiaMatch
     if (parsed.rows.length === 0) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'matching_csv_empty' } });
     }
-    // 같은 파일은 계정마다 한 번 반영한다(옛 `source_import_runs` fileHash가 계정 범위였다). 계약의 fileHash
+    // 같은 파일은 계정마다 한 번 반영한다. 계약의 fileHash
     // unique는 (조직, kind)라 계정 id를 지문에 넣는다 — Wing 엑셀 kind와 같은 규칙.
     const fileHash = this.integrity.sha256Bytes(`${input.channelAccountId.toLowerCase()}\n`, input.bytes);
     const begun = await this.operations.begin(input.organizationId, {

@@ -32,7 +32,7 @@ export interface ReviewPublication {
  * - 쿠팡은 Open API로 판매자 상품평을 주지 않는다. 확장이 Wing 상품평 화면
  *   (`POST /tenants/cs/product/review/search`, 세션 쿠키)을 읽어 실행 청크로 넘긴다.
  * - 리뷰당 operation 행은 하나다(`reviews_org_platform_external_operation_key`). 새 리뷰는 넣고, 있던 리뷰는
- *   내용과 `operationId`·`publishedAt`을 이번 실행으로 갱신한다. 옛 SourceImportRun 행은 건드리지 않는다.
+ *   내용과 `operationId`·`publishedAt`을 이번 실행으로 갱신한다. `operationId`가 없는 옛 행은 건드리지 않는다.
  * - `externalOptionId`(쿠팡 vendorItemId = 옵션ID) → Channels 공개 조회로 listing을 연결한다. 후보가 없거나
  *   여러 listing/account에 있으면 `listingId`는 null로 남긴다. 리뷰 자체는 버리지 않는다.
  */
