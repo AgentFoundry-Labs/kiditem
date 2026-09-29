@@ -296,3 +296,15 @@ not on version 3 to version 3, taking the row from
 its formula revision, and keeps its mapping generation. A published state is
 left alone and counted as `publishedStateLeftCount`. It changes nothing on
 re-run.
+
+### Rocket workbook completion proven by transmission intents (0.1.31)
+
+`035_stamp_rocket_workbook_completed_from_transmission_intents` runs pre-schema,
+while `sellpia_order_transmission_intents` still exists. KID-388 derives
+workbook progress from the Orders Sellpia transfer operations, and the schema
+step drops the intent tables, so an open workbook whose completion only the old
+intents prove would reopen. It applies the old rule — every positive line
+collected and every non-empty transmission's intent `finalized` — and stamps
+the latest `finalized_at` as `completed_at`. A stamped or released workbook is
+left alone, a re-run changes nothing, and a database without the intent table
+is skipped.

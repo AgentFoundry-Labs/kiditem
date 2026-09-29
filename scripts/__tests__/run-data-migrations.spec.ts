@@ -70,6 +70,7 @@ describe("data migration registry", () => {
       "v0.1.31:032_remove_retired_source_failure_alerts",
       "v0.1.31:033_remove_retired_mall_admin_listing_alerts",
       "v0.1.31:034_move_ad_counting_abc_formula_states",
+      "v0.1.31:035_stamp_rocket_workbook_completed_from_transmission_intents",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -342,6 +343,7 @@ describe("data migration registry", () => {
       "v0.1.31:017_simplify_product_references",
       "v0.1.31:020_selling_catalog_cutover",
       "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
+      "v0.1.31:035_stamp_rocket_workbook_completed_from_transmission_intents",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -389,6 +391,7 @@ describe("data migration registry", () => {
       "v0.1.31:017_simplify_product_references",
       "v0.1.31:020_selling_catalog_cutover",
       "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
+      "v0.1.31:035_stamp_rocket_workbook_completed_from_transmission_intents",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(
