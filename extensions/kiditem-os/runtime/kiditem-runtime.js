@@ -14782,7 +14782,7 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+  registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, opensOwnTabs: true, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
 
   // extensions/src/sites/domeggook/listings.ts
   var DOMEGGOOK_LISTINGS_URL = "https://www.domeggook.com/sc/item/lstAll";
@@ -21498,7 +21498,11 @@ var KidItemRuntime = (() => {
         }
         signal.throwIfAborted();
         const accountSite = site !== null && site in sites2 ? site : site !== null && options.ownTabSites?.has(site) ? null : options.accountSite ?? null;
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name) => name !== null && name in sites2))];
+        const ownsTabs = (key, name) => key.startsWith("resource:") && options.ownTabSites?.has(name) === true;
+        const siteNames = [...new Set(lockKeys.flatMap((key) => {
+          const name = siteOfLockKey(key, accountSite);
+          return name !== null && name in sites2 && !ownsTabs(key, name) ? [name] : [];
+        }))];
         if (siteNames.length > 1) {
           throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
         }
