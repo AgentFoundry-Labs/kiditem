@@ -728,7 +728,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     await toPre373Shape(db);
     await restoreLegacyChannelScrapeTables(db);
     await restoreLegacySourceImportRunReferences(db);
-    const definitions = await indexDefinitions(db, [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]);
+    const definitions = await indexDefinitions(db, IMPORT_RUN_KEYS);
     await db.$transaction(async (tx) => {
       await toPre030Shape(tx);
       await officeImportRunShape(tx);
@@ -765,22 +765,21 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
 
     // The statements `db push` would run for these tables now succeed.
     await db.$transaction(async (tx) => {
-      for (const table of TABLES) {
-        const definition = table === RUNS
-          ? `${REQUIRED_TYPE[table]} NOT NULL DEFAULT false`
-          : `${REQUIRED_TYPE[table]} NOT NULL`;
+      for (const table of ROW_TABLES) {
         await tx.$executeRaw`
-          ALTER TABLE ${Prisma.raw(table)} ADD COLUMN ${Prisma.raw(REQUIRED[table])} ${Prisma.raw(definition)}
+          ALTER TABLE ${Prisma.raw(table)} ADD COLUMN ${Prisma.raw(REQUIRED[table])} ${Prisma.raw(`${REQUIRED_TYPE[table]} NOT NULL`)}
         `;
       }
+      // KID-389: the head schema has no ingestion-run table, so `db push` drops it with its foreign keys.
+      await tx.$executeRaw`DROP TABLE sourcing_evidence_ingestion_runs CASCADE`;
       for (const [column, type] of Object.entries(NEW_IMPORT_RUN_KEY_COLUMNS)) {
         await tx.$executeRaw`ALTER TABLE source_import_runs ADD COLUMN ${Prisma.raw(column)} ${Prisma.raw(type)}`;
       }
-      for (const index of [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]) {
+      for (const index of IMPORT_RUN_KEYS) {
         await tx.$executeRaw`${Prisma.raw(definitions[index]!)}`;
       }
     });
-    await expect(indexDefinitions(db, [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]))
+    await expect(indexDefinitions(db, IMPORT_RUN_KEYS))
       .resolves.toEqual(definitions);
   }, 240_000);
 });
