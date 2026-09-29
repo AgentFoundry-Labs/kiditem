@@ -40,6 +40,7 @@ import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/persistence/ord
 import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { readOrderWindowFacts } from '../adapter/out/persistence/read/order-facts.reader';
+import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';
 
 // 확장 수집기(orders.mall_orders)가 밟는 길을 서버에서 그대로: begin → order_rows 청크 → finish. 보관 캡처와
 // 주문 수(result.rowCount)는 finish 트랜잭션에서만 쓰인다(ADR-0025). 변환은 실제 변환기, DB는 실제 PostgreSQL.
@@ -60,7 +61,7 @@ function kidkidsOrder(om: string, items = 1) {
   };
 }
 
-/** H2가 옮길 directship kind 자리 — 오늘 주문 capability가 그 kind의 result.rowCount를 읽는지 본다. */
+/** directship kind 자리 — 오늘 주문 capability가 그 kind의 result(발주서 수·운송유형별 발주서 수)를 읽는지 본다. */
 @OperationOwner()
 @Injectable()
 class DirectshipStandInOwner implements OperationOwnerPort {
@@ -69,7 +70,7 @@ class DirectshipStandInOwner implements OperationOwnerPort {
     return { lockKeys: [accountLockKey(String(scope.channelAccountId))], plan: { channelAccountId: String(scope.channelAccountId) } };
   }
   async finalize() {
-    return { result: { rowCount: 4 } };
+    return { result: { rowCount: 4, purchaseOrders: 4, lines: 6, partialDetailCount: 0, transports: { SHIPMENT: 3, MILKRUN: 1 } } };
   }
 }
 
@@ -354,7 +355,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       rowCount: 2, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
     });
     const today = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', ORG).expect(200);
-    expect(today.body.byMall['haebub-mall']).toBe(2);
+    expect(today.body.byMall['haebub-mall']).toEqual({ orderCount: 2, newCount: 2 });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders: rows });
     const converted = await convert('haebeop/convert', run.operation.id).expect(201);
@@ -564,7 +565,78 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     await excelMall({ mallKey: 'lotte-on', name: '롯데ON', route: 'lotteon/convert', fileName: '신규주문.xlsx', contentType: XLSX_MIME });
   });
 
-  it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)만 센다 — 옛 run은 세지 않는다(KID-380 T4)', async () => {
+  const onchOrder = (orderCode: string) => ({ orderCode, date: `${TODAY} 09:30:00` });
+  const collectOnch = async (codes: string[]) => {
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: onchAccount, mallKey: 'onch' }));
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: codes.map(onchOrder) }]);
+    await harness.finish(run).expect(200);
+    return run.operation.id as string;
+  };
+  const todayOrders = async (organizationId = ORG) =>
+    (await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', organizationId).expect(200)).body;
+  const transfer = (sourceOperationId: string, acceptedOrderNumbers: string[], patch: {
+    status?: 'succeeded' | 'failed' | 'reconciling'; transport?: 'SHIPMENT' | 'MILKRUN' | null; organizationId?: string;
+  } = {}) => seedSellpiaTransferOperation(prisma, {
+    organizationId: patch.organizationId ?? ORG,
+    sourceOperationId,
+    transport: patch.transport ?? null,
+    status: patch.status ?? 'succeeded',
+    startedAt: new Date(),
+    acceptedOrderNumbers,
+  });
+
+  it('오늘 주문: 같은 몰을 두 번 걷으면 오늘 성공 수집들의 주문번호 합집합을 세고, 신규는 그 원천들의 성공 전송 접수 번호를 뺀 수다', async () => {
+    const first = await collectOnch(['OC-1', 'OC-2']);
+    await collectOnch(['OC-2', 'OC-3']);
+    expect(await todayOrders()).toEqual({ total: 3, newTotal: 3, byMall: { onch: { orderCount: 3, newCount: 3 } } });
+
+    // 첫 수집을 셀피아로 보냈다 — 접수된 두 번호가 신규에서 빠진다. 실패·확인 대기 전송은 빼지 않는다.
+    await transfer(first, ['OC-3'], { status: 'failed' });
+    await transfer(first, ['OC-3'], { status: 'reconciling' });
+    await transfer(first, ['OC-1', 'OC-2']);
+    expect(await todayOrders()).toEqual({ total: 3, newTotal: 1, byMall: { onch: { orderCount: 3, newCount: 1 } } });
+  });
+
+  it('오늘 주문: 재전송은 신규를 두 번 빼지 않고, 오늘 원천이 아닌 전송·다른 조직의 전송은 신규에 영향이 없다', async () => {
+    const first = await collectOnch(['OC-1', 'OC-2']);
+    await transfer(first, ['OC-1']);
+    await transfer(first, ['OC-1']); // 재전송(resend) — 같은 번호
+    const kidkids = await harness.beginRun(MALL_ORDERS_KIND, scope());
+    await harness.put(kidkids, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [kidkidsOrder('K-1')] }]);
+    await harness.finish(kidkids).expect(200);
+    // 다른 몰의 원천을 가리키는 전송이 온채널 번호와 같은 번호를 접수했어도 온채널 신규는 그대로다(원천 실행 id로 몰별 매칭).
+    await transfer(kidkids.operation.id, ['OC-2']);
+    // 다른 조직의 전송은 이 조직 원천 id를 가리켜도 읽지 않는다.
+    await transfer(first, ['OC-2'], { organizationId: OTHER_ORG });
+    // 어제(오늘 원천이 아닌) 전송이 가리키는 원천은 오늘 실행이 아니다.
+    await transfer('00000000-0000-4000-8000-000000000001', ['OC-2']);
+    const today = await todayOrders();
+    expect(today.byMall.onch).toEqual({ orderCount: 2, newCount: 1 });
+    // 키드키즈 변환 파일 번호(202609260001)는 'OC-2' 접수와 겹치지 않는다 — 1건 그대로 신규.
+    expect(today.byMall.kidkids).toEqual({ orderCount: 1, newCount: 1 });
+    expect(await todayOrders(OTHER_ORG)).toEqual({ total: null, newTotal: null, byMall: {} });
+  });
+
+  it('오늘 주문 한계(키드키즈): 변환기가 주문번호를 주문일+파일 안 순번으로 새로 매겨 증분 수집의 두 번째 실행 번호가 첫 실행과 겹치면 오늘·신규가 모자란다', async () => {
+    for (const om of ['K-1', 'K-2']) {
+      const run = await harness.beginRun(MALL_ORDERS_KIND, scope());
+      await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [kidkidsOrder(om)] }]);
+      await harness.finish(run).expect(200);
+    }
+    // 서로 다른 주문 두 건(K-1·K-2)인데 두 변환 파일이 모두 202609260001이다 — 근본 수정은 변환기가 실제 om을 쓰는 것(셀피아 형식 결정).
+    expect((await todayOrders()).byMall.kidkids).toEqual({ orderCount: 1, newCount: 1 });
+  });
+
+  it('오늘 주문 directship: 파일 순번이 파일마다 0001부터라 번호 합집합이 성립하지 않아 발주서 수(rowCount)를 세고, 신규는 성공 전송이 없는 운송유형의 발주서 수다', async () => {
+    const directship = await harness.beginRun(COUPANG_DIRECTSHIP_KIND, { channelAccountId: rocketAccount });
+    await harness.finish(directship).expect(200);
+    expect((await todayOrders()).byMall['coupang-direct']).toEqual({ orderCount: 4, newCount: 4 });
+    await transfer(directship.operation.id, ['20260926_0001'], { transport: 'MILKRUN', status: 'failed' });
+    await transfer(directship.operation.id, ['20260926_0001', '20260926_0002', '20260926_0003'], { transport: 'SHIPMENT' });
+    expect(await todayOrders()).toEqual({ total: 4, newTotal: 1, byMall: { 'coupang-direct': { orderCount: 4, newCount: 1 } } });
+  });
+
+  it('오늘 주문 capability는 실행 표(몰 주문·directship의 성공 실행)만 센다 — 옛 run은 세지 않는다(KID-380 T4)', async () => {
     // 옛 완료 run(옮기기 전 남은 행): 몰 주문·수동 업로드·directship이 모두 실행이라 이제 세지 않는다. 카카오 옛 시도는
     // 완료되지 않는다(변환 규격 없음, KID-379).
     const oldRun = (mallKey: string | null, sourceType: string, rowCount: number, createdAt: Date) =>
@@ -599,10 +671,15 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     await oldRun('art09', 'order_collection_mall', 6, new Date(Date.now() + 60_000));
 
     const today = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', ORG).expect(200);
-    // 몰 칸마다 오늘 마지막 성공 실행 하나 — 빈 날(art09)은 0으로 센다. 옛 run(onch 5·kidkids 7·directship 3·art09 6)은 없다.
-    expect(today.body).toEqual({ total: 2 + 4 + 0, byMall: { kidkids: 2, 'coupang-direct': 4, art09: 0 } });
+    // 옛 run(onch 5·kidkids 7·directship 3·art09 6)은 없다.
+    // 키드키즈는 두 수집의 변환 파일 번호 합집합(202609260001·202609260002), 빈 날(art09)은 0.
+    expect(today.body).toEqual({
+      total: 2 + 4 + 0,
+      newTotal: 2 + 4 + 0,
+      byMall: { kidkids: { orderCount: 2, newCount: 2 }, 'coupang-direct': { orderCount: 4, newCount: 4 }, art09: { orderCount: 0, newCount: 0 } },
+    });
 
     const other = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', OTHER_ORG).expect(200);
-    expect(other.body).toEqual({ total: null, byMall: {} });
+    expect(other.body).toEqual({ total: null, newTotal: null, byMall: {} });
   });
 });
