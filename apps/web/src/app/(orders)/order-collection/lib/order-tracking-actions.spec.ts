@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 import {
+  MALL_TRACKING_UPLOAD_KIND,
   SELLPIA_AUTO_INVOICE_KIND,
   SELLPIA_POST_TRANSFER_KIND,
 } from '@kiditem/shared/orders-action-operations';
@@ -13,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
   apiPost: vi.fn(),
   requestOperationStart: vi.fn(),
-  uploadOnch: vi.fn(),
   toast: Object.assign(vi.fn(), {
     error: vi.fn(),
     info: vi.fn(),
@@ -35,7 +35,6 @@ vi.mock('./icecream-tracking-api', async (importOriginal) => {
   return {
     ...actual,
     buildIcecreamSendFinishFile: mocks.buildIcecreamFile,
-    uploadOnchTrackingViaExtension: mocks.uploadOnch,
   };
 });
 
@@ -72,6 +71,9 @@ const icecreamAccount: OrderCollectionMallAccount = {
 };
 
 const POST_TRANSFER_ID = '11111111-1111-4111-8111-111111111111';
+const TRACKING_OPERATION_ID = '33333333-3333-4333-8333-333333333333';
+const UPLOAD_ID = '44444444-4444-4444-8444-444444444444';
+const CHANNEL_ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
 const INVOICE_ID = '22222222-2222-4222-8222-222222222222';
 
 function finished(id: string, kind: OperationView['kind'], status: OperationView['status'], result: unknown): { operation: OperationView } {
@@ -224,7 +226,7 @@ describe('order tracking actions', () => {
   });
 
   it('emits a mall-specific CSV artifact but does not upload it irreversibly', async () => {
-    mocks.collectTracking.mockResolvedValue([trackingRow]);
+    mocks.collectTracking.mockResolvedValue({ operationId: TRACKING_OPERATION_ID, rows: [trackingRow] });
     const onGeneratedFile = vi.fn();
 
     await uploadTrackingForMall({
@@ -243,7 +245,7 @@ describe('order tracking actions', () => {
       rowCount: 1,
     }));
     expect(mocks.downloadBlob).toHaveBeenCalledOnce();
-    expect(mocks.uploadOnch).not.toHaveBeenCalled();
+    expect(mocks.requestOperationStart).not.toHaveBeenCalled();
   });
 
   it('emits the exact Icecream delivery-number xlsx instead of a generic tracking CSV', async () => {
@@ -253,7 +255,7 @@ describe('order tracking actions', () => {
       invNo: '576997610340',
       provider: '아이스크림몰',
     };
-    mocks.collectTracking.mockResolvedValue([icecreamTracking]);
+    mocks.collectTracking.mockResolvedValue({ operationId: TRACKING_OPERATION_ID, rows: [icecreamTracking] });
     mocks.buildIcecreamRows.mockResolvedValue({
       headers: ['주문번호', '배송번호', '배송순번'],
       rows: [['20260729M037101', '116569790', '1']],
@@ -308,5 +310,80 @@ describe('order tracking actions', () => {
     );
   });
 
+  describe('온채널·키드키즈 송장 업로드 = 실행 orders.mall_tracking_upload (KID-366)', () => {
+    const onchAccount: OrderCollectionMallAccount = { ...art09Account, key: 'onch', name: '온채널', channelAccountId: CHANNEL_ACCOUNT_ID };
+    const kidkidsAccount: OrderCollectionMallAccount = { ...art09Account, key: 'kidkids', name: '키드키즈', channelAccountId: CHANNEL_ACCOUNT_ID };
+    const onchRow = { ...trackingRow, provider: '온채널' };
+    const kidkidsRow = { ...trackingRow, provider: '키드키즈' };
 
+    function upload(status: OperationView['status'], result: unknown) {
+      mocks.requestOperationStart.mockResolvedValue({ outcome: 'started', operationId: UPLOAD_ID });
+      mocks.apiGet.mockResolvedValue(finished(UPLOAD_ID, MALL_TRACKING_UPLOAD_KIND, status, result));
+    }
+
+    it('확인을 받은 뒤 방금 조회한 송장 실행 id로 업로드 실행을 시작하고, 행 상태의 합을 알린다', async () => {
+      mocks.collectTracking.mockResolvedValue({ operationId: TRACKING_OPERATION_ID, rows: [onchRow] });
+      upload('succeeded', {
+        uploaded: 1,
+        alreadyUploaded: 1,
+        notInList: 1,
+        failed: 1,
+        rows: [
+          { orderNo: 'ORDER-1', status: 'uploaded', mallMessage: null },
+          { orderNo: 'ORDER-2', status: 'already_uploaded', mallMessage: null },
+          { orderNo: 'ORDER-3', status: 'not_in_list', mallMessage: null },
+          { orderNo: 'ORDER-4', status: 'failed', mallMessage: '송장번호 형식 오류' },
+        ],
+      });
+      const logError = vi.fn();
+
+      await uploadTrackingForMall({ account: onchAccount, history: [], logError, collectTracking: mocks.collectTracking });
+
+      expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('온채널 송장 1건을 실제 등록할까요?'));
+      expect(mocks.requestOperationStart).toHaveBeenCalledWith(
+        MALL_TRACKING_UPLOAD_KIND,
+        { channelAccountId: CHANNEL_ACCOUNT_ID, mallKey: 'onch', trackingOperationId: TRACKING_OPERATION_ID },
+        { capability: 'orderActionOperationKindsV1' },
+      );
+      expect(mocks.toast.success).toHaveBeenCalledWith(
+        '온채널 송장 1건 등록 완료 · 이미 등록 1건 · 목록에 없음 1건 · 실패 1건',
+        expect.any(Object),
+      );
+      expect(logError).toHaveBeenCalledWith('온채널 송장 실패 2건', 'ORDER-3: 목록에 없음 / ORDER-4: 송장번호 형식 오류');
+    });
+
+    it('운영자가 확인을 거절하면 업로드 실행을 시작하지 않는다', async () => {
+      vi.mocked(window.confirm).mockReturnValue(false);
+      mocks.collectTracking.mockResolvedValue({ operationId: TRACKING_OPERATION_ID, rows: [onchRow] });
+
+      await uploadTrackingForMall({ account: onchAccount, history: [], logError: vi.fn(), collectTracking: mocks.collectTracking });
+
+      expect(mocks.requestOperationStart).not.toHaveBeenCalled();
+    });
+
+    it('키드키즈 출고확정은 제출만 확인되면(reconciling) 몰 확인 토스트에 확인·닫기를 단다', async () => {
+      mocks.collectTracking.mockResolvedValue({ operationId: TRACKING_OPERATION_ID, rows: [kidkidsRow] });
+      upload('reconciling', null);
+      mocks.apiPost.mockResolvedValue(finished(UPLOAD_ID, MALL_TRACKING_UPLOAD_KIND, 'succeeded', null));
+      const logError = vi.fn();
+
+      await uploadTrackingForMall({ account: kidkidsAccount, history: [], logError, collectTracking: mocks.collectTracking });
+
+      const warning = mocks.toast.warning.mock.calls.find(([message]) => String(message).includes('키드키즈 확인 필요'));
+      expect(warning).toBeDefined();
+      expect(logError).toHaveBeenCalledWith('송장 업로드 · 키드키즈', expect.stringContaining('키드키즈 확인 필요'));
+      (warning![1] as { action: { onClick: () => void } }).action.onClick();
+      await vi.waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(`/api/orders/action-operations/${UPLOAD_ID}/confirm`, {}));
+    });
+
+    it('계정의 채널 계정이 없으면 업로드를 시작하지 않고 설정을 안내한다', async () => {
+      mocks.collectTracking.mockResolvedValue({ operationId: TRACKING_OPERATION_ID, rows: [onchRow] });
+      const logError = vi.fn();
+
+      await uploadTrackingForMall({ account: { ...onchAccount, channelAccountId: null }, history: [], logError, collectTracking: mocks.collectTracking });
+
+      expect(mocks.requestOperationStart).not.toHaveBeenCalled();
+      expect(logError).toHaveBeenCalledWith('송장 업로드 · 온채널', expect.stringContaining('계정'));
+    });
+  });
 });

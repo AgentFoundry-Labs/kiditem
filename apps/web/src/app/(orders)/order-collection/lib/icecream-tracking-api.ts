@@ -1,95 +1,8 @@
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { sellpiaProviderMatchesMall } from '@kiditem/shared/sellpia-providers';
 import { fileNameFromContentDisposition } from './order-collection-conversion-response';
-
-/**
- * 온채널·키드키즈 송장 업로드는 아직 옛 주문 워커가 답한다. wave8b가 kind로 옮기며 이 옛 표시와 함께 지운다
- * (새 런타임 감지 기본값 `operationRuntime`로는 옛 워커가 없는 빌드를 가려내지 못한다).
- */
-const LEGACY_ORDER_WORKER_CAPABILITY = 'orderCollectionIcecreamMall';
-
-export interface OnchUploadResultRow {
-  ordNo: string;
-  ok: boolean;
-  reason?: string;
-}
-
-/** ⚠️파괴적: 확장이 온채널 목록을 스크랩해 주문당 trans_ok 로 송장 등록. 프론트가 사용자 확인 후에만 호출. */
-export async function uploadOnchTrackingViaExtension(rows: SellpiaTrackingRow[]): Promise<{
-  total: number;
-  okCount: number;
-  listSize: number;
-  results: OnchUploadResultRow[];
-}> {
-  const extensionId = await detectOrderCollectionExtensionId(1200, LEGACY_ORDER_WORKER_CAPABILITY);
-  if (!extensionId) {
-    throw new Error('주문수집 확장프로그램이 필요합니다. www.onch3.co.kr 로그인 후 다시 시도하세요.');
-  }
-  const payload = rows.map((row) => ({ ordNo: row.ordNo, invNo: row.invNo, courier: row.courier }));
-  const res = await sendToExtension<{
-    success?: boolean;
-    total?: number;
-    okCount?: number;
-    listSize?: number;
-    results?: OnchUploadResultRow[];
-    error?: string;
-  }>(extensionId, { action: 'uploadOnchTracking', rows: payload }, 130000);
-  if (!res?.success) throw new Error(res?.error ?? '온채널 송장 업로드에 실패했습니다.');
-  return {
-    total: res.total ?? rows.length,
-    okCount: res.okCount ?? 0,
-    listSize: res.listSize ?? 0,
-    results: Array.isArray(res.results) ? res.results : [],
-  };
-}
-
-export interface KidkidsTrackingUploadResultRow {
-  orderNo: string;
-  ok: boolean;
-  reason?: string;
-}
-
-/**
- * ⚠️파괴적: 확장이 키드키즈 출고관리 목록에서 주문번호로 행을 찾아 CJ대한통운 아래 입력칸에 송장을
- * 주입하고 출고선택 후 출고완료(발송처리, go_reg = mode=aan)로 확정한다. 프론트가 사용자 확인 후에만 호출.
- * ⚠️조인 주의: 셀피아 송장 ordNo(판매처주문번호)와 키드키즈 목록 주문번호가 일치해야 매칭된다.
- */
-export async function uploadKidkidsTrackingViaExtension(rows: SellpiaTrackingRow[]): Promise<{
-  total: number;
-  okCount: number;
-  listSize: number;
-  submitted: boolean;
-  results: KidkidsTrackingUploadResultRow[];
-}> {
-  const extensionId = await detectOrderCollectionExtensionId(1200, LEGACY_ORDER_WORKER_CAPABILITY);
-  if (!extensionId) {
-    throw new Error('주문수집 확장프로그램이 필요합니다. partner.kidkids.net 로그인 후 다시 시도하세요.');
-  }
-  const payload = rows.map((row) => ({
-    orderNo: row.ordNo,
-    invNo: row.invNo,
-    courier: COURIER_NAME[row.courier] ?? 'CJ대한통운', // 확장은 택배사 이름으로 select 옵션을 찾는다
-  }));
-  const res = await sendToExtension<{
-    success?: boolean;
-    submitted?: boolean;
-    total?: number;
-    okCount?: number;
-    listSize?: number;
-    results?: KidkidsTrackingUploadResultRow[];
-    error?: string;
-  }>(extensionId, { action: 'uploadKidkidsTracking', rows: payload }, 130000);
-  if (!res?.success) throw new Error(res?.error ?? '키드키즈 송장 업로드에 실패했습니다.');
-  return {
-    total: res.total ?? rows.length,
-    okCount: res.okCount ?? 0,
-    listSize: res.listSize ?? 0,
-    submitted: res.submitted === true,
-    results: Array.isArray(res.results) ? res.results : [],
-  };
-}
 
 export interface IcecreamUploadResult {
   success: boolean;
@@ -120,53 +33,12 @@ export interface SellpiaTrackingRow {
   addr?: string; // 주소
 }
 
-// 몰 key → 셀피아 판매처명(부분일치). 셀피아 송장재출력의 판매처명 기준(라이브 확인).
-const SELLPIA_PROVIDER_BY_MALL: Record<string, string[]> = {
-  'icecream-mall': ['아이스크림몰'],
-  'teacher-mall': ['테크빌', '키즈티쳐'], // 테크빌교육(키즈티쳐몰)
-  kidsnote: ['키즈노트'],
-  onch: ['온채널'],
-  art09: ['아트공구'],
-  boribori: ['보리보리'],
-  domeggook: ['도매꾹'],
-  'lotte-on': ['롯데온', '롯데on'],
-  kkomangse: ['꼬망세'],
-  kakao: ['카카오'],
-  'coupang-direct': ['쿠팡-직배송', '쿠팡직배송'],
-  'gs-shop': ['gs샵'],
-  kidkids: ['키드키즈'], // 아직 셀피아 송장 미확인(발송 시 매핑)
-  'haebub-mall': ['해법몰'], // 아직 셀피아 송장 미확인(발송 시 판매처명 확인 필요)
-  always: ['올웨이즈', '이레빗'],
-};
-
-/** 이 몰이 송장 업로드(셀피아 송장 소스) 지원 대상인지. */
-export function isTrackingSupportedMall(mallKey: string): boolean {
-  return mallKey in SELLPIA_PROVIDER_BY_MALL;
-}
-
 /**
- * 셀피아 판매처명(수취인 괄호 안 이름과 같은 값)을 우리 몰 key 로 되돌린다.
- * 셀피아는 "아이스크림몰(외부몰)"처럼 뒤에 경로를 덧붙이므로 부분일치로 맞춘다.
+ * 전체 셀피아 송장 중 이 몰(판매처)의 것만. 몰→판매처 표는 shared(`@kiditem/shared/sellpia-providers`)가 든다 — 서버의
+ * 송장 업로드 실행도 같은 표로 고른다(KID-366).
  */
-export function resolveMallKeyFromSellpiaProvider(
-  provider: string | null | undefined,
-): string | null {
-  const value = (provider || '').toLowerCase();
-  if (!value) return null;
-  for (const [mallKey, keys] of Object.entries(SELLPIA_PROVIDER_BY_MALL)) {
-    if (keys.some((key) => value.includes(key.toLowerCase()))) return mallKey;
-  }
-  return null;
-}
-
-/** 전체 셀피아 송장 중 이 몰(판매처)의 것만 필터. */
 export function filterTrackingByMall(rows: SellpiaTrackingRow[], mallKey: string): SellpiaTrackingRow[] {
-  const keys = SELLPIA_PROVIDER_BY_MALL[mallKey];
-  if (!keys) return [];
-  return rows.filter((row) => {
-    const provider = (row.provider || '').toLowerCase();
-    return keys.some((key) => provider.includes(key.toLowerCase()));
-  });
+  return rows.filter((row) => sellpiaProviderMatchesMall(row.provider, mallKey));
 }
 
 const COURIER_NAME: Record<string, string> = { '1136': 'CJ대한통운', '10': 'CJ대한통운' };

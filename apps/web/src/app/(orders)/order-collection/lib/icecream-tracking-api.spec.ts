@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MALL_CHANNELS, isChannelKey } from '@kiditem/shared/channel-registry';
 import * as XLSX from 'xlsx';
+import { isSellpiaProviderMall as isTrackingSupportedMall } from '@kiditem/shared/sellpia-providers';
 import {
   buildIcecreamSendFinishFile,
-  isTrackingSupportedMall,
-  uploadKidkidsTrackingViaExtension,
-  uploadOnchTrackingViaExtension,
   type SellpiaTrackingRow,
 } from './icecream-tracking-api';
 
@@ -14,8 +12,6 @@ const downloadBlob = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 vi.mock('@/lib/browser-download', () => ({ downloadBlob }));
-const bridge = vi.hoisted(() => ({ detectOrderCollectionExtensionId: vi.fn(), sendToExtension: vi.fn() }));
-vi.mock('@/lib/extension-bridge', () => bridge);
 
 it('has no Domeggook tracking upload — nothing called it (KID-366)', async () => {
   const module = await import('./icecream-tracking-api');
@@ -23,20 +19,12 @@ it('has no Domeggook tracking upload — nothing called it (KID-366)', async () 
   expect(module).not.toHaveProperty('buildDomeggookShipFile');
 });
 
-describe('mall tracking uploads until wave8b moves them to kinds', () => {
-  it('still find the extension by the old order worker flag, not the new runtime default', async () => {
-    bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
-    bridge.sendToExtension.mockResolvedValue({ success: true, results: [] });
-    const row = { ordNo: 'A1', itemNo: 'I1', invNo: 'N1', courier: '1136', provider: '온채널' };
-
-    await uploadOnchTrackingViaExtension([row]);
-    await uploadKidkidsTrackingViaExtension([row]);
-
-    expect(bridge.detectOrderCollectionExtensionId.mock.calls).toEqual([
-      [1200, 'orderCollectionIcecreamMall'],
-      [1200, 'orderCollectionIcecreamMall'],
-    ]);
-  });
+it('온채널·키드키즈 송장 업로드는 실행 orders.mall_tracking_upload로 옮겼다 — 확장 호출·판매처 표 사본이 없다(KID-366)', async () => {
+  const module = await import('./icecream-tracking-api');
+  expect(module).not.toHaveProperty('uploadOnchTrackingViaExtension');
+  expect(module).not.toHaveProperty('uploadKidkidsTrackingViaExtension');
+  expect(module).not.toHaveProperty('isTrackingSupportedMall');
+  expect(module).not.toHaveProperty('resolveMallKeyFromSellpiaProvider');
 });
 
 const headers = ['주문번호', '배송번호', '배송순번', '상품번호'];

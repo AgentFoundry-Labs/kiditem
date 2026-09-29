@@ -1,6 +1,6 @@
 import type { SellpiaOrderSnapshotRow as SnapshotRow } from '@kiditem/shared/orders-action-operations';
 import { readSellpiaOrderSnapshot } from '@/lib/order-action-operations';
-import { resolveMallKeyFromSellpiaProvider } from './icecream-tracking-api';
+import { resolveMallKeyFromSellpiaProvider } from '@kiditem/shared/sellpia-providers';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
