@@ -922,7 +922,8 @@ export type AdReportResult = z.infer<typeof AdReportResultSchema>;
  * 승인된 광고 액션 한 건을 광고센터에 실제로 적용하는 실행. 서버가 승인 때 `prepare`로 만들어 두고(`prepared`), 확장이
  * `POST /api/operations/claim`으로 받아(`executing`) 광고센터 캠페인 등록 페이지에 쓰고 finish로 보고한다.
  * 지금 자동 실행되는 유형은 `create_campaign` 하나다(수동 유형 3종은 prepare하지 않는다).
- * 잠금: `resource:ad-center:<channelAccountId>`(보고서 수집과 직렬화) + `resource:ad-action:<actionId>`(같은 액션 중복 실행 금지).
+ * 잠금: `resource:ad-action:<actionId>` 하나(같은 액션 중복 실행 금지). 광고센터 계정 키는 쥐지 않는다 — prepare부터 팝업을 누를 때까지
+ * 보고서 수집을 막게 되기 때문(2026-09-29 결정). 광고센터 직렬화는 팝업 루프가 한 번에 하나씩 돌리는 것으로 갈음한다.
  */
 export const AD_ACTION_KIND = 'advertising.ad_action' as const;
 /** 이 빌드가 광고 액션 kind를 돈다 — 팝업·웹은 이것으로 실행 버튼을 켠다. */
@@ -992,5 +993,7 @@ export const AdActionResultSchema = z.object({
   providerOutcome: AdActionProviderOutcomeSchema,
   campaignId: z.string().min(1).nullable(),
   message: z.string().max(500).nullable(),
+  /** 같은 이름의 캠페인이 이미 있어 쓰지 않고 그 id에 연결만 했다(옛 KID-160 규칙). `created`와 함께 온다. */
+  linkedExisting: z.boolean().default(false),
 }).strict();
 export type AdActionResult = z.infer<typeof AdActionResultSchema>;

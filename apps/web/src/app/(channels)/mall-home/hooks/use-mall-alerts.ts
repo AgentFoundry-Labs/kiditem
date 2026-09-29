@@ -21,6 +21,7 @@ import {
 } from '../lib/mall-alerts';
 import {
   countMallSessions,
+  mallSessionReasons,
   mallSessionStates,
   type LoginNeededCount,
   type MallSessionView,
@@ -78,6 +79,10 @@ export function useMallAlerts() {
     () => mallSessionStates(mallKeys ?? [], probe.results, probe.checking),
     [mallKeys, probe.results, probe.checking],
   );
+  const sessionReasons = useMemo(
+    () => mallSessionReasons(mallKeys ?? [], probe.results, probe.checking),
+    [mallKeys, probe.results, probe.checking],
+  );
   const signedOut = useMemo(
     () => (channels ?? []).filter((channel) => sessionStates[channel.mallKey] === 'signed_out'),
     [channels, sessionStates],
@@ -112,8 +117,8 @@ export function useMallAlerts() {
   );
   const tiles = useMemo(
     () =>
-      channels ? mallStatusTiles(channels, alerts, derived, sessionStates) : [],
-    [channels, alerts, derived, sessionStates],
+      channels ? mallStatusTiles(channels, alerts, derived, sessionStates, sessionReasons) : [],
+    [channels, alerts, derived, sessionStates, sessionReasons],
   );
   const counts = useMemo(() => mallAlertCounts(alerts, derived), [alerts, derived]);
   const accountMalls = useMemo(() => accountMallsOf(channels), [channels]);

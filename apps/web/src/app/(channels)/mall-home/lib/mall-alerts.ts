@@ -1,4 +1,5 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
+import { describeOperatorError } from '@kiditem/shared/errors';
 import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { AD_REPORT_KIND, WING_ITEMWINNER_KIND, WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
@@ -156,6 +157,7 @@ export interface DerivedMallAlertInput {
 }
 
 const NAME_PREVIEW = 3;
+const SESSION_EXPIRED_ALERT_ID = 'derived:session-expired';
 
 function nameList(names: readonly string[]): string {
   const shown = names.slice(0, NAME_PREVIEW).join(', ');
@@ -203,7 +205,7 @@ export function derivedMallAlerts({
   }
   if (signedOut.length > 0) {
     alerts.push({
-      id: 'derived:session-expired',
+      id: SESSION_EXPIRED_ALERT_ID,
       title: `로그인이 풀린 몰 ${formatNumber(signedOut.length)}곳`,
       message: `${nameList(signedOut.map((channel) => channel.mallName))} — 이 브라우저에서 몰 관리자에 로그인해야 수집 · 등록이 됩니다.`,
       href: '/mall-settings',
@@ -279,6 +281,8 @@ export function mallStatusTiles(
   alerts: readonly AlertItem[],
   derived: readonly DerivedMallAlert[],
   sessions: Readonly<Record<string, TileLoginState>> = {},
+  /** 몰별 로그인 확인의 이유 코드(`mallSessionReasons`). 등록 코드면 지금 상태 타일의 툴팁이 된다. */
+  loginReasons: Readonly<Record<string, string>> = {},
 ): MallStatusTile[] {
   const byMall = new Map<string, AlertItem[]>();
   const accountMalls = accountMallsOf(channels);
@@ -316,8 +320,13 @@ export function mallStatusTiles(
       if (latest && (latest.tone === 'failed' || latest.tone === 'attention')) {
         return { ...base, ...latest };
       }
-      const tileLabel = current.find((alert) => alert.tileLabel !== null)?.tileLabel;
-      if (tileLabel) return { ...base, tone: 'attention', label: tileLabel, at: null };
+      const tileAlert = current.find((alert) => alert.tileLabel !== null);
+      if (tileAlert?.tileLabel) {
+        // 이유 문장은 로그인 확인에서 나온 것이라 로그인이 풀린 타일에만 붙인다(KID-329).
+        const loginTile = tileAlert.id === SESSION_EXPIRED_ALERT_ID || login === 'signed_out';
+        const detail = loginTile ? registeredReasonText(loginReasons[channel.mallKey]) : null;
+        return { ...base, tone: 'attention', label: tileAlert.tileLabel, detail, at: null };
+      }
       if (latest) return { ...base, ...latest };
       return { ...base, tone: 'idle', label: '현재 기록 없음', at: null };
     })
@@ -327,6 +336,16 @@ export function mallStatusTiles(
         b.attentionCount - a.attentionCount ||
         a.mallName.localeCompare(b.mallName, 'ko'),
     );
+}
+
+/**
+ * 이유 코드만 있는 관찰 기록의 툴팁 — 오류 registry에 등록된 코드면 그 한국어 문장, 아니면 `null`(KID-329).
+ * 모르는 코드에 일반 실패 문장을 지어 붙이지 않는다.
+ */
+function registeredReasonText(reason: string | undefined): string | null {
+  if (!reason) return null;
+  const described = describeOperatorError({ code: reason });
+  return described.code ? described.text : null;
 }
 
 export interface MallAlertCounts {

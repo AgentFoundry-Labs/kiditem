@@ -39,6 +39,9 @@ function harness(options: {
   putDelay?: (chunkKind: string) => Promise<void> | undefined;
   putError?: (sequence: number, chunkKind: string) => RuntimeError | null;
   finishError?: RuntimeError;
+  /** 서버가 준비해 둔 실행(claim). 없으면 후보 없음. */
+  claimed?: OperationView;
+  claimError?: RuntimeError;
 } = {}) {
   const steps: Step[] = [];
   const puts: Array<{ chunkKind: string; sequence: number; payload: unknown[]; progress?: Record<string, unknown> }> = [];
@@ -46,8 +49,10 @@ function harness(options: {
   let releases = 0;
   const releaseErrors: unknown[] = [];
   const client: OperationClient = {
-    async claim() {
-      return { operation: null, token: null };
+    async claim(request) {
+      steps.push(`claim:${request.kinds.join(',')}`);
+      if (options.claimError) throw options.claimError;
+      return options.claimed ? { operation: options.claimed, token: TOKEN } : { operation: null, token: null };
     },
     async begin(request) {
       steps.push(`begin:${request.kind}`);
@@ -564,6 +569,50 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(plain.finishes[0]).toMatchObject({ result: { login: { reason: 'no_credentials' } } });
   });
 
+  it('수집기가 실패 result(failureResult)를 주면 실패 finish의 result에 싣는다 — 광고 액션의 not_attempted(KID-386)', async () => {
+    const h = harness();
+    const seen: unknown[] = [];
+    const c = collector(() => (async function* () {
+      throw new RuntimeError('ADVERTISING_AD_CENTER_FORM_CHANGED', '폼이 바뀜', { missing: '완료 버튼' });
+    })(), {
+      failureResult: (plan, error) => {
+        seen.push({ plan, code: error.code });
+        return { providerOutcome: 'not_attempted', message: error.message };
+      },
+    });
+
+    await runWith(h, c);
+
+    expect(seen).toEqual([{ plan: { echo: true }, code: 'ADVERTISING_AD_CENTER_FORM_CHANGED' }]);
+    expect(h.finishes).toEqual([{
+      outcome: 'failed',
+      errorCode: 'ADVERTISING_AD_CENTER_FORM_CHANGED',
+      errorMessage: '폼이 바뀜',
+      result: { providerOutcome: 'not_attempted', message: '폼이 바뀜' },
+    }]);
+  });
+
+  it('failureResult는 실패 전 마지막 progress를 받는다 — 누른 뒤 실패를 가르는 표식(KID-386)', async () => {
+    const seen: unknown[] = [];
+    const c: RunnableCollector = {
+      site: null,
+      collect: (_plan, _site, context) => (async function* () {
+        await context.report({ phase: 'pressed' });
+        yield { chunkKind: 'ad_action_evidence', payload: [{ campaignId: null }] };
+      })(),
+      failureResult: (_plan, _error, state) => {
+        seen.push(state.progress);
+        return { providerOutcome: 'uncertain' };
+      },
+    };
+    const h2 = harness({ putError: (_sequence, chunkKind) => (chunkKind === 'ad_action_evidence' ? new RuntimeError('SITE_REQUEST_FAILED', '쓰기 실패', null) : null) });
+
+    await runWith(h2, c);
+
+    expect(seen).toEqual([{ phase: 'pressed' }]);
+    expect(h2.finishes.at(-1)).toMatchObject({ outcome: 'failed', result: { providerOutcome: 'uncertain' } });
+  });
+
   it('로그인 까닭이 없는 실패는 result 없이 finish(failed)한다', async () => {
     const h = harness();
     const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {
@@ -571,5 +620,93 @@ describe('createRunner — 실행 하나의 순서', () => {
     })());
     await runWith(h, c);
     expect(h.finishes).toEqual([{ outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' }]);
+  });
+});
+
+describe('runClaimed — 서버가 준비한 실행(claim, KID-386)', () => {
+  const prepared = () => view({ kind: 'advertising.ad_action', lockKeys: ['resource:ad-center:acc', 'resource:ad-action:a1'], plan: { actionId: 'a1' } });
+
+  function claimWith(h: ReturnType<typeof harness>, c: RunnableCollector | null, signal = new AbortController().signal) {
+    const runner = createRunner({ client: h.client, browser: h.browser, siteFor: () => null }, () => c);
+    return runner.runClaimed({ kinds: ['advertising.ad_action'], workerId: 'popup', signal });
+  }
+
+  it('claim한 실행의 plan·lockKeys로 begin 없이 수집하고 청크·finish를 그 토큰으로 보낸다', async () => {
+    const h = harness({ claimed: prepared() });
+    const plans: unknown[] = [];
+    const c: RunnableCollector = {
+      site: 'ad-center',
+      collect: (plan) => (async function* () {
+        plans.push(plan);
+        yield { chunkKind: 'ad_action_evidence', payload: [{ campaignId: '9' }] };
+        return { result: { providerOutcome: 'created' } };
+      })(),
+    };
+
+    const outcome = await claimWith(h, c);
+
+    expect(h.steps).toEqual(['claim:advertising.ad_action', 'acquire', 'put:ad_action_evidence#1', 'finish:succeeded', 'release']);
+    expect(h.acquired).toEqual([{ operationId: OP, lockKeys: ['resource:ad-center:acc', 'resource:ad-action:a1'], site: 'ad-center' }]);
+    expect(plans).toEqual([{ actionId: 'a1' }]);
+    expect(h.finishes).toEqual([{ outcome: 'succeeded', result: { providerOutcome: 'created' } }]);
+    expect(outcome).toMatchObject({ kind: 'finished', operation: { status: 'succeeded' } });
+  });
+
+  it('후보가 없으면 null이고 브라우저 자원을 잡지 않는다', async () => {
+    const h = harness();
+
+    const outcome = await claimWith(h, collector([echoChunk(1)]));
+
+    expect(outcome).toBeNull();
+    expect(h.steps).toEqual(['claim:advertising.ad_action']);
+  });
+
+  it('claim 거절은 finish 없이 failed(operationId null)', async () => {
+    const h = harness({ claimError: new RuntimeError('RUNTIME_API_UNREACHABLE', '연결 실패', null) });
+
+    const outcome = await claimWith(h, collector([echoChunk(1)]));
+
+    expect(outcome).toEqual({ kind: 'failed', operationId: null, errorCode: 'RUNTIME_API_UNREACHABLE', errorMessage: '연결 실패' });
+    expect(h.steps).toEqual(['claim:advertising.ad_action']);
+  });
+
+  it('이 확장이 모르는 kind를 받으면 실패 finish로 돌려준다(받은 실행을 임대 만료까지 붙잡지 않는다)', async () => {
+    const h = harness({ claimed: prepared() });
+
+    const outcome = await claimWith(h, null);
+
+    expect(outcome).toMatchObject({ kind: 'failed', operationId: OP, errorCode: 'RUNTIME_UNKNOWN_KIND' });
+    expect(h.steps).toEqual(['claim:advertising.ad_action', 'finish:failed']);
+  });
+
+  it('begin 경로와 같은 중지 규칙 — 청크가 fence_lost면 finish 없이 멈춘다', async () => {
+    const h = harness({ claimed: prepared(), putError: () => new RuntimeError('OPERATION_FENCE_LOST', '만료', { reason: 'expired' }) });
+
+    const outcome = await claimWith(h, collector([echoChunk(1)]));
+
+    expect(outcome).toEqual({ kind: 'fence_lost', operationId: OP, reason: 'expired' });
+    expect(h.finishes).toEqual([]);
+    expect(h.releases()).toBe(1);
+  });
+
+  it('heartbeat 간격은 받은 실행의 임대(expiresAt까지)의 1/3이다 — 10분 임대 kind도 만료 전에 연장한다', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-29T00:00:00.000Z'));
+    const h = harness({ claimed: { ...prepared(), expiresAt: '2026-09-29T00:10:00.000Z' } });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const c = collector(async function* () {
+      await gate;
+      yield echoChunk(1);
+    });
+
+    const running = claimWith(h, c);
+    await vi.advanceTimersByTimeAsync(200_000 - 1);
+    expect(h.puts).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.puts.map((put) => put.chunkKind)).toEqual(['heartbeat']);
+
+    release();
+    await running;
   });
 });

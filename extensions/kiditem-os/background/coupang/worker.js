@@ -8,8 +8,6 @@
 
 // KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
-const AD_ACTION_URL =
-  "https://advertising.coupang.com/dashboard?kiditemExecuteActions=1#kiditemExecuteActions=1";
 const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
 const WING_CATALOG_MAX_PAGES = 5;
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
@@ -222,18 +220,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.action === "openAndExecuteAdActions") {
-    openAndExecuteAdActions(AD_ACTION_URL, environmentId)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "광고 액션 실행 탭 생성 실패",
-        }),
-      );
-    return true;
-  }
-
 });
 
 function buildCoupangSearchUrl(keyword) {
@@ -251,58 +237,6 @@ function isCoupangSearchUrl(url) {
   } catch {
     return false;
   }
-}
-
-async function openAndExecuteAdActions(url = AD_ACTION_URL, environmentId) {
-  const tab = await interactiveTabs.createTab({
-    url,
-    reason: INTERACTIVE_TAB_REASONS.AD_MUTATION,
-  });
-  await coupangEnvironment.bindTab(tab.id, environmentId);
-  return new Promise((resolve) => {
-      const tabId = tab.id;
-      let sent = false;
-      const cleanup = () => chrome.tabs.onUpdated.removeListener(onUpdated);
-      const timeout = setTimeout(() => {
-        cleanup();
-        if (!sent)
-          resolve({ success: true, opened: true, tabId, pendingLogin: true });
-      }, 180000);
-
-      const sendRunMessage = () => {
-        if (sent) return;
-        sent = true;
-        clearTimeout(timeout);
-        cleanup();
-        setTimeout(() => {
-          chrome.tabs.sendMessage(
-            tabId,
-            { action: "runApprovedQueuedAdActions" },
-            (response) => {
-              if (chrome.runtime.lastError) {
-                resolve({
-                  success: true,
-                  opened: true,
-                  tabId,
-                  warning: chrome.runtime.lastError.message,
-                });
-                return;
-              }
-              resolve({ success: true, opened: true, tabId, response });
-            },
-          );
-        }, 3000);
-      };
-
-      function onUpdated(updatedTabId, changeInfo, updatedTab) {
-        if (updatedTabId !== tabId || changeInfo.status !== "complete") return;
-        const currentUrl = updatedTab?.url || "";
-        if (!currentUrl.startsWith("https://advertising.coupang.com/")) return;
-        sendRunMessage();
-      }
-
-      chrome.tabs.onUpdated.addListener(onUpdated);
-  });
 }
 
 function isWingInventoryUrl(url) {
@@ -536,9 +470,8 @@ function sleep(ms) {
 }
 
 // ── 통합 서비스워커 등록 ──
-// producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
+// 이 도메인에는 수집 세션 producer가 없다 — 윙 카탈로그·상품은 실행 kind다(KID-365).
 KidItemDomains.register({
-  producerPrefixes: ["channels", "dashboard"],
   capabilities: {
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,

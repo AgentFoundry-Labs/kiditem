@@ -15,10 +15,6 @@ const worker = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
-const collectionRunsSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/collection-runs.js'),
-  'utf8',
-);
 const sourceOwnerManifest = fs.readFileSync(
   path.join(extensionRoot, 'background/source-owner-manifest.js'),
   'utf8',
@@ -52,6 +48,8 @@ test('loads the canonical session manager and focus owners before collector runt
     'coupang/ad-campaign-source-owner.js',
     'coupang/ad-keyword-source-owner.js',
     'coupang/profitability-source-owner.js',
+    // KID-365: the collection-run controller had no consumer after the window producers left.
+    'coupang/collection-runs.js',
   ]) {
     assert.equal(at(retired), -1, retired);
     assert.equal(fs.existsSync(path.join(extensionRoot, 'background', retired)), false, retired);
@@ -90,7 +88,8 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(worker, /function autoScrape\(/);
   assert.doesNotMatch(worker, /alarmName\(["']auto-scrape["']/);
   assert.match(worker, /KidItemDomains\.register\(/);
-  assert.match(worker, /producerPrefixes:\s*\["channels",\s*"dashboard"\]/);
+  // KID-365: the Coupang domain owns no collection session producer.
+  assert.doesNotMatch(worker, /producerPrefixes/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -100,11 +99,8 @@ test('retires the generic scrape ingress before producer actions', () => {
     assert.match(dispatchSource, new RegExp(`["']${action}["']`));
     assert.doesNotMatch(worker, new RegExp(`msg\\.action === ["']${action}["']`));
   }
-  assert.doesNotMatch(collectionRunsSource, /restartStrategy/);
-  assert.doesNotMatch(collectionRunsSource, /manual_confirmation/);
   // 취소는 producer별 source owner가 server FAILED를 커밋한 뒤 local control을 정리한다.
   assert.doesNotMatch(worker, /collectionRuns\s*\n?\s*\.cancel\(/);
-  assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
@@ -137,7 +133,6 @@ test('retires the advertising account-day KPI owner from every extension surface
     'background/service-worker.js': read('background/service-worker.js'),
     'background/source-owner-manifest.js': sourceOwnerManifest,
     'background/coupang/worker.js': worker,
-    'content/coupang/ads-report.js': read('content/coupang/ads-report.js'),
     'popup/popup.js': read('popup/popup.js'),
     'popup/popup.html': read('popup/popup.html'),
     'manifest.json': JSON.stringify(manifest),
@@ -151,9 +146,22 @@ test('retires the advertising account-day KPI owner from every extension surface
   );
 });
 
-test('persists only allowlisted Coupang producers and advertises the capability', () => {
+// 승인된 광고 액션 실행은 런타임 kind `advertising.ad_action`(claim)이다 — 광고센터 content script와 옛 워커 실행 경로는 없다(KID-386).
+test('approved ad actions run only as the runtime ad_action kind, with no ad-center content script or worker path', () => {
+  assert.equal(fs.existsSync(path.join(extensionRoot, 'content/coupang/ads-report.js')), false);
+  assert.equal(fs.existsSync(path.join(extensionRoot, 'utils/dom.js')), false);
+  const contentScripts = manifest.content_scripts.flatMap((entry) => entry.js);
+  assert.ok(!contentScripts.some((file) => /ads-report|utils\/dom/.test(file)), 'manifest content script');
+  assert.ok(manifest.host_permissions.includes('https://advertising.coupang.com/*'), 'runtime still reaches the ad center');
+  assert.doesNotMatch(worker, /ExecuteAdActions|QueuedAdActions|ExecuteActions=|AD_ACTION_URL/);
+  const interactiveTabs = fs.readFileSync(path.join(extensionRoot, 'background/interactive-tabs.js'), 'utf8');
+  assert.doesNotMatch(interactiveTabs, /AD_MUTATION/);
+});
+
+test('lists no Coupang browser session producer and still advertises the capability', () => {
+  // KID-365: the Wing catalog is a runtime kind; neither Coupang producer has a session writer.
   for (const producer of ['dashboard.coupang_products', 'channels.coupang_catalog']) {
-    assert.match(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
+    assert.doesNotMatch(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
   }
   assert.doesNotMatch(sourceOwnerManifest, /"advertising\./);
   assert.match(worker, /browserCollectionSessions:\s*true/);
@@ -248,5 +256,4 @@ test('interactive focus helper requires a deliberate user-action reason', async 
   assert.deepEqual(JSON.parse(JSON.stringify(calls.focus)), [
     { windowId: 7, properties: { focused: true } },
   ]);
-  assert.match(worker, /interactiveTabs\.createTab/);
 });

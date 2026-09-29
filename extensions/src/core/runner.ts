@@ -72,8 +72,22 @@ export interface RunnerDeps {
   siteFor(kind: OperationKind, lease: RunSiteLease): unknown;
 }
 
+/** 서버가 준비해 둔 실행(`prepared`)을 받아 돌리는 입력(KID-386). 자격은 싣지 않는다 — 로그인이 필요하면 운영자가 한다. */
+export interface RunClaimedInput {
+  kinds: OperationKind[];
+  /** 로그·진단용(서버 claim의 `workerId`). */
+  workerId: string;
+  signal: AbortSignal;
+  onBegun?(begun: { operationId: string; reused: boolean }): void;
+}
+
 export interface OperationRunner {
   run(input: RunInput): Promise<RunOutcome>;
+  /**
+   * claim → 받은 실행의 plan·lockKeys·토큰으로 begin 경로와 같은 순서(자원 → 청크 → finish, `stopFor` 중지 규칙).
+   * 후보가 없으면 null. 연쇄(`result.next`)는 잇지 않는다 — 준비한 실행의 다음은 서버가 정한다.
+   */
+  runClaimed(input: RunClaimedInput): Promise<RunOutcome | null>;
 }
 
 export const RUNTIME_UNKNOWN_KIND = 'RUNTIME_UNKNOWN_KIND' as const;
@@ -122,6 +136,16 @@ export interface RunnableCollector {
   /** 청크 스트림. 생성기가 `RunnableFinish`를 돌려주면 그 값이 `summarize`보다 앞선다. */
   collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk> | AsyncGenerator<RunnableChunk, RunnableFinish | void, undefined>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
+  /**
+   * 실패 finish에 실을 result(있으면). 수집기가 오류를 보고 정한다 — 광고 액션의 `not_attempted`처럼 owner가 실패에도 결과
+   * 모양을 받는 kind(KID-386). fence_lost·취소는 finish를 보내지 않으므로 부르지 않는다.
+   */
+  failureResult?(
+    plan: Record<string, unknown>,
+    error: { code: string; message: string },
+    /** 실패 전 마지막 progress(청크·report가 올린 것, 쓰기가 실패했어도) — 수집기가 어디까지 갔는지의 표식. */
+    state: { progress: Record<string, unknown> | null },
+  ): Record<string, unknown> | null;
 }
 
 const encoder = new TextEncoder();
@@ -152,6 +176,31 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
           scope: next.scope,
         };
       }
+    },
+
+    async runClaimed(input) {
+      let claimed;
+      try {
+        claimed = await deps.client.claim({ kinds: input.kinds, workerId: input.workerId });
+      } catch (caught) {
+        const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+        return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
+      }
+      const { operation, token } = claimed;
+      if (!operation || !token) return null;
+      const collector = collectorFor(operation.kind);
+      if (!collector) {
+        // 받은 실행은 이 확장의 것이다 — 임대 만료까지 붙잡지 않고 바로 실패로 돌려준다.
+        const errorMessage = `이 확장이 모르는 실행 종류입니다: ${operation.kind}`;
+        await deps.client
+          .finish({ operationId: operation.id, token, request: { outcome: 'failed', errorCode: RUNTIME_UNKNOWN_KIND, errorMessage } })
+          .catch(() => undefined);
+        return { kind: 'failed', operationId: operation.id, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage };
+      }
+      input.onBegun?.({ operationId: operation.id, reused: false });
+      // 준비 실행은 owner가 임대를 정한다(광고 액션 10분) — heartbeat는 받은 임대의 1/3마다.
+      const heartbeatMs = claimedHeartbeatInterval(operation.expiresAt, Date.now());
+      return execute(deps, collector, { kind: operation.kind, scope: {}, signal: input.signal }, operation, token, heartbeatMs);
     },
   };
 }
@@ -195,6 +244,7 @@ async function execute(
   input: RunInput,
   operation: OperationView,
   token: string,
+  heartbeatMs: number = HEARTBEAT_INTERVAL_MS,
 ): Promise<RunOutcome> {
   const operationId = operation.id;
   const local = new AbortController();
@@ -245,7 +295,7 @@ async function execute(
           }
         },
       );
-    }, HEARTBEAT_INTERVAL_MS);
+    }, heartbeatMs);
   };
 
   let lease: BrowserLease | null = null;
@@ -289,6 +339,8 @@ async function execute(
         const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
         const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
         if (!empty) sequences.set(chunk.chunkKind, sequence);
+        // 쓰기가 실패해도 수집기가 어디까지 갔는지 남긴다(failureResult의 표식).
+        if (chunk.progress) lastProgress = chunk.progress;
         await write(() =>
           deps.client.putChunk({
             operationId,
@@ -336,6 +388,13 @@ async function execute(
     if (stop.kind === 'fence_lost') return { kind: 'fence_lost', operationId, reason: stop.reason };
     await writes;
     const login = loginFailureOf(error, input.loginBlocked === true);
+    let failureResult: Record<string, unknown> | null = null;
+    try {
+      failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }, { progress: lastProgress ?? null }) ?? null;
+    } catch {
+      failureResult = null;
+    }
+    const result = failureResult || login ? { ...(failureResult ?? {}), ...(login ? { login } : {}) } : null;
     await deps.client
       .finish({
         operationId,
@@ -344,7 +403,7 @@ async function execute(
           outcome: 'failed',
           errorCode: error.code.slice(0, 64),
           errorMessage: error.message.slice(0, 2_000),
-          ...(login ? { result: { login } } : {}),
+          ...(result ? { result } : {}),
         },
       })
       .catch(() => undefined);
@@ -371,6 +430,14 @@ function loginFailureOf(error: RuntimeError, loginBlocked: boolean): Record<stri
     reason: reason.slice(0, 64),
     ...(typeof mallMessage === 'string' && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}),
   };
+}
+
+/** 받은 실행의 남은 임대의 1/3(5초 ~ 기본 간격). 만료 시각을 읽지 못하면 기본 간격. */
+const MIN_HEARTBEAT_INTERVAL_MS = 5_000;
+export function claimedHeartbeatInterval(expiresAt: string | Date, now: number): number {
+  const remaining = new Date(expiresAt).getTime() - now;
+  if (!Number.isFinite(remaining)) return HEARTBEAT_INTERVAL_MS;
+  return Math.min(HEARTBEAT_INTERVAL_MS, Math.max(MIN_HEARTBEAT_INTERVAL_MS, Math.floor(remaining / 3)));
 }
 
 /** 서버 cancel은 입구가 이미 불렀다 — finish를 보내지 않는다. */

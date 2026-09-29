@@ -49,9 +49,8 @@ describe('BrowserCollectionSessionViewSchema', () => {
   });
 
   it('accepts every approved producer and attention reason', () => {
+    // KID-365: the Coupang catalog and product producers had no browser session producer left.
     expect(BROWSER_COLLECTION_PRODUCERS).toEqual([
-      'channels.coupang_catalog',
-      'dashboard.coupang_products',
       'orders.mall',
       'orders.mall_admin_listings',
     ]);
