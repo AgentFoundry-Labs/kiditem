@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withOperatorConfirmation } from './orders-action-operation-input';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import {
   mallTrackingUploadResult,
@@ -58,7 +59,7 @@ describe('몰 송장 업로드 실행 규칙(KID-355 wave8b)', () => {
   });
 
   it('운영자 확인은 보고 없는 plan 행을 올라간 것으로 센다(키드키즈 제출만 확인)', () => {
-    const confirmation = readMallTrackingOperatorConfirmation({ operatorConfirmation: {} });
+    const confirmation = readMallTrackingOperatorConfirmation(withOperatorConfirmation({}));
     expect(confirmation).toEqual({});
     const result = mallTrackingUploadResult([results([{ orderNo: 'A-1', status: 'not_in_list', mallMessage: null }])], plan, confirmation);
     expect(result).toMatchObject({ uploaded: 1, notInList: 1, failed: 0 });

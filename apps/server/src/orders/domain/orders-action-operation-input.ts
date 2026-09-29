@@ -45,10 +45,19 @@ export function assertWithinTargets(values: readonly string[], allowed: readonly
 }
 
 /**
- * 운영자 확인(`resolve` succeeded)으로 불린 finalize인가: 확인 서비스가 resolve result에 싣는 `operatorConfirmation` 칸.
- * 확장 finish는 이 칸을 싣지 않는다. 있으면 `schema`로 읽는다.
+ * 운영자 확인 표시. 확인 서비스만 `operations.resolve`의 result에 이 심볼 칸으로 확인 본문을 싣는다 — 계약은 그 result를
+ * 메모리에서 그대로 finalize에 넘기고, 저장되는 result는 owner finalize가 새로 만든다. 심볼은 JSON에 실리지 않으므로 확장
+ * finish result(같은 이름의 문자열 칸 포함)는 운영자 확인이 될 수 없다.
  */
+const OPERATOR_CONFIRMATION: unique symbol = Symbol('orders.operatorConfirmation');
+
+/** 확인 서비스가 resolve result로 넘길 값. */
+export function withOperatorConfirmation(confirmation: unknown): Record<string, unknown> {
+  return { [OPERATOR_CONFIRMATION]: confirmation } as Record<string, unknown>;
+}
+
+/** 운영자 확인(`resolve` succeeded)으로 불린 finalize면 그 확인 본문을 `schema`로 읽는다. 아니면 null. */
 export function readOperatorConfirmation<S extends z.ZodTypeAny>(result: unknown, schema: S): z.output<S> | null {
-  if (!result || typeof result !== 'object' || !('operatorConfirmation' in result)) return null;
-  return parseActionInput(schema, (result as { operatorConfirmation: unknown }).operatorConfirmation, 'invalid_operator_confirmation');
+  if (!result || typeof result !== 'object' || !(OPERATOR_CONFIRMATION in result)) return null;
+  return parseActionInput(schema, (result as { [OPERATOR_CONFIRMATION]: unknown })[OPERATOR_CONFIRMATION], 'invalid_operator_confirmation');
 }

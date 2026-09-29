@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { withOperatorConfirmation } from './orders-action-operation-input';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import {
   readSellpiaInvoiceOperatorConfirmation,
@@ -33,14 +34,15 @@ describe('셀피아 자동송장 실행 규칙(KID-355 wave8b)', () => {
   it('운영자 확인은 그가 본 발급 행을 쓰고, 안 주면 확장이 읽은 행을 쓴다', () => {
     expect(sellpiaAutoInvoiceResult([], plan, { issued: [row('A-3')] }).issued).toEqual([row('A-3')]);
     expect(sellpiaAutoInvoiceResult([rows([row('A-1')])], plan, {}).issued).toEqual([row('A-1')]);
-    expect(readSellpiaInvoiceOperatorConfirmation({ operatorConfirmation: {} })).toEqual({});
+    expect(readSellpiaInvoiceOperatorConfirmation(withOperatorConfirmation({}))).toEqual({});
     expect(readSellpiaInvoiceOperatorConfirmation({ issued: [] })).toBeNull();
   });
 
   it('송장 result에서 빼는 번호는 실제 발급된 번호뿐이다 — 못 찾은 번호는 다시 대상이 된다', () => {
-    expect(sellpiaInvoiceIssued({ issued: [row('A-1')], selectedOrderNumbers: ['A-1', 'A-2'], notFoundOrderNumbers: ['A-2'] }))
-      .toEqual({ issuedOrderNumbers: ['A-1'] });
-    expect(sellpiaInvoiceIssued({ broken: true })).toBeNull();
+    const at = new Date('2026-09-29T00:00:00Z');
+    expect(sellpiaInvoiceIssued({ issued: [row('A-1')], selectedOrderNumbers: ['A-1', 'A-2'], notFoundOrderNumbers: ['A-2'] }, at))
+      .toEqual({ finishedAt: at, issuedOrderNumbers: ['A-1'] });
+    expect(sellpiaInvoiceIssued({ broken: true }, at)).toBeNull();
   });
 
   it('성공 전송 result에서 받아들여진 번호를 읽고, 모양이 틀리면 무시한다', () => {

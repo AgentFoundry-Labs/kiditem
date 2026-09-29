@@ -12,7 +12,7 @@ import {
   type OperationPort,
 } from '../../../common/operation/application/port/in/operation.port';
 import { MallTrackingOperatorConfirmationSchema } from '../../domain/mall-tracking-upload-operation';
-import { parseActionInput } from '../../domain/orders-action-operation-input';
+import { parseActionInput, withOperatorConfirmation } from '../../domain/orders-action-operation-input';
 import { SellpiaInvoiceOperatorConfirmationSchema } from '../../domain/sellpia-auto-invoice-operation';
 import { SellpiaTransferOperatorConfirmationSchema } from '../../domain/sellpia-order-transfer-operation';
 
@@ -31,7 +31,7 @@ const RECONCILING_KINDS: Readonly<Record<string, { confirmation: z.ZodTypeAny; c
 
 /**
  * Orders 작업 실행의 운영자 확인·닫기(KID-355 wave8b). 채널 등록 실행과 같은 모양이다(`operations.resolve`): confirm은
- * 운영자가 셀피아·몰에서 본 사실을 `operatorConfirmation`으로 실어 owner finalize를 다시 부르고, close는 재시도 없이 실패로
+ * 운영자가 셀피아·몰에서 본 사실을 운영자 확인 표시(`withOperatorConfirmation`, 확장이 흉내 낼 수 없는 심볼 칸)로 실어 owner finalize를 다시 부르고, close는 재시도 없이 실패로
  * 닫는다. 같은 조직의 운영자면 누구나(채널 등록 확인과 같은 가정).
  */
 @Injectable()
@@ -46,7 +46,7 @@ export class OrdersActionOperationService {
       organizationId,
       operationId,
       outcome: 'succeeded',
-      result: { operatorConfirmation },
+      result: withOperatorConfirmation(operatorConfirmation),
     });
     return response.operation;
   }
