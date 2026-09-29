@@ -91,8 +91,8 @@ option and day, only for keywords that drew a click.
   `adapter/in/operation/ad-action-operation-owner.ts`); only
   `create_campaign` runs. Execution words come from the action's latest
   operation (`read/ad-action-execution.ts`); `AdAction.operationId` links it
-  and `payload.execution` keeps only an audit copy. `execution_tasks` is
-  neither read nor written.
+  and `payload.execution` keeps only an audit copy. The retired attempt
+  table is neither read nor written (it is dropped in KID-365).
 - Approval or `POST /api/ads/campaigns/register` commits the action first,
   then a second transaction locks it and calls `operations.prepare`, because
   the owner's `plan` reads the committed action. A failed preparation leaves
