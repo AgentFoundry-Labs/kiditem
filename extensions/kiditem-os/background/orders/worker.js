@@ -2671,22 +2671,15 @@ KidItemDomains.register({
     }),
   }])),
   capabilities: {
-    orderCollectionIcecreamMall: true,
     collectKakaoOrders: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,
     orderCollectionSourceOwnerV1: true,
-    sellpiaOrderFileUploadEvidenceV1: true,
-    sellpiaScopedAutoInvoiceV1: true,
-    uploadOnchTracking: true,
-    uploadKidkidsTracking: true,
     // 몰 상품등록·품절·재개·가격은 런타임 실행 kind(KID-256), 몰 로그인 테스트·확인·사진 호스팅·분류·쿠팡 쉽먼트 화면·PDF·
     // 쿠키 정리는 새 런타임 entry 액션(KID-366)이다 — 입구 `ping`이 그 capability를 알린다.
     // 수집이 끝나면 우리가 연 몰 탭을 닫는다.
     orderCollectionTabCloseV1: true,
-    sellpiaPostTransfer: true,
-    sellpiaAutoInvoice: true,
   },
   cancelCollectionSession: (attemptId, environmentId) =>
     cancelOrdersCollectionSession(attemptId, environmentId),

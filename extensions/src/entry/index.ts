@@ -20,8 +20,14 @@ import '../collectors/channels.wing_catalog_list';
 import '../collectors/orders.coupang_directship';
 import '../collectors/orders.coupang_reviews';
 import '../collectors/orders.coupang_rocket_po';
+import '../collectors/orders.coupang_shipment_list';
 import '../collectors/orders.coupang_shipment_summary';
 import '../collectors/orders.mall_orders';
+import '../collectors/orders.mall_tracking_upload';
+import '../collectors/orders.sellpia_auto_invoice';
+import '../collectors/orders.sellpia_order_snapshot';
+import '../collectors/orders.sellpia_order_transfer';
+import '../collectors/orders.sellpia_post_transfer';
 import '../collectors/orders.sellpia_shipment_tracking';
 import '../collectors/products.sellpia_inventory';
 import '../collectors/sourcing.coupang_keyword_suggestion';
@@ -80,6 +86,7 @@ import '../sites/lotte-on/availability';
 import '../sites/lotte-on/registration';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
+import '../sites/mall-tracking';
 import '../sites/mall-write';
 import '../sites/onch';
 import '../sites/onch/availability';
@@ -126,6 +133,7 @@ import {
   TEST_MALL_LOGIN_ACTION,
   WING_INVENTORY_EXPORT_CAPABILITY,
 } from '@kiditem/shared/extension-actions';
+import { ORDERS_ACTION_OPERATION_CAPABILITY } from '@kiditem/shared/orders-action-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { collectorFor } from '../collectors';
 import { createAuthStore, type ProfileStorage } from '../core/auth-store';
@@ -264,6 +272,9 @@ export function installEntry(): InstalledEntry | null {
       // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
       // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
       [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
+      // orderActionOperationKindsV1: Orders 작업 kind 6종(셀피아 전송·후처리·자동송장·스냅샷, 쿠팡 배송 목록, 몰 송장 업로드)을
+      // 돈다(KID-366 wave8b) — 옛 워커 표시(`sellpiaScopedAutoInvoiceV1`·`orderCollectionIcecreamMall` 등)를 대신한다.
+      [ORDERS_ACTION_OPERATION_CAPABILITY]: true,
       ...mallSiteCapabilities(),
       ...mallWriteCapabilities(),
     },

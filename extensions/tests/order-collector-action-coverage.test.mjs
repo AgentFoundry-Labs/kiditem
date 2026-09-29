@@ -323,14 +323,12 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   assert.match(worker, /producerPrefixes:\s*\["orders"\]/);
 });
 
-test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.95', () => {
+test('order collector manifest keeps storage and Sellpia host access at the merged version', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   assert.equal(manifest.version, MERGED_EXTENSION_VERSION);
   assert.ok(manifest.permissions.includes('storage'));
+  // 셀피아 작업(전송·후처리·자동송장·스냅샷)은 새 런타임 kind다(KID-366 wave8b) — 옛 워커 capability 표시는 없다.
   assert.ok(manifest.host_permissions.includes('https://*.sellpia.com/*'));
-  const worker = readFileSync(workerPath, 'utf8');
-  assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
-  assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
 });
 
 test('web bridge reaches local and Office KidItem origins', () => {
