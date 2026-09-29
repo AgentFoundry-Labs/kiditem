@@ -4,7 +4,7 @@ import type {
   AgentRunnerRunRequest,
 } from '@copilotkit/runtime/v2';
 import type { Observable } from 'rxjs';
-import type { ConversationOwner } from '../../../../application/port/in/capability/conversation.port';
+import type { ConversationOwner } from '../../../../application/port/in/conversation/conversation.port';
 
 /**
  * HTTP interaction transport seam for authenticated owner-scoped run and

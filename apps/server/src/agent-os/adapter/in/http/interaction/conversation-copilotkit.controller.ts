@@ -32,7 +32,7 @@ import {
   ConversationTurnMessageSchema,
   type ConversationOwner,
   type ConversationPort,
-} from '../../../../application/port/in/capability/conversation.port';
+} from '../../../../application/port/in/conversation/conversation.port';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import {
   COPILOTKIT_CONVERSATION_HISTORY_TRANSPORT,

@@ -13,7 +13,7 @@ import {
   CONVERSATION_ID_FACTORY,
   CONVERSATION_PORT,
   CONVERSATION_TURN_ID_FACTORY,
-} from './application/port/in/capability/conversation.port';
+} from './application/port/in/conversation/conversation.port';
 import { GATEWAY_CONVERSATION_PORT } from './application/port/out/gateway-conversation.port';
 import { CONVERSATION_EVENT_HISTORY_PORT } from './application/port/out/history/conversation-event-history.port';
 import { ConversationService } from './application/service/conversation.service';

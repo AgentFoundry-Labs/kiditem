@@ -5,7 +5,7 @@ import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
 import {
   CONVERSATION_ID_FACTORY,
   CONVERSATION_TURN_ID_FACTORY,
-} from '../port/in/capability/conversation.port';
+} from '../port/in/conversation/conversation.port';
 import { GATEWAY_CONVERSATION_PORT } from '../port/out/gateway-conversation.port';
 import type { GatewayConversationPort } from '../port/out/gateway-conversation.port';
 import type { ConversationEventHistoryPort } from '../port/out/history/conversation-event-history.port';

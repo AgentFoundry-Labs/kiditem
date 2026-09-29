@@ -1,4 +1,4 @@
-import type { ConversationOwner } from '../../in/capability/conversation.port';
+import type { ConversationOwner } from '../../in/conversation/conversation.port';
 
 /**
  * Durable completed AG-UI event history, fenced by the authenticated owner.
