@@ -28,8 +28,6 @@ export interface TodaySucceededTransfer {
 interface MallTally {
   orderNumbers: Set<string>;
   sourceIds: Set<string>;
-  /** `orderNumbers`가 없는 옛 result(배포 전 실행)의 가장 최근 하나 — 옛 규칙(그 실행의 rowCount)으로 센다. */
-  legacy: { id: string; rowCount: number } | null;
   /** directship: 계정마다 마지막 실행의 발주서 수·아직 안 보낸 운송유형의 발주서 수. */
   directship: { orderCount: number; newCount: number };
 }
@@ -54,7 +52,7 @@ export function countTodayOrders(
   const tallyOf = (mallKey: string): MallTally => {
     let tally = tallies.get(mallKey);
     if (!tally) {
-      tally = { orderNumbers: new Set(), sourceIds: new Set(), legacy: null, directship: { orderCount: 0, newCount: 0 } };
+      tally = { orderNumbers: new Set(), sourceIds: new Set(), directship: { orderCount: 0, newCount: 0 } };
       tallies.set(mallKey, tally);
     }
     return tally;
@@ -74,11 +72,8 @@ export function countTodayOrders(
       if (!result.success || typeof mallKey !== 'string' || !mallKey) continue;
       const tally = tallyOf(mallKey);
       tally.sourceIds.add(operation.id);
-      if (result.data.orderNumbers) {
-        for (const orderNumber of result.data.orderNumbers) tally.orderNumbers.add(orderNumber);
-      } else if (!tally.legacy) {
-        tally.legacy = { id: operation.id, rowCount: result.data.rowCount };
-      }
+      // 주문번호 칸이 없는 옛 result(배포 전 실행)는 0으로 센다 — rowCount로 되살리면 같은 주문을 두 번 센다(ADR-0010).
+      for (const orderNumber of result.data.orderNumbers ?? []) tally.orderNumbers.add(orderNumber);
       continue;
     }
     if (operation.kind === COUPANG_DIRECTSHIP_KIND) {
@@ -108,9 +103,7 @@ export function countTodayOrders(
       for (const orderNumber of transfer.acceptedOrderNumbers) accepted.add(orderNumber);
     }
     const pending = [...tally.orderNumbers].filter((orderNumber) => !accepted.has(orderNumber)).length;
-    const legacyCount = tally.legacy?.rowCount ?? 0;
-    const legacyNew = tally.legacy && !sentTransports.has(tally.legacy.id) ? legacyCount : 0;
-    byMall[mallKey] = { orderCount: tally.orderNumbers.size + legacyCount, newCount: pending + legacyNew };
+    byMall[mallKey] = { orderCount: tally.orderNumbers.size, newCount: pending };
   }
   const malls = Object.values(byMall);
   if (malls.length === 0) return { total: null, newTotal: null, byMall };

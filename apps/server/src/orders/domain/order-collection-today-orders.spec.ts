@@ -7,17 +7,16 @@ const mall = (id: string, mallKey: string, result: Record<string, unknown>) => (
 });
 
 describe('오늘 주문·신규 셈법 (KID-234)', () => {
-  it('배포 전 result(주문번호 없음)는 옛 규칙대로 그 몰의 가장 최근 하나의 rowCount를 세고, 그 원천을 보낸 전송이 있으면 신규가 아니다', () => {
+  it('주문번호 칸이 없는 옛 result(배포 전 실행)는 0으로 센다 — rowCount로 되살리면 같은 주문을 두 번 센다(ADR-0010 데이터 손실 허용)', () => {
     const operations = [
       mall('b', 'onch', { rowCount: 3, orderNumbers: ['OC-9'] }),
       mall('a2', 'onch', { rowCount: 5 }),
-      mall('a1', 'onch', { rowCount: 7 }),
       mall('k', 'kidkids', { rowCount: 2 }),
     ];
-    expect(countTodayOrders(operations, [{ sourceOperationId: 'k', transport: null, acceptedOrderNumbers: [] }])).toEqual({
-      total: 1 + 5 + 2,
-      newTotal: 1 + 5 + 0,
-      byMall: { onch: { orderCount: 6, newCount: 6 }, kidkids: { orderCount: 2, newCount: 0 } },
+    expect(countTodayOrders(operations, [])).toEqual({
+      total: 1,
+      newTotal: 1,
+      byMall: { onch: { orderCount: 1, newCount: 1 }, kidkids: { orderCount: 0, newCount: 0 } },
     });
   });
 
