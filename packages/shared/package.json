@@ -325,6 +325,11 @@
       "types": "./dist/orders-action-operations.d.ts",
       "import": "./dist/orders-action-operations.js",
       "require": "./dist/orders-action-operations.cjs"
+    },
+    "./sellpia-providers": {
+      "types": "./dist/sellpia-providers.d.ts",
+      "import": "./dist/sellpia-providers.js",
+      "require": "./dist/sellpia-providers.cjs"
     }
   },
   "types": "./dist/index.d.ts",
@@ -518,6 +523,9 @@
       ],
       "orders-action-operations": [
         "dist/orders-action-operations.d.ts"
+      ],
+      "sellpia-providers": [
+        "dist/sellpia-providers.d.ts"
       ]
     }
   },
