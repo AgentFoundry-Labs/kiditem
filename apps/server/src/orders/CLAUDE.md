@@ -55,8 +55,7 @@ Action, collection, transmission, and reconciliation behavior is executable in
   ([ADR-0025](../../../../docs/adr/0025-operations-are-one-contract.md)); there
   is no review attempt route. Its finalize writes one operation row per review
   only after every planned month window's `review_windows` marker matches its
-  `reviews` chunk count, and the reader prefers operation rows over legacy
-  SourceImportRun rows.
+  `reviews` chunk count; readers show only operation rows (KID-365).
 - Sellpia shipment tracking is the operation kind
   `orders.sellpia_shipment_tracking`, locked by `resource:sellpia:login` (one
   Sellpia login per organization, shared by every kind that reads through it).

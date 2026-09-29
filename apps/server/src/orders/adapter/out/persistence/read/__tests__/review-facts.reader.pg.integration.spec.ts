@@ -65,34 +65,48 @@ describe('Review facts reader over disposable PostgreSQL', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('publishes only the latest complete generation and isolates organizations', async () => {
-    const oldRun = await run(TEST_ORGANIZATION_ID, 'completed', 1n);
-    const runningRun = await run(TEST_ORGANIZATION_ID, 'running', 3n);
-    const currentRun = await run(TEST_ORGANIZATION_ID, 'completed', 2n);
-    const foreignRun = await run(OTHER_ORGANIZATION_ID, 'completed', 9n);
-
-    await review(TEST_ORGANIZATION_ID, oldRun.id, 'shared-review', 'old complete');
-    await review(TEST_ORGANIZATION_ID, runningRun.id, 'shared-review', 'running hidden');
-    await review(TEST_ORGANIZATION_ID, currentRun.id, 'shared-review', 'current complete');
-    await review(OTHER_ORGANIZATION_ID, foreignRun.id, 'foreign-review', 'foreign hidden');
-
-    const result = await prisma.$transaction((tx) =>
-      readCurrentReviewItems(tx, TEST_ORGANIZATION_ID, {}, 1, 50),
-    );
-
-    expect(result.map((item) => item.content)).toEqual(['current complete']);
-  });
-
-  it('실행(operation) 행이 같은 리뷰의 옛 run 행보다 항상 현재다 — 옛 run만 있는 리뷰는 run 세대 규칙 그대로', async () => {
-    const legacyRun = await run(TEST_ORGANIZATION_ID, 'completed', 9n);
-    await review(TEST_ORGANIZATION_ID, legacyRun.id, 'moved-review', 'legacy generation');
-    await review(TEST_ORGANIZATION_ID, legacyRun.id, 'legacy-only', 'legacy only');
+  it('shows only reviews an operation wrote — old import run rows and unowned rows are not current, other organizations stay out', async () => {
+    const legacyRun = await prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceType: 'coupang_reviews',
+        status: 'completed',
+        publicationSequence: 9n,
+        importedAt: new Date('2026-05-09T00:00:00.000Z'),
+      },
+    });
+    const naverRun = await prisma.sourceImportRun.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, sourceType: 'naver_reviews', status: 'completed' },
+    });
     await prisma.review.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: legacyRun.id,
+          platform: 'coupang',
+          externalReviewId: 'moved-review',
+          rating: 5,
+          content: 'legacy generation hidden',
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: legacyRun.id,
+          platform: 'coupang',
+          externalReviewId: 'legacy-only',
+          rating: 5,
+          content: 'legacy only hidden',
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          sourceImportRunId: naverRun.id,
+          platform: 'naver',
+          externalReviewId: 'naver-run',
+          rating: 4,
+          content: 'non-coupang run hidden',
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
           operationId: '74000000-0000-4000-8000-000000000001',
-          // 옛 run(imported_at 2026-05-09)보다 이른 발행 시각이어도 실행 행이 이긴다.
           publishedAt: new Date('2026-01-01T00:00:00.000Z'),
           platform: 'coupang',
           externalReviewId: 'moved-review',
@@ -133,42 +147,7 @@ describe('Review facts reader over disposable PostgreSQL', () => {
       readCurrentReviewItems(tx, TEST_ORGANIZATION_ID, {}, 1, 50),
     );
 
-    expect(result.map((item) => item.content).sort()).toEqual(['legacy only', 'operation current', 'operation only']);
-  });
-
-  it('excludes non-Coupang reviews without a completed source owner run', async () => {
-    const completed = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'naver_reviews',
-        status: 'completed',
-      },
-    });
-    await prisma.review.createMany({
-      data: [
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          platform: 'naver',
-          externalReviewId: 'legacy-source-null',
-          rating: 5,
-          content: 'legacy hidden',
-        },
-        {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceImportRunId: completed.id,
-          platform: 'naver',
-          externalReviewId: 'completed-source',
-          rating: 4,
-          content: 'completed visible',
-        },
-      ],
-    });
-
-    const result = await prisma.$transaction((tx) =>
-      readCurrentReviewItems(tx, TEST_ORGANIZATION_ID, {}, 1, 50),
-    );
-
-    expect(result.map((item) => item.content)).toEqual(['completed visible']);
+    expect(result.map((item) => item.content).sort()).toEqual(['operation current', 'operation only']);
   });
 
   it('reports listing order count only after canonical order facts are observed', async () => {
@@ -205,11 +184,11 @@ describe('Review facts reader over disposable PostgreSQL', () => {
         externalOptionId: 'REVIEW-OPTION',
       },
     });
-    const reviewRun = await run(TEST_ORGANIZATION_ID, 'completed', 1n);
     await prisma.review.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceImportRunId: reviewRun.id,
+        operationId: '74000000-0000-4000-8000-000000000003',
+        publishedAt: new Date('2026-05-01T00:00:00.000Z'),
         listingId: listing.id,
         platform: 'coupang',
         externalReviewId: 'listing-review',
@@ -262,34 +241,4 @@ describe('Review facts reader over disposable PostgreSQL', () => {
     const measured = await service.list(TEST_ORGANIZATION_ID, {});
     expect(measured.items[0]?.orderCount).toBe(1);
   });
-
-  async function run(organizationId: string, status: string, publicationSequence: bigint) {
-    return prisma.sourceImportRun.create({
-      data: {
-        organizationId,
-        sourceType: 'coupang_reviews',
-        status,
-        publicationSequence,
-        importedAt: new Date(`2026-05-0${Number(publicationSequence)}T00:00:00.000Z`),
-      },
-    });
-  }
-
-  async function review(
-    organizationId: string,
-    sourceImportRunId: string,
-    externalReviewId: string,
-    content: string,
-  ) {
-    await prisma.review.create({
-      data: {
-        organizationId,
-        sourceImportRunId,
-        platform: 'coupang',
-        externalReviewId,
-        rating: 5,
-        content,
-      },
-    });
-  }
 });
