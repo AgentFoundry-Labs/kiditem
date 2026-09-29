@@ -12,10 +12,9 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import {
-  readCompletedCatalogRunIds,
+  PUBLISHED_CATALOG_LISTING_WHERE,
   publishedCatalogOptionWhere,
-  publishedCatalogListingBranches,
-} from './completed-catalog-run';
+} from './published-catalog-listing';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionContext,
@@ -32,7 +31,7 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 type Transaction = Prisma.TransactionClient;
 type ActiveSku = { id: string; code: string };
-type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing' | 'sourceImportRun'>;
+type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing'>;
 
 /**
  * 셀피아 수동상품매칭 kind(KID-363)의 Channels 원장. 스냅샷은 조직마다 하나(`SellpiaManualMatchSnapshot`, 실행 열
@@ -172,13 +171,12 @@ async function listCurrentChannelAliasCandidates(
   client: ChannelListingClient,
   organizationId: string,
 ): Promise<string[]> {
-  const completedRunIds = await readCompletedCatalogRunIds(client, { organizationId });
   const listings = await client.channelListing.findMany({
     where: {
       organizationId,
       isActive: true,
       OR: [
-        ...publishedCatalogListingBranches(completedRunIds),
+        PUBLISHED_CATALOG_LISTING_WHERE,
         {
           options: {
             some: publishedCatalogOptionWhere(organizationId),

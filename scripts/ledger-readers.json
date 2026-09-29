@@ -923,12 +923,6 @@
       "removeWith": "KID-324"
     },
     {
-      "to": "apps/server/src/core/read/source-import-run.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/collection-freshness.repository.adapter.ts"
-    },
-    {
       "to": "apps/server/src/orders/adapter/out/persistence/read/review-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
@@ -1073,7 +1067,7 @@
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
-      "to": "apps/server/src/channels/adapter/out/repository/completed-catalog-run.ts",
+      "to": "apps/server/src/channels/adapter/out/repository/published-catalog-listing.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"

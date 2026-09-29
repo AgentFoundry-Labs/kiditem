@@ -35,7 +35,6 @@ export class RocketSellpiaMatchingCsvImportRepositoryAdapter implements RocketSe
     const identities = await upsertChannelCatalogIdentities(ownerTransactionClient(transaction), {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      lastImportRunId: null,
       lastOperationId: input.operationId,
       rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
       // 매칭 CSV 에는 판매가·모델번호 칸이 없다.

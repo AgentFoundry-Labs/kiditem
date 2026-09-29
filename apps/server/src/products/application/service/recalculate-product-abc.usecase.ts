@@ -153,12 +153,12 @@ function candidateRecord(
   mappingGeneration: string,
 ): MasterProductAbcCandidateRecord {
   const sellpia = snapshot.sourceVector.sellpia;
-  if (!sellpia.sourceImportRunId || !sellpia.publicationSequence) {
+  if (!sellpia.operationId || !sellpia.publicationSequence) {
     throw new ConflictException({ code: 'SOURCE_NOT_READY' });
   }
   return {
     ...candidate,
-    sellpiaOperationId: sellpia.sourceImportRunId,
+    sellpiaOperationId: sellpia.operationId,
     sellpiaGeneration: sellpia.publicationSequence,
     mappingGeneration,
   };
@@ -201,7 +201,7 @@ function hasCompatibleCompleteEvidence(
   const actualCutoff = snapshot.actualCutoff;
   if (actualCutoff === null || snapshot.mappingGeneration !== mappingGeneration) return false;
   const source = snapshot.sourceVector.sellpia;
-  return Boolean(source.sourceImportRunId
+  return Boolean(source.operationId
     && source.publicationSequence
     && source.mappingGeneration === mappingGeneration
     && source.coverageEndDate

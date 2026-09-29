@@ -49,13 +49,13 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
     const listings = await tx.channelListing.findMany({
       where: { organizationId, id: { in: [...listingIds] }, isActive: true,
         channelAccount: { organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } } },
-      select: { id: true, externalId: true, channelAccountId: true, status: true, lastImportRunId: true, lastOperationId: true,
+      select: { id: true, externalId: true, channelAccountId: true, status: true, lastOperationId: true,
         channelAccount: { select: { channel: true } },
         // 품절 송신도 등록 동결과 같은 가격 게이트를 지난다(KID-310).
         salesProduct: { select: { name: true, status: true,
           options: { where: { organizationId }, select: { id: true, supplyStatus: true, salePrice: true } } } },
         options: { where: { organizationId, isActive: true }, orderBy: { id: 'asc' },
-          select: { id: true, externalOptionId: true, status: true, rawJson: true, safetyStock: true, lastImportRunId: true, lastOperationId: true,
+          select: { id: true, externalOptionId: true, status: true, rawJson: true, safetyStock: true, lastOperationId: true,
             inventoryComponents: { where: { organizationId }, select: { masterProductId: true, quantity: true } } } } },
       orderBy: { id: 'asc' },
     });
@@ -74,17 +74,11 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
       ]),
       plan: { payloadKeys: ['listings', 'action'] },
     });
-    const importIds = [...new Set(listings.flatMap(listing => [listing.lastImportRunId, ...listing.options.map(option => option.lastImportRunId)]).filter((id): id is string => id !== null))];
-    const imports = importIds.length === 0 ? [] : await tx.sourceImportRun.findMany({
-      where: { organizationId, id: { in: importIds }, status: 'completed' },
-      select: { id: true, importedAt: true, updatedAt: true },
-    });
-    const importedAt = new Map(imports.map(run => [run.id, run.importedAt ?? run.updatedAt]));
     // 실행 계약으로 옮긴 원천(Wing 카탈로그 KID-354, 사방넷·몰 관리자·로켓 매칭 CSV KID-363)이 쓴 행은 그 실행이 끝난 시각이 관측 시각이다. 실행은 실행 계약의
     // reader로만 읽는다(ADR-0025).
     const operationIds = [...new Set(listings.flatMap(listing => [listing.lastOperationId, ...listing.options.map(option => option.lastOperationId)]).filter((id): id is string => id !== null))];
-    // 한 번의 reader 조회로 최근 성공한 카탈로그 실행의 끝난 시각을 모은다. 그보다 오래된 실행이 쓴 행은 시각을 모르는
-    // 것으로 두어(옛 run이 없던 행과 같다) 더 새 관측이 이긴다.
+    // 한 번의 reader 조회로 최근 성공한 카탈로그 실행의 끝난 시각을 모은다. 그보다 오래된 실행이 쓴 행과 옛 run이 쓴 행은
+    // 시각을 모르는 것으로 두어 더 새 관측이 이긴다(KID-365).
     const operationFinishedAt = new Map<string, Date>();
     if (operationIds.length > 0) {
       const { operations } = await this.operations.list(organizationId, { kinds: [...CATALOG_OPERATION_KINDS], status: 'succeeded', limit: RECENT_CATALOG_OPERATIONS });
@@ -92,9 +86,8 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
         if (operation.finishedAt) operationFinishedAt.set(operation.id, new Date(operation.finishedAt));
       }
     }
-    const catalogObservedAt = (row: { lastImportRunId: string | null; lastOperationId: string | null }) =>
-      (row.lastImportRunId ? importedAt.get(row.lastImportRunId) : undefined)
-        ?? (row.lastOperationId ? operationFinishedAt.get(row.lastOperationId) : undefined);
+    const catalogObservedAt = (row: { lastOperationId: string | null }) =>
+      row.lastOperationId ? operationFinishedAt.get(row.lastOperationId) : undefined;
     const optionObservations = await tx.channelListingOptionDailySnapshot.findMany({
       where: { organizationId, listingId: { in: ids }, OR: [{ stockQty: { not: null } }, { saleStatus: { not: null } }] },
       select: { listingOptionId: true, stockQty: true, saleStatus: true, lastObservedAt: true },

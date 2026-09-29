@@ -5,7 +5,7 @@ export const MASTER_PRODUCT_PROFITABILITY_READ_PORT = Symbol(
 );
 
 export type SourceGenerationView = Readonly<{
-  sourceImportRunId: string | null;
+  operationId: string | null;
   publicationSequence: string | null;
   mappingGeneration: string | null;
   coverageStartDate: string | null;

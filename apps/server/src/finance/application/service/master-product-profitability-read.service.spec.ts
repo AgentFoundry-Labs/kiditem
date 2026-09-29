@@ -251,14 +251,14 @@ describe('MasterProductProfitabilityReadService', () => {
 
     await expect(loadWith([sellpiaThrough6, sellpiaThrough5], '2026-09-06')).resolves.toMatchObject({
       actualCutoff: '2026-09-06',
-      sourceVector: { sellpia: { sourceImportRunId: sellpiaThrough6.operationId } },
+      sourceVector: { sellpia: { operationId: sellpiaThrough6.operationId } },
       sources: { sellpia: { ready: true, actualCutoff: '2026-09-06' } },
     });
     // A generation running past a cutoff inside its month cannot be cut back to it;
     // the one ending on the cutoff is read instead.
     await expect(loadWith([sellpiaThrough6, sellpiaThrough5], '2026-09-05')).resolves.toMatchObject({
       actualCutoff: '2026-09-05',
-      sourceVector: { sellpia: { sourceImportRunId: sellpiaThrough5.operationId } },
+      sourceVector: { sellpia: { operationId: sellpiaThrough5.operationId } },
     });
     await expect(loadWith([sellpiaThrough6], '2026-09-05')).resolves.toMatchObject({ actualCutoff: null });
     // A cutoff that closes its month reads any generation running past it.

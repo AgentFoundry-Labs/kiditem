@@ -594,26 +594,20 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       { masterProductId: officialA.id, abcGrade: 'A' },
       { masterProductId: staleCacheA.id, abcGrade: 'B' },
     ]);
-    const reviewRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_reviews',
-        status: 'completed',
-        importedAt: new Date('2026-09-01T01:00:00.000Z'),
-      },
-    });
+    // 리뷰는 orders.coupang_reviews 실행이 쓴 행만 현재다(KID-365).
+    const reviewOperation = { operationId: '76000000-0000-4000-8000-000000000001', publishedAt: new Date('2026-09-01T01:00:00.000Z') };
     await prisma.review.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          sourceImportRunId: reviewRun.id,
+          ...reviewOperation,
           listingId: officialListing.listingId,
           externalReviewId: 'OFFICIAL-A-LOW-1',
           rating: 5,
         },
         ...Array.from({ length: 15 }, (_, index) => ({
           organizationId: TEST_ORGANIZATION_ID,
-          sourceImportRunId: reviewRun.id,
+          ...reviewOperation,
           listingId: staleListing.listingId,
           externalReviewId: `STALE-A-HIGH-${index}`,
           rating: 5,

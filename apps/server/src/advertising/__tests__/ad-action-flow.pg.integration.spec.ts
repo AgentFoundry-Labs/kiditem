@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
@@ -52,18 +53,8 @@ describe('AdAction flow (PG integration)', () => {
           isPrimary: true,
         },
       }));
-    const importRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: params.organizationId,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: channelAccount.id,
-        fileName: 'advertising-pg.xlsx',
-        fileHash: `advertising-pg-${unique}`,
-        status: 'completed',
-        rowCount: 1,
-        importedAt: new Date(),
-      },
-    });
+    // 카탈로그 리스팅은 실행이 쓴 행만 게시된 것이다(KID-365).
+    const catalogOperationId = randomUUID();
     const master = await seedSourceProduct(prisma, {
       organizationId: params.organizationId,
       code: `SP-${unique}`,
@@ -82,7 +73,7 @@ describe('AdAction flow (PG integration)', () => {
         organizationId: params.organizationId,
         channelAccountId: channelAccount.id,
         externalId: `EXT-${unique}${params.externalIdSuffix ?? ''}`,
-        lastImportRunId: importRun.id,
+        lastOperationId: catalogOperationId,
       },
     });
     const listingOption = await prisma.channelListingOption.create({
@@ -91,7 +82,7 @@ describe('AdAction flow (PG integration)', () => {
         listingId: listing.id,
         externalOptionId: `VID-${unique}`,
         salePrice: params.sellPrice ?? null,
-        lastImportRunId: importRun.id,
+        lastOperationId: catalogOperationId,
         isActive: true,
       },
     });

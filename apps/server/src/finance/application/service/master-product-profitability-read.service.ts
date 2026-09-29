@@ -293,7 +293,7 @@ function normalizeSellpiaGeneration(
     metadata: generation,
     view: {
       // 셀피아 세대의 식별자는 상품 손익 실행 id다(KID-361). 광고와 같은 모양의 보기라 칸 이름은 그대로다.
-      sourceImportRunId: generation.operationId,
+      operationId: generation.operationId,
       publicationSequence: generation.publicationSequence,
       mappingGeneration: generation.mappingGeneration,
       coverageStartDate: from,
@@ -317,7 +317,7 @@ function sourceReadiness(
   const complete = latestCompleteView?.coverageEndDate
     ? {
       actualCutoff: latestCompleteView.coverageEndDate,
-      sourceImportRunId: latestCompleteView.sourceImportRunId,
+      operationId: latestCompleteView.operationId,
       publicationSequence: latestCompleteView.publicationSequence,
       mappingGeneration: latestCompleteView.mappingGeneration,
       coverageStartDate: latestCompleteView.coverageStartDate,
@@ -334,7 +334,7 @@ function sourceReadiness(
 
 function emptyGeneration(): SourceGenerationView {
   return {
-    sourceImportRunId: null,
+    operationId: null,
     publicationSequence: null,
     mappingGeneration: null,
     coverageStartDate: null,

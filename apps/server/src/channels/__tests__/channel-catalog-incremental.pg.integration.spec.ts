@@ -60,7 +60,6 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
       organizationId: ORG,
       channelAccountId,
       products,
-      lastImportRunId: null,
       rawSource: 'coupang_catalog_basics',
     }));
 
@@ -69,7 +68,6 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
       organizationId: ORG,
       channelAccountId,
       products,
-      lastImportRunId: ORG,
       rawSource: 'coupang_catalog_details',
     }));
 

@@ -429,12 +429,12 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toMatchObject({
-      publishedSellpiaOperationId: sources.sellpia.selectedComplete.sourceImportRunId,
+      publishedSellpiaOperationId: sources.sellpia.selectedComplete.operationId,
     });
     await expect(prisma.masterProductAbcEvaluation.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, masterProductId: productId },
     })).resolves.toMatchObject({
-      sellpiaOperationId: sources.sellpia.selectedComplete.sourceImportRunId,
+      sellpiaOperationId: sources.sellpia.selectedComplete.operationId,
     });
   });
 
@@ -601,7 +601,7 @@ function candidate(
     marginScore: 100,
     consistencyScore: 100,
     economicScore: abcGrade === 'A' ? 85 : abcGrade === 'B' ? 75 : 20,
-    sellpiaOperationId: sources.sellpia.selectedComplete.sourceImportRunId!,
+    sellpiaOperationId: sources.sellpia.selectedComplete.operationId!,
     sellpiaGeneration: sources.sellpia.selectedComplete.publicationSequence!,
     mappingGeneration: '0',
   };
@@ -616,7 +616,7 @@ function sourceView(run: {
   importedAt: Date | null;
 }) {
   return {
-    sourceImportRunId: run.id,
+    operationId: run.id,
     publicationSequence: run.publicationSequence?.toString() ?? null,
     mappingGeneration: run.mappingGeneration?.toString() ?? null,
     coverageStartDate: run.coverageStartDate?.toISOString().slice(0, 10) ?? null,
@@ -625,9 +625,9 @@ function sourceView(run: {
   };
 }
 
-function sourceViewById(sourceImportRunId: string) {
+function sourceViewById(operationId: string) {
   return {
-    sourceImportRunId,
+    operationId,
     publicationSequence: '1',
     mappingGeneration: '0',
     coverageStartDate: '2026-01-01',

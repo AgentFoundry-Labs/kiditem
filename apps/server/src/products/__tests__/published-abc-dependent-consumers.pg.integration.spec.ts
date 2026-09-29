@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
@@ -99,16 +100,11 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
     }
     await seedOfficialEvaluation(prisma, officialA.id);
 
-    const reviewRun = await prisma.sourceImportRun.create({ data: {
-      organizationId: ORG,
-      channelAccountId: account.id,
-      sourceType: 'coupang_reviews',
-      status: 'completed',
-      importedAt: new Date('2026-09-01T01:00:00.000Z'),
-    } });
+    // 리뷰는 orders.coupang_reviews 실행이 쓴 행만 현재다(KID-365).
     await prisma.review.create({ data: {
       organizationId: ORG,
-      sourceImportRunId: reviewRun.id,
+      operationId: randomUUID(),
+      publishedAt: new Date('2026-09-01T01:00:00.000Z'),
       listingId: listing.id,
       platform: 'coupang',
       externalReviewId: 'OFFICIAL-A-REVIEW',

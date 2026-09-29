@@ -111,7 +111,6 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       products: input.products,
-      lastImportRunId: null,
       lastOperationId: input.operationId,
       rawSource: 'coupang_catalog_basics',
     });
@@ -214,7 +213,6 @@ async function applyCatalogDetails(
       media: product.media,
       options: product.options,
     })),
-    lastImportRunId: null,
     lastOperationId: input.operationId,
     rawSource: 'coupang_catalog_details',
   });

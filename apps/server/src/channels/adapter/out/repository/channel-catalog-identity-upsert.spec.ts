@@ -8,13 +8,11 @@ import {
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const channelAccountId = '22222222-2222-4222-8222-222222222222';
-const runId = '33333333-3333-4333-8333-333333333333';
 
 function input() {
   return {
     organizationId,
     channelAccountId,
-    lastImportRunId: runId,
     rawSource: 'coupang_rocket_po_catalog',
     // 발주서에는 판매가 칸이 없다.
     unobservedOptionFields: ['salePrice' as const],
@@ -213,7 +211,6 @@ function basicInput(overrides: Record<string, unknown> = {}) {
   return {
     organizationId,
     channelAccountId,
-    lastImportRunId: runId,
     rawSource: 'coupang_catalog_basics',
     products: [{
       externalProductId: 'P-1',
@@ -431,7 +428,6 @@ function detailInput(overrides: Record<string, unknown> = {}) {
   return {
     organizationId,
     channelAccountId,
-    lastImportRunId: runId,
     rawSource: 'coupang_catalog_details',
     products: [{
       externalProductId: 'P-1',

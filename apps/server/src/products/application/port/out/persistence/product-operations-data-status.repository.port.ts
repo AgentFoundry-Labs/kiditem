@@ -10,7 +10,7 @@ export const PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT = Symbol(
 );
 
 export type ProductOperationsAbcSourceManifest = Readonly<{
-  sourceImportRunId: string;
+  operationId: string;
   generation: string;
   mappingGeneration: string;
   coverageStartDate: string;

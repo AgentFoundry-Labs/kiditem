@@ -165,7 +165,7 @@ sync, registration, matching, and capacity behavior is executable in
   operation (KID-363) that the server produces itself, like the Wing workbook:
   `fileHash` is per account, rows go as `csv_rows` chunks, and the finish
   transaction upserts identities with `lastOperationId`.
-- Readers treat a `lastOperationId` row as published (`completed-catalog-run.ts`);
+- Readers treat only a `lastOperationId` row as published (`published-catalog-listing.ts`);
   readiness reads catalog freshness through `CHANNEL_CATALOG_FRESHNESS_PORT`
   (latest succeeded details operation).
 - New sync/matching paths carry `channelAccountId` and preserve
