@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { KiditemConflictError } from '@kiditem/shared/errors';
+import { rocketTransmissionKey } from '../../../domain/policy/rocket-transmission-key';
 import type { RocketFinalOrderReconciliationTransactionPort } from '../../../application/port/out/transaction/rocket-final-order-reconciliation.transaction.port';
 
 @Injectable()
@@ -101,7 +102,7 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       (activeExports.length === 1 ? activeExports[0]!.id : null);
     const intentKey =
       lines.length > 0
-        ? `rocket-final-order:${input.directshipOperationId}:${input.transport.toLowerCase()}`
+        ? rocketTransmissionKey(input.directshipOperationId, input.transport)
         : null;
     if (!exportId) {
       return {

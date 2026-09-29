@@ -12,6 +12,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
+import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketPoCatalogService } from '../../orders/application/service/rocket-po-catalog.service';
 import { RocketPoCatalogRepositoryAdapter } from '../../orders/adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
@@ -421,6 +422,31 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({ where: { id: created.exportId } }))
       .resolves.toMatchObject({ completedAt: expect.any(Date) });
     await expect(adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000022', 2)))
+      .resolves.toMatchObject({ duplicate: false });
+  });
+
+  it('reads the transfer source from the observed file key, so a later empty probe of another operation does not reopen it', async () => {
+    const created = await collectedWorkbook('21000000-0000-4000-8000-000000000061', '21000000-0000-4000-8000-000000000062');
+    const laterProbeOperationId = '21000000-0000-4000-8000-000000000063';
+    // 다른 직배송 실행의 빈 SHIPMENT 탐색은 관측 행의 실행 id를 덮어쓰지만 파일 키(`intentKey`)는 그대로 둔다.
+    await prisma.$transaction((tx) => new RocketFinalOrderReconciliationTransactionAdapter().reconcile({
+      transaction: tx,
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      directshipOperationId: laterProbeOperationId,
+      transport: 'SHIPMENT',
+      lines: [],
+    }));
+    await expect(prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow({ where: { confirmationId: created.exportId } }))
+      .resolves.toMatchObject({ directshipOperationId: laterProbeOperationId, intentKey: `rocket-final-order:${DIRECTSHIP_OPERATION_ID}:shipment` });
+
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, sourceOperationId: DIRECTSHIP_OPERATION_ID, transport: 'SHIPMENT', status: 'succeeded', startedAt: new Date(),
+    });
+
+    await expect(adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID })).resolves.toBeNull();
+    await expect(adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000064', 2)))
       .resolves.toMatchObject({ duplicate: false });
   });
 

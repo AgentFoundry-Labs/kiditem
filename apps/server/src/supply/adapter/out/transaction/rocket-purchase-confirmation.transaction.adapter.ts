@@ -14,6 +14,7 @@ import {
   type RocketWorkbookProgressPort,
   type RocketWorkbookWorkflowStatus,
 } from '../../../../inventory/application/port/in/stock/rocket-workbook-progress.port';
+import { parseRocketTransmissionKey } from '../../../domain/policy/rocket-transmission-key';
 import type { RocketWorkbookExportTransactionPort } from '../../../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -352,17 +353,17 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
 }
 
 /**
- * 비어 있지 않은 관측(`intentKey`가 있는 전송 관측)마다 그 파일의 셀피아 전송 원천 — 관측한 직배송 실행과 운송유형
- * (KID-388). 옛 attempt run만 가진 관측은 전송 실행 원천이 없어 건너뛴다(pre-schema 035가 옛 intent로 완료를 옮긴다).
+ * 비어 있지 않은 관측(`intentKey`가 있는 전송 관측)마다 그 파일의 셀피아 전송 원천 — 파일을 낸 직배송 실행과 운송유형
+ * (KID-388). 관측 행의 `directshipOperationId`는 뒤이은 빈 탐색이 덮어쓰므로 파일 키에서 읽는다. 키 모양이 아닌
+ * 관측은 건너뛴다(pre-schema 035가 옛 intent로 완료를 옮긴다).
  */
 function transmissionSources(
   transmissions: ExportRecord['transmissions'],
 ): Array<{ sourceOperationId: string; transport: 'SHIPMENT' | 'MILKRUN' }> {
-  return transmissions.flatMap(({ intentKey, directshipOperationId, transport }) =>
-    intentKey && directshipOperationId && (transport === 'SHIPMENT' || transport === 'MILKRUN')
-      ? [{ sourceOperationId: directshipOperationId, transport }]
-      : [],
-  );
+  return transmissions.flatMap(({ intentKey }) => {
+    const source = intentKey ? parseRocketTransmissionKey(intentKey) : null;
+    return source ? [source] : [];
+  });
 }
 
 async function lockWorkflow(
