@@ -280,6 +280,8 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
       collectedRows: 3,
       outputRows: 7,
       fileName: '키드키즈.xls',
+      // 셀피아 전송은 서버가 이 실행에서 파일을 다시 만든다(KID-366).
+      sourceOperationId: OPERATION_ID,
     }));
   });
 

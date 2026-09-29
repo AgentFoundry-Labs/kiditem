@@ -1,4 +1,5 @@
 import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
+import type { SellpiaOrderTransferScope } from '@kiditem/shared/orders-action-operations';
 import { orderCollectionOrderCount } from '@kiditem/shared/order-collection-source';
 import { formatNumber } from '@/lib/utils';
 import type { OrderCollectionFailureCode } from './order-collection-extension';
@@ -56,6 +57,28 @@ export function getOrderCount(result: ConversionHistoryItem | null): number | nu
 
 export function hasSellpiaTransmissionRequest(item: ConversionHistoryItem): boolean {
   return item.transmissionRequestedAt !== undefined;
+}
+
+/** 원천 실행 id가 없는 옛 파일 기록(KID-366 이전)에 보여 주는 문장. 서버가 파일을 다시 만들 원천이 없다. */
+export const SELLPIA_TRANSFER_RECOLLECT_MESSAGE =
+  '예전 방식으로 만든 파일이라 셀피아로 보낼 수 없습니다. 이 몰을 다시 수집해 새로 만든 파일로 전송해 주세요.';
+
+/**
+ * 셀피아 전송 실행의 scope. 원천 실행 id가 없는 옛 기록은 null — 서버가 파일을 다시 만들 수 없어 전송 버튼을 막는다.
+ * 판매처는 파일의 몰 이름(없으면 아이스크림몰, 옛 규칙), 직배송은 운송유형을 함께 싣는다.
+ */
+export function sellpiaTransferScope(item: ConversionHistoryItem): SellpiaOrderTransferScope | null {
+  if (!item.sourceOperationId) return null;
+  return {
+    sourceOperationId: item.sourceOperationId,
+    shopName: item.mallName ?? '아이스크림몰',
+    ...(item.transport ? { transport: item.transport } : {}),
+  };
+}
+
+/** 셀피아에 제출했지만 접수를 확인하지 못한 전송이 남아 있다 — 운영자가 셀피아에서 확인해 확인·닫기 한다. */
+export function needsSellpiaTransferConfirmation(item: ConversionHistoryItem): boolean {
+  return Boolean(item.sellpiaTransferConfirmationId);
 }
 
 export function isSellpiaOrderFile(item: ConversionHistoryItem): boolean {

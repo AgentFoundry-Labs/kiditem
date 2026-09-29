@@ -1,3 +1,4 @@
+import type { SellpiaTransferTransport } from '@kiditem/shared/orders-action-operations';
 import type { OrderCollectionConversionResult } from './order-collection-api';
 
 export interface StoredOrderCollectionFile extends OrderCollectionConversionResult {
@@ -19,6 +20,15 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   orderNumbers?: string[];
   /** 셀피아 주문접수 버튼 클릭이 성공해 전송을 요청한 시각. Sellpia 접수 완료를 의미하지 않는다. */
   transmissionRequestedAt?: number;
+  /**
+   * 이 파일을 만든 원천 실행(몰 주문·직배송·수동 업로드 모두 `operationId`가 있다). 셀피아 전송은 서버가 이 실행에서 파일을
+   * 다시 만든다(KID-366) — 없는 옛 기록은 전송할 수 없고 다시 수집해야 한다.
+   */
+  sourceOperationId?: string;
+  /** 직배송 파일의 운송유형. 직배송 실행 하나가 운송유형마다 파일 하나를 내서 전송 scope에 함께 싣는다. */
+  transport?: SellpiaTransferTransport;
+  /** 셀피아에 제출했지만 접수를 확인하지 못한 전송 실행(`reconciling`). 운영자가 확인하거나 닫을 때까지 남는다. */
+  sellpiaTransferConfirmationId?: string;
 }
 
 type LegacyStoredOrderCollectionFile = StoredOrderCollectionFile & {
@@ -129,16 +139,27 @@ export async function saveGeneratedOrderFile(file: StoredOrderCollectionFile): P
   publishGeneratedOrderFilesChanged();
 }
 
-export async function markGeneratedOrderFileTransmissionRequested(
+/** 셀피아 전송이 접수까지 확인됐다(또는 운영자가 확인했다) — 전송 요청 시각을 적고 확인 필요 표시를 지운다. */
+export function withSellpiaTransmissionRequested(
   file: StoredOrderCollectionFile,
   transmissionRequestedAt: number,
-): Promise<StoredOrderCollectionFile> {
-  const updated = withoutLegacySentAt({
-    ...file,
-    transmissionRequestedAt,
-  });
-  await saveGeneratedOrderFile(updated);
-  return updated;
+): StoredOrderCollectionFile {
+  return { ...withoutSellpiaTransferConfirmation(file), transmissionRequestedAt };
+}
+
+/** 셀피아에 제출했지만 접수를 확인하지 못했다 — 그 전송 실행 id를 남긴다. 전송 요청 시각은 바꾸지 않는다. */
+export function withSellpiaTransferNeedsConfirmation(
+  file: StoredOrderCollectionFile,
+  operationId: string,
+): StoredOrderCollectionFile {
+  return { ...withoutLegacySentAt(file), sellpiaTransferConfirmationId: operationId };
+}
+
+/** 확인 필요 표시를 지운다(운영자가 미접수로 닫았을 때). */
+export function withoutSellpiaTransferConfirmation(file: StoredOrderCollectionFile): StoredOrderCollectionFile {
+  const { sellpiaTransferConfirmationId, ...current } = withoutLegacySentAt(file);
+  void sellpiaTransferConfirmationId;
+  return current;
 }
 
 export function normalizeGeneratedOrderFileRecord(

@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
   createStoredTrackingFile,
   loadGeneratedOrderFiles,
-  markGeneratedOrderFileTransmissionRequested,
   normalizeGeneratedOrderFileRecord,
   saveGeneratedOrderFile,
+  withoutSellpiaTransferConfirmation,
+  withSellpiaTransferNeedsConfirmation,
+  withSellpiaTransmissionRequested,
   type StoredOrderCollectionFile,
 } from './order-generated-file-store';
 
@@ -56,16 +58,30 @@ describe('generated order file transmission storage', () => {
     expect(loaded.transmissionRequestedAt).toBe(200);
     expect(loaded).not.toHaveProperty('sentAt');
 
-    const updated = await markGeneratedOrderFileTransmissionRequested(
-      loaded,
-      300,
-    );
+    const updated = withSellpiaTransmissionRequested(loaded, 300);
+    await saveGeneratedOrderFile(updated);
     expect(updated.transmissionRequestedAt).toBe(300);
     expect(updated).not.toHaveProperty('sentAt');
 
     const persisted = await readStoredFile(updated.id);
     expect(persisted?.transmissionRequestedAt).toBe(300);
     expect(persisted).not.toHaveProperty('sentAt');
+  });
+
+  it('셀피아 확인 필요 전송을 남겼다가 확인하면 전송 요청으로, 닫으면 표시만 지운다(원천 실행 id는 그대로)', async () => {
+    const source = { ...generatedFile(), sourceOperationId: '22222222-2222-4222-8222-222222222222' };
+    const pending = withSellpiaTransferNeedsConfirmation(source, 'transfer-op');
+    await saveGeneratedOrderFile(pending);
+    expect((await readStoredFile(source.id))?.sellpiaTransferConfirmationId).toBe('transfer-op');
+    expect(pending).not.toHaveProperty('transmissionRequestedAt');
+
+    const confirmed = withSellpiaTransmissionRequested(pending, 400);
+    expect(confirmed).not.toHaveProperty('sellpiaTransferConfirmationId');
+    expect(confirmed).toMatchObject({ transmissionRequestedAt: 400, sourceOperationId: source.sourceOperationId });
+
+    const closed = withoutSellpiaTransferConfirmation(pending);
+    expect(closed).not.toHaveProperty('sellpiaTransferConfirmationId');
+    expect(closed).not.toHaveProperty('transmissionRequestedAt');
   });
 
   it('persists generated tracking files separately from order files', async () => {

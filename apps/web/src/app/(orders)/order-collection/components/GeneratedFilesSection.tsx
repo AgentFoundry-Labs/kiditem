@@ -24,6 +24,9 @@ import {
   groupHistoryByDay,
   hasSellpiaTransmissionRequest,
   isSellpiaOrderFile,
+  needsSellpiaTransferConfirmation,
+  SELLPIA_TRANSFER_RECOLLECT_MESSAGE,
+  sellpiaTransferScope,
   todayYmd,
   type ConversionHistoryItem,
 } from '../lib/order-collection-page-model';
@@ -35,12 +38,15 @@ export type GeneratedFilesBulkAction = 'send' | 'download' | 'delete' | null;
 interface GeneratedFilesSectionProps {
   items: ConversionHistoryItem[];
   sellpiaSendingId: string | null;
-  sellpiaSettlingId: string | null;
   bulkAction: GeneratedFilesBulkAction;
   lockedFileIds: ReadonlySet<string>;
   sellpiaPostProcessing: boolean;
   onSendToSellpia: (item: ConversionHistoryItem) => void;
   onSendSelectedToSellpia: (items: ConversionHistoryItem[]) => void;
+  /** 제출했지만 접수를 확인하지 못한 전송(`reconciling`)을 운영자가 셀피아에서 확인했다. */
+  onConfirmSellpiaTransfer: (item: ConversionHistoryItem) => void;
+  /** 셀피아에서 보니 접수되지 않았다 — 그 전송을 닫는다. */
+  onCloseSellpiaTransfer: (item: ConversionHistoryItem) => void;
   onSellpiaPostProcess: () => void;
   onPreview: (id: string) => void;
   onDownload: (item: ConversionHistoryItem) => void;
@@ -52,12 +58,13 @@ interface GeneratedFilesSectionProps {
 export function GeneratedFilesSection({
   items,
   sellpiaSendingId,
-  sellpiaSettlingId,
   bulkAction,
   lockedFileIds,
   sellpiaPostProcessing,
   onSendToSellpia,
   onSendSelectedToSellpia,
+  onConfirmSellpiaTransfer,
+  onCloseSellpiaTransfer,
   onSellpiaPostProcess,
   onPreview,
   onDownload,
@@ -96,7 +103,10 @@ export function GeneratedFilesSection({
   );
   const selectedUnsentItems = useMemo(
     () => selectedItems.filter(
-      (item) => isSellpiaOrderFile(item) && !hasSellpiaTransmissionRequest(item),
+      (item) => isSellpiaOrderFile(item)
+        && !hasSellpiaTransmissionRequest(item)
+        && !needsSellpiaTransferConfirmation(item)
+        && sellpiaTransferScope(item) !== null,
     ),
     [selectedItems],
   );
@@ -113,7 +123,7 @@ export function GeneratedFilesSection({
   const allTodaySelected =
     todayItems.length > 0 && todayItems.every((item) => selectedIds.has(item.id));
   const someTodaySelected = todayItems.some((item) => selectedIds.has(item.id));
-  const sendBusy = sellpiaSendingId !== null || sellpiaSettlingId !== null || bulkAction !== null;
+  const sendBusy = sellpiaSendingId !== null || bulkAction !== null;
 
   useEffect(() => {
     if (page !== pageData.page) setPage(pageData.page);
@@ -382,6 +392,13 @@ export function GeneratedFilesSection({
                             <span className="inline-flex rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
                               파일 생성됨
                             </span>
+                          ) : needsSellpiaTransferConfirmation(item) ? (
+                            <span
+                              className="inline-flex rounded-full bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700"
+                              title="주문접수는 눌렀지만 접수를 확인하지 못했습니다. 다시 보내지 말고 셀피아 주문 내역을 확인해 주세요."
+                            >
+                              셀피아 확인 필요
+                            </span>
                           ) : hasSellpiaTransmissionRequest(item) ? (
                             <span
                               className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
@@ -406,30 +423,54 @@ export function GeneratedFilesSection({
                         </td>
                         <td className="py-3 pl-6 pr-4">
                           <div className="flex justify-end gap-2">
-                            {isSellpiaOrderFile(item) ? (
-                              <button
-                                type="button"
-                                onClick={() => onSendToSellpia(item)}
-                                disabled={sendBusy || lockedFileIds.has(item.id)}
-                                className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {sellpiaSendingId === item.id ? (
-                                  <Loader2 size={13} className="animate-spin" />
-                                ) : sellpiaSettlingId === item.id ? (
+                            {isSellpiaOrderFile(item) && needsSellpiaTransferConfirmation(item) ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => onConfirmSellpiaTransfer(item)}
+                                  disabled={lockedFileIds.has(item.id)}
+                                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
                                   <PackageCheck size={13} />
-                                ) : (
-                                  <Send size={13} />
-                                )}
-                                {sellpiaSendingId === item.id
-                                  ? '전송 중'
-                                  : sellpiaSettlingId === item.id
-                                    ? '접수 확인됨'
-                                  : bulkAction === 'send' && lockedFileIds.has(item.id)
-                                    ? '전송 대기'
-                                  : hasSellpiaTransmissionRequest(item)
-                                    ? '다시 전송 요청'
-                                    : '셀피아 전송 요청'}
-                              </button>
+                                  접수됨 확인
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => onCloseSellpiaTransfer(item)}
+                                  disabled={lockedFileIds.has(item.id)}
+                                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  미접수로 닫기
+                                </button>
+                              </>
+                            ) : isSellpiaOrderFile(item) ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                {sellpiaTransferScope(item) === null ? (
+                                  <span className="text-[11px] text-amber-700" title={SELLPIA_TRANSFER_RECOLLECT_MESSAGE}>
+                                    다시 수집
+                                  </span>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() => onSendToSellpia(item)}
+                                  disabled={sendBusy || lockedFileIds.has(item.id) || sellpiaTransferScope(item) === null}
+                                  title={sellpiaTransferScope(item) === null ? SELLPIA_TRANSFER_RECOLLECT_MESSAGE : undefined}
+                                  className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {sellpiaSendingId === item.id ? (
+                                    <Loader2 size={13} className="animate-spin" />
+                                  ) : (
+                                    <Send size={13} />
+                                  )}
+                                  {sellpiaSendingId === item.id
+                                    ? '전송 중'
+                                    : bulkAction === 'send' && lockedFileIds.has(item.id)
+                                      ? '전송 대기'
+                                    : hasSellpiaTransmissionRequest(item)
+                                      ? '다시 전송 요청'
+                                      : '셀피아 전송 요청'}
+                                </button>
+                              </span>
                             ) : null}
                             <button
                               type="button"
