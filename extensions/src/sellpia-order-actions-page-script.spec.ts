@@ -260,6 +260,8 @@ describe('sellpia order actions page script — 단계(옛 driveStep)', () => {
     }));
     const result = await step({ step: 'invoice', targetOrderNumbers: ['T-1', 'T-2', 'T-3'] });
     expect(page.window.selected).toEqual([0, 2]);
+    // [송장번호채번]은 정확히 한 번, 확인창에 "예" 한 번(비가역 — 두 번 누르면 이중 채번).
+    expect(page.clicked).toEqual(['btn_get_auto_delinum', '예']);
     expect(result).toMatchObject({
       success: true,
       pressed: true,
@@ -270,6 +272,19 @@ describe('sellpia order actions page script — 단계(옛 driveStep)', () => {
         { ordNo: 'T-2', invNo: 'INV-2', courier: '1136' },
       ],
     });
+  });
+
+  it('invoice는 [송장번호채번]을 누른 뒤 확인창이 안 뜨거나 처리기가 던지면 pressed:true로 답한다(다시 실행하면 이중 채번 — 확인 대기로 간다)', async () => {
+    const noConfirm = load((page) => gridScreen(page, [{ group_no: 'T-1' }], { btn_get_auto_delinum: () => undefined }));
+    await expect(noConfirm.step({ step: 'invoice', targetOrderNumbers: ['T-1'] })).resolves.toMatchObject({ success: false, pressed: true, error: '송장채번 확인창이 표시되지 않았습니다.' });
+    expect(noConfirm.page.clicked).toEqual(['btn_get_auto_delinum']);
+
+    const thrown = load((page) => gridScreen(page, [{ group_no: 'T-1' }], {
+      btn_get_auto_delinum: () => {
+        throw new Error('page blew up');
+      },
+    }));
+    await expect(thrown.step({ step: 'invoice', targetOrderNumbers: ['T-1'] })).resolves.toMatchObject({ success: false, pressed: true });
   });
 
   it('invoice는 일치 행이 0이거나 대기 행이 없으면 누르지 않고 pressed:false로 답한다(대기 행 전체 채번 금지)', async () => {

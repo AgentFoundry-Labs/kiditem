@@ -251,9 +251,9 @@ describe('createOperationClient — 실행 원천 파일(KID-366 wave8b)', () =>
     expect(error.code).toBe('ORDERS_TRANSFER_SOURCE_UNAVAILABLE');
   });
 
-  it('`/api/` 밖이나 쿼리가 붙은 경로는 묻지 않는다', async () => {
+  it('`/api/` 밖·쿼리가 붙은 경로·`..` 구간은 묻지 않는다', async () => {
     const { api, calls } = fakeApi(() => json(200, {}));
-    for (const path of ['https://evil.example/api/x', '/api/x?y=1', '../api/x']) {
+    for (const path of ['https://evil.example/api/x', '/api/x?y=1', '../api/x', '/api/orders/../auth/token', '/api/..']) {
       expect((await rejection(createOperationClient(api).readSource!(path))).code).toBe('RUNTIME_API_UNREACHABLE');
     }
     expect(calls).toEqual([]);

@@ -102,7 +102,7 @@ export function createOperationClient(api: ApiPort): OperationClient {
       return response.operation;
     },
     async readSource(path) {
-      if (!/^\/api\/[A-Za-z0-9._~\-/]+$/.test(path)) {
+      if (!/^\/api\/[A-Za-z0-9._~\-/]+$/.test(path) || path.split('/').includes('..')) {
         throw new RuntimeError(RUNTIME_API_UNREACHABLE, '실행 원천 파일 경로가 올바르지 않습니다.', { path });
       }
       const response = await send(api, path, { method: 'GET', headers: {} });

@@ -71,6 +71,12 @@ describe('sites/onch 송장 업로드(운영자 탭)', () => {
     expect(fake.log.at(-1)).toBe('leave 31');
   });
 
+  it('plan에 같은 주문번호 행이 둘이면 첫 행만 보낸다(같은 주문에 두 번 POST하지 않는다)', async () => {
+    const fake = tabs(OK);
+    await createOnchSite(fake.tabs).uploadTracking([...ROWS, { orderNo: 'O-1', trackingNumber: 'INV-9', courier: '1136' }]);
+    expect((fake.asked[0]!.args as { rows: Array<{ orderNo: string; trackingNumber: string }> }).rows.map((row) => [row.orderNo, row.trackingNumber])).toEqual([['O-1', 'INV-1'], ['O-2', 'INV-2']]);
+  });
+
   it('탭이 없으면 열어 앞으로 가져오고, 모두 성공하면 우리가 연 탭을 닫는다', async () => {
     const fake = tabs(OK);
     await createOnchSite(fake.tabs).uploadTracking(ROWS);

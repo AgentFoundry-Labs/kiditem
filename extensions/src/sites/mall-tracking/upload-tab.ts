@@ -54,10 +54,12 @@ export async function uploadInOperatorTab(
   const { page, opened } = await openOperatorTab(tabs, { matches: target.matches, url: target.url, stay: target.stay });
   let close = false;
   try {
-    const args = { rows: rows.map((row) => ({ orderNo: row.orderNo, trackingNumber: row.trackingNumber, courierName: courierName(row.courier) })) };
+    // 같은 주문번호 행은 첫 행만 보낸다 — 같은 주문에 두 번 POST하지 않게(몰은 주문마다 한 번만 받는다).
+    const unique = rows.filter((row, index) => rows.findIndex((other) => other.orderNo === row.orderNo) === index);
+    const args = { rows: unique.map((row) => ({ orderNo: row.orderNo, trackingNumber: row.trackingNumber, courierName: courierName(row.courier) })) };
     const read = async (): Promise<UploadAnswer> => {
       const answer = await callPage<UploadAnswer>(page, target.call, args, {
-        timeoutMs: target.timeoutMs(rows.length),
+        timeoutMs: target.timeoutMs(unique.length),
         guard: target.guard,
         isolated: [target.file],
         displayName: target.displayName,
@@ -73,7 +75,7 @@ export async function uploadInOperatorTab(
       answer = signIn ? await signIn.onPage(page, target.url, read) : await read();
     } catch (error) {
       if (!answerLost(error)) throw error;
-      return { rows: rows.map((row) => ({ orderNo: row.orderNo, status: 'failed', mallMessage: ANSWER_LOST })), confirmedByMall: false };
+      return { rows: unique.map((row) => ({ orderNo: row.orderNo, status: 'failed', mallMessage: ANSWER_LOST })), confirmedByMall: false };
     }
     const results = answer.rows ?? [];
     const confirmedByMall = !(target.submitOnly && answer.submitted === true);

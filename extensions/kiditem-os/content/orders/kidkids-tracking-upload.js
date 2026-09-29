@@ -73,12 +73,21 @@
     body.set("delivery_no", "|" + targets.map((t) => t.inv).join("|"));
     const courierValue = (targets.find((t) => t.courierValue) || {}).courierValue;
     if (courierValue) body.set("logis_company_id", String(courierValue));
-    const res = await fetch("/sales/sales_process.htm", {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
+    let res;
+    try {
+      res = await fetch("/sales/sales_process.htm", {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    } catch {
+      // 응답 없이 끊겼다 — 키드키즈에 반영됐을 수 있다(출고완료는 되돌리기 어렵다). 제출한 것으로 두어 확인 대기로 보낸다.
+      for (const target of targets) {
+        results[target.result] = { ...results[target.result], status: "failed", mallMessage: "출고완료 요청의 응답을 받지 못했습니다. 키드키즈 목록에서 반영 여부를 확인해 주세요." };
+      }
+      return { status: "ok", submitted: true, httpStatus: null, listSize, rows: results };
+    }
     if (!res.ok) {
       for (const target of targets) results[target.result] = { ...results[target.result], status: "failed", mallMessage: `출고완료 등록 실패(HTTP ${res.status})` };
     }

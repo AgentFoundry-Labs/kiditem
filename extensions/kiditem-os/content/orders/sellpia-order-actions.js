@@ -421,6 +421,8 @@
       }
     }
     const gridItems = () => (window.dataView && window.dataView.getItems ? window.dataView.getItems() : []);
+    // [송장번호채번]을 누르기 시작했는가 — 그 뒤의 실패는 발급됐는지 모르는 것이라 `pressed: true`로 답한다(다시 실행하면 이중 채번).
+    let pressed = false;
 
     try {
       // 전송한 주문이 셀피아에 실제로 들어갔는지 확인만 한다(비파괴: 조회 외 클릭 없음).
@@ -670,9 +672,10 @@
           };
         }
         await sleep(300);
+        pressed = true;
         btn.click();
         const confirmTxt = await waitPrompt(/채번|진행/, 6000);
-        if (!confirmTxt) return { success: false, error: "송장채번 확인창이 표시되지 않았습니다." };
+        if (!confirmTxt) return { success: false, pressed: true, error: "송장채번 확인창이 표시되지 않았습니다." };
         answerPrompt(["예"]);
         await waitIdle(120000);
         const doneTxt = await waitPrompt(/완료|채번|실패|없습니다/, 6000);
@@ -714,7 +717,7 @@
 
       return { success: false, error: "알 수 없는 단계: " + step };
     } catch (e) {
-      return { success: false, error: String((e && e.message) || e) };
+      return { success: false, ...(pressed ? { pressed: true } : {}), error: String((e && e.message) || e) };
     }
   };
 })();

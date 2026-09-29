@@ -150,6 +150,23 @@ describe('키드키즈 송장 업로드 페이지 스크립트', () => {
     });
   });
 
+  it('출고완료 POST가 응답 없이 끊기면(fetch 거절) 반영됐을 수 있어 submitted:true로 두고 넣은 행에 확인 필요 문장을 싣는다', async () => {
+    const { handler, requests } = load(kidkidsSource, 'kidkids.uploadTracking', {
+      href: KIDKIDS,
+      html: kidkidsList([{ od: 'od-1', orderNo: 'K-1' }]),
+      reply: () => {
+        throw new TypeError('Failed to fetch');
+      },
+    });
+    await expect(handler({ rows: [{ orderNo: 'K-1', trackingNumber: 'INV-1', courierName: 'CJ대한통운' }] })).resolves.toMatchObject({
+      status: 'ok',
+      submitted: true,
+      httpStatus: null,
+      rows: [{ orderNo: 'K-1', status: 'failed', mallMessage: '출고완료 요청의 응답을 받지 못했습니다. 키드키즈 목록에서 반영 여부를 확인해 주세요.' }],
+    });
+    expect(requests).toHaveLength(1);
+  });
+
   it('로그인 화면이거나 출고관리 목록이 없으면 보내지 않는다', async () => {
     const login = load(kidkidsSource, 'kidkids.uploadTracking', { href: 'https://www.kidkids.net/join/partner_login.htm' });
     await expect(login.handler({ rows: [] })).resolves.toEqual({ status: 'login_required' });
