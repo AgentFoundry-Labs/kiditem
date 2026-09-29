@@ -83,7 +83,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   });
 
   it('셀피아 kind(송장·수동매칭·재고·매출·상품 손익)에는 화면별 파일을 합친 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
-    const sellpiaKeys = ['closeManualMatch', 'inventory', 'manualMatchSearch', 'manualMatchStatus', 'productProfit', 'sales', 'shipmentTracking'];
+    const sellpiaKeys = [
+      'closeManualMatch', 'inventory', 'issueInvoices', 'manualMatchSearch', 'manualMatchStatus', 'openPostTransfer', 'orderSnapshot',
+      'productProfit', 'sales', 'shipmentTracking', 'transferOrderFile',
+    ];
     for (const kind of ['orders.sellpia_shipment_tracking', 'channels.sellpia_manual_match', 'products.sellpia_inventory', 'analytics.sellpia_sales', 'analytics.sellpia_product_profitability'] as const) {
       expect(keys(createSiteHandles(deps)(kind, { tabId: null }))).toEqual(sellpiaKeys);
     }
