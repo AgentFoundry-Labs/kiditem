@@ -63,9 +63,9 @@ function transfer(status: OperationView['status'], patch: Partial<OperationView>
   };
 }
 
-function render() {
+function render(items: StoredOrderCollectionFile[] = []) {
   const onTransmissionRequested = vi.fn();
-  const hook = renderHook(() => useSellpiaOrderTransmission({ onTransmissionRequested }));
+  const hook = renderHook(() => useSellpiaOrderTransmission({ items, onTransmissionRequested }));
   return { hook, onTransmissionRequested };
 }
 
@@ -126,13 +126,14 @@ describe('useSellpiaOrderTransmission (셀피아 전송 = 실행 orders.sellpia_
     expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('셀피아 확인 필요'), expect.anything());
   });
 
-  it('셀피아가 접수하지 않은 전송(실패 finish)은 서버 문장을 보여 주고 기록을 바꾸지 않는다', async () => {
+  it('셀피아가 접수하지 않은 전송(실패 finish)은 서버 문장을 보여 주고, 진행 표시만 지워 다시 보낼 수 있게 한다', async () => {
     api.get.mockResolvedValueOnce(transfer('failed', { errorCode: 'SELLPIA_TRANSFER_NOT_SUBMITTED', errorMessage: '셀피아가 주문을 접수하지 않았습니다.' }));
     const { hook, onTransmissionRequested } = render();
     await act(async () => { await hook.result.current.transmit(generatedFile()); });
     expect(toast.error).toHaveBeenCalledWith('셀피아가 주문을 접수하지 않았습니다.');
-    expect(onTransmissionRequested).not.toHaveBeenCalled();
-    expect(store.saveGeneratedOrderFile).not.toHaveBeenCalled();
+    const last = onTransmissionRequested.mock.calls.at(-1)![0] as StoredOrderCollectionFile;
+    expect(last).not.toHaveProperty('sellpiaTransferOperationId');
+    expect(last).not.toHaveProperty('transmissionRequestedAt');
   });
 
   it('확인 필요 행을 운영자가 접수됨으로 확인하면 전송 요청으로 적고 확인 표시를 지운다', async () => {
@@ -153,5 +154,38 @@ describe('useSellpiaOrderTransmission (셀피아 전송 = 실행 orders.sellpia_
     const updated = onTransmissionRequested.mock.calls[0]![0] as StoredOrderCollectionFile;
     expect(updated).not.toHaveProperty('sellpiaTransferConfirmationId');
     expect(updated).not.toHaveProperty('transmissionRequestedAt');
+  });
+
+  it('시작하자마자 실행 id를 기록에 남겨, 기다림이 끊겨도 그 실행을 다시 읽을 수 있게 한다', async () => {
+    api.get.mockResolvedValueOnce(transfer('succeeded'));
+    const { hook } = render();
+    await act(async () => { await hook.result.current.transmit(generatedFile()); });
+    expect(store.saveGeneratedOrderFile).toHaveBeenNthCalledWith(1, expect.objectContaining({ sellpiaTransferOperationId: OPERATION }));
+    expect(store.saveGeneratedOrderFile).toHaveBeenLastCalledWith(expect.not.objectContaining({ sellpiaTransferOperationId: OPERATION }));
+  });
+
+  describe('어긋난 기록은 서버 실행 상태로 맞춘다', () => {
+    it('확인·닫기가 이미 끝난 실행이라 거절되면 그 실행을 읽어, 실패로 끝났으면 표시를 지워 다시 보낼 수 있게 한다', async () => {
+      api.post.mockRejectedValueOnce(new Error('이미 끝난 실행입니다.'));
+      api.get.mockResolvedValueOnce(transfer('failed'));
+      const { hook, onTransmissionRequested } = render();
+
+      await act(async () => { await hook.result.current.confirmTransfer(generatedFile({ sellpiaTransferConfirmationId: OPERATION })); });
+
+      expect(api.get).toHaveBeenCalledWith(`/api/operations/${OPERATION}`);
+      const updated = onTransmissionRequested.mock.calls[0]![0] as StoredOrderCollectionFile;
+      expect(updated).not.toHaveProperty('sellpiaTransferConfirmationId');
+      expect(updated).not.toHaveProperty('transmissionRequestedAt');
+    });
+
+    it('화면을 다시 열면 기록에 남은 전송 실행을 읽어, 성공했으면 전송 요청으로 적는다(다시 누르면 재전송 확인 창)', async () => {
+      api.get.mockResolvedValueOnce(transfer('succeeded'));
+      const { onTransmissionRequested } = render([generatedFile({ sellpiaTransferOperationId: OPERATION })]);
+
+      await vi.waitFor(() => expect(onTransmissionRequested).toHaveBeenCalled());
+      const updated = onTransmissionRequested.mock.calls[0]![0] as StoredOrderCollectionFile;
+      expect(updated.transmissionRequestedAt).toBe(Date.parse('2026-09-29T00:00:05.000Z'));
+      expect(updated).not.toHaveProperty('sellpiaTransferOperationId');
+    });
   });
 });

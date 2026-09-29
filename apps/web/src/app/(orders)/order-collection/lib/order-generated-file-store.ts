@@ -29,6 +29,8 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   transport?: SellpiaTransferTransport;
   /** 셀피아에 제출했지만 접수를 확인하지 못한 전송 실행(`reconciling`). 운영자가 확인하거나 닫을 때까지 남는다. */
   sellpiaTransferConfirmationId?: string;
+  /** 시작했지만 끝을 아직 이 기록에 옮기지 못한 전송 실행. 화면이 다시 열리면 서버 상태로 행을 맞춘다. */
+  sellpiaTransferOperationId?: string;
 }
 
 type LegacyStoredOrderCollectionFile = StoredOrderCollectionFile & {
@@ -139,7 +141,12 @@ export async function saveGeneratedOrderFile(file: StoredOrderCollectionFile): P
   publishGeneratedOrderFilesChanged();
 }
 
-/** 셀피아 전송이 접수까지 확인됐다(또는 운영자가 확인했다) — 전송 요청 시각을 적고 확인 필요 표시를 지운다. */
+/** 전송 실행을 시작했다 — 끝을 옮기기 전에 탭이 닫혀도 다시 읽을 실행 id를 남긴다. */
+export function withSellpiaTransferStarted(file: StoredOrderCollectionFile, operationId: string): StoredOrderCollectionFile {
+  return { ...withoutSellpiaTransferConfirmation(file), sellpiaTransferOperationId: operationId };
+}
+
+/** 셀피아 전송이 접수까지 확인됐다(또는 운영자가 확인했다) — 전송 요청 시각을 적고 실행 표시를 지운다. */
 export function withSellpiaTransmissionRequested(
   file: StoredOrderCollectionFile,
   transmissionRequestedAt: number,
@@ -152,13 +159,14 @@ export function withSellpiaTransferNeedsConfirmation(
   file: StoredOrderCollectionFile,
   operationId: string,
 ): StoredOrderCollectionFile {
-  return { ...withoutLegacySentAt(file), sellpiaTransferConfirmationId: operationId };
+  return { ...withoutSellpiaTransferConfirmation(file), sellpiaTransferConfirmationId: operationId };
 }
 
-/** 확인 필요 표시를 지운다(운영자가 미접수로 닫았을 때). */
+/** 전송 실행 표시(진행·확인 필요)를 지운다 — 실패·미접수로 끝나 다시 보낼 수 있다. */
 export function withoutSellpiaTransferConfirmation(file: StoredOrderCollectionFile): StoredOrderCollectionFile {
-  const { sellpiaTransferConfirmationId, ...current } = withoutLegacySentAt(file);
+  const { sellpiaTransferConfirmationId, sellpiaTransferOperationId, ...current } = withoutLegacySentAt(file);
   void sellpiaTransferConfirmationId;
+  void sellpiaTransferOperationId;
   return current;
 }
 

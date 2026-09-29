@@ -81,6 +81,11 @@ export function needsSellpiaTransferConfirmation(item: ConversionHistoryItem): b
   return Boolean(item.sellpiaTransferConfirmationId);
 }
 
+/** 시작한 전송의 끝을 아직 서버에서 읽지 못했다 — 다시 보내지 않고 기다린다. */
+export function isSellpiaTransferInFlight(item: ConversionHistoryItem): boolean {
+  return Boolean(item.sellpiaTransferOperationId) && !needsSellpiaTransferConfirmation(item);
+}
+
 export function isSellpiaOrderFile(item: ConversionHistoryItem): boolean {
   return item.fileKind !== 'tracking';
 }

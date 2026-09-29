@@ -289,6 +289,7 @@ export function OrderCollectionWorkspace() {
     );
   }, []);
   const sellpiaTransmission = useSellpiaOrderTransmission({
+    items: history,
     onTransmissionRequested: handleTransmissionRequested,
   });
 

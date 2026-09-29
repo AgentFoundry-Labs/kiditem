@@ -31,6 +31,7 @@ function generatedFile(
     // 원천 실행이 있는 새 기록이 기본이다 — 옛 기록은 테스트가 undefined로 준다(KID-366).
     sourceOperationId: 'sourceOperationId' in overrides ? overrides.sourceOperationId : `operation-${id}`,
     sellpiaTransferConfirmationId: overrides.sellpiaTransferConfirmationId,
+    sellpiaTransferOperationId: overrides.sellpiaTransferOperationId,
   };
 }
 
@@ -233,5 +234,28 @@ describe('GeneratedFilesSection', () => {
     await user.click(screen.getByRole('button', { name: '미접수로 닫기' }));
     expect(callbacks.onConfirmSellpiaTransfer).toHaveBeenCalledWith(item);
     expect(callbacks.onCloseSellpiaTransfer).toHaveBeenCalledWith(item);
+  });
+
+  it('선택 전송에서 원천 실행이 없는 옛 기록·확인 필요·전송 확인 중 행은 빠진다', async () => {
+    const user = userEvent.setup();
+    const items = [
+      generatedFile('fresh'),
+      generatedFile('legacy', { sourceOperationId: undefined }),
+      generatedFile('reconciling', { sellpiaTransferConfirmationId: 'operation-transfer' }),
+      generatedFile('inflight', { sellpiaTransferOperationId: 'operation-running' }),
+    ];
+    const callbacks = renderSection(items);
+
+    for (const item of items) await user.click(screen.getByRole('checkbox', { name: `${item.id}.xlsx 선택` }));
+    await user.click(screen.getByRole('button', { name: '선택 전송 요청 (1)' }));
+
+    expect(callbacks.onSendSelectedToSellpia).toHaveBeenCalledWith([items[0]]);
+  });
+
+  it('시작한 전송의 끝을 아직 읽지 못한 행은 전송 확인 중으로 보여 주고 다시 보내지 않는다', () => {
+    renderSection([generatedFile('inflight', { sellpiaTransferOperationId: 'operation-running' })]);
+
+    expect(screen.getAllByText('전송 확인 중').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '전송 확인 중' })).toBeDisabled();
   });
 });

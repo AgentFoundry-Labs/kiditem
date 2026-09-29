@@ -24,6 +24,7 @@ import {
   groupHistoryByDay,
   hasSellpiaTransmissionRequest,
   isSellpiaOrderFile,
+  isSellpiaTransferInFlight,
   needsSellpiaTransferConfirmation,
   SELLPIA_TRANSFER_RECOLLECT_MESSAGE,
   sellpiaTransferScope,
@@ -106,6 +107,7 @@ export function GeneratedFilesSection({
       (item) => isSellpiaOrderFile(item)
         && !hasSellpiaTransmissionRequest(item)
         && !needsSellpiaTransferConfirmation(item)
+        && !isSellpiaTransferInFlight(item)
         && sellpiaTransferScope(item) !== null,
     ),
     [selectedItems],
@@ -399,6 +401,10 @@ export function GeneratedFilesSection({
                             >
                               셀피아 확인 필요
                             </span>
+                          ) : isSellpiaTransferInFlight(item) ? (
+                            <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                              전송 확인 중
+                            </span>
                           ) : hasSellpiaTransmissionRequest(item) ? (
                             <span
                               className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
@@ -453,7 +459,7 @@ export function GeneratedFilesSection({
                                 <button
                                   type="button"
                                   onClick={() => onSendToSellpia(item)}
-                                  disabled={sendBusy || lockedFileIds.has(item.id) || sellpiaTransferScope(item) === null}
+                                  disabled={sendBusy || lockedFileIds.has(item.id) || sellpiaTransferScope(item) === null || isSellpiaTransferInFlight(item)}
                                   title={sellpiaTransferScope(item) === null ? SELLPIA_TRANSFER_RECOLLECT_MESSAGE : undefined}
                                   className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
                                 >
@@ -464,6 +470,8 @@ export function GeneratedFilesSection({
                                   )}
                                   {sellpiaSendingId === item.id
                                     ? '전송 중'
+                                    : isSellpiaTransferInFlight(item)
+                                      ? '전송 확인 중'
                                     : bulkAction === 'send' && lockedFileIds.has(item.id)
                                       ? '전송 대기'
                                     : hasSellpiaTransmissionRequest(item)
