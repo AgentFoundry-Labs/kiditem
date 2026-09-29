@@ -50,6 +50,16 @@ import { OrderCollectionService } from '../application/service/order-collection.
 import { OrdersService } from '../application/service/orders.service';
 import { ReviewIngestService } from '../application/service/review-ingest.service';
 import { ReviewsService } from '../application/service/reviews.service';
+import { SellpiaOrderTransferOperationOwner } from '../adapter/in/operation/sellpia-order-transfer-operation-owner';
+import { SellpiaPostTransferOperationOwner } from '../adapter/in/operation/sellpia-post-transfer-operation-owner';
+import { SellpiaAutoInvoiceOperationOwner } from '../adapter/in/operation/sellpia-auto-invoice-operation-owner';
+import { SellpiaOrderSnapshotOperationOwner } from '../adapter/in/operation/sellpia-order-snapshot-operation-owner';
+import { CoupangShipmentListOperationOwner } from '../adapter/in/operation/coupang-shipment-list-operation-owner';
+import { MallTrackingUploadOperationOwner } from '../adapter/in/operation/mall-tracking-upload-operation-owner';
+import { SellpiaActionOutcomesPersistenceAdapter } from '../adapter/out/persistence/sellpia-action-outcomes.persistence.adapter';
+import { SELLPIA_ACTION_OUTCOMES_PORT } from '../application/port/out/persistence/sellpia-action-outcomes.port';
+import { SellpiaInvoiceTargetsService } from '../application/service/sellpia-invoice-targets.service';
+import { SellpiaOrderTransferService } from '../application/service/sellpia-order-transfer.service';
 
 describe('OrdersModule owner wiring', () => {
   it('registers the complete surviving Orders capability set', () => {
@@ -100,6 +110,15 @@ describe('OrdersModule owner wiring', () => {
       MallOrdersOperationOwner,
       OrderMallAccountPersistenceAdapter,
       CoupangDirectshipOperationOwner,
+      SellpiaOrderTransferService,
+      SellpiaInvoiceTargetsService,
+      SellpiaActionOutcomesPersistenceAdapter,
+      SellpiaOrderTransferOperationOwner,
+      SellpiaPostTransferOperationOwner,
+      SellpiaAutoInvoiceOperationOwner,
+      SellpiaOrderSnapshotOperationOwner,
+      CoupangShipmentListOperationOwner,
+      MallTrackingUploadOperationOwner,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,
@@ -127,6 +146,10 @@ describe('OrdersModule owner wiring', () => {
       {
         provide: ORDER_MALL_ACCOUNT_PORT,
         useExisting: OrderMallAccountPersistenceAdapter,
+      },
+      {
+        provide: SELLPIA_ACTION_OUTCOMES_PORT,
+        useExisting: SellpiaActionOutcomesPersistenceAdapter,
       },
     ]);
     expect(exports).toEqual([]);
