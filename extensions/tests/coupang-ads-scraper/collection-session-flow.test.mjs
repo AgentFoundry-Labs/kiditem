@@ -146,9 +146,10 @@ test('retires the advertising account-day KPI owner from every extension surface
   );
 });
 
-test('persists only allowlisted Coupang producers and advertises the capability', () => {
+test('lists no Coupang browser session producer and still advertises the capability', () => {
+  // KID-365: the Wing catalog is a runtime kind; neither Coupang producer has a session writer.
   for (const producer of ['dashboard.coupang_products', 'channels.coupang_catalog']) {
-    assert.match(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
+    assert.doesNotMatch(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
   }
   assert.doesNotMatch(sourceOwnerManifest, /"advertising\./);
   assert.match(worker, /browserCollectionSessions:\s*true/);
