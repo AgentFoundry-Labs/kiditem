@@ -18,7 +18,6 @@ import { backfillThumbnailTrackingInconclusiveMarkMigration } from "./v0.1.31/01
 import { backfillAdActionExecutionTasksMigration } from "./v0.1.31/011_backfill_ad_action_execution_tasks";
 import { constrainSourceImportRunStatusMigration } from "./v0.1.31/012_constrain_source_import_run_status";
 import { removeRetiredAccountKpiAndAdTierRowsMigration } from "./v0.1.31/013_remove_retired_account_kpi_and_ad_tier_rows";
-import { backfillChannelListingImageFromDiscoveryMigration } from "./v0.1.31/014_backfill_channel_listing_image_from_discovery";
 import { activateAdFreeProductAbcFormula } from "./v0.1.31/016_activate_ad_free_product_abc_formula";
 import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove_rows_blocking_required_columns";
 import { removeContentRowsBlockingRequiredColumnsMigration } from "./v0.1.31/028_remove_content_rows_blocking_required_columns";
@@ -28,7 +27,7 @@ import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_produ
 import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_selling_catalog_sources';
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import { normalizeSalesProductStatusMigration } from './v0.1.31/027_normalize_sales_product_status';
-import { closeGenerationsLeftByDirectJobCutoverMigration } from './v0.1.31/029_close_generations_left_by_direct_job_cutover';
+import { closeGenerationsLeftByDirectJobCutoverMigration } from './v0.1.31/036_close_generations_left_by_direct_job_cutover';
 import { renameSourcingIngestionRunIdsMigration } from './v0.1.31/030_rename_sourcing_ingestion_run_ids_to_operation_ids';
 import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_complete_sourcing_runs';
 import { removeRetiredSourceFailureAlertsMigration } from './v0.1.31/032_remove_retired_source_failure_alerts';
@@ -65,10 +64,11 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillAdActionExecutionTasksMigration,
   constrainSourceImportRunStatusMigration,
   removeRetiredAccountKpiAndAdTierRowsMigration,
-  backfillChannelListingImageFromDiscoveryMigration,
   removeRowsBlockingRequiredColumnsMigration,
   // 028 empties the content tables KID-313 W3 gives required columns; it needs nothing 014 leaves behind.
   removeContentRowsBlockingRequiredColumnsMigration,
+  // 036 reads ai_direct_jobs, which the schema step of the same cutover drops (KID-365).
+  closeGenerationsLeftByDirectJobCutoverMigration,
   closeStaleAdApprovalsAtCutoverMigration,
   // 019 captures template references before 016 removes the legacy source table.
   prepareSellingCatalogSourcesMigration,
@@ -79,7 +79,6 @@ export const dataMigrations: readonly DataMigration[] = [
   backfillCoupangDirectTransportReceiptsMigration,
   activateAdFreeProductAbcFormula,
   normalizeSalesProductStatusMigration,
-  closeGenerationsLeftByDirectJobCutoverMigration,
   // 030 runs after 014, which empties Office 0.1.30 runs and their observations first.
   renameSourcingIngestionRunIdsMigration,
   publishCompleteSourcingRunsMigration,
