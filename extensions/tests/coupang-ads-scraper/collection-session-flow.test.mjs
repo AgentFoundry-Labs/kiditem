@@ -15,10 +15,6 @@ const worker = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
-const collectionRunsSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/collection-runs.js'),
-  'utf8',
-);
 const sourceOwnerManifest = fs.readFileSync(
   path.join(extensionRoot, 'background/source-owner-manifest.js'),
   'utf8',
@@ -52,6 +48,8 @@ test('loads the canonical session manager and focus owners before collector runt
     'coupang/ad-campaign-source-owner.js',
     'coupang/ad-keyword-source-owner.js',
     'coupang/profitability-source-owner.js',
+    // KID-365: the collection-run controller had no consumer after the window producers left.
+    'coupang/collection-runs.js',
   ]) {
     assert.equal(at(retired), -1, retired);
     assert.equal(fs.existsSync(path.join(extensionRoot, 'background', retired)), false, retired);
@@ -90,7 +88,8 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(worker, /function autoScrape\(/);
   assert.doesNotMatch(worker, /alarmName\(["']auto-scrape["']/);
   assert.match(worker, /KidItemDomains\.register\(/);
-  assert.match(worker, /producerPrefixes:\s*\["channels",\s*"dashboard"\]/);
+  // KID-365: the Coupang domain owns no collection session producer.
+  assert.doesNotMatch(worker, /producerPrefixes/);
   for (const action of [
     'listCollectionSessions',
     'getCollectionSession',
@@ -100,11 +99,8 @@ test('retires the generic scrape ingress before producer actions', () => {
     assert.match(dispatchSource, new RegExp(`["']${action}["']`));
     assert.doesNotMatch(worker, new RegExp(`msg\\.action === ["']${action}["']`));
   }
-  assert.doesNotMatch(collectionRunsSource, /restartStrategy/);
-  assert.doesNotMatch(collectionRunsSource, /manual_confirmation/);
   // 취소는 producer별 source owner가 server FAILED를 커밋한 뒤 local control을 정리한다.
   assert.doesNotMatch(worker, /collectionRuns\s*\n?\s*\.cancel\(/);
-  assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
@@ -151,9 +147,10 @@ test('retires the advertising account-day KPI owner from every extension surface
   );
 });
 
-test('persists only allowlisted Coupang producers and advertises the capability', () => {
+test('lists no Coupang browser session producer and still advertises the capability', () => {
+  // KID-365: the Wing catalog is a runtime kind; neither Coupang producer has a session writer.
   for (const producer of ['dashboard.coupang_products', 'channels.coupang_catalog']) {
-    assert.match(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
+    assert.doesNotMatch(sourceOwnerManifest, new RegExp(producer.replace('.', '\\.')));
   }
   assert.doesNotMatch(sourceOwnerManifest, /"advertising\./);
   assert.match(worker, /browserCollectionSessions:\s*true/);

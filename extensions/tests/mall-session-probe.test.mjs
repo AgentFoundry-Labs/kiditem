@@ -280,18 +280,14 @@ test("⭐ malls that bounce to their own login screen read as signed out, whatev
 });
 
 /**
- * 조용히 확인할 수 있는 몰 목록은 스펙에서 나와야 한다. 손으로 적어 두면 몰을 붙인 날 이
- * 줄만 옛말이 되고, 웹은 그 몰을 모른다고 읽는다(KID-250 · KID-254).
+ * 조용한 읽기는 `checkMallLogin`의 첫 단계로만 쓴다. 웹이 직접 부르던 `probeMallSession` 액션과
+ * 그 capability 두 개는 읽는 곳이 없어 지웠다(KID-329 결정, 2026-09-27).
  */
-test("the worker advertises the passive malls from the spec and loads both modules", () => {
-  const line = workerSource.match(/mallSessionProbeMalls: [^\n]*(\n[^\n]*){0,2}/)?.[0] ?? "";
-  assert.match(line, /KidItemMallSession\.passiveMalls/, "the advertised list must be derived, not hand-written");
-  assert.deepEqual(
-    [...MallSession.passiveMalls].sort(),
-    [...MallSession.malls].filter((key) => typeof MallSession.SPECS[key].loggedInSignal === "function").sort(),
-  );
-  assert.match(workerSource, /msg\?\.action === "probeMallSession"/);
-  assert.match(workerSource, /mallSessionProbeV1: true/);
+test("the quiet probe serves only checkMallLogin; the probe action and its flags are gone", () => {
+  assert.doesNotMatch(workerSource, /msg\?\.action === "probeMallSession"/);
+  assert.doesNotMatch(workerSource, /probeMallSessionQuietly/);
+  assert.doesNotMatch(workerSource, /mallSessionProbeV1|mallSessionProbeMalls/);
+  assert.match(workerSource, /msg\?\.action === "checkMallLogin"/);
   assert.match(serviceWorkerSource, /"orders\/mall-session-probe\.js"/);
   assert.match(serviceWorkerSource, /"orders\/mall-session\.js"/);
 });

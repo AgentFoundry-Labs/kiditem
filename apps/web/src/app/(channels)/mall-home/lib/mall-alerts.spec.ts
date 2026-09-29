@@ -152,6 +152,48 @@ describe('derivedMallAlerts', () => {
     expect(tiles[0]).toMatchObject({ tone: 'attention', label: '로그인 필요', login: 'signed_out', attentionCount: 1 });
   });
 
+  /** KID-329: 이유 코드만 있는 관찰 기록도 툴팁에 오류 registry의 한국어 문장을 싣는다. */
+  it('⭐ 로그인 확인의 이유 코드가 등록 코드면 지금 상태 타일의 툴팁이 그 한국어 문장이다', () => {
+    const channels = [channel('onch', '온채널'), channel('art09', '아트공구')];
+    const derived = derivedMallAlerts({
+      channels,
+      signedOut: channels.map(({ mallKey, mallName }) => ({ mallKey, mallName })),
+      soldOutTotal: null,
+      coupangPendingAccept: null,
+    });
+    const tiles = mallStatusTiles(
+      channels,
+      [],
+      derived,
+      { onch: 'signed_out', art09: 'signed_out' },
+      { onch: 'login_page_not_reachable', art09: 'redirected_away' },
+    );
+    const byMall = Object.fromEntries(tiles.map((tile) => [tile.mallKey, tile]));
+    expect(byMall.onch).toMatchObject({
+      label: '로그인 필요',
+      detail: '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.',
+    });
+    // 등록되지 않은 이유 코드는 일반 실패 문장을 지어 붙이지 않는다.
+    expect(byMall.art09?.detail ?? null).toBeNull();
+  });
+
+  it('로그인 이유 문장은 로그인이 풀린 타일에만 붙고, 로그인 정보 없음 · 발주확인 대기 타일에는 붙지 않는다', () => {
+    const channels = [channel('onch', '온채널', false), channel('coupang', '쿠팡')];
+    const derived = derivedMallAlerts({ channels, soldOutTotal: null, coupangPendingAccept: 2 });
+    const tiles = mallStatusTiles(
+      channels,
+      [],
+      derived,
+      { onch: 'signed_in', coupang: 'signed_in' },
+      { onch: 'login_page_not_reachable', coupang: 'login_page_not_reachable' },
+    );
+    const byMall = Object.fromEntries(tiles.map((tile) => [tile.mallKey, tile]));
+    expect(byMall.onch).toMatchObject({ label: '로그인 정보 없음' });
+    expect(byMall.onch?.detail ?? null).toBeNull();
+    expect(byMall.coupang).toMatchObject({ label: '발주확인 대기 2건' });
+    expect(byMall.coupang?.detail ?? null).toBeNull();
+  });
+
   it('쿠팡 발주확인 대기와 품절 후보를 센다', () => {
     const alerts = derivedMallAlerts({ channels: [], soldOutTotal: 12, coupangPendingAccept: 3 });
     expect(alerts.map((item) => item.title)).toEqual(['쿠팡 발주확인 대기 3건', '품절 후보 12개']);
