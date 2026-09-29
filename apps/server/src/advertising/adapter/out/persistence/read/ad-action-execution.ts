@@ -71,7 +71,7 @@ export function deriveAdActionExecution(
 /**
  * The execution of each named action, keyed by action id. Only actions with an
  * `operationId` are looked up; the rest read `not_prepared`. Runs on the
- * caller's client (a transaction or PrismaService).
+ * caller's client (a transaction client).
  */
 export async function readAdActionExecutions(
   client: Prisma.TransactionClient,
