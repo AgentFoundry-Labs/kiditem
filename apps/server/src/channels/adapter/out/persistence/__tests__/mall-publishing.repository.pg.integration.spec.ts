@@ -1,3 +1,4 @@
+import { orderFactsTestReader } from '../../../../../test-helpers/channel-fact-ports';
 import { seedRegistrationOperation } from '../../../../__tests__/registration-operation-seeds';
 import { ListingContentQueryRepositoryAdapter } from '../../../../../content/adapter/out/persistence/listing-content-query.repository';
 import { randomUUID } from 'node:crypto';
@@ -50,6 +51,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         new ProductAvailabilityRepositoryAdapter(prisma as never),
       ),
       new ListingContentQueryRepositoryAdapter(prisma as never),
+      orderFactsTestReader(prisma as never),
     );
   });
 

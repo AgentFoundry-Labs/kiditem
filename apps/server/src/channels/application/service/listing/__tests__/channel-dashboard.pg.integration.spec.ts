@@ -16,16 +16,12 @@ import { randomUUID } from 'node:crypto';
 import { COUPANG_DIRECTSHIP_KIND } from '@kiditem/shared/orders-operations';
 import { businessDateKey, kstBusinessDate } from '../../../../../common/kst';
 import { seedMallOrderCoverageOperation } from '../../../../../test-helpers/__tests__/mall-order-coverage-operation';
-import { CHANNEL_ACCOUNT_PORT } from '../../../port/in/account/channel-account.port';
-import { ChannelAccountService } from '../../account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../../../adapter/out/persistence/channel-account.repository';
-import { ChannelCredentialsAdapter } from '../../../../adapter/out/credentials/channel-credentials.adapter';
+import { ORDER_FACTS_PORT } from '../../../../../orders/application/port/in/facts/order-facts.port';
+import { orderFactsTestReader } from '../../../../../test-helpers/channel-fact-ports';
 import { ChannelListingQueryPersistenceAdapter } from '../../../../adapter/out/persistence/channel-listing-query.repository';
 import { ChannelListingQueryService } from '../channel-listing-query.service';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import type { PrismaClient } from '@prisma/client';
-import { ChannelsProductMappingGenerationAdapter } from "../../../../adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 const PRIMARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000001';
 const SECONDARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000002';
@@ -71,13 +67,7 @@ describe('Channel dashboard (PG integration)', () => {
           inject: [CHANNEL_DASHBOARD_REPOSITORY_PORT],
         },
         { provide: PrismaService, useValue: prisma },
-        {
-          provide: CHANNEL_ACCOUNT_PORT,
-          useValue: new ChannelAccountService(
-            new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
-            new ChannelCredentialsAdapter(),
-          ),
-        },
+        { provide: ORDER_FACTS_PORT, useValue: orderFactsTestReader(prisma as unknown as PrismaService) },
         { provide: CHANNEL_DASHBOARD_REPOSITORY_PORT, useExisting: ChannelDashboardRepositoryAdapter },
       ],
     }).compile();
