@@ -15,7 +15,7 @@ export interface RegistrationFinalizeContext {
 }
 
 /**
- * 몰 등록 실행 kind `channels.registration`(KID-364, ADR-0014 · 0019 · 0025). `product_registration_executions`를 대신한다.
+ * 몰 등록 실행 kind `channels.registration`(KID-364, ADR-0014 · 0019 · 0025). 옛 등록 실행 표를 대신한다(표 삭제 KID-365).
  * - `plan`은 옛 준비(대상 · 계정 · 버전 확인, 문서 얼리기)와 옛 시작 확인을 한 번에 한다. 겹침은 잠금 키가 막는다.
  * - `finalize`는 몰이 확정한 등록(확장 finish succeeded 또는 운영자 확인)을 같은 트랜잭션에서 리스팅 · 옵션 · 레시피에 반영한다.
  * - `confirm` · `close`는 `reconciling` 실행을 운영자가 몰에서 본 사실로 닫는다(같은 조직 운영자 누구나, KID-329 (a) 가정).

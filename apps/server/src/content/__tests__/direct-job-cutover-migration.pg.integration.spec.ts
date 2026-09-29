@@ -5,6 +5,7 @@ import {
   DIRECT_JOB_CUTOVER_MESSAGE,
 } from '../../../../../scripts/data-migrations/v0.1.31/036_close_generations_left_by_direct_job_cutover';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
+import { dropLegacyAiDirectJobsTable, restoreLegacyAiDirectJobsTable } from '../../test-helpers/legacy-ai-direct-jobs-table';
 
 /**
  * KID-358 뒤 워커는 옛 `ai_direct_jobs`를 읽지 않는다. 옛 job이 아직 돌 차례였던(held · pending · running ·
@@ -15,8 +16,8 @@ import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG }
 describe('036 close generations left by the direct-job cutover (PostgreSQL)', () => {
   let prisma: PrismaClient;
   beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
-  afterAll(async () => prisma?.$disconnect());
-  beforeEach(async () => { await resetDb(prisma); await seedBaseFixture(prisma); });
+  afterAll(async () => { await dropLegacyAiDirectJobsTable(prisma); await prisma?.$disconnect(); });
+  beforeEach(async () => { await resetDb(prisma); await seedBaseFixture(prisma); await restoreLegacyAiDirectJobsTable(prisma); });
 
   const run = () => prisma.$transaction((tx) => closeGenerationsLeftByDirectJobCutoverMigration.run(tx, { target: 'local' }));
 
@@ -43,9 +44,10 @@ describe('036 close generations left by the direct-job cutover (PostgreSQL)', ()
     const page = (status: string) => prisma.detailPage.create({
       data: { organizationId: ORG, contentWorkspaceId: workspace.id, source: 'generated', status }, select: { id: true },
     });
-    const job = (jobType: string, sourceResourceId: string, status: string) => prisma.aiDirectJob.create({
-      data: { organizationId: ORG, jobType, sourceResourceId, status, payload: {} },
-    });
+    const job = (jobType: string, sourceResourceId: string, status: string) => prisma.$executeRaw`
+      INSERT INTO ai_direct_jobs (id, organization_id, job_type, source_resource_id, status, payload)
+      VALUES (gen_random_uuid(), ${ORG}::uuid, ${jobType}, ${sourceResourceId}::uuid, ${status}, '{}'::jsonb)
+    `;
     return { thumbnail, page, job };
   }
 
@@ -77,7 +79,9 @@ describe('036 close generations left by the direct-job cutover (PostgreSQL)', ()
     await expect(prisma.detailPage.findUniqueOrThrow({ where: { id: finishedJob.id } })).resolves.toMatchObject({ status: 'pending' });
     await expect(prisma.thumbnailGeneration.findUniqueOrThrow({ where: { id: noJob.id } })).resolves.toMatchObject({ status: 'pending' });
     // job 행은 그대로다.
-    await expect(prisma.aiDirectJob.count({ where: { status: { in: ['held', 'pending', 'running', 'projecting'] } } })).resolves.toBe(5);
+    await expect(prisma.$queryRaw`
+      SELECT COUNT(*)::int AS count FROM ai_direct_jobs WHERE status IN ('held', 'pending', 'running', 'projecting')
+    `).resolves.toEqual([{ count: 5 }]);
   });
 
   it('runs before the schema step, which drops ai_direct_jobs', () => {

@@ -798,8 +798,7 @@ reclaimed by the next claim; a saved result is reused without calling the model
 again. Cancelling a generation locks its live operation before the ledger row (the
 order finish uses) and cancels both in one transaction, and the lease heartbeat aborts in-flight provider and
 image-download work. Gemini adapters receive the model captured at enqueue time
-and never select an environment fallback during execution. The retired
-`ai_direct_jobs` table is no longer read or written and is dropped separately.
+and never select an environment fallback during execution.
 
 ## Detail-Page Client Rasterization
 
@@ -941,8 +940,8 @@ product sharing the same source stock. A target references a priced selling
 product and active account. Archiving sets `archivedAt`; successful submission
 leaves the target reusable ([ADR-0022](adr/0022-sales-product-draft-exists-from-collection.md)).
 
-`ProductRegistrationExecution` freezes each intent's payload, hash, approval,
-actor, account, idempotency key, lease and provider outcome. Changing a target
+A `channels.registration` operation (ADR-0025) freezes each intent's payload,
+hash, approval, actor, account, idempotency key, lease and provider outcome. Changing a target
 cannot change an existing execution. Only one unresolved execution may hold a
 target or actual listing's active fence. Sourcing provides candidate eligibility
 through its public contract; Content(AI) — the `content` directory — owns content
@@ -955,7 +954,7 @@ creates a source `MasterProduct`.
 optional SourceRecord provenance (immutable; deleted with its draft)
   -> Channels SalesProduct + options
   -> reusable RegistrationTarget + selected options
-  -> frozen ProductRegistrationExecution + approval evidence
+  -> frozen channels.registration operation + approval evidence
   -> executing/uncertain persisted before provider IO
   -> confirmed provider evidence
   -> Channels transaction publishes actual Listing/options/composition

@@ -36,7 +36,7 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
   image gets a new row. `ThumbnailGeneration` is the job only.
 - Thumbnail, detail-page, image-edit and re-edit work runs as `content.*`
   operations (ADR-0025, KID-358); `common/operation` owns claims, leases,
-  retries and cancellation. Never read or write `ai_direct_jobs`.
+  retries and cancellation.
 - Use `contentWorkspaceId` for media workspaces. Sourcing candidate and
   candidate-image ids are provenance columns with no foreign key; AI never reads
   a Channels or Sourcing row to fill a prompt or a name. Do not reintroduce

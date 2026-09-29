@@ -1,7 +1,7 @@
 // advertising.prisma — Advertising domain
 
 /// @namespace Advertising
-/// @describe 광고 자동 실행 큐. 광고 보고서 원장(캠페인·키워드)→AdAction→ExecutionTask 파이프라인. 근거(캠페인·광고그룹·옵션·키워드·측정일)는 payload.adTarget, 실행 상태는 최신 ExecutionTask에서 파생한다.
+/// @describe 광고 자동 실행 큐. 광고 보고서 원장(캠페인·키워드)→AdAction→`advertising.ad_action` 실행 파이프라인. 근거(캠페인·광고그룹·옵션·키워드·측정일)는 payload.adTarget, 실행 상태는 승인이 준비한 실행(operationId)에서 읽는다.
 model AdAction {
   id             String    @id @default(uuid()) @db.Uuid
   organizationId String    @map("organization_id") @db.Uuid
@@ -24,7 +24,6 @@ model AdAction {
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  executionTasks ExecutionTask[]
 
   @@index([organizationId, approvalStatus])
   @@index([operationId])
@@ -32,25 +31,6 @@ model AdAction {
   @@index([listingId])
   @@index([createdAt])
   @@map("ad_actions")
-}
-
-/// @namespace Advertising
-model ExecutionTask {
-  id           String    @id @default(uuid()) @db.Uuid
-  actionId     String    @map("action_id") @db.Uuid
-  status       String    @default("queued")
-  startedAt    DateTime? @map("started_at") @db.Timestamptz
-  finishedAt   DateTime? @map("finished_at") @db.Timestamptz
-  beforeJson   Json?     @map("before_json")
-  afterJson    Json?     @map("after_json")
-  errorMessage String?   @map("error_message")
-  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  action AdAction @relation(fields: [actionId], references: [id], onDelete: Cascade)
-
-  @@index([actionId, status, createdAt])
-  @@index([status])
-  @@map("execution_tasks")
 }
 
 /// @namespace Advertising

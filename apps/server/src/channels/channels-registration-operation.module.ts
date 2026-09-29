@@ -36,7 +36,6 @@ import { CHANNEL_INTEGRITY_PORT } from './application/port/out/integrity/channel
 /**
  * 몰 등록 실행 kind `channels.registration` · 몰 판매 상태 읽기 kind `channels.mall_availability_read`의 owner(ADR-0014 · 0025,
  * KID-364). 실행 행은 실행 계약이 쓰고, 이 모듈은 plan · finalize와 `reconciling` 확인 · 닫기 라우트, 품절 후보 미리보기를 갖는다.
- * 옛 등록 실행 표(`product_registration_executions`)는 읽지도 쓰지도 않는다(표 삭제는 KID-365).
  */
 @Module({
   imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, AiModule, SalesProductModule, ChannelCatalogModule, ChannelsRegistrationStateModule, OperationModule],

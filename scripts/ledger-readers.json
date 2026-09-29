@@ -827,19 +827,6 @@
         }
       ],
       "legacyReaders": []
-    },
-    {
-      "name": "Product registration execution",
-      "owner": "channels",
-      "table": "product_registration_executions",
-      "prismaModel": "productRegistrationExecution",
-      "prismaType": "ProductRegistrationExecution",
-      "relationNames": [
-        "productRegistrationExecutions",
-        "executions"
-      ],
-      "ownerPublications": [],
-      "legacyReaders": []
     }
   ],
   "importExceptions": [

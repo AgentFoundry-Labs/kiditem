@@ -148,68 +148,6 @@ model ChannelListingOptionDailySnapshot {
   @@map("channel_listing_option_daily_snapshots")
 }
 
-// ── 몰 작업 관찰 기록 ───────────────────────────────────────────────────────
-//
-// 몰 송신 프로필은 `ChannelAccount.config.listingProfile`, 고시·KC 는 수집상품 초안
-// (옛 `SourcingCandidate.rawData.manualBasics`)에 둔다(KID-107). 새 표는 원천 owner 가 없는
-// 브라우저 몰 작업 기록 하나뿐이다.
-
-/// @namespace Channels
-/// @describe One frozen registration intent. A reusable target has many executions; one active execution per target and idempotent requests prevent duplicate submissions (ADR-0020).
-model ProductRegistrationExecution {
-  id                   String  @id @default(uuid()) @db.Uuid
-  organizationId       String  @map("organization_id") @db.Uuid
-  registrationTargetId String? @map("registration_target_id") @db.Uuid
-  channelAccountId     String  @map("channel_account_id") @db.Uuid
-  channelListingId     String? @map("channel_listing_id") @db.Uuid
-
-  /// 몰 중립 실행 kind(KID-321): register·update·sold_out·resume·composition_change·thumbnail_update. 기본값 없음 — 쓰는 쪽이 늘 명시한다.
-  executionKind             String  @map("execution_kind")
-  expectedProviderAccountId String? @map("expected_provider_account_id")
-  idempotencyKey            String  @map("idempotency_key")
-  requestHash               String  @map("request_hash")
-  ownerIdempotencyKey       String? @map("owner_idempotency_key")
-
-  submissionPayloadJson Json?   @map("submission_payload_json") @db.JsonB
-  submissionPayloadHash String? @map("submission_payload_hash")
-
-  status          String @default("prepared")
-  providerOutcome String @default("not_attempted") @map("provider_outcome")
-
-  providerSubmissionId String? @map("provider_submission_id")
-  externalListingId    String? @map("external_listing_id")
-  resultJson           Json?   @map("result_json") @db.JsonB
-  lastErrorCode        String? @map("last_error_code")
-  lastErrorMessage     String? @map("last_error_message")
-
-  leaseToken        String?   @map("lease_token") @db.Uuid
-  leaseClaimedAt    DateTime? @map("lease_claimed_at") @db.Timestamptz
-  reviewPayloadHash String?   @map("review_payload_hash")
-  approvedAt        DateTime? @map("approved_at") @db.Timestamptz
-  approvedByUserId  String?   @map("approved_by_user_id") @db.Uuid
-  requestedByUserId String?   @map("requested_by_user_id") @db.Uuid
-  startedAt         DateTime? @map("started_at") @db.Timestamptz
-  completedAt       DateTime? @map("completed_at") @db.Timestamptz
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  channelAccount ChannelAccount      @relation("ChannelAccountProductRegistrationExecutions", fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  channelListing ChannelListing?     @relation("ChannelListingProductRegistrationExecutions", fields: [channelListingId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
-  preparation    RegistrationTarget? @relation(fields: [registrationTargetId, organizationId, channelAccountId], references: [id, organizationId, channelAccountId], onDelete: Restrict)
-
-  @@unique([organizationId, idempotencyKey], map: "product_registration_executions_org_idempotency_key")
-  @@unique([organizationId, registrationTargetId], map: "product_registration_executions_target_pending_key", where: raw("status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
-  @@unique([organizationId, channelListingId], map: "product_registration_executions_active_listing_key", where: raw("channel_listing_id IS NOT NULL AND status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
-  @@unique([organizationId, channelAccountId, externalListingId], map: "product_registration_executions_active_external_listing_key", where: raw("external_listing_id IS NOT NULL AND status = ANY (ARRAY['prepared'::text, 'executing'::text, 'reconciling'::text])"))
-  @@index([registrationTargetId])
-  @@index([channelAccountId])
-  @@index([channelListingId])
-  @@index([requestedByUserId])
-  @@index([approvedByUserId])
-  @@index([organizationId, status, createdAt])
-  @@map("product_registration_executions")
-}
-
 /// @namespace Channels
 /// @describe Channels-owned common selling product identified by its KID. Reusable registration targets select its options and override its defaults; inventory and ABC remain Products-owned (ADR-0020).
 model SalesProduct {
@@ -412,7 +350,6 @@ model RegistrationTarget {
 
   salesProduct    SalesProduct                   @relation(fields: [salesProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
   selectedOptions RegistrationTargetOption[]
-  executions      ProductRegistrationExecution[]
 
   @@unique([id, organizationId])
   @@unique([id, organizationId, channelAccountId], map: "registration_targets_id_org_account_key")
@@ -465,7 +402,6 @@ model ChannelAccount {
 
   listings                      ChannelListing[]
   productPreparations           RegistrationTarget[]
-  productRegistrationExecutions ProductRegistrationExecution[] @relation("ChannelAccountProductRegistrationExecutions")
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")
@@ -514,7 +450,6 @@ model ChannelListing {
 
   channelAccount                ChannelAccount                 @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   options                       ChannelListingOption[]
-  productRegistrationExecutions ProductRegistrationExecution[] @relation("ChannelListingProductRegistrationExecutions")
 
   // Channels — market-data snapshots (Wave C0)
   channelListingDailySnapshots       ChannelListingDailySnapshot[]

@@ -2,7 +2,6 @@
   "version": 1,
   "owners": {
     "AdAction": "advertising",
-    "AiDirectJob": "content",
     "AiUsageRecord": "content",
     "Alert": "system",
     "AuthSession": "core",
@@ -36,7 +35,6 @@
     "DetailPageImageArtifact": "content",
     "DetailPageImageRenderIntent": "content",
     "DetailPageRevision": "content",
-    "ExecutionTask": "advertising",
     "FeatureGate": "system",
     "LegalEntity": "core",
     "ListingThumbnailEvaluation": "content",
@@ -58,7 +56,6 @@
     "Organization": "scope",
     "OrganizationMembership": "scope",
     "ProcurementTestIntent": "supply",
-    "ProductRegistrationExecution": "channels",
     "PurchaseOrder": "supply",
     "PurchaseOrderItem": "supply",
     "PurchaseOrderSubmissionAttempt": "supply",

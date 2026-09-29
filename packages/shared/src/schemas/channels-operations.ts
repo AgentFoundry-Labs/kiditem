@@ -63,7 +63,7 @@ export const MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
 /** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭)를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 웹이 시작 전에 본다. */
 export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
 
-// M — 몰 등록 실행 kind(KID-364 · 몰 쓰기 모듈 KID-256, wave5). `product_registration_executions`를 대신한다.
+// M — 몰 등록 실행 kind(KID-364 · 몰 쓰기 모듈 KID-256, wave5). 옛 등록 실행 표를 대신한다(표 삭제 KID-365).
 // executionKind(register·update·sold_out·resume·composition_change·thumbnail_update)는 kind가 아니라 plan 안 필드다.
 
 export const REGISTRATION_KIND = 'channels.registration' as const;
@@ -76,7 +76,7 @@ export const RegistrationExecutionKindSchema = z.enum(REGISTRATION_EXECUTION_KIN
 export type RegistrationExecutionKind = z.infer<typeof RegistrationExecutionKindSchema>;
 
 /**
- * 잠금 키 셋(2026-09-24 23:15·23:25 결정): 지금 `product_registration_executions`의 partial unique 셋을 대신한다.
+ * 잠금 키 셋(2026-09-24 23:15·23:25 결정): 옛 등록 실행 표의 partial unique 셋을 대신한다.
  * 같은 등록 대상·같은 리스팅·같은 외부 리스팅으로는 실행 하나만 산다(prepared·executing·reconciling).
  */
 export function registrationTargetLockKey(registrationTargetId: string): OperationLockKey {
