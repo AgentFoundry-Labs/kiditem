@@ -92,13 +92,12 @@ NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 
 ### Source Ownership And Manual Action Parity
 
-Core's shared import history exposes last-completed timestamps through
-`core/read/source-import-run.reader.ts`. Dashboard collection badges compose
-this organization-scoped reader; failed or running attempts do not advance a
-completed timestamp. This read-only metadata boundary adds no Nest module or
-mutation authority. Source owners retain publication, current-generation, and
-coverage gates in their own fact readers; a completion timestamp alone does
-not establish measurement coverage.
+Dashboard collection badges read each Orders collection kind's last succeeded
+operation through Orders' `OrderCollectionFreshnessPort`; failed or running
+operations do not advance a completed timestamp, and old
+`source_import_runs` rows are not read (KID-365). Source owners retain
+publication, current-generation, and coverage gates in their own fact readers;
+a completion timestamp alone does not establish measurement coverage.
 
 Each source owner admits an idempotent attempt and freezes its collection
 inputs. The extension sends captured data directly to that owner. Validated
