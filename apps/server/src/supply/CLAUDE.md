@@ -71,8 +71,9 @@ are executable in [the Supply tests](__tests__/).
 - Orders reconciliation links exact account, PO, product, and available barcode
   evidence. Matching classifies rows but does not filter collection output or
   mutate Orders/Products tables.
-- Completion depends on linked Orders transmission intents, not a Products
-  refresh. Abandonment uses the tested empty-probe policy and takes no reason.
+- Completion depends on the Orders Sellpia transfer outcome of every non-empty
+  directship observation (latest transfer succeeded), not a Products refresh;
+  a failed or closed transfer reopens the file for resending (KID-388). Abandonment uses the tested empty-probe policy and takes no reason.
 
 Read
 [sellpia-rocket-inventory-sync.md](../../../../docs/runbooks/sellpia-rocket-inventory-sync.md)
