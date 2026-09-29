@@ -146,13 +146,18 @@ describe('order action operations (KID-366 wave8b)', () => {
     expect(result.shipments.map((row) => row.center)).toEqual(['평택1']);
   });
 
-  it('송장 업로드는 계정·몰·송장 조회 실행 id로 시작한다', async () => {
+  it('송장 업로드는 계정·몰·송장 조회 실행 id로 시작하고, 그 몰의 저장 자격을 시작 요청에만 싣는다', async () => {
+    vi.mocked(operationLoginOptions).mockResolvedValueOnce({ credentials: { loginId: 'fixture-id', password: 'fixture-value' } });
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(MALL_TRACKING_UPLOAD_KIND, 'succeeded', {
       result: { uploaded: 1, alreadyUploaded: 0, notInList: 0, failed: 0, rows: [{ orderNo: 'A1', status: 'uploaded', mallMessage: null }] },
     }) });
     const scope = { channelAccountId: ACCOUNT, mallKey: 'onch' as const, trackingOperationId: SOURCE };
     await expect(uploadMallTracking(scope, noSleep)).resolves.toMatchObject({ status: 'succeeded', result: { uploaded: 1 } });
-    expect(requestOperationStart).toHaveBeenCalledWith(MALL_TRACKING_UPLOAD_KIND, scope, { capability: ORDERS_ACTION_OPERATION_CAPABILITY });
+    expect(operationLoginOptions).toHaveBeenCalledWith('onch');
+    expect(requestOperationStart).toHaveBeenCalledWith(MALL_TRACKING_UPLOAD_KIND, scope, {
+      capability: ORDERS_ACTION_OPERATION_CAPABILITY,
+      credentials: { loginId: 'fixture-id', password: 'fixture-value' },
+    });
   });
 
   it('확인 필요 실행은 Orders 라우트로 확인하거나 닫는다', async () => {

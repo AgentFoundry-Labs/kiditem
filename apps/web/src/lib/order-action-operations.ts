@@ -171,8 +171,17 @@ export async function uploadMallTracking(
   scope: MallTrackingUploadScope,
   options: OrderActionWaitOptions = {},
 ): Promise<OrderActionOutcome<MallTrackingUploadResult>> {
-  const operationId = await startOrderAction(MALL_TRACKING_UPLOAD_KIND, MallTrackingUploadScopeSchema.parse(scope));
-  return waitForOrderAction(MALL_TRACKING_UPLOAD_KIND, operationId, MallTrackingUploadResultSchema, options);
+  const parsed = MallTrackingUploadScopeSchema.parse(scope);
+  // 몰 주문 시작과 같이 그 몰의 저장 자격을 시작 요청에만 싣는다 — 운영자 탭 세션만 믿지 않는다(차단·저장 없음이면 싣지 않는다).
+  const operationId = await startOrderAction(MALL_TRACKING_UPLOAD_KIND, parsed, await operationLoginOptions(parsed.mallKey));
+  return waitForOrderAction(
+    MALL_TRACKING_UPLOAD_KIND,
+    operationId,
+    MallTrackingUploadResultSchema,
+    options,
+    // 몰이 저장 자격을 거절했으면 그 몰의 자동 로그인을 멈춘다(KID-377).
+    (operation) => noteOperationLoginFailureForMall(parsed.mallKey, operation),
+  );
 }
 
 const actionPath = (operationId: string, action: 'confirm' | 'close') =>
