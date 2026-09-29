@@ -1,4 +1,4 @@
-import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/persistence/keyword-rank-read.adapter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';

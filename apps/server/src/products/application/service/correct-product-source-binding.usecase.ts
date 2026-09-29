@@ -4,7 +4,7 @@ import { validateProductSourceChange } from '../../domain/product-source-change'
 import { ProductInputException } from '../exception/product-input.exception';
 import type { ProductSourceBindingPort } from '../port/in/product-source-binding.port';
 import { PRODUCT_QUERY_PORT, type ProductQueryPort } from '../port/in/product-query.port';
-import { PRODUCT_OPERATIONS_REPOSITORY_PORT, type ProductOperationsRepositoryPort } from '../port/out/persistence/product-operations.repository.port';
+import { PRODUCT_OPERATIONS_REPOSITORY_PORT, type ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
 const SourceChangeInput = z.object({ sourceProductCode: z.string(), sourceOptionCode: z.string() }).strict();
 

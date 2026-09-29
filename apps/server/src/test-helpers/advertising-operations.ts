@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../channels/application/port/in/account/channel-account.port';
 import { WingTrackedProductsOperationOwner } from '../advertising/adapter/in/operation/wing-tracked-products-operation-owner';
-import { WingTrackedProductRepositoryAdapter } from '../advertising/adapter/out/repository/wing-tracked-product.repository.adapter';
+import { WingTrackedProductRepositoryAdapter } from '../advertising/adapter/out/persistence/wing-tracked-product.repository';
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from '../advertising/application/port/out/repository/wing-tracked-product.repository.port';
 import { WingTrackedProductService } from '../advertising/application/service/wing-tracked-product.service';
 import { WingRankOperationOwner } from '../advertising/adapter/in/operation/wing-rank-operation-owner';
@@ -13,7 +13,7 @@ import { CompetitorSellerIdentityOperationOwner } from '../advertising/adapter/i
 import { CompetitorCatalogOperationOwner } from '../advertising/adapter/in/operation/competitor-catalog-operation-owner';
 import { CompetitorTrackingService } from '../advertising/application/service/competitor-tracking.service';
 import { KIDITEM_STOREFRONT_PORT } from '../advertising/application/port/out/provider/kiditem-storefront.port';
-import { KeywordRankRepositoryAdapter } from '../advertising/adapter/out/repository/keyword-rank.repository.adapter';
+import { KeywordRankRepositoryAdapter } from '../advertising/adapter/out/persistence/keyword-rank.repository';
 import { KEYWORD_RANK_REPOSITORY_PORT } from '../advertising/application/port/out/repository/keyword-rank.repository.port';
 import { KeywordRankService } from '../advertising/application/service/keyword-rank.service';
 import { WingSalesRankIngestHandler } from '../advertising/application/service/wing-sales-rank-ingest.handler';

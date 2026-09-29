@@ -11,8 +11,8 @@ import {
   type WingTrafficRow,
 } from '@kiditem/shared/advertising-operations';
 import { WingTrafficOperationOwner } from '../advertising/adapter/in/operation/wing-daily-operation-owners';
-import { WingTrafficOperationRepository } from '../advertising/adapter/out/repository/wing-traffic-operation.repository';
-import { OperationRepositoryAdapter } from '../common/operation/adapter/out/repository/operation.repository.adapter';
+import { WingTrafficOperationRepository } from '../advertising/adapter/out/persistence/wing-traffic-operation.repository';
+import { OperationRepositoryAdapter } from '../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT, type OperationPort } from '../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';

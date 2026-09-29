@@ -15,7 +15,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { ProductCollectionFreshnessRepositoryAdapter } from '../adapter/out/persistence/product-source-freshness.repository.adapter';
+import { ProductCollectionFreshnessRepositoryAdapter } from '../adapter/out/persistence/product-source-freshness.repository';
 import { ProductCollectionFreshnessUseCase } from '../application/service/product-collection-freshness.usecase';
 
 /*

@@ -15,7 +15,7 @@ import {
 import { ordersOperationsApp } from '../../test-helpers/orders-operations';
 import { SellpiaShipmentTrackingOperationOwner } from '../adapter/in/operation/sellpia-shipment-tracking-operation-owner';
 import { SellpiaShipmentTrackingController } from '../adapter/in/web/sellpia-shipment-tracking.controller';
-import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.persistence.adapter';
+import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.repository';
 import { ORDER_OPERATION_CAPTURE_PORT } from '../application/port/in/order-operation-capture.port';
 
 // 확장 수집기(orders.sellpia_shipment_tracking)가 밟는 길을 서버에서 그대로: begin → tracking_rows 청크 → finish.

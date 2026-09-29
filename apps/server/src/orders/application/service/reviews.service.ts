@@ -14,7 +14,7 @@ import {
   CHANNEL_ACCOUNT_PORT,
   type ChannelAccountPort,
 } from '../../../channels/application/port/in/account/channel-account.port';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,

@@ -13,16 +13,16 @@ import {
 import { readCurrentReviewItems } from '../review-facts.reader';
 import { ReviewsService } from '../../../../../application/service/reviews.service';
 import type { PrismaClient } from '@prisma/client';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { ChannelListingQueryService } from '../../../../../../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-listing-query.repository';
 import { ChannelOptionRecipeService } from '../../../../../../channels/application/service/listing/channel-option-recipe.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../../../../../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../../../../../channels/adapter/out/persistence/channel-option-recipe.repository';
 import { ChannelAccountService } from '../../../../../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../../../../../channels/adapter/out/credentials/channel-credentials.adapter';
 import { ChannelsProductMappingGenerationAdapter } from "../../../../../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 const ACCOUNT_ID = '73000000-0000-4000-8000-000000000001';
 const SOURCE_ACCOUNT_ID = '73000000-0000-4000-8000-000000000002';

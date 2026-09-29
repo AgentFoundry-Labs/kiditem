@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { CONTENT_REGISTRATION_FACTS_PORT } from './application/port/in/workspace/registration-content-facts.port';
-import { RegistrationContentFactsRepositoryAdapter } from './adapter/out/repository/registration-content-facts.repository.adapter';
+import { RegistrationContentFactsRepositoryAdapter } from './adapter/out/persistence/registration-content-facts.repository';
 
 /**
  * Channels 등록 상태 reader 가 쓰는 Content 읽기 하나(KID-320). Prisma 만 가져온다 — 생성 runtime 도 Channels 도

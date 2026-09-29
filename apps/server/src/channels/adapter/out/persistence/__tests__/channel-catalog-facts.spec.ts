@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
-import { ChannelListingQueryPersistenceAdapter } from '../channel-listing-query.persistence.adapter';
-import { ChannelOptionRecipeRepositoryAdapter } from '../channel-option-recipe.repository.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../channel-listing-query.repository';
+import { ChannelOptionRecipeRepositoryAdapter } from '../channel-option-recipe.repository';
 import { ChannelsProductMappingGenerationAdapter } from "../../products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 function fixture() {
   const tx = {

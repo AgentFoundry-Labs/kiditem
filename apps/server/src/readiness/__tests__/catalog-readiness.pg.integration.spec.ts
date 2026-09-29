@@ -1,5 +1,5 @@
 import { advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
-import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/persistence/keyword-rank-read.adapter';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -10,10 +10,10 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ReadinessService } from '../readiness.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository";
 import { ChannelCatalogFreshnessAdapter } from '../../channels/adapter/out/operation/channel-catalog-freshness.adapter';
 import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 

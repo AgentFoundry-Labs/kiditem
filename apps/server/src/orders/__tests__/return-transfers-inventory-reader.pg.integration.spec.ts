@@ -8,7 +8,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from "../../test-helpers/real-prisma";
 import { seedSourceProduct } from "../../test-helpers/inventory-seeds";
-import { ProductTransactionalReadRepositoryAdapter } from "../../products/adapter/out/persistence/product-transactional-read.repository.adapter";
+import { ProductTransactionalReadRepositoryAdapter } from "../../products/adapter/out/persistence/product-transactional-read.repository";
 import { ReturnTransfersService } from "../application/service/return-transfers/return-transfers.service";
 import type { PrismaClient } from "@prisma/client";
 

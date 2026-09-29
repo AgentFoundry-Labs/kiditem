@@ -8,7 +8,7 @@ import {
 } from '@kiditem/shared/product-abc';
 import type { ProductOperationsActiveChannel } from '@kiditem/shared/product-operations';
 import { ProductQueryUseCase } from './product-query.usecase';
-import type { ProductOperationsRepositoryPort } from '../port/out/persistence/product-operations.repository.port';
+import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';

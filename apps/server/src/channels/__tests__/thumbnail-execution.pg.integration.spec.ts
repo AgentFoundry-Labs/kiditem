@@ -9,12 +9,12 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { RegistrableThumbnailRepositoryAdapter } from '../../content/adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { RegistrableThumbnailRepositoryAdapter } from '../../content/adapter/out/persistence/registrable-thumbnail.repository';
 import { RegistrableThumbnailService } from '../../content/application/service/registrable-thumbnail.service';
 import { fakeStorageImageFetch } from '../../content/__tests__/helpers/fake-storage-image-fetch';
 import { mapException, toEnvelope } from '../../common/filters/global-exception.filter';
 import { RegistrableThumbnailAdapter } from '../adapter/out/content/registrable-thumbnail.adapter';
-import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.persistence.adapter';
+import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.repository';
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 
 const PNG_DATA_URL = `data:image/png;base64,${Buffer.from('89504e470d0a1a0a', 'hex').toString('base64')}`;

@@ -6,7 +6,7 @@ import type {
 import {
   ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT,
   type RocketWorkbookProgressRepositoryPort,
-} from '../port/out/persistence/rocket-workbook-progress.repository.port';
+} from '../port/out/repository/rocket-workbook-progress.repository.port';
 
 @Injectable()
 export class RocketWorkbookProgressService implements RocketWorkbookProgressPort {

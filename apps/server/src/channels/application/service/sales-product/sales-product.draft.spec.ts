@@ -7,7 +7,7 @@ import type {
   SalesProductBasicsRecord,
   SalesProductCreateRecord,
   SalesProductRepositoryPort,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const SOURCE_RECORD = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

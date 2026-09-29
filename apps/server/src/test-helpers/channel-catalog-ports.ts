@@ -2,13 +2,13 @@ import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { ChannelListingQueryService } from '../channels/application/service/listing/channel-listing-query.service';
 import { realRegistrationStates } from './registration-state';
-import { ChannelListingQueryPersistenceAdapter } from '../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
-import { ListingContentQueryRepositoryAdapter } from '../content/adapter/out/repository/listing-content-query.repository.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../channels/adapter/out/persistence/channel-listing-query.repository';
+import { ListingContentQueryRepositoryAdapter } from '../content/adapter/out/persistence/listing-content-query.repository';
 import { ChannelOptionRecipeService } from '../channels/application/service/listing/channel-option-recipe.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../channels/adapter/out/persistence/channel-option-recipe.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository';
 import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository';
 
 export function makeChannelListingQuery(prisma: PrismaClient) {
   return new ChannelListingQueryService(

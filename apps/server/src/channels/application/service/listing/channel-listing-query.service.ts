@@ -7,7 +7,7 @@ import type {
   ChannelListingListResult,
   ChannelListingSummary,
 } from '../../port/in/listing/channel-listing-query.port';
-import type { ChannelListingQueryPersistencePort } from '../../port/out/persistence/channel-listing-query.persistence.port';
+import type { ChannelListingQueryPersistencePort } from '../../port/out/repository/channel-listing-query.persistence.port';
 import type { RegistrationStatePort, SalesProductRegistrationView } from '../../port/in/registration-state.port';
 
 export class ChannelListingQueryService implements ChannelListingQueryPort {

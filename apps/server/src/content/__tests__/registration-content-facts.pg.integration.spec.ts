@@ -9,7 +9,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { RegistrationContentFactsRepositoryAdapter } from '../adapter/out/repository/registration-content-facts.repository.adapter';
+import { RegistrationContentFactsRepositoryAdapter } from '../adapter/out/persistence/registration-content-facts.repository';
 
 /**
  * 등록 상태 reader 가 Content 에서 읽는 것은 판매 상품 작업공간의 두 현재 포인터뿐이다(KID-320) — 현재 상세

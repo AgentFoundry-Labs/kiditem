@@ -1,6 +1,6 @@
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository';
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -18,10 +18,10 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
+import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository';
 import type {
   ProductAbcPublicationInput,
-} from '../application/port/out/persistence/master-product-abc.repository.port';
+} from '../application/port/out/repository/master-product-abc.repository.port';
 
 const CUTOFF = latestClosedKstDate();
 type FixtureSourceFences = ProductAbcPublicationInput['sourceFences'];

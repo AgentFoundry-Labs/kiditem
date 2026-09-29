@@ -17,33 +17,33 @@ import { AdvertisingStrategyController } from "./adapter/in/http/advertising-str
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { WingItemwinnerOperationOwner, WingTrafficOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
-import { WingItemwinnerOperationRepository } from "./adapter/out/repository/wing-itemwinner-operation.repository";
+import { WingItemwinnerOperationRepository } from "./adapter/out/persistence/wing-itemwinner-operation.repository";
 import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-itemwinner-operation.repository.port";
 import { AD_REPORT_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/ad-report-operation.repository.port";
-import { AdReportOperationRepository } from "./adapter/out/repository/ad-report-operation.repository";
+import { AdReportOperationRepository } from "./adapter/out/persistence/ad-report-operation.repository";
 import { AdReportOperationOwner } from "./adapter/in/operation/ad-report-operation-owner";
 import { AdActionOperationOwner } from "./adapter/in/operation/ad-action-operation-owner";
-import { AdActionOperationRepository } from "./adapter/out/repository/ad-action-operation.repository";
+import { AdActionOperationRepository } from "./adapter/out/persistence/ad-action-operation.repository";
 import { AD_ACTION_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/ad-action-operation.repository.port";
 import { OperationModule } from "../common/operation/operation.module";
-import { WingTrafficOperationRepository } from "./adapter/out/repository/wing-traffic-operation.repository";
-import { WingTrafficReadRepository } from "./adapter/out/repository/wing-traffic-read.repository";
+import { WingTrafficOperationRepository } from "./adapter/out/persistence/wing-traffic-operation.repository";
+import { WingTrafficReadRepository } from "./adapter/out/persistence/wing-traffic-read.repository";
 import { WING_TRAFFIC_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-traffic-operation.repository.port";
 import {
   AD_TRAFFIC_READ_PORT,
 } from "./application/port/in/ad-traffic-source.port";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
-// adapter/out/repository
-import { AdConfigRepositoryAdapter } from "./adapter/out/repository/ad-config.repository.adapter";
-import { AdBenchmarkRepositoryAdapter } from "./adapter/out/repository/ad-benchmark.repository.adapter";
-import { AdListingRepositoryAdapter } from "./adapter/out/repository/ad-listing.repository.adapter";
-import { AdCampaignRepositoryAdapter } from "./adapter/out/repository/ad-campaign.repository.adapter";
-import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.repository.adapter";
-import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
-import { AdvertisingExtensionStatusRepositoryAdapter } from "./adapter/out/repository/advertising-extension-status.repository.adapter";
-import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
-import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
+// adapter/out/persistence
+import { AdConfigRepositoryAdapter } from "./adapter/out/persistence/ad-config.repository";
+import { AdBenchmarkRepositoryAdapter } from "./adapter/out/persistence/ad-benchmark.repository";
+import { AdListingRepositoryAdapter } from "./adapter/out/persistence/ad-listing.repository";
+import { AdCampaignRepositoryAdapter } from "./adapter/out/persistence/ad-campaign.repository";
+import { AdActionRepositoryAdapter } from "./adapter/out/persistence/ad-action.repository";
+import { AdStrategyContextRepositoryAdapter } from "./adapter/out/persistence/ad-strategy-context.repository";
+import { AdvertisingExtensionStatusRepositoryAdapter } from "./adapter/out/persistence/advertising-extension-status.repository";
+import { KeywordRankRepositoryAdapter } from "./adapter/out/persistence/keyword-rank.repository";
+import { WingTrackedProductRepositoryAdapter } from "./adapter/out/persistence/wing-tracked-product.repository";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
 // adapter/in/operation — 실행 계약 kind(ADR-0025, KID-362)
@@ -87,7 +87,7 @@ import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/cap
 import { ADVERTISING_HUB_READ_PORT } from "./application/port/in/advertising-hub-read.port";
 import { AdvertisingLedgerReadModule } from "./advertising-ledger-read.module";
 import { AD_LEDGER_READ_REPOSITORY_PORT } from "./application/port/out/repository/ad-ledger-read.repository.port";
-import { AdLedgerReadPersistenceAdapter } from "./adapter/out/persistence/ad-ledger-read.persistence.adapter";
+import { AdLedgerReadPersistenceAdapter } from "./adapter/out/persistence/ad-ledger-read.repository";
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -161,7 +161,7 @@ const REPOSITORY_PORT_BINDINGS = [
     WingTrackedProductController,
   ],
   providers: [
-    // adapter/out/repository
+    // adapter/out/persistence
     AdConfigRepositoryAdapter,
     AdBenchmarkRepositoryAdapter,
     AdListingRepositoryAdapter,

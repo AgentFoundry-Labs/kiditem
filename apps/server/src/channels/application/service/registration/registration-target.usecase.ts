@@ -1,7 +1,7 @@
 
 import type { RegistrationTarget, RegistrationTargetResolveInput, RegistrationTargetUpdateInput } from '@kiditem/shared/sales-product';
 import type { RegistrationTargetPort } from '../../port/in/registration-target.port';
-import { REGISTRATION_TARGET_REPOSITORY_PORT, type RegistrationTargetRecord, type RegistrationTargetRepositoryPort } from '../../port/out/persistence/registration-target.repository.port';
+import { REGISTRATION_TARGET_REPOSITORY_PORT, type RegistrationTargetRecord, type RegistrationTargetRepositoryPort } from '../../port/out/repository/registration-target.repository.port';
 import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 
 

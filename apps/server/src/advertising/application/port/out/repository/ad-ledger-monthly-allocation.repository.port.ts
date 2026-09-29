@@ -14,7 +14,7 @@ export type AdListingMonthSpend = Readonly<{
 /**
  * 기여이익 월 배분(KID-372 ①b)이 읽는 리스팅×달 합. 측정일은 application 서비스가 coverage로 정해 넘기고, 원천상품 배분
  * (현재 확정 레시피 무게)은 서비스가 한다 — 이 포트는 원장 합만 읽는다. 구현은
- * `adapter/out/persistence/ad-ledger-monthly-allocation.persistence.adapter.ts`.
+ * `adapter/out/persistence/ad-ledger-monthly-allocation.repository.ts`.
  */
 export interface AdLedgerMonthlyAllocationPort {
   readListingMonthSpends(

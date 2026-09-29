@@ -6,7 +6,7 @@ import {
 import {
   COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT,
   type CoupangShipmentDateSummaryRepositoryPort,
-} from "../../port/out/persistence/shipments/coupang-shipment-date-summary.repository.port";
+} from "../../port/out/repository/shipments/coupang-shipment-date-summary.repository.port";
 import type {
   CoupangShipmentDateSummaryResult,
   CoupangShipmentFileRequest,

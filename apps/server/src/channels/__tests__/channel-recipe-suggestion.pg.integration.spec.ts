@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
-import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
 import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
@@ -12,7 +12,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
-import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
+import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/persistence/channel-recipe-suggestion-context.repository';
 import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';

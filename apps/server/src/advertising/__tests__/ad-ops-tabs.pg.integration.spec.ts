@@ -11,10 +11,10 @@ import {
 } from '../../test-helpers/ad-ledger-seeds';
 import { setupChannelListing, setupMaster, setupProductOption } from '../../test-helpers/finance-seeds';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
-import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
-import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdCampaignRepositoryAdapter } from '../adapter/out/persistence/ad-campaign.repository';
+import { AdActionRepositoryAdapter } from '../adapter/out/persistence/ad-action.repository';
+import { AdListingRepositoryAdapter } from '../adapter/out/persistence/ad-listing.repository';
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.repository';
 import { AdCampaignsService } from '../application/service/ad-campaigns.service';
 import type { AdConfigService } from '../application/service/ad-config.service';
 import { periodBounds } from '../domain/ad-metrics';

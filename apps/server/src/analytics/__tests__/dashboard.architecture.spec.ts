@@ -8,9 +8,9 @@ import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/a
 // every rule is scoped to those subfolders and the two dashboard modules. Mirrors the advertising architecture spec:
 //
 //   - PrismaService is imported only under
-//     `analytics/adapter/out/repository/dashboard/**`.
+//     `analytics/adapter/out/persistence/dashboard/**`.
 //   - No `*persistence.ts` files survive. Migration-waypoint naming is
-//     replaced with `*.repository.adapter.ts`.
+//     replaced with `*.repository.ts`.
 //   - `application/**` is Prisma-free (no `@prisma/client` or `Prisma.*`).
 //   - `application/service/**` does not import `adapter/out/**`. Concrete
 //     adapters reach application code only via Nest token bindings to
@@ -29,7 +29,7 @@ import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/a
 //   - No legacy top-level `dto/`, `util/`, `helpers/`, or
 //     `adapter/out/prisma/` folders remain. Final shape uses
 //     `adapter/in/http/dashboard/dto/`, `domain/dashboard/util/`, and
-//     `adapter/out/repository/dashboard/`.
+//     `adapter/out/persistence/dashboard/`.
 //   - No `services/` folder at the dashboard root — application code lives
 //     under `application/service/dashboard/` only.
 //
@@ -45,7 +45,7 @@ const DASHBOARD_ROOTS = [
   ...[
     'adapter/in/http',
     'adapter/in/agent',
-    'adapter/out/repository',
+    'adapter/out/persistence',
     'application/port/in',
     'application/port/out/repository',
     'application/service',
@@ -70,12 +70,12 @@ function matching(roots: string[], pattern: string): string[] {
 }
 
 describe('analytics/dashboard architecture contract', () => {
-  it('PrismaService is imported only under adapter/out/repository/dashboard/**', () => {
+  it('PrismaService is imported only under adapter/out/persistence/dashboard/**', () => {
     const violators = importers(DASHBOARD_ROOTS, String.raw`[^'"]*prisma/prisma\.service`)
-      .filter((file) => !file.startsWith('adapter/out/repository/dashboard/'));
+      .filter((file) => !file.startsWith('adapter/out/persistence/dashboard/'));
     expect(
       violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+      `PrismaService is leaking outside adapter/out/persistence:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
@@ -173,13 +173,13 @@ describe('analytics/dashboard architecture contract', () => {
     );
     expect(
       violators,
-      `Legacy folders detected — move to hex layout (adapter/in/http/dashboard/dto/, domain/dashboard/util/, adapter/out/repository/dashboard/, application/service/dashboard/):\n${violators.join('\n')}`,
+      `Legacy folders detected — move to hex layout (adapter/in/http/dashboard/dto/, domain/dashboard/util/, adapter/out/persistence/dashboard/, application/service/dashboard/):\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
   it('composes Orders and Inventory through their canonical readers', () => {
     const hits = matching(
-      [at('adapter/out/repository')],
+      [at('adapter/out/persistence')],
       String.raw`(prisma|tx)\.(order|sellpiaInventorySku)|FROM orders|JOIN order_line_items|FROM sellpia_inventory_skus`,
     );
     expect(

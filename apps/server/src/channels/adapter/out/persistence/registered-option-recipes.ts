@@ -1,6 +1,6 @@
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readPreparedRegistrationRecipes } from '../repository/registration-operation-facts';
+import { readPreparedRegistrationRecipes } from './registration-operation-facts';
 import { preparedRegistrationRecipe, type PreparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
 import type { ChannelOptionRecipePort } from '../../../application/port/in/channel-option-recipe.port';
 

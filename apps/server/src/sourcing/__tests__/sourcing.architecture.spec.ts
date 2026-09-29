@@ -5,7 +5,7 @@ import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/a
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
 //
-//   - PrismaService is imported only under `sourcing/adapter/out/repository/**`.
+//   - PrismaService is imported only under `sourcing/adapter/out/persistence/**`.
 //   - `application/**` does not import Prisma client/types. Ports and services
 //     expose local structural records only.
 //   - `application/service/**` does not import concrete adapters/DTOs or other
@@ -67,12 +67,12 @@ describe('sourcing architecture contract', () => {
     expect(existsSync(path.join(SOURCING_ROOT, 'sourcing-operation-worker.module.ts'))).toBe(false);
   });
 
-  it('PrismaService is imported only under sourcing/adapter/out/repository/**', () => {
+  it('PrismaService is imported only under sourcing/adapter/out/persistence/**', () => {
     const violators = importers([SOURCING_ROOT], String.raw`[^'"]*prisma/prisma\.service`)
-      .filter((file) => !file.startsWith('adapter/out/repository/'));
+      .filter((file) => !file.startsWith('adapter/out/persistence/'));
     expect(
       violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+      `PrismaService is leaking outside adapter/out/persistence:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
@@ -137,7 +137,7 @@ describe('sourcing architecture contract', () => {
     );
     expect(
       violators,
-      `Legacy folders detected — use adapter/in/http/dto/, application/service/, and adapter/out/repository/:\n${violators.join('\n')}`,
+      `Legacy folders detected — use adapter/in/http/dto/, application/service/, and adapter/out/persistence/:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 

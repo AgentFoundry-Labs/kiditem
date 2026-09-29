@@ -13,7 +13,7 @@ describe('supply architecture contract', () => {
       'adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter.ts',
     ]);
     const violators = importers([SUPPLY_ROOT], String.raw`[^'"]*prisma/prisma\.service`).filter(
-      (file) => !file.startsWith('adapter/out/repository/') && !allowedTransactions.has(file),
+      (file) => !file.startsWith('adapter/out/persistence/') && !allowedTransactions.has(file),
     );
     expect(
       violators,

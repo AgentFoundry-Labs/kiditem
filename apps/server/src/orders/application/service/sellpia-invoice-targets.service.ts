@@ -4,7 +4,7 @@ import type { OwnerTransaction } from '../../../common/owner-transaction';
 import {
   SELLPIA_ACTION_OUTCOMES_PORT,
   type SellpiaActionOutcomesPort,
-} from '../port/out/persistence/sellpia-action-outcomes.port';
+} from '../port/out/repository/sellpia-action-outcomes.port';
 import { sellpiaInvoiceIssued, sellpiaTransferAccepted } from '../../domain/sellpia-auto-invoice-operation';
 import { sellpiaInvoiceTargets } from '../../domain/sellpia-invoice-targets';
 

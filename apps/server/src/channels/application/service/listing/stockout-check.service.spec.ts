@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { StockoutCheckService } from './stockout-check.service';
 import { ChannelAdapterRegistryAdapter } from '../../../adapter/out/channel/channel-adapter-registry.adapter';
 import { CoupangChannelAdapter } from '../../../adapter/out/channel/coupang/coupang-channel.adapter';
-import type { StockoutSubject } from '../../port/out/persistence/stockout-check.persistence.port';
+import type { StockoutSubject } from '../../port/out/repository/stockout-check.persistence.port';
 
 const option = (id: string, capacity: number | null = 0) => ({ id, externalOptionId: id, status: 'active', registrationType: 'NORMAL', capacity, safetyStock: 0, compositionUnconfirmed: false });
 const subject = (patch: Partial<StockoutSubject> = {}): StockoutSubject => ({ listingId: 'listing', channelAccountId: 'account', externalListingId: 'external', channel: 'coupang', status: 'active', salesProduct: null, activeExecutions: [], options: [option('a')], ...patch });

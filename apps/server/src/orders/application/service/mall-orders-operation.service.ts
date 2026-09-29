@@ -16,7 +16,7 @@ import {
 import {
   ORDER_MALL_ACCOUNT_PORT,
   type OrderMallAccountPort,
-} from '../port/out/persistence/order-mall-account.port';
+} from '../port/out/repository/order-mall-account.port';
 import {
   icecreamContinuation,
   mallOrdersCapture,

@@ -1,7 +1,7 @@
 import { ChannelIntegrityAdapter } from '../../../adapter/out/integrity/channel-integrity.adapter';
 import { describe, expect, it } from 'vitest';
 import { SalesProductImageService } from './sales-product-image.service';
-import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
+import type { SalesProductRepositoryPort } from '../../port/out/repository/sales-product.repository.port';
 import type { SalesProductImageMirrorPort } from '../../port/out/storage/sales-product-image-mirror.port';
 
 const channelIntegrity = new ChannelIntegrityAdapter();

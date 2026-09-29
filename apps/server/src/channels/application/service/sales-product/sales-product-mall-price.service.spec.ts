@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
+import type { SalesProductRepositoryPort } from '../../port/out/repository/sales-product.repository.port';
 import { SalesProductMallPriceService } from './sales-product-mall-price.service';
 
 function repository(apply = vi.fn().mockResolvedValue(1)) {

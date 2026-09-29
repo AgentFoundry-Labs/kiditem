@@ -36,7 +36,7 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'orders', file: 'orders/application/service/return-transfers/return-transfers.service.ts', specifier: '../../../adapter/in/web/return-transfers/dto', removeWith: 'KID-335' },
   { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/in/web/dto/list-reviews.dto', removeWith: 'KID-335' },
   { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/in/web/dto/list-review-items.dto', removeWith: 'KID-335' },
-  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter', removeWith: 'KID-335' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/product-transactional-read.repository', removeWith: 'KID-335' },
   { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-335' },
   // Finance services read settlement and Orders ledger helpers until KID-334.
   { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/out/persistence/read/settlement/settlement-facts', removeWith: 'KID-334' },
@@ -54,7 +54,7 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'advertising', file: 'advertising/application/service/ad-strategy.service.ts', specifier: '../../adapter/in/http/dto/register-campaign.dto', removeWith: 'KID-335' },
   { owner: 'advertising', file: 'advertising/application/service/keyword-rank-ingest.handler.ts', specifier: '../../adapter/in/http/dto', removeWith: 'KID-335' },
   // Products outgoing port takes the ABC publication read type until KID-334.
-  { owner: 'products', file: 'products/application/port/out/persistence/master-product-abc.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-334' },
+  { owner: 'products', file: 'products/application/port/out/repository/master-product-abc.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-334' },
   // Products categories service takes incoming DTOs until KID-335.
   { owner: 'products', file: 'products/application/service/category/categories.service.ts', specifier: '../../../adapter/in/web/category/dto', removeWith: 'KID-335' },
   // Analytics statistics and supplier-stats services read the Orders ledger helper until KID-334.

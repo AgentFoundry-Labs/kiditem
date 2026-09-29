@@ -28,15 +28,15 @@ import { seedWingTrafficOperation } from '../../test-helpers/__tests__/wing-traf
 import { readListingTrafficWindowFacts } from '../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../../common/operation/application/service/operation.service';
 import { WingItemwinnerOperationOwner, WingTrafficOperationOwner } from '../adapter/in/operation/wing-daily-operation-owners';
-import { WingItemwinnerOperationRepository } from '../adapter/out/repository/wing-itemwinner-operation.repository';
-import { WingTrafficOperationRepository } from '../adapter/out/repository/wing-traffic-operation.repository';
-import { WingTrafficReadRepository } from '../adapter/out/repository/wing-traffic-read.repository';
+import { WingItemwinnerOperationRepository } from '../adapter/out/persistence/wing-itemwinner-operation.repository';
+import { WingTrafficOperationRepository } from '../adapter/out/persistence/wing-traffic-operation.repository';
+import { WingTrafficReadRepository } from '../adapter/out/persistence/wing-traffic-read.repository';
 
 // 확장 수집기(advertising.wing_traffic)가 밟는 길을 서버에서 그대로: begin → traffic_rows(옵션-일) → traffic_days(날 표식)
 // → traffic_period(확정 창) → finish. 원장 쓰기는 finish 트랜잭션 안에서만(ADR-0025, KID-362).

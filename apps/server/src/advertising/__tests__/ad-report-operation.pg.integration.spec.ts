@@ -34,7 +34,7 @@ import {
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwner } from '../../common/operation/application/port/out/owner/operation-owner.decorator';
@@ -42,7 +42,7 @@ import type { OperationOwnerPort } from '../../common/operation/application/port
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../../common/operation/application/service/operation.service';
 import { AdReportOperationOwner } from '../adapter/in/operation/ad-report-operation-owner';
-import { AdReportOperationRepository } from '../adapter/out/repository/ad-report-operation.repository';
+import { AdReportOperationRepository } from '../adapter/out/persistence/ad-report-operation.repository';
 
 // 확장 수집기(advertising.ad_report)가 밟는 길을 서버에서 그대로: begin → 청크 6종 → finish. 원장 5표 쓰기는
 // finish 트랜잭션 안에서만(ADR-0025, KID-371).

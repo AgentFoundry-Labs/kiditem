@@ -13,7 +13,7 @@ import { SOURCING_OPERATION_KINDS as KINDS } from '@kiditem/shared/sourcing-oper
 import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
@@ -28,11 +28,11 @@ import {
 } from '../../test-helpers/real-prisma';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { SOURCING_EXTENSION_OPERATION_OWNERS } from '../adapter/in/operation/sourcing-extension-operation-owners';
-import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
-import { SourcingKeywordSuggestionRepositoryAdapter } from '../adapter/out/repository/sourcing-keyword-suggestion.repository.adapter';
-import { SourcingOperationLedgerRepositoryAdapter } from '../adapter/out/repository/sourcing-operation-ledger.repository.adapter';
-import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
-import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
+import { LiveCommerceRepositoryAdapter } from '../adapter/out/persistence/live-commerce.repository';
+import { SourcingKeywordSuggestionRepositoryAdapter } from '../adapter/out/persistence/sourcing-keyword-suggestion.repository';
+import { SourcingOperationLedgerRepositoryAdapter } from '../adapter/out/persistence/sourcing-operation-ledger.repository';
+import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/persistence/sourcing-recommendation-source.repository';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/persistence/trend-collection.repository';
 import { SOURCING_EXTENSION_OPERATION_PORT } from '../application/port/in/sourcing-extension-operation.port';
 import { SourcingExtensionOperationService } from '../application/service/sourcing-extension-operation.service';
 import { TrendCollectService } from '../application/service/trend-collect.service';

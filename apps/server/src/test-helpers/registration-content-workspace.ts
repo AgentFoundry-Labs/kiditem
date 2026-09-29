@@ -1,8 +1,8 @@
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { RegistrationContentWorkspaceService } from '../content/application/service/registration-content-workspace.service';
-import { RegistrationContentWorkspaceRepositoryAdapter } from '../content/adapter/out/repository/registration-content-workspace.repository.adapter';
-import { DetailPageRepositoryAdapter } from '../content/adapter/out/repository/detail-page.repository.adapter';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../content/adapter/out/persistence/registration-content-workspace.repository';
+import { DetailPageRepositoryAdapter } from '../content/adapter/out/persistence/detail-page.repository';
 import { RegistrableDetailPageAdapter } from '../channels/adapter/out/content/registrable-detail-page.adapter';
 import type { RegistrationContentWorkspacePort } from '../content/application/port/in/workspace/registration-content-workspace.port';
 import type { ChannelRegistrableDetailPagePort } from '../channels/application/port/out/content/registrable-detail-page.port';

@@ -1,6 +1,6 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ChannelCatalogIdentityPort } from '../../port/in/collection/catalog-identity.port';
-import type { ChannelCatalogIdentityPersistencePort } from '../../port/out/persistence/catalog-identity.persistence.port';
+import type { ChannelCatalogIdentityPersistencePort } from '../../port/out/repository/catalog-identity.persistence.port';
 import { ListingException } from '../../exception/listing.exception';
 export class CatalogIdentityService implements ChannelCatalogIdentityPort {
   constructor(private readonly persistence: ChannelCatalogIdentityPersistencePort) {}

@@ -29,7 +29,7 @@ import {
 import {
   SELLPIA_ACTION_OUTCOMES_PORT,
   type SellpiaActionOutcomesPort,
-} from '../port/out/persistence/sellpia-action-outcomes.port';
+} from '../port/out/repository/sellpia-action-outcomes.port';
 import { MallOrdersOperationService } from './mall-orders-operation.service';
 
 /** 원천 실행에서 다시 만든 셀피아 업로드 파일. */

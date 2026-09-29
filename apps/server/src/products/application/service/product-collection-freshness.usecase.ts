@@ -7,7 +7,7 @@ import {
   type ProductCollectionFreshnessRepositoryPort,
   type ProductCollectionFreshnessRepositoryTransaction,
   type ProductSourceStateExpectation,
-} from '../port/out/persistence/product-source-freshness.repository.port';
+} from '../port/out/repository/product-source-freshness.repository.port';
 import {
   createInitialCollectionState,
   isSourceBindingConfirmed,

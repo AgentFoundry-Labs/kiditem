@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { TrafficService } from '../../application/service/traffic/traffic.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { WingTrafficReadRepository } from '../../../advertising/adapter/out/repository/wing-traffic-read.repository';
+import { WingTrafficReadRepository } from '../../../advertising/adapter/out/persistence/wing-traffic-read.repository';
 import { wingTrafficOperations } from '../../../test-helpers/wing-traffic-operations';
 import {
   AD_TRAFFIC_READ_PORT,

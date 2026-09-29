@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { AdvertisingKeywordRankReadAdapter } from './adapter/out/repository/keyword-rank-read.adapter';
+import { AdvertisingKeywordRankReadAdapter } from './adapter/out/persistence/keyword-rank-read.adapter';
 import { ADVERTISING_KEYWORD_RANK_READ_PORT } from './application/port/in/capability/keyword-rank-read.port';
 
 /**

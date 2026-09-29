@@ -8,7 +8,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { ProductSourcePublicationRepositoryAdapter } from '../adapter/out/persistence/product-source-publication.repository.adapter';
+import { ProductSourcePublicationRepositoryAdapter } from '../adapter/out/persistence/product-source-publication.repository';
 import { lockProductSource } from '../adapter/out/persistence/transaction/product-source-lock';
 import type { ParsedProductSourceRow } from '../application/port/out/source/sellpia-payload-decoder.port';
 

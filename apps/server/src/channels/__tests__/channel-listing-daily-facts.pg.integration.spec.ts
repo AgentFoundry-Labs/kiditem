@@ -2,7 +2,7 @@ import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports'
 import { randomUUID } from 'node:crypto';
 import { seedWingTrafficOperation } from '../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/adapter/out/persistence/dashboard/wing-traffic-aggregation.repository';
 import {
   OTHER_ORGANIZATION_ID,
   TEST_ORGANIZATION_ID,

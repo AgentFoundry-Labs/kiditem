@@ -1,5 +1,5 @@
 import type { StockoutCheckPort, StockoutCheckResult } from '../../port/in/listing/stockout-check.port';
-import type { StockoutCheckPersistencePort, StockoutSubject } from '../../port/out/persistence/stockout-check.persistence.port';
+import type { StockoutCheckPersistencePort, StockoutSubject } from '../../port/out/repository/stockout-check.persistence.port';
 import type { ChannelAdapter, ChannelAdapterRegistryPort } from '../../port/out/channel/channel-adapter.port';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { decideStockout } from '../../../domain/listing/stockout-policy';

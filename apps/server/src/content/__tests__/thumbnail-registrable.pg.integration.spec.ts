@@ -9,7 +9,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/persistence/registrable-thumbnail.repository';
 import { RegistrableThumbnailService } from '../application/service/registrable-thumbnail.service';
 import { fakeStorageImageFetch } from './helpers/fake-storage-image-fetch';
 

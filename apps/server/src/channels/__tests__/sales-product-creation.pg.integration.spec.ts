@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
-import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
+import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { realDraftDeletionPorts, untouchedRegistrationStates } from '../../test-helpers/sales-product-draft-port';

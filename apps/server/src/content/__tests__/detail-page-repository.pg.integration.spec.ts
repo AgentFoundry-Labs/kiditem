@@ -8,7 +8,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type {

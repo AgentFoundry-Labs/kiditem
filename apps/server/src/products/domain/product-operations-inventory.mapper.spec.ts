@@ -3,7 +3,7 @@ import { buildPeriodBasis } from '@kiditem/shared/dashboard';
 import { mapProductOperationsListItem } from './product-operations-inventory.mapper';
 import type {
   ProductOperationsRepositoryListItem,
-} from '../application/port/out/persistence/product-operations.repository.port';
+} from '../application/port/out/repository/product-operations.repository.port';
 
 const SKU_ID = '11111111-1111-4111-8111-111111111111';
 

@@ -5,13 +5,13 @@ import { sourcingServerOperations } from '../../test-helpers/sourcing-server-ope
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { Sourcing1688SearchController } from '../adapter/in/http/sourcing-1688-search.controller';
 import { Sourcing1688SearchResultController } from '../adapter/in/http/sourcing-1688-search-result.controller';
-import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
+import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/persistence/sourcing-1688-search-result.repository';
 import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
 import { Sourcing1688ImageSearchService } from '../application/service/sourcing-1688-image-search.service';
 import { Sourcing1688SearchResultService } from '../application/service/sourcing-1688-search-result.service';
 import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
 import { unusedSalesProductDraftPort as noDrafts } from '../../test-helpers/sales-product-draft-port';
-import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
+import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/persistence/sourcing-recommendation-source.repository';
 import { Sourcing1688KeywordAttentionError, Sourcing1688KeywordProviderError,
   type Search1688KeywordItem } from '../application/port/out/provider/1688-keyword-search.port';
 import type { PrismaClient } from '@prisma/client';

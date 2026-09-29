@@ -14,7 +14,7 @@
 1 apps/server/src/advertising/__tests__/competitor-catalog-exclusion.pg.integration.spec.ts
 1 apps/server/src/advertising/__tests__/keyword-rank-ingest.handler.spec.ts
 1 apps/server/src/advertising/__tests__/seller-identity-source.pg.integration.spec.ts
-1 apps/server/src/advertising/adapter/out/repository/__tests__/ad-action.repository.adapter.spec.ts
+1 apps/server/src/advertising/adapter/out/persistence/__tests__/ad-action.repository.spec.ts
 4 apps/server/src/advertising/application/service/__tests__/ad-campaigns.spec.ts
 5 apps/server/src/advertising/application/service/__tests__/wing-tracked-product.service.spec.ts
 1 apps/server/src/advertising/domain/__tests__/ad-action-rules.spec.ts
@@ -61,8 +61,8 @@
 1 apps/server/src/channels/__tests__/channel-product-matching.pg.integration.spec.ts
 1 apps/server/src/channels/__tests__/channel-recipe-suggestion.pg.integration.spec.ts
 1 apps/server/src/channels/__tests__/rocket-po-source.pg.integration.spec.ts
-1 apps/server/src/channels/adapter/out/repository/channel-product-matching.repository.adapter.spec.ts
-1 apps/server/src/channels/adapter/out/repository/coupang-wing-snapshot.spec.ts
+1 apps/server/src/channels/adapter/out/persistence/channel-product-matching.repository.spec.ts
+1 apps/server/src/channels/adapter/out/persistence/coupang-wing-snapshot.spec.ts
 2 apps/server/src/channels/application/service/__tests__/channel-catalog-import.service.spec.ts
 2 apps/server/src/channels/application/service/__tests__/channel-recipe-suggestion.service.spec.ts
 10 apps/server/src/channels/application/service/coupang-wing-workbook.parser.spec.ts
@@ -70,8 +70,8 @@
 1 apps/server/src/finance/adapter/in/web/report-export/finance-report-export.controller.spec.ts
 2 apps/server/src/orders/__tests__/coupang-shipment-summary-source.pg.integration.spec.ts
 1 apps/server/src/inventory/adapter/in/web/sellpia-inventory-freshness.controller.spec.ts
-4 apps/server/src/inventory/adapter/out/persistence/sellpia-import-run.repository.adapter.spec.ts
-8 apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.spec.ts
+4 apps/server/src/inventory/adapter/out/persistence/sellpia-import-run.repository.spec.ts
+8 apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.spec.ts
 4 apps/server/src/inventory/application/usecase/sellpia-inventory-import.service.spec.ts
 3 apps/server/src/orders/domain/coupang-direct-order.mapper.spec.ts
 1 apps/server/src/products/application/service/master-product-abc.service.spec.ts
@@ -98,8 +98,8 @@
 9 apps/server/src/sourcing/adapter/out/naver/naver-datalab-popular-keyword.adapter.spec.ts
 9 apps/server/src/sourcing/adapter/out/naver/naver-datalab-trend.adapter.spec.ts
 8 apps/server/src/sourcing/adapter/out/naver/naver-search-ad-keyword.adapter.spec.ts
-3 apps/server/src/sourcing/adapter/out/repository/__tests__/sourcing-recommendation-source.repository.adapter.spec.ts
-2 apps/server/src/sourcing/adapter/out/repository/__tests__/sourcing-validation.repository.adapter.spec.ts
+3 apps/server/src/sourcing/adapter/out/persistence/__tests__/sourcing-recommendation-source.repository.spec.ts
+2 apps/server/src/sourcing/adapter/out/persistence/__tests__/sourcing-validation.repository.spec.ts
 1 apps/server/src/sourcing/application/service/__tests__/live-commerce.service.spec.ts
 1 apps/server/src/sourcing/application/service/__tests__/sourcing-1688-source-attempt.mapper.spec.ts
 2 apps/server/src/sourcing/application/service/__tests__/sourcing-agent-rag.service.spec.ts

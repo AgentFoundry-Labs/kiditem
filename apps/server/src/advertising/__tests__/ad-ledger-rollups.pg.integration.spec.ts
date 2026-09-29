@@ -9,7 +9,7 @@ import {
 } from '../../test-helpers/ad-ledger-seeds';
 import { setupChannelListing, setupMaster, setupProductOption } from '../../test-helpers/finance-seeds';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.repository';
 
 /**
  * 광고 운영 화면·규칙이 읽는 새 원장 rollup(KID-372 ①a). 잠그는 것: 캠페인·상품·키워드 합은 측정한 날의 행만 더하고,

@@ -1,6 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { createPendingJob, ensureSalesProductWorkspace } from '../adapter/out/repository/thumbnail-generation-ledger.persistence';
+import { createPendingJob, ensureSalesProductWorkspace } from '../adapter/out/persistence/thumbnail-generation-ledger.persistence';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 
 /**

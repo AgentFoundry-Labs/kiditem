@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SourcingSourcePublicationRepositoryAdapter } from './adapter/out/repository/sourcing-source-publication.repository.adapter';
+import { SourcingSourcePublicationRepositoryAdapter } from './adapter/out/persistence/sourcing-source-publication.repository';
 import { SOURCING_SOURCE_PUBLICATION_PORT } from './application/port/in/sourcing-source-publication.port';
 
 /**

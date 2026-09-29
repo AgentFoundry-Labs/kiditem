@@ -2,7 +2,7 @@ import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-dr
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
-import { SourcingEvidenceLedgerRepositoryAdapter } from '../adapter/out/repository/sourcing-evidence-ledger.repository.adapter';
+import { SourcingEvidenceLedgerRepositoryAdapter } from '../adapter/out/persistence/sourcing-evidence-ledger.repository';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 

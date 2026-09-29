@@ -1,16 +1,16 @@
 import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
-import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
-import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
+import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/persistence/catalog-display-media.repository';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/persistence/thumbnail-generation-ledger.repository';
 import { randomUUID } from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG, OTHER_ORGANIZATION_ID as OTHER } from '../../test-helpers/real-prisma';
-import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
-import { ListingContentQueryRepositoryAdapter } from '../adapter/out/repository/listing-content-query.repository.adapter';
-import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/persistence/content-workspace-lifecycle.repository';
+import { ListingContentQueryRepositoryAdapter } from '../adapter/out/persistence/listing-content-query.repository';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.repository';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
 
 /**

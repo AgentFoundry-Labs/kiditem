@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { MallAccountRecord, MallAccountWrite } from '../../port/out/persistence/channel-account.persistence.port';
+import type { MallAccountRecord, MallAccountWrite } from '../../port/out/repository/channel-account.persistence.port';
 import { ChannelAccountService } from './channel-account.service';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

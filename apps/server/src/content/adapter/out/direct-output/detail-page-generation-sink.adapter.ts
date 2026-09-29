@@ -8,7 +8,7 @@ import {
   type DetailPageRepositoryPort,
 } from '../../../application/port/out/repository/detail-page.repository.port';
 import type { DetailPageGenerateDirectOutput } from '../../../domain/direct-generation';
-import { recordDetailPageAssets } from '../repository/detail-page-assets';
+import { recordDetailPageAssets } from '../persistence/detail-page-assets';
 
 const RUNNABLE = new Set(['pending', 'processing']);
 

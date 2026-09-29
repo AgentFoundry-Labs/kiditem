@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PrismaCapabilityInvocationRepository } from '../adapter/out/repository/prisma-capability-invocation.repository';
+import { PrismaCapabilityInvocationRepository } from '../adapter/out/persistence/prisma-capability-invocation.repository';
 import { CapabilityApprovalService } from '../application/service/capability-approval.service';
 import { CapabilityMutationDispatcher } from '../application/service/capability-mutation-dispatcher.service';
 import {

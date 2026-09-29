@@ -23,13 +23,13 @@ import {
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT, type OperationPort } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../../common/operation/application/service/operation.service';
 import { AdActionOperationOwner } from '../adapter/in/operation/ad-action-operation-owner';
-import { AdActionOperationRepository } from '../adapter/out/repository/ad-action-operation.repository';
+import { AdActionOperationRepository } from '../adapter/out/persistence/ad-action-operation.repository';
 
 const checksum = (payload: unknown[]) => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 

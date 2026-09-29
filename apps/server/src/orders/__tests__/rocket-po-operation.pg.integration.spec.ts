@@ -12,43 +12,43 @@ import {
   COUPANG_ROCKET_PO_SCAN_CHUNK_KIND,
   type CoupangRocketPoScan,
 } from '@kiditem/shared/orders-operations';
-import { SellpiaTransferOutcomePersistenceAdapter } from '../adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
+import { SellpiaTransferOutcomePersistenceAdapter } from '../adapter/out/persistence/sellpia-transfer-outcome.repository';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG, TEST_USER_ID as USER } from '../../test-helpers/real-prisma';
 import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
 import { FactConflictError } from '../../common/errors/fact-errors';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../../common/operation/application/service/operation.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
 import { CatalogIdentityService } from '../../channels/application/service/collection/catalog-identity.service';
-import { CatalogIdentityPersistenceAdapter } from '../../channels/adapter/out/persistence/catalog-identity.persistence.adapter';
+import { CatalogIdentityPersistenceAdapter } from '../../channels/adapter/out/persistence/catalog-identity.repository';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.repository';
 import { ChannelSkuAvailabilityService } from '../../channels/application/service/listing/channel-sku-availability.service';
-import { ChannelProductMatchingRepositoryAdapter } from '../../channels/adapter/out/repository/channel-product-matching.repository.adapter';
-import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelProductMatchingRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-product-matching.repository';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository';
 import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
 import { ChannelsProductMappingGenerationAdapter } from '../../channels/adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
-import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository';
 import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
-import { ProductCollectionFreshnessRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-freshness.repository.adapter';
+import { ProductCollectionFreshnessRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-freshness.repository';
 import { ProductCollectionFreshnessUseCase } from '../../products/application/service/product-collection-freshness.usecase';
-import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { RocketWorkbookExportService } from '../../supply/application/service/rocket-purchase-confirmation.service';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
-import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository';
 import { CoupangRocketPoOperationOwner } from '../adapter/in/operation/coupang-rocket-po-operation-owner';
-import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/persistence/rocket-po-catalog.repository';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
 
 // 확장 수집기(orders.coupang_rocket_po)가 밟는 길을 서버에서 그대로: begin → po_rows(발주서 하나 = 항목 하나) →

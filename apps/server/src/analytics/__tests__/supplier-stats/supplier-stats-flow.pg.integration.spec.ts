@@ -12,7 +12,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
 import { seedCompletedOrderCoverageRun } from '../../../test-helpers/finance-seeds';
-import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository';
 import { PRODUCT_SOURCE_READ_PORT } from '../../../products/application/port/in/product-source-read.port';
 import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
 

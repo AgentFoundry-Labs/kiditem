@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { SalesProductModule } from '../sales-product.module';
-import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/repository/sales-product-workspace-archive.adapter';
+import { SalesProductWorkspaceArchiveAdapter } from '../adapter/out/persistence/sales-product-workspace-archive.adapter';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from '../application/port/out/ai/sales-product-workspace-archive.port';
 

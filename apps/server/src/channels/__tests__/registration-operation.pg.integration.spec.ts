@@ -30,7 +30,7 @@ import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '..
 import { realDraftDeletionPorts, untouchedRegistrationStates } from '../../test-helpers/sales-product-draft-port';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
@@ -42,12 +42,12 @@ import { ThumbnailExecutionController } from '../adapter/in/web/thumbnail-execut
 import { CHANNELS_THUMBNAIL_EXECUTION_PORT } from '../application/port/in/thumbnail-execution.port';
 import { REGISTRATION_OPERATION_PORT } from '../application/port/in/registration-operation.port';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
-import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
-import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
-import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.persistence.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository';
+import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository';
+import { ThumbnailExecutionPersistenceAdapter } from '../adapter/out/persistence/thumbnail-execution.repository';
 import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
-import { RegistrationOperationRepositoryAdapter } from '../adapter/out/repository/registration-operation.repository.adapter';
+import { RegistrationOperationRepositoryAdapter } from '../adapter/out/persistence/registration-operation.repository';
 import type { ChannelRegistrableThumbnailPort } from '../application/port/out/content/registrable-thumbnail.port';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { MallAvailabilityReadService } from '../application/service/registration/mall-availability-read.service';
@@ -55,8 +55,8 @@ import { RegistrationOperationService } from '../application/service/registratio
 import { RegistrationTargetUseCase } from '../application/service/registration/registration-target.usecase';
 import { ThumbnailExecutionService } from '../application/service/registration/thumbnail-execution.service';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
 import { channelAdapters } from './channel-adapters';
 import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { productTransactionalRead } from './product-transactional-read.fake';

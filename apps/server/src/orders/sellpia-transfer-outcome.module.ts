@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SellpiaTransferOutcomePersistenceAdapter } from './adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
+import { SellpiaTransferOutcomePersistenceAdapter } from './adapter/out/persistence/sellpia-transfer-outcome.repository';
 import { SELLPIA_TRANSFER_OUTCOME_PORT } from './application/port/in/capability/sellpia-transfer-outcome.port';
 
 /**

@@ -8,7 +8,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { SourceRecordRepositoryAdapter } from '../adapter/out/repository/source-record.repository.adapter';
+import { SourceRecordRepositoryAdapter } from '../adapter/out/persistence/source-record.repository';
 import { SourceRecordDuplicateError } from '../domain/source-record-admission';
 import { SourcingAgentCommandService } from '../application/service/sourcing-agent-command.service';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { SalesProductMallSheetService } from './sales-product-mall-sheet.service';
-import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
+import type { SalesProductRepositoryPort } from '../../port/out/repository/sales-product.repository.port';
 import type { MallSheetSourceProduct } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
 
 const ORG = '10000000-0000-4000-8000-000000000001';

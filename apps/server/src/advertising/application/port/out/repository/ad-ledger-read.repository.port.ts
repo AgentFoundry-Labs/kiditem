@@ -19,7 +19,7 @@ export type AdLedgerReadScope = Readonly<{
 
 /**
  * 새 광고 원장(상품 사실 표·정산 표)과 `advertising.ad_report` 실행 창을 읽는 출력 포트(KID-372).
- * 구현은 `adapter/out/persistence/ad-ledger-read.persistence.adapter.ts`. KID-372 ①a가 캠페인·상품·키워드 rollup과 규칙 입력을,
+ * 구현은 `adapter/out/persistence/ad-ledger-read.repository.ts`. KID-372 ①a가 캠페인·상품·키워드 rollup과 규칙 입력을,
  * ①b는 월 배분을 이 포트에 더한다(같은 어댑터 파일에 메서드 추가, 새 `read/` 폴더는 만들지 않는다 — ADR-0021).
  */
 /** 한 캠페인으로 좁힌다(광고 운영 화면의 캠페인 상세). */

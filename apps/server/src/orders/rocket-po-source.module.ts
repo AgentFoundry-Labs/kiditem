@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { RocketPoCatalogService } from './application/service/rocket-po-catalog.service';
-import { RocketPoCatalogRepositoryAdapter } from './adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { RocketPoCatalogRepositoryAdapter } from './adapter/out/persistence/rocket-po-catalog.repository';
 import { CoupangRocketPoOperationOwner } from './adapter/in/operation/coupang-rocket-po-operation-owner';
 import { ROCKET_PO_CATALOG_PORT } from './application/port/in/rocket-po-catalog.port';
 import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/rocket-po-catalog.repository.port';

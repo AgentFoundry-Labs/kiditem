@@ -10,7 +10,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
 import { DetailPageQueryService } from '../application/service/detail-page-query.service';
 import type { ImageStoragePort } from '../application/port/out/storage/image-storage.port';
 

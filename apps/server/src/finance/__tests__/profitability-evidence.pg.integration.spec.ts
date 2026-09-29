@@ -12,8 +12,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { MasterProductProfitabilityReadService } from '../application/service/master-product-profitability-read.service';
 import { ProductDataStatusUseCase } from '../../products/application/service/product-data-status.usecase';
-import { ProductOperationsDataStatusRepositoryAdapter } from '../../products/adapter/out/persistence/product-operations-data-status.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../../products/adapter/out/persistence/product-operations-data-status.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 

@@ -8,7 +8,7 @@ import request from 'supertest';
 import { OPERATION_TOKEN_HEADER, OperationBeginResponseSchema, type OperationBeginResponse } from '@kiditem/shared/operation';
 import { GlobalExceptionFilter } from '../common/filters/global-exception.filter';
 import { OperationsController } from '../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';

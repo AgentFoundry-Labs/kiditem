@@ -9,7 +9,7 @@ import {
   TRANSFERS_REPOSITORY_PORT,
   type StockTransferRow,
   type TransfersRepositoryPort,
-} from '../port/out/persistence/transfers.repository.port';
+} from '../port/out/repository/transfers.repository.port';
 export { TRANSFERS_PORT } from '../port/in/warehouse/transfers.port';
 
 @Injectable()

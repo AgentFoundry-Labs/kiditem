@@ -6,7 +6,7 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { AiAgentRuntimeModule, AiModule, AiProductGenerationRuntimeModule } from '../ai.module';
-import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/persistence/ai-catalog-media-publication.repository';
 import { AiDirectJobOperationsAdapter } from '../adapter/out/runtime/ai-direct-job-operations.adapter';
 import { AI_DIRECT_JOB_OPERATION_OWNERS } from '../adapter/in/operation/ai-direct-job-operation-owners';
 import { OperationModule } from '../../common/operation/operation.module';
@@ -18,16 +18,16 @@ import { ThumbnailImageGenerationAdapter } from '../adapter/out/gemini/thumbnail
 import { ThumbnailReferenceImagesService } from '../adapter/out/gemini/thumbnail-reference-images.adapter';
 import { SharpGeneratedImageValidatorAdapter } from '../adapter/out/image-validation/sharp-generated-image-validator.adapter';
 import { DetailPageTemplateStylesAdapter } from '../adapter/out/runtime/detail-page-template-styles.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
-import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
-import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
-import { DetailPageImageRepositoryAdapter } from '../adapter/out/repository/detail-page-image.repository.adapter';
-import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/repository/product-generation-context.repository.adapter';
-import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sales-product-workspace-archive.repository.adapter';
-import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
-import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/persistence/content-asset-library.repository';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/persistence/content-workspace-lifecycle.repository';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/persistence/registration-content-workspace.repository';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
+import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/persistence/detail-page-generation.repository';
+import { DetailPageImageRepositoryAdapter } from '../adapter/out/persistence/detail-page-image.repository';
+import { ProductGenerationContextRepositoryAdapter } from '../adapter/out/persistence/product-generation-context.repository';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/persistence/sales-product-workspace-archive.repository';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/persistence/thumbnail-generation-ledger.repository';
+import { RegistrableThumbnailRepositoryAdapter } from '../adapter/out/persistence/registrable-thumbnail.repository';
 import { RegistrableThumbnailService } from '../application/service/registrable-thumbnail.service';
 import { AiGenerationCancellationService } from '../application/service/ai-generation-cancellation.service';
 import { ContentAssetService } from '../application/service/content-asset.service';
@@ -74,7 +74,7 @@ import { AiDirectJobWakeRegistrationService } from '../application/service/ai-di
 import { DetailPageClientRenderService } from '../application/service/detail-page-client-render.service';
 import { DetailPageResultRefinerService } from '../application/service/detail-page-result-refiner.service';
 import { CatalogDisplayMediaService } from '../application/service/catalog-display-media.service';
-import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/persistence/catalog-display-media.repository';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
 } from '../application/port/in/workspace/catalog-display-media.port';

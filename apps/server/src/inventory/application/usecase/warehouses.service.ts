@@ -10,7 +10,7 @@ import {
   WAREHOUSES_REPOSITORY_PORT,
   type WarehouseRow,
   type WarehousesRepositoryPort,
-} from '../port/out/persistence/warehouses.repository.port';
+} from '../port/out/repository/warehouses.repository.port';
 
 export { WAREHOUSES_PORT } from '../port/in/warehouse/warehouses.port';
 

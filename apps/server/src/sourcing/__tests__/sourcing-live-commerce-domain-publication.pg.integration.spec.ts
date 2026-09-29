@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { LiveCommerceController } from '../adapter/in/http/live-commerce.controller';
-import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
+import { LiveCommerceRepositoryAdapter } from '../adapter/out/persistence/live-commerce.repository';
 import { LiveCommerceService } from '../application/service/live-commerce.service';
 import type { TaobaoLiveCollection, TaobaoLivePort } from '../application/port/out/provider/taobao-live.port';
 

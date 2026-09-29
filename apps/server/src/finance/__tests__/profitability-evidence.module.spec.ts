@@ -1,4 +1,4 @@
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { describe, expect, it, vi } from 'vitest';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { SellpiaProductSalesModule } from '../../analytics/sellpia-product-sales/sellpia-product-sales.module';

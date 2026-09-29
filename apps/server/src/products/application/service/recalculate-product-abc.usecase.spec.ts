@@ -7,7 +7,7 @@ import { RecalculateProductAbcUseCase } from './recalculate-product-abc.usecase'
 import type {
   ProductAbcPublicationInput,
   ProductAbcRepositoryPort,
-} from '../port/out/persistence/master-product-abc.repository.port';
+} from '../port/out/repository/master-product-abc.repository.port';
 import type {
   ProfitabilityEvidence,
   ProfitabilityEvidenceSnapshot,

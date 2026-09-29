@@ -11,10 +11,10 @@ import {
   OTHER_USER_ID as OTHER_USER,
 } from '../../test-helpers/real-prisma';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
-import { ListingContentQueryRepositoryAdapter } from '../adapter/out/repository/listing-content-query.repository.adapter';
-import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.repository';
+import { ListingContentQueryRepositoryAdapter } from '../adapter/out/persistence/listing-content-query.repository';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/persistence/ai-catalog-media-publication.repository';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/persistence/content-asset-library.repository';
 import type {
   CatalogMediaPublicationScope,
   ChannelCatalogMedia,

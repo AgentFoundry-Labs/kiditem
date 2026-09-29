@@ -2,11 +2,11 @@ import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '..
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
-import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
+import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { MallPriceAdoptionWrite } from '../domain/sales-product/sales-product-mall-prices';
-import type { SabangnetImportProductWrite } from '../application/port/out/persistence/sales-product.repository.port';
+import type { SabangnetImportProductWrite } from '../application/port/out/repository/sales-product.repository.port';
 import { SalesProductUseCase } from '../application/service/sales-product/sales-product.usecase';
 import type { RegistrationMallInput, SalesProductListQuery } from '@kiditem/shared/sales-product';
 import {
@@ -27,12 +27,12 @@ import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-docum
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { mirroredImageKey } from '../domain/sales-product/sales-product-images';
 import type { ChannelRegistrableDetailPagePort } from '../application/port/out/content/registrable-detail-page.port';
-import { DetailPageRepositoryAdapter } from '../../content/adapter/out/repository/detail-page.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../../content/adapter/out/persistence/detail-page.repository';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { SalesProductImageMirrorPort } from '../application/port/out/storage/sales-product-image-mirror.port';
 import type { ProductSourceReadPort } from '../../products/application/port/in/product-source-read.port';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 
 describe('sales product repository mall price adoption (PostgreSQL)', () => {

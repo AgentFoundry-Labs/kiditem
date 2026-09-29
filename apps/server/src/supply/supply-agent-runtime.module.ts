@@ -4,7 +4,7 @@ import { ProductSourceModule } from '../products/product-source.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { SupplyCapabilityCompositionAdapter } from './adapter/in/agent/supply-capability-composition.adapter';
-import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
+import { ProcurementRepositoryAdapter } from './adapter/out/persistence/procurement.repository';
 import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';

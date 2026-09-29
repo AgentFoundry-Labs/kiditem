@@ -8,9 +8,9 @@ import {
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { findAutoBatchCandidates } from '../../content/adapter/out/repository/thumbnail-generation-ledger.query';
+import { findAutoBatchCandidates } from '../../content/adapter/out/persistence/thumbnail-generation-ledger.query';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository';
 import { ReviewsService } from '../../orders/application/service/reviews.service';
 import { seedCompletedOrderCoverageRun, seedOrderWithLineItems } from '../../test-helpers/finance-seeds';
 import {

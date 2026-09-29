@@ -7,11 +7,11 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { sourcingExtensionOperations, type SourcingOperationChunk } from '../../test-helpers/sourcing-extension-operations';
-import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
-import { persistBrowserSourceAttemptFacts } from '../adapter/out/repository/sourcing-browser-source-attempt.persistence';
-import { SourcingKeywordSuggestionRepositoryAdapter } from '../adapter/out/repository/sourcing-keyword-suggestion.repository.adapter';
-import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
-import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
+import { LiveCommerceRepositoryAdapter } from '../adapter/out/persistence/live-commerce.repository';
+import { persistBrowserSourceAttemptFacts } from '../adapter/out/persistence/sourcing-browser-source-attempt.persistence';
+import { SourcingKeywordSuggestionRepositoryAdapter } from '../adapter/out/persistence/sourcing-keyword-suggestion.repository';
+import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/persistence/sourcing-recommendation-source.repository';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/persistence/trend-collection.repository';
 
 /**
  * 확장 구동 소싱 kind(KID-360)의 발행이 이력 리더에 어떻게 보이는가. 옛 attempt 스펙이 잠그던 규칙을 실행 계약

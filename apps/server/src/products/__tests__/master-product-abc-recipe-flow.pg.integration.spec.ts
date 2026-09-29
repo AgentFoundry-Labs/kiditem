@@ -1,6 +1,6 @@
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository';
 import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -8,19 +8,19 @@ import {
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
-import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/persistence/catalog-display-media.repository';
 import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';
 import { SellpiaProductSalesService } from '../../analytics/sellpia-product-sales/sellpia-product-sales.service';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
-import { MasterProductContributionRepositoryAdapter } from '../../finance/adapter/out/repository/master-product-contribution.repository.adapter';
+import { MasterProductContributionRepositoryAdapter } from '../../finance/adapter/out/persistence/master-product-contribution.repository';
 import { MasterProductContributionReadService } from '../../finance/application/service/master-product-contribution-read.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
-import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository';
 import { ProductAvailabilityUseCase } from '../application/service/product-availability.usecase';
-import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository';
 import { ProductSourceReadUseCase } from '../application/service/product-source-read.usecase';
 import {
   makeTestPrisma,
@@ -28,11 +28,11 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
-import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository';
 import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
-import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
-import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository';
+import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
 import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
 import { ProductAbcReadUseCase } from '../application/service/product-abc-read.usecase';
 import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
@@ -40,7 +40,7 @@ import { ProductQueryUseCase } from '../application/service/product-query.usecas
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository";
 
 const ACCEPTANCE_NOW = new Date('2026-09-13T03:00:00.000Z');
 const EXPECTED_CUTOFF = '2026-09-12';

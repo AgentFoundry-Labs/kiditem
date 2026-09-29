@@ -13,10 +13,10 @@ import { PRODUCT_SOURCE_READ_PORT } from '../products/application/port/in/produc
 import { REGISTRATION_TARGET_PORT } from './application/port/in/registration-target.port';
 import { ChannelsDocumentsAdapter } from './adapter/out/documents/channel-documents.adapter';
 import { CHANNEL_DOCUMENTS_PORT } from './application/port/out/documents/channel-documents.port';
-import { REGISTRATION_TARGET_REPOSITORY_PORT } from './application/port/out/persistence/registration-target.repository.port';
+import { REGISTRATION_TARGET_REPOSITORY_PORT } from './application/port/out/repository/registration-target.repository.port';
 import { RegistrationTargetUseCase } from './application/service/registration/registration-target.usecase';
 import { RegistrationTargetController } from './adapter/in/web/registration-target.controller';
-import { RegistrationTargetRepositoryAdapter } from './adapter/out/persistence/registration-target.repository.adapter';
+import { RegistrationTargetRepositoryAdapter } from './adapter/out/persistence/registration-target.repository';
 import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
 import { forwardRef, Module } from '@nestjs/common';
 import { ChannelsRegistrationStateModule } from './channels-registration-state.module';
@@ -33,12 +33,12 @@ import { MALL_BULK_SHEET_FILES_PORT } from './application/port/out/storage/mall-
 import { SalesProductImageMirrorAdapter } from './adapter/out/storage/sales-product-image-mirror.adapter';
 import { SALES_PRODUCT_IMAGE_MIRROR_PORT } from './application/port/out/storage/sales-product-image-mirror.port';
 import { SalesProductController } from './adapter/in/web/sales-product.controller';
-import { SalesProductRepositoryAdapter } from './adapter/out/persistence/sales-product.repository.adapter';
-import { SALES_PRODUCT_REPOSITORY_PORT } from './application/port/out/persistence/sales-product.repository.port';
+import { SalesProductRepositoryAdapter } from './adapter/out/persistence/sales-product.repository';
+import { SALES_PRODUCT_REPOSITORY_PORT } from './application/port/out/repository/sales-product.repository.port';
 import { SabangnetProductImportService } from './application/service/collection/sabangnet-product-import.service';
 import { SalesProductUseCase } from './application/service/sales-product/sales-product.usecase';
 import { AiModule } from '../content/ai.module';
-import { SalesProductWorkspaceArchiveAdapter } from './adapter/out/repository/sales-product-workspace-archive.adapter';
+import { SalesProductWorkspaceArchiveAdapter } from './adapter/out/persistence/sales-product-workspace-archive.adapter';
 import { SALES_PRODUCT_WORKSPACE_ARCHIVE_PORT } from './application/port/out/ai/sales-product-workspace-archive.port';
 import { SALES_PRODUCT_THUMBNAIL_SOURCE_PORT } from './application/port/out/ai/sales-product-thumbnail-source.port';
 import { SalesProductThumbnailSourceAdapter } from './adapter/out/ai/sales-product-thumbnail-source.adapter';

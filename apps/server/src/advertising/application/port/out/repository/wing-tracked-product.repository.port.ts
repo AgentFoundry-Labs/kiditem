@@ -2,7 +2,7 @@ import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 // Outgoing port for Coupang Wing 카탈로그 상품 추적 persistence
 // (`CoupangWingTrackedProduct`, `CoupangWingTrackedProductDailySnapshot`).
 // WingTrackedProductService depends on this contract; the Prisma-backed adapter
-// lives in `adapter/out/repository/wing-tracked-product.repository.adapter.ts`.
+// lives in `adapter/out/persistence/wing-tracked-product.repository.ts`.
 export const WING_TRACKED_PRODUCT_REPOSITORY_PORT = Symbol(
   'WingTrackedProductRepositoryPort',
 );

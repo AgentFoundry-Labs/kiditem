@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
-import { OperationRepositoryAdapter } from '../../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../../common/operation/adapter/out/persistence/operation.repository';
 import { OperationOwnerRegistry } from '../../../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../../../common/operation/application/service/operation.service';
 import { AI_DIRECT_JOB_OPERATION_OWNERS } from '../../adapter/in/operation/ai-direct-job-operation-owners';

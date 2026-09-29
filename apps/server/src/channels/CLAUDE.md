@@ -122,7 +122,7 @@ sync, registration, matching, and capacity behavior is executable in
   → `adapter/out`. Application and domain may use NestJS as described in the
   server guide; queries preserve the same owner and IO boundaries.
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 finalize 의 증거 거절은
-  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog)·`channel-account.repository.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
 - Listing-day traffic coverage comes from Advertising's succeeded
   `advertising.wing_traffic` operations, read through Advertising's transaction
   function `advertising/transaction/wing-traffic-coverage` (KID-362); Channels
@@ -178,7 +178,7 @@ sync, registration, matching, and capacity behavior is executable in
 - The Sabangnet listing import is one `channels.sabangnet_mall_listings`
   operation per organization (KID-363) holding `resource:sabangnet:login`; its
   plan freezes the mall account rows the hub picks
-  (`adapter/out/repository/mall-account-rows.ts`, any status). Finalize checks
+  (`adapter/out/persistence/mall-account-rows.ts`, any status). Finalize checks
   the `listing_scan` proof, publishes each mall's send records as listings with
   one option (`sellerSku` = Sabangnet model = Sellpia SKU code), and turns off
   only listings this source created that left the list, all with

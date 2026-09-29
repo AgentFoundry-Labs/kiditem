@@ -6,7 +6,7 @@ import type {
 import {
   PRODUCT_SOURCE_READ_REPOSITORY_PORT,
   type ProductSourceReadRepositoryPort,
-} from '../port/out/persistence/product-source-read.repository.port';
+} from '../port/out/repository/product-source-read.repository.port';
 
 @Injectable()
 export class ProductSourceReadUseCase implements ProductSourceReadPort {

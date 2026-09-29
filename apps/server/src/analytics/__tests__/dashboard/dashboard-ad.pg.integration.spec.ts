@@ -1,12 +1,12 @@
 import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { DashboardAdService } from '../../application/service/dashboard/dashboard-ad.service';
 import { buildDashboardContext } from '../../domain/dashboard/context';
-import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
-import { ProfitCalculationRepositoryAdapter } from '../../adapter/out/repository/dashboard/profit-calculation.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/wing-traffic-aggregation.repository';
+import { ProfitCalculationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/profit-calculation.repository';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/profit-calculation.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/wing-traffic-aggregation.repository.port';

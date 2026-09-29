@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ChannelDashboardRepositoryAdapter } from '../../../../adapter/out/repository/channel-dashboard.repository.adapter';
+import { ChannelDashboardRepositoryAdapter } from '../../../../adapter/out/persistence/channel-dashboard.repository';
 import {
   readDailyOrderFacts,
   readListingOptionOrderFacts,

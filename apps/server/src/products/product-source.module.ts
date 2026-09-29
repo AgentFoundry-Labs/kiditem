@@ -4,20 +4,20 @@ import { ProductCollectionRuntimeModule } from './product-collection-runtime.mod
 import { ProductCollectionStatusController } from './adapter/in/web/product-collection-status.controller';
 import { ProductSourceSnapshotController } from './adapter/in/web/product-source-snapshot.controller';
 import { SellpiaInventoryOperationOwner } from './adapter/in/operation/sellpia-inventory-operation-owner';
-import { ProductCollectionFreshnessRepositoryAdapter } from './adapter/out/persistence/product-source-freshness.repository.adapter';
-import { ProductSourcePublicationRepositoryAdapter } from './adapter/out/persistence/product-source-publication.repository.adapter';
-import { ProductSourceSnapshotRepositoryAdapter } from './adapter/out/persistence/product-source-snapshot.repository.adapter';
+import { ProductCollectionFreshnessRepositoryAdapter } from './adapter/out/persistence/product-source-freshness.repository';
+import { ProductSourcePublicationRepositoryAdapter } from './adapter/out/persistence/product-source-publication.repository';
+import { ProductSourceSnapshotRepositoryAdapter } from './adapter/out/persistence/product-source-snapshot.repository';
 import { ProductSourceSnapshotUseCase } from './application/service/product-source-snapshot.usecase';
 import { ProductExportUseCase } from './application/service/product-export.usecase';
 import { ProductCollectionFreshnessUseCase } from './application/service/product-collection-freshness.usecase';
 import { SellpiaInventoryPublicationUseCase } from './application/service/sellpia-inventory-publication.usecase';
 import { SELLPIA_INVENTORY_PUBLICATION_PORT } from './application/port/in/sellpia-inventory-publication.port';
 import { SELLPIA_SOURCE_ACCOUNT_PORT } from './application/port/in/sellpia-source-account.port';
-import { PRODUCT_COLLECTION_FRESHNESS_REPOSITORY_PORT } from './application/port/out/persistence/product-source-freshness.repository.port';
+import { PRODUCT_COLLECTION_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/product-source-freshness.repository.port';
 import { PRODUCT_SOURCE_SNAPSHOT_PORT } from './application/port/in/product-source-snapshot.port';
 import { PRODUCT_EXPORT_PORT } from './application/port/in/product-export.port';
-import { PRODUCT_SOURCE_PUBLICATION_REPOSITORY_PORT } from './application/port/out/persistence/product-source-publication.repository.port';
-import { PRODUCT_SOURCE_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/persistence/product-source-snapshot.repository.port';
+import { PRODUCT_SOURCE_PUBLICATION_REPOSITORY_PORT } from './application/port/out/repository/product-source-publication.repository.port';
+import { PRODUCT_SOURCE_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/repository/product-source-snapshot.repository.port';
 import {
   SELLPIA_PAYLOAD_DECODER_PORT,
 } from './application/port/out/source/sellpia-payload-decoder.port';

@@ -4,14 +4,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
+import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
 import { CorrectProductSourceBindingUseCase } from '../application/service/correct-product-source-binding.usecase';
 import type { ProductQueryPort } from '../application/port/in/product-query.port';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository";
 
 describe('product source correction (PostgreSQL)', () => {
   let prisma: PrismaClient;

@@ -1,6 +1,6 @@
 import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { describe, it, expect, vi } from "vitest";
-import { ProfitCalculationRepositoryAdapter } from "../../adapter/out/repository/dashboard/profit-calculation.repository.adapter";
+import { ProfitCalculationRepositoryAdapter } from "../../adapter/out/persistence/dashboard/profit-calculation.repository";
 import type { PrismaService } from "../../../prisma/prisma.service";
 import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
 import { readOrderLineWindowFacts } from "../../../orders/adapter/out/persistence/read/order-facts.reader";

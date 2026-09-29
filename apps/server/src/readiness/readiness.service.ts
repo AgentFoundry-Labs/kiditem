@@ -20,7 +20,7 @@ import {
   CHANNEL_CATALOG_FRESHNESS_PORT,
   type ChannelCatalogFreshnessPort,
 } from '../channels/application/port/in/channel-catalog-freshness.port';
-import { countPublishedCatalogListings } from '../channels/adapter/out/repository/published-catalog-listing';
+import { countPublishedCatalogListings } from '../channels/adapter/out/persistence/published-catalog-listing';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import {
   ADVERTISING_LEDGER_READ_PORT,

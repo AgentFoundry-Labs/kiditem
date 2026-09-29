@@ -5,7 +5,7 @@ import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 // `ChannelListing`/`ChannelListingOption`). Application services
 // (KeywordRankService, KeywordRankIngestHandler) depend on this contract;
 // the Prisma-backed adapter lives in
-// `adapter/out/repository/keyword-rank.repository.adapter.ts`.
+// `adapter/out/persistence/keyword-rank.repository.ts`.
 
 import type {
   RankHistoryRow,

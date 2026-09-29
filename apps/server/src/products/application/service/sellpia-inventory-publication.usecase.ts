@@ -5,7 +5,7 @@ import type { SellpiaInventoryPublicationPort } from '../port/in/sellpia-invento
 import {
   PRODUCT_SOURCE_PUBLICATION_REPOSITORY_PORT,
   type ProductSourcePublicationRepositoryPort,
-} from '../port/out/persistence/product-source-publication.repository.port';
+} from '../port/out/repository/product-source-publication.repository.port';
 import {
   SELLPIA_PAYLOAD_DECODER_PORT,
   type SellpiaPayloadDecoderPort,

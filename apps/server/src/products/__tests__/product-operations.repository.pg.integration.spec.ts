@@ -9,7 +9,7 @@ import {
   productAbcDisplayStatus,
 } from '@kiditem/shared/product-abc';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
-import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/persistence/catalog-display-media.repository';
 import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
 import {
   makeTestPrisma,
@@ -26,16 +26,16 @@ import {
 } from '../../test-helpers/finance-seeds';
 import { seedAdReportWindow, seedListingAdDay } from '../../test-helpers/ad-ledger-seeds';
 import { addDays, businessDateKey, evidenceCutoffDate, kstDayStart } from '../../common/kst';
-import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
-import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository';
 import { ProductQueryUseCase } from '../application/service/product-query.usecase';
 import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
-import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository';
 import { ProductAvailabilityUseCase } from '../application/service/product-availability.usecase';
-import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository';
 import { ProductSourceReadUseCase } from '../application/service/product-source-read.usecase';
-import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository';
 import { ProductDataStatusUseCase } from '../application/service/product-data-status.usecase';
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
@@ -46,7 +46,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository";
 
 /** Seeded catalog listings predate every Wing traffic attempt a case creates. */
 const CATALOG_SEEDED_AT = new Date('2026-08-01T00:00:00.000Z');

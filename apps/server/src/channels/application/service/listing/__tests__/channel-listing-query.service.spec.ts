@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ChannelListingQueryPersistencePort } from '../../../port/out/persistence/channel-listing-query.persistence.port';
+import type { ChannelListingQueryPersistencePort } from '../../../port/out/repository/channel-listing-query.persistence.port';
 import type { ChannelListingSummary } from '../../../port/in/listing/channel-listing-query.port';
 import type { ChannelListingContentPort } from '../../../port/out/content/listing-content.port';
 import { ChannelListingQueryService } from '../channel-listing-query.service';

@@ -6,7 +6,7 @@
  * 소모하지 않는다.
  *
  * 발급을 부르는 자리는 네 곳뿐이다:
- * `registration-target.repository.adapter.ts`(첫 등록 설정),
+ * `registration-target.repository.ts`(첫 등록 설정),
  * `sales-product-mall-sheet.service.ts`(몰 엑셀 파일),
  * `sales-product.usecase.ts`(직접 작성),
  * `sabangnet-product-import.service.ts`(사방넷은 품번코드를 그대로 쓴다).

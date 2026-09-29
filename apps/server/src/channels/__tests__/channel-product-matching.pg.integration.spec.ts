@@ -1,12 +1,12 @@
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/persistence/catalog-display-media.repository';
 import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
 import { lockProductMapping } from '../../products/transaction/product-mapping-lock';
-import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
-import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
 import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import {
@@ -16,13 +16,13 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/persistence/channel-product-matching.repository';
 import { ChannelProductMatchingService } from '../application/service/listing/channel-product-matching.service';
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository';
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
 import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { Prisma, PrismaClient } from '@prisma/client';

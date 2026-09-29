@@ -9,7 +9,7 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.repository';
 
 /**
  * 등록 상품 목록은 실제 몰 상품(`ChannelListing`)을 읽는다. 작업공간이나 공통 판매상품이

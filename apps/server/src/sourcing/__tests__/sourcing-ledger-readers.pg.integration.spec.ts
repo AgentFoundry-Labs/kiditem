@@ -11,11 +11,11 @@ import {
 import {
   readCompleteObservationProvenanceByIds,
   readCurrentObservationHeads,
-} from '../adapter/out/repository/source-evidence.reader';
-import { readCurrentPublications } from '../adapter/out/repository/source-evidence.reader';
-import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
-import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
-import { SourcingLaunchCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-launch-candidate.repository.adapter';
+} from '../adapter/out/persistence/source-evidence.reader';
+import { readCurrentPublications } from '../adapter/out/persistence/source-evidence.reader';
+import { LiveCommerceRepositoryAdapter } from '../adapter/out/persistence/live-commerce.repository';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/persistence/trend-collection.repository';
+import { SourcingLaunchCandidateRepositoryAdapter } from '../adapter/out/persistence/sourcing-launch-candidate.repository';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 const SOURCE_WINDOW_START = new Date('2026-09-10T00:00:00.000Z');

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { CoupangShipmentsService } from "./coupang-shipments.service";
 import type { CoupangShipmentFileStoragePort } from "../../port/out/storage/shipments/index";
-import type { CoupangShipmentDateSummaryRepositoryPort } from "../../port/out/persistence/shipments/coupang-shipment-date-summary.repository.port";
+import type { CoupangShipmentDateSummaryRepositoryPort } from "../../port/out/repository/shipments/coupang-shipment-date-summary.repository.port";
 
 function makeDateSummaryRepo(): CoupangShipmentDateSummaryRepositoryPort {
   return {

@@ -12,13 +12,13 @@ import { AdvertisingModule } from '../../../advertising/advertising.module';
 import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 import { DashboardController } from '../../adapter/in/http/dashboard/dashboard.controller';
-// adapter/out/repository
-import { ProfitCalculationRepositoryAdapter } from '../../adapter/out/repository/dashboard/profit-calculation.repository.adapter';
-import { DashboardSalesRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-sales.repository.adapter';
-import { DashboardTrendRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-trend.repository.adapter';
-import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
-import { DashboardInventoryRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-inventory.repository.adapter';
-import { DashboardFindingsRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-findings.repository.adapter';
+// adapter/out/persistence
+import { ProfitCalculationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/profit-calculation.repository';
+import { DashboardSalesRepositoryAdapter } from '../../adapter/out/persistence/dashboard/dashboard-sales.repository';
+import { DashboardTrendRepositoryAdapter } from '../../adapter/out/persistence/dashboard/dashboard-trend.repository';
+import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/wing-traffic-aggregation.repository';
+import { DashboardInventoryRepositoryAdapter } from '../../adapter/out/persistence/dashboard/dashboard-inventory.repository';
+import { DashboardFindingsRepositoryAdapter } from '../../adapter/out/persistence/dashboard/dashboard-findings.repository';
 // application/service
 import { DashboardSalesService } from '../../application/service/dashboard/dashboard-sales.service';
 import { DashboardAdService } from '../../application/service/dashboard/dashboard-ad.service';

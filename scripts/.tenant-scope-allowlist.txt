@@ -26,4 +26,4 @@ apps/server/src/auth/adapter/out/prisma/prisma-auth.repository.ts idMutation
 # `prisma/models/agent-work.prisma`. Per-organization scoping happens on
 # `agent_instances` and `agent_instance_tool_policies`, which the same adapter
 # already accesses via `findFirst({ where: { id, organizationId } })`.
-apps/server/src/agent-os/adapter/out/repository/agent-os.repository.adapter.ts findUnique
+apps/server/src/agent-os/adapter/out/persistence/agent-os.repository.ts findUnique

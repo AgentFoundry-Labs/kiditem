@@ -3,7 +3,7 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
-import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/persistence/trend-collection.repository';
 import { TrendQueryService } from '../application/service/trend-query.service';
 import { TrendCollectionController } from '../adapter/in/http/trend-collection.controller';
 import { SourcingKeywordAnalysisController } from '../adapter/in/http/sourcing-keyword-analysis.controller';

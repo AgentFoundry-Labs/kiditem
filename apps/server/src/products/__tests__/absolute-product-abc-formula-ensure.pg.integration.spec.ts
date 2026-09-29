@@ -7,7 +7,7 @@ import {
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { lockProductMapping } from '../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from '../adapter/out/persistence/product-mapping-generation';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -15,8 +15,8 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
-import type { ProductAbcPublicationInput } from '../application/port/out/persistence/master-product-abc.repository.port';
+import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository';
+import type { ProductAbcPublicationInput } from '../application/port/out/repository/master-product-abc.repository.port';
 import { runEnsureSteps } from '../../../../../scripts/data-migrations/ensure/index';
 import {
   AbsoluteProductAbcFormulaConflictError,

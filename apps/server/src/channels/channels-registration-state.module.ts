@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ContentRegistrationFactsModule } from '../content/content-registration-facts.module';
-import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository.adapter';
+import { RegistrationStateRepositoryAdapter } from './adapter/out/persistence/registration-state.repository';
 import { RegistrableContentFactsAdapter } from './adapter/out/content/registrable-content-facts.adapter';
 import { RegistrationStateService } from './application/service/registration/registration-state.service';
 import { REGISTRATION_STATE_PORT } from './application/port/in/registration-state.port';
-import { REGISTRATION_STATE_PERSISTENCE_PORT } from './application/port/out/persistence/registration-state.persistence.port';
+import { REGISTRATION_STATE_PERSISTENCE_PORT } from './application/port/out/repository/registration-state.persistence.port';
 import { CHANNEL_REGISTRABLE_CONTENT_FACTS_PORT } from './application/port/out/content/registrable-content-facts.port';
 
 /**

@@ -6,9 +6,9 @@ import { StockoutCheckController } from './adapter/in/web/stockout-check.control
 import { StockoutCheckService } from './application/service/listing/stockout-check.service';
 import { OperationModule } from '../common/operation/operation.module';
 import { OPERATION_PORT } from '../common/operation/application/port/in/operation.port';
-import { StockoutCheckPersistenceAdapter } from './adapter/out/persistence/stockout-check.persistence.adapter';
+import { StockoutCheckPersistenceAdapter } from './adapter/out/persistence/stockout-check.repository';
 import { STOCKOUT_CHECK_PORT } from './application/port/in/listing/stockout-check.port';
-import { STOCKOUT_CHECK_PERSISTENCE_PORT } from './application/port/out/persistence/stockout-check.persistence.port';
+import { STOCKOUT_CHECK_PERSISTENCE_PORT } from './application/port/out/repository/stockout-check.persistence.port';
 import { SalesProductModule } from './sales-product.module';
 import { ChannelCatalogModule } from './channel-catalog.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -16,7 +16,7 @@ import { AiModule } from '../content/ai.module';
 import { ChannelsModule } from './channels.module';
 import { ChannelRegistrationExecutionController } from './adapter/in/web/channel-registration-execution.controller';
 import { RegistrationOperationController } from './adapter/in/web/registration-operation.controller';
-import { RegistrationOperationRepositoryAdapter } from './adapter/out/repository/registration-operation.repository.adapter';
+import { RegistrationOperationRepositoryAdapter } from './adapter/out/persistence/registration-operation.repository';
 import { RegistrationOperationService } from './application/service/registration/registration-operation.service';
 import { MallAvailabilityReadService } from './application/service/registration/mall-availability-read.service';
 import {

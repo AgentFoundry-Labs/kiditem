@@ -5,7 +5,7 @@ import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/a
 
 // Architecture guard tests freeze the Channels reconstruction contract:
 //
-//   - PrismaService is imported only under `channels/adapter/out/repository/**`.
+//   - PrismaService is imported only under `channels/adapter/out/persistence/**`.
 //   - `application/**` does not import Prisma client/types. Ports and services
 //     expose local structural records only.
 //   - `application/service/**` does not import concrete adapters, HTTP DTOs, or
@@ -71,14 +71,14 @@ function adapterOutServiceImportLines(): string[] {
 }
 
 describe('channels architecture contract', () => {
-  it('PrismaService is imported only under channels/adapter/out/repository/**', () => {
-    const allowedPrefixes = ['adapter/out/repository/', 'adapter/out/persistence/', 'adapter/in/agent/'];
+  it('PrismaService is imported only under channels/adapter/out/persistence/**', () => {
+    const allowedPrefixes = ['adapter/out/persistence/', 'adapter/in/agent/'];
     const violators = importers([CHANNELS_ROOT], String.raw`[^'"]*prisma/prisma\.service`)
       .filter((file) => file !== 'seed-channel-accounts.ts'
         && !allowedPrefixes.some((prefix) => file.startsWith(prefix)));
     expect(
       violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+      `PrismaService is leaking outside adapter/out/persistence:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
@@ -124,7 +124,7 @@ describe('channels architecture contract', () => {
       relativeTo: SERVER_SRC,
     }).hits];
     expect(consumers).toEqual([
-      'channels/adapter/out/persistence/stockout-check.persistence.adapter.ts',
+      'channels/adapter/out/persistence/stockout-check.repository.ts',
       'channels/application/service/listing/channel-inventory-availability.projection.ts',
       'products/domain/product-operations-inventory.mapper.ts',
     ]);
@@ -197,7 +197,7 @@ describe('channels architecture contract', () => {
     expect(
       hits,
       `unexpected recipe persistence outside the focused Channels adapter:\n${hits.join('\n')}`,
-    ).toEqual(['adapter/out/persistence/channel-option-recipe.repository.adapter.ts']);
+    ).toEqual(['adapter/out/persistence/channel-option-recipe.repository.ts']);
   });
 
   it('does not retain the retired Open API adapter folder', () => {

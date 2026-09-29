@@ -1,4 +1,4 @@
-import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { describe, expect, it, vi } from 'vitest';
 import { MasterProductProfitabilityReadService } from './master-product-profitability-read.service';
 

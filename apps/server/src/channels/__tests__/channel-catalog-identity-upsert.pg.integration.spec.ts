@@ -10,7 +10,7 @@ import {
   upsertChannelCatalogBasics,
   upsertChannelCatalogIdentities,
   type ChannelCatalogIdentityProduct,
-} from '../adapter/out/repository/channel-catalog-identity-upsert';
+} from '../adapter/out/persistence/channel-catalog-identity-upsert';
 
 const REGISTERED_ON = '2026-04-01 11:32:06';
 

@@ -3,7 +3,7 @@ import type {
   ChannelRegistrationPort, ExternalProductRegistrationPreflightInput,
   ExternalProductRegistrationPreflightResult,
 } from '../../port/in/registration/channel-registration.port';
-import type { ListingRegistrationPersistencePort } from '../../port/out/persistence/listing-registration.persistence.port';
+import type { ListingRegistrationPersistencePort } from '../../port/out/repository/listing-registration.persistence.port';
 import { KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 
 export interface RegistrationRecipeSuggestions {

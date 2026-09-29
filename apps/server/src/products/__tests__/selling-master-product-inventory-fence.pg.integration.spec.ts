@@ -8,7 +8,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository';
 import { listInStockMasterProductIds } from '../adapter/out/persistence/selling-master-product.query';
 
 describe('selling MasterProduct inventory fence (PostgreSQL)', () => {

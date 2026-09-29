@@ -8,7 +8,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';
-import { SellpiaTransferOutcomePersistenceAdapter } from '../adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
+import { SellpiaTransferOutcomePersistenceAdapter } from '../adapter/out/persistence/sellpia-transfer-outcome.repository';
 
 // 셀피아 전송 결과 capability(KID-388): 원천 파일마다 가장 최근 전송 실행 하나의 상태를 실제 PG의 실행 표에서 읽는다.
 const NONE_SOURCE = '11111111-1111-4111-8111-111111111111';

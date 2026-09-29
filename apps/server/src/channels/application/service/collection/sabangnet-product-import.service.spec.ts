@@ -10,7 +10,7 @@ import type { SalesProductImageMirrorPort } from '../../port/out/storage/sales-p
 import type {
   SalesProductOptionState,
   SalesProductRepositoryPort,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 import { SabangnetProductImportService } from './sabangnet-product-import.service';
 import type { SalesProductLinkService } from '../sales-product/sales-product-link.service';
 
