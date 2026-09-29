@@ -199,7 +199,8 @@ describe('AdAction execution read from its advertising.ad_action operation (PG i
       [pending]: { ...none, executeStatus: 'not_prepared', operationId: null },
       [manual]: { ...none, executeStatus: 'not_prepared', operationId: null },
     });
-    expect((await listed()).summary).toMatchObject({ pendingReview: 1, approvedQueued: 1, running: 0, done: 1, uncertain: 1, failed: 1 });
+    // The counts are execution words only; the retired scrape runs are not read (KID-386 → KID-365).
+    expect((await listed()).summary).toEqual({ pendingReview: 1, approvedQueued: 1, running: 0, done: 1, uncertain: 1, failed: 1 });
 
     const idsByWord: Record<string, string[]> = {
       queued: [waiting.actionId],

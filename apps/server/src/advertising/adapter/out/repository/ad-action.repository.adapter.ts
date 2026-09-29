@@ -136,31 +136,20 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
   ): Promise<AdActionReviewResult> {
     // A page holds at most as many actions as one approve or reject command names.
     const limit = Math.min(query.limit || 50, AD_ACTION_COMMAND_MAX_IDS);
-    const [all, latestRun] = await Promise.all([
-      // Execution words live on operations, so the page, its execution filter
-      // and the counts are decided here over the organization's actions.
-      this.prisma.adAction.findMany({
-        where: { organizationId },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        select: {
-          id: true,
-          operationId: true,
-          approvalStatus: true,
-          listingId: true,
-          targetType: true,
-          priority: true,
-        },
-      }),
-      this.prisma.channelScrapeRun.findFirst({
-        where: { organizationId },
-        orderBy: [
-          { finishedAt: 'desc' },
-          { startedAt: 'desc' },
-          { id: 'desc' },
-        ],
-        select: { finishedAt: true, startedAt: true, pageType: true },
-      }),
-    ]);
+    // Execution words live on operations, so the page, its execution filter
+    // and the counts are decided here over the organization's actions.
+    const all = await this.prisma.adAction.findMany({
+      where: { organizationId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true,
+        operationId: true,
+        approvalStatus: true,
+        listingId: true,
+        targetType: true,
+        priority: true,
+      },
+    });
     const executions = await readAdActionExecutions(this.prisma, { organizationId, actions: all });
     const statusOf = (id: string) => executions.get(id)?.executeStatus ?? 'not_prepared';
     const matches = (value: string | undefined, actual: string | null) =>
@@ -207,9 +196,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
         done: count((action) => statusOf(action.id) === 'done'),
         uncertain: count((action) => statusOf(action.id) === 'uncertain'),
         failed: count((action) => statusOf(action.id) === 'failed'),
-        latestSnapshotAt:
-          latestRun?.finishedAt ?? latestRun?.startedAt ?? null,
-        latestSnapshotPageType: latestRun?.pageType || null,
       },
     };
   }

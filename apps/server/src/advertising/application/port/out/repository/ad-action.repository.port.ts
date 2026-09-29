@@ -86,8 +86,6 @@ export interface AdActionReviewSummary {
   done: number;
   uncertain: number;
   failed: number;
-  latestSnapshotAt: Date | null;
-  latestSnapshotPageType: string | null;
 }
 
 /** An AdAction row with the execution words of its `advertising.ad_action` operation. */
