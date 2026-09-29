@@ -2,14 +2,14 @@ Before working in this directory, always read this document first rather than re
 
 # coupang — Coupang Wing + Ad-Center Domain
 
-`extensions/kiditem-os/background/coupang/` executes approved campaign
-registrations on the Coupang ad center and supports explicit Wing page
-automation. Ad-center collection is the runtime kind `advertising.ad_report`
-(`extensions/src/collectors/advertising.ad_report`, KID-371).
+`extensions/kiditem-os/background/coupang/` supports explicit Wing page
+automation and the popup. Ad-center collection is the runtime kind
+`advertising.ad_report` (KID-371); approved campaign registrations are the
+runtime kind `advertising.ad_action` (KID-386), claimed from the popup. Do not
+add ad-center writes back to this worker or a content script.
 
 ## Owned Surfaces
 
-- Approved campaign-registration execution on the Coupang ad center
 - Extension popup/manual control UI
 - Host bridge status exposed to committed KidItem web origins
 
@@ -20,7 +20,6 @@ automation. Ad-center collection is the runtime kind `advertising.ad_report`
   `http://kiditem-office`.
 - Resolve the active profile from the verified external sender origin. Never
   trust a message-provided environment id or keep one global API/token pair.
-- Approved queued ad actions are fetched from `/api/ads/actions`.
 - The Wing catalog is not collected here: it runs in the TypeScript operation
   runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354). Wing
   traffic and item winner are runtime kinds too (`advertising.wing_traffic`,
@@ -49,12 +48,6 @@ automation. Ad-center collection is the runtime kind `advertising.ad_report`
 
 ## Coupang Rules
 
-- Ad action execution stays on `advertising.coupang.com` and applies only
-  `create_campaign`. Write to Coupang only after the server accepts the
-  action's claim (its running report). The
-  server refuses every claim for the actions the operator applies by hand with
-  `EXECUTION_REPORT_MANUAL_ACTION` (`MANUAL_AD_ACTION_TYPES` in
-  `apps/server/src/advertising/domain/execution-task-lifecycle.ts`).
 - The runtime SERP site stays on Coupang search URLs; seller identity opens
   only the server-planned `www.coupang.com/vp/products/{id}` links and catalogs
   only the server-planned `shop.coupang.com` URLs, bounded and rate-limited.
