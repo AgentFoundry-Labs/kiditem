@@ -81,7 +81,12 @@ export const TestMallLoginResponseSchema = z.object({
   verified: z.boolean(),
   /** 몰이 보여 준 문장(있으면). 자격은 싣지 않는다. */
   mallMessage: z.string().max(500).nullable(),
-  /** 실패했으면 registry 코드(`SITE_LOGIN_REQUIRED`·`SITE_VERIFICATION_REQUIRED` 등), 아니면 null. */
+  /**
+   * 로그인 안 됐으면 registry 코드, 됐으면 null. 판정→코드: 본인확인 화면 `SITE_VERIFICATION_REQUIRED`,
+   * 폼 없음 `MALL_CONTRACT_CHANGED`, 지원 안 하는 몰 `MALL_LOGIN_UNSUPPORTED`, 거절·폼 잔존 `MALL_LOGIN_REJECTED`,
+   * 결과 미확인 `MALL_LOGIN_UNCONFIRMED`, 로그인 페이지 못 엶 `MALL_LOGIN_PAGE_UNREACHABLE`.
+   * 이미 로그인돼 있으면 `submitted:false, verified:true, errorCode:null`.
+   */
   errorCode: z.string().max(100).nullable(),
 }).strict();
 
@@ -163,7 +168,7 @@ export const LIST_MALL_CATEGORIES_ACTION = 'listMallCategories' as const;
 export const ListMallCategoriesMessageSchema = z.object({
   action: z.literal(LIST_MALL_CATEGORIES_ACTION),
   mall: z.string().min(1).max(64),
-  /** 상위 카테고리 id 경로(비면 최상위). */
+  /** 상위 카테고리 id 경로(비면 최상위). 온채널은 id가 곧 이름이라 `categories[].id`와 `name`이 같다. */
   path: z.array(z.string().min(1)).max(8).default([]),
 }).strict();
 export const ListMallCategoriesResponseSchema = z.object({
