@@ -137,6 +137,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       // "여기서 따로 세면 두 화면이 또 다른 수를 말한다"(사장님 2026-09-22: 63 대 82).
       this.todayOrders.readTodayOrders({ organizationId, now: todayStart }),
     ]);
+    // 대시보드는 걷은 주문 수(`total` — 몰마다 서로 다른 주문번호)만 쓴다. 신규(`newTotal`)는 주문수집 화면의 칸이다(KID-234).
     const collectedOrders = collected.total;
     return {
       revenue: facts.window.revenue,

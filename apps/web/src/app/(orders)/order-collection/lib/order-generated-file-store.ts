@@ -18,6 +18,11 @@ export interface StoredOrderCollectionFile extends OrderCollectionConversionResu
   transmissionIntentKey?: string | null;
   /** 이번 수집에 포함된 서로 다른 주문번호 (있을 때). "당일" 집계에서 재수집한 같은 주문을 중복 카운트하지 않도록 유니크 기준으로 사용. */
   orderNumbers?: string[];
+  /**
+   * 몰이 준 주문번호(서버 result `capturedOrderNumbers`, 있을 때). 중복 판정은 이 주문 신원으로 한다 — 변환기가 번호를 파일마다
+   * 새로 매기는 몰(키드키즈)도 다른 주문 파일을 같은 파일로 버리지 않는다(KID-234).
+   */
+  capturedOrderNumbers?: string[];
   /** 셀피아 주문접수 버튼 클릭이 성공해 전송을 요청한 시각. Sellpia 접수 완료를 의미하지 않는다. */
   transmissionRequestedAt?: number;
   /**

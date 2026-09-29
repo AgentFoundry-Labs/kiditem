@@ -287,7 +287,7 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
 
   it('아이스크림몰은 변환 뒤 continuation으로 배송 색인을 만들고 고른 행을 본 행으로 적는다', async () => {
     const icecream = { ...account, key: 'icecream-mall', name: '아이스크림몰' } as OrderCollectionMallAccount;
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'icecream-mall' }, result: { rowCount: 1, mallKey: 'icecream-mall', captured: 1, masked: true, orderNumbers: ['order-2'] } }) });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'icecream-mall' }, result: { rowCount: 1, mallKey: 'icecream-mall', captured: 1, masked: true, orderNumbers: ['order-2'], capturedOrderNumbers: ['order-2'] } }) });
     vi.mocked(apiClient.fetchRaw)
       .mockResolvedValueOnce(Response.json({
         mallKey: 'icecream-mall',
@@ -303,7 +303,7 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
     // 마스킹 표시는 결과에 실려 화면 안내("일부 개인정보가 마스킹")로 이어진다(리뷰 S2), 주문번호는 생성 파일 항목으로(S3).
     await expect(collectMallOrderOperation({ account: icecream, operationId: OPERATION_ID, collectionDate: '2026-09-10', addGeneratedFile, sleep }))
       .resolves.toEqual({ rowCount: 1, masked: true, date: '2026-09-10' });
-    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ orderNumbers: ['order-2'] }));
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ orderNumbers: ['order-2'], capturedOrderNumbers: ['order-2'] }));
     expect(apiClient.fetchRaw).toHaveBeenNthCalledWith(1, `/api/orders/collection/attempts/${OPERATION_ID}/continuation?operationId=${OPERATION_ID}`, { method: 'GET' });
     expect(saveIcecreamDeliveryIndex).toHaveBeenCalledWith(['주문번호', '배송번호', '배송순번'], [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']]);
     expect(addSeenOrderKeys).toHaveBeenCalledWith('icecream-mall', ['order-2\u001fdelivery-2\u001f1']);

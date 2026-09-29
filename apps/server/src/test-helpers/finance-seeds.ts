@@ -112,6 +112,9 @@ export async function setupChannelListing(
     externalOptionId: string;
     channelAccountId?: string;
     category?: string | null;
+    /** 몰 원문 리스팅 상태. 판매중 판정(KID-333 ②)은 게시 상태만 판매중으로 친다. */
+    status?: string | null;
+    rawJson?: Record<string, string>;
   },
 ): Promise<{ listingId: string; listingOptionId: string }> {
   const channelAccount = opts.channelAccountId
@@ -164,6 +167,8 @@ export async function setupChannelListing(
       displayName: master.name,
       category: opts.category ?? null,
       ...(opts.channelName !== undefined && { channelName: opts.channelName }),
+      ...(opts.status !== undefined && { status: opts.status }),
+      ...(opts.rawJson !== undefined && { rawJson: opts.rawJson }),
     },
     select: { id: true },
   });

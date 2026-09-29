@@ -22,6 +22,10 @@ export class ChannelListingQueryService implements ChannelListingQueryPort {
     return this.persistence.readOptionCandidates(transaction, input);
   }
 
+  readSellingListings(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readSellingListings']>[1]) {
+    return this.persistence.readSellingListings(transaction, input);
+  }
+
   readCatalogFacts(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readCatalogFacts']>[1]) {
     return this.persistence.readCatalogFacts(transaction, input);
   }
@@ -48,10 +52,6 @@ export class ChannelListingQueryService implements ChannelListingQueryPort {
 
   readLatestState(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readLatestState']>[1]) {
     return this.persistence.readLatestState(transaction, input);
-  }
-
-  readLatestSaleStatus(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['readLatestSaleStatus']>[1]) {
-    return this.persistence.readLatestSaleStatus(transaction, input);
   }
 
   lockActiveOwner(transaction: OwnerTransaction, input: Parameters<ChannelListingFactQueries['lockActiveOwner']>[1]) {

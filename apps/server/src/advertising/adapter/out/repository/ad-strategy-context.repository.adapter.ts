@@ -261,16 +261,17 @@ export class AdStrategyContextRepositoryAdapter
         lastObservedAt: ld.lastObservedAt.toISOString(),
         sampleCount: ld.sampleCount,
         productName: ld.productName,
-        status: ld.status,
-        exposureStatus: ld.exposureStatus,
-        saleStatus: ld.saleStatus,
-        channelPrice: ld.channelPrice,
+        // 리스팅 스냅샷의 상태·노출·판매상태·가격·순위 칸은 아무도 채우지 않아 읽지 않는다(KID-369).
+        status: null,
+        exposureStatus: null,
+        saleStatus: null,
+        channelPrice: null,
         isOfferWinner: ld.isOfferWinner,
         myPrice: ld.myPrice,
         winnerPrice: ld.winnerPrice,
         winnerGapPrice: ld.winnerGapPrice,
-        productRank: ld.productRank,
-        categoryRank: ld.categoryRank,
+        productRank: null,
+        categoryRank: null,
         primaryOption: od
           ? {
               listingOptionId: od.listingOptionId,

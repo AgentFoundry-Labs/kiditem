@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { describe, expect, it } from 'vitest';
-import { sellpiaOrderNumbersFromFile } from './sellpia-order-targets';
+import { orderNumbersFromSellpiaFile, sellpiaOrderNumbersFromFile } from './sellpia-order-targets';
 
 function workbook(rows: unknown[][], bookType: XLSX.BookType = 'xlsx'): Buffer {
   const book = XLSX.utils.book_new();
@@ -41,5 +41,12 @@ describe('셀피아 전송 대상 주문번호 — 변환 파일의 판매처주
     const rows: unknown[][] = [['주문번호']];
     for (let i = 0; i <= 10_000; i += 1) rows.push([`N-${i}`]);
     expect(() => sellpiaOrderNumbersFromFile(workbook(rows))).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED' }));
+  });
+
+  it('수집 result용 읽기는 상한 없이 모두 뽑는다 — 전송 대상 1만 상한은 전송에만 건다(수집을 실패시키지 않는다, KID-234)', () => {
+    const rows = [['주문번호'], ...Array.from({ length: 10_001 }, (_, index) => [`N-${index}`])];
+    const bytes = workbook(rows);
+    expect(orderNumbersFromSellpiaFile(bytes)).toHaveLength(10_001);
+    expect(() => sellpiaOrderNumbersFromFile(bytes)).toThrow();
   });
 });

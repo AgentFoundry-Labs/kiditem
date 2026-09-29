@@ -42,7 +42,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       new ProductAvailabilityRepositoryAdapter(prisma as never),
     );
     const productAbc = new ProductAbcReadUseCase(
-      new MasterProductAbcRepositoryAdapter(prisma as never, inventoryTransactionalRead), evidence,
+      new MasterProductAbcRepositoryAdapter(prisma as never, inventoryTransactionalRead, channelFactTestPorts(prisma as never).listings), evidence,
     );
     dashboard = new DashboardInventoryService(new DashboardInventoryRepositoryAdapter(channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings,
       prisma as never,
@@ -303,7 +303,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       create: { organizationId: TEST_ORGANIZATION_ID, activeFormulaVersionId: formula.id, formulaRevision: 1 },
       update: { activeFormulaVersionId: formula.id, formulaRevision: 1 },
     });
-    await expect(new RecalculateProductAbcUseCase(new MasterProductAbcRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter()), evidence)
+    await expect(new RecalculateProductAbcUseCase(new MasterProductAbcRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter(), channelFactTestPorts(prisma as never).listings), evidence)
       .recalculate({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({ outcome: 'PUBLISHED', classifiedProductCount: 1 });
     return attempt.plan.to;
   }

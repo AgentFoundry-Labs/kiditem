@@ -23,4 +23,14 @@ describe('OrderCollectionPipeline', () => {
     expect(screen.queryByText('셀피아 전송')).not.toBeInTheDocument();
     expect(screen.queryByText('재고 반영 대기')).not.toBeInTheDocument();
   });
+
+  it("shows — for today's orders until the Orders server answers, never this browser's file count (KID-234)", () => {
+    render(
+      <OrderCollectionPipeline
+        summary={{ todayOrders: null, waiting: 2, transmissionRequested: 0, inventoryPending: 0, trackingSent: 0, done: 0 }}
+      />,
+    );
+
+    expect(screen.getByText('—')).toBeInTheDocument();
+  });
 });

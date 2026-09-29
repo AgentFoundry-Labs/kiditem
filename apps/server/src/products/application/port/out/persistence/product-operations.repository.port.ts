@@ -73,6 +73,8 @@ export type ProductOperationsRepositoryListResult = {
   page: number;
   limit: number;
   sellingChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
+  /** 재고 있는 판매중 상품(KID-333 Q2) — 요약 `sellingInStockCount`가 센다. */
+  sellingInStockMasterProductIds: string[];
 };
 
 export type ProductOperationsDisplayMediaTarget = Readonly<{

@@ -2,14 +2,12 @@ import {
   resolveOrderCollectionMallKey,
   resolveOrderCollectionMallName,
 } from "./order-collection-malls";
-import {
-  getHistoryCollectionBucket,
-  getHistoryOrderCount,
-} from "./order-history-count";
+import { getHistoryOrderCount } from "./order-history-count";
 import {
   hasSellpiaTransmissionRequest,
   isSellpiaOrderFile,
 } from "./order-collection-page-model";
+import type { OrderCollectionTodayOrders } from "@kiditem/shared/order-collection-source";
 import type { StoredOrderCollectionFile } from "./order-generated-file-store";
 import type { OrderCollectionPipelineSummary } from "../components/OrderCollectionPipeline";
 
@@ -26,43 +24,30 @@ export interface DailyCollectionStat {
   malls: string[];
 }
 
-export interface MallCollectionStat {
+/** 이 브라우저의 오늘 파일 기록에서 나오는 몰 칸(파일 수·상품 줄·마지막 변환 시각). 주문 수는 없다. */
+export interface LocalMallCollectionStat {
   key: string;
   name: string;
   files: number;
-  orderRows: number;
-  newRows: number;
   productRows: number;
   latestAt: number;
 }
 
+/** 몰 카드 한 칸. 당일(`orderRows`)·신규(`newRows`)는 Orders 서버 리더의 값이다(KID-234). */
+export interface MallCollectionStat extends LocalMallCollectionStat {
+  orderRows: number;
+  newRows: number;
+}
+
 export interface OrderCollectionSummary {
   dailyStats: DailyCollectionStat[];
-  mallStats: MallCollectionStat[];
-  mallStatsByKey: Map<string, MallCollectionStat>;
+  mallStats: LocalMallCollectionStat[];
+  mallStatsByKey: Map<string, LocalMallCollectionStat>;
   latestAt: number;
   totals: {
     orders: number;
     products: number;
   };
-}
-
-interface MallCollectionAccumulator {
-  key: string;
-  name: string;
-  files: number;
-  orderNumbers: Set<string>;
-  fallbackByBucket: Map<string, number>;
-  /**
-   * "신규" = 오늘 수집분 중 셀피아 미전송. 파일 순서와 무관하게 "전송됨이 우선"이 되도록
-   * 전송된 주문번호를 따로 모아 마지막에 차집합으로 계산한다.
-   */
-  transmittedOrderNumbers: Set<string>;
-  /** 주문번호가 없는 레거시 파일용. 전송된 버킷은 신규에서 뺀다. */
-  fallbackWaitingByBucket: Map<string, number>;
-  fallbackTransmittedBuckets: Set<string>;
-  productRows: number;
-  latestAt: number;
 }
 
 export function buildOrderCollectionSummary(
@@ -75,7 +60,7 @@ export function buildOrderCollectionSummary(
       malls: Set<string>;
     }
   >();
-  const byMall = new Map<string, MallCollectionAccumulator>();
+  const byMall = new Map<string, LocalMallCollectionStat>();
   const totals = { orders: 0, products: 0 };
   let latestAt = 0;
 
@@ -120,53 +105,16 @@ export function buildOrderCollectionSummary(
     else dateStat.browserFiles += 1;
     if (mallName) dateStat.malls.add(mallName);
 
-    // 몰 카드는 오늘 수집분만 집계한다("당일", "신규" 모두 오늘 수집 기준).
+    // 몰 카드의 파일 칸은 오늘 수집분만 본다. 당일·신규 수는 서버 리더가 준다(KID-234) — 이 브라우저의 파일·전송 기록으로 세지 않는다.
     if (dateKey !== today) continue;
 
     const mallStatKey = mallKey ?? `unknown-${mallName}`;
-    let mallStat = byMall.get(mallStatKey);
+    const mallStat = byMall.get(mallStatKey);
     if (!mallStat) {
-      mallStat = {
-        key: mallStatKey,
-        name: mallName,
-        files: 0,
-        orderNumbers: new Set<string>(),
-        fallbackByBucket: new Map<string, number>(),
-        transmittedOrderNumbers: new Set<string>(),
-        fallbackWaitingByBucket: new Map<string, number>(),
-        fallbackTransmittedBuckets: new Set<string>(),
-        productRows: 0,
-        latestAt: item.convertedAt,
-      };
-      byMall.set(mallStatKey, mallStat);
+      byMall.set(mallStatKey, { key: mallStatKey, name: mallName, files: 1, productRows, latestAt: item.convertedAt });
+      continue;
     }
-
-    const transmitted = hasSellpiaTransmissionRequest(item);
     mallStat.files += 1;
-    const orderNumbers = (item.orderNumbers ?? [])
-      .map((value) => String(value).trim())
-      .filter(Boolean);
-    if (orderNumbers.length > 0) {
-      for (const orderNumber of orderNumbers) {
-        mallStat.orderNumbers.add(orderNumber);
-        if (transmitted) mallStat.transmittedOrderNumbers.add(orderNumber);
-      }
-    } else {
-      const bucket = getHistoryCollectionBucket(item);
-      const fallbackCount = getHistoryOrderCount(item) ?? 0;
-      mallStat.fallbackByBucket.set(
-        bucket,
-        Math.max(mallStat.fallbackByBucket.get(bucket) ?? 0, fallbackCount),
-      );
-      if (transmitted) {
-        mallStat.fallbackTransmittedBuckets.add(bucket);
-      } else {
-        mallStat.fallbackWaitingByBucket.set(
-          bucket,
-          Math.max(mallStat.fallbackWaitingByBucket.get(bucket) ?? 0, fallbackCount),
-        );
-      }
-    }
     mallStat.productRows = Math.max(mallStat.productRows, productRows);
     mallStat.latestAt = Math.max(mallStat.latestAt, item.convertedAt);
   }
@@ -174,29 +122,7 @@ export function buildOrderCollectionSummary(
   const dailyStats = [...byDate.values()]
     .map((stat) => ({ ...stat, malls: [...stat.malls] }))
     .sort((a, b) => b.key.localeCompare(a.key));
-  const mallStats = [...byMall.values()]
-    .map<MallCollectionStat>((stat) => {
-      const hasOrderNumbers = stat.orderNumbers.size > 0;
-      // 신규 = 오늘 수집분 중 셀피아 미전송. 전송하면 빠진다.
-      const pendingOrderNumbers = [...stat.orderNumbers].filter(
-        (orderNumber) => !stat.transmittedOrderNumbers.has(orderNumber),
-      ).length;
-      const pendingFallbackRows = [...stat.fallbackWaitingByBucket.entries()]
-        .filter(([bucket]) => !stat.fallbackTransmittedBuckets.has(bucket))
-        .reduce((sum, [, count]) => sum + count, 0);
-      return {
-        key: stat.key,
-        name: stat.name,
-        files: stat.files,
-        orderRows: hasOrderNumbers
-          ? stat.orderNumbers.size
-          : sumMapValues(stat.fallbackByBucket),
-        newRows: pendingOrderNumbers + pendingFallbackRows,
-        productRows: stat.productRows,
-        latestAt: stat.latestAt,
-      };
-    })
-    .sort((a, b) => b.latestAt - a.latestAt || b.orderRows - a.orderRows);
+  const mallStats = [...byMall.values()].sort((a, b) => b.latestAt - a.latestAt);
   const mallStatsByKey = new Map(mallStats.map((stat) => [stat.key, stat]));
 
   return {
@@ -208,18 +134,31 @@ export function buildOrderCollectionSummary(
   };
 }
 
-function sumMapValues(values: Map<string, number>): number {
-  let sum = 0;
-  for (const value of values.values()) sum += value;
-  return sum;
+/**
+ * 몰 카드 = 이 브라우저의 파일 칸 + Orders 서버 리더의 오늘 주문·신규(KID-234, 사장님 2026-09-29 Q3). 당일·신규는 서버 값만
+ * 쓴다 — 다른 PC에서 걷거나 보낸 몰도 같은 수로 보이고, 서버가 오늘 성공 수집을 모르는 몰은 로컬 파일이 있어도 0이다.
+ * 셀피아 대조 결과는 카드 수를 바꾸지 않는다(토스트·버튼 툴팁의 참고).
+ */
+export function mergeServerTodayOrders(
+  local: ReadonlyMap<string, LocalMallCollectionStat>,
+  serverByMall: OrderCollectionTodayOrders["byMall"] | undefined,
+): Map<string, MallCollectionStat> {
+  const cards = new Map<string, MallCollectionStat>();
+  for (const [mallKey, stat] of local) cards.set(mallKey, { ...stat, orderRows: 0, newRows: 0 });
+  for (const [mallKey, today] of Object.entries(serverByMall ?? {})) {
+    const stat = local.get(mallKey) ?? { key: mallKey, name: mallKey, files: 0, productRows: 0, latestAt: 0 };
+    cards.set(mallKey, { ...stat, orderRows: today.orderCount, newRows: today.newCount });
+  }
+  return cards;
 }
 
 export function buildOrderCollectionPipelineSummary(
   items: StoredOrderCollectionFile[],
   date = dayKey(Date.now()),
 ): OrderCollectionPipelineSummary {
+  // 오늘 주문은 Orders 서버 리더가 채운다(KID-234) — 이 브라우저 파일로 세지 않는다. 나머지 단계는 이 브라우저의 전송 기록이다.
   const summary: OrderCollectionPipelineSummary = {
-    todayOrders: 0,
+    todayOrders: null,
     waiting: 0,
     transmissionRequested: 0,
     inventoryPending: 0,
@@ -231,7 +170,6 @@ export function buildOrderCollectionPipelineSummary(
     if (!isSellpiaOrderFile(item)) continue;
     if ((item.collectionDate ?? dayKey(item.convertedAt)) !== date) continue;
     const orderCount = getHistoryOrderCount(item) ?? 0;
-    summary.todayOrders += orderCount;
     if (hasSellpiaTransmissionRequest(item)) {
       summary.transmissionRequested += orderCount;
       summary.inventoryPending += orderCount;

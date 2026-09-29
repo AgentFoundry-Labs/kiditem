@@ -4,6 +4,7 @@ import type { ReactNode } from 'react';
 import { formatNumber } from '@/lib/utils';
 import type {
   MasterProductOperationsListResponse,
+  ProductOperationsActiveStatus,
   ProductOperationsInventoryFocus,
 } from '@kiditem/shared/product-operations';
 import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
@@ -12,12 +13,14 @@ type Props = {
   data: MasterProductOperationsListResponse;
   onShowAbcGrade: (grade: ProductAbcGrade | 'unclassified') => void;
   onShowInventoryFocus: (focus: ProductOperationsInventoryFocus) => void;
+  onShowActiveStatus: (status: ProductOperationsActiveStatus) => void;
 };
 
 export function ProductOperationsCommandCenter({
   data,
   onShowAbcGrade,
   onShowInventoryFocus,
+  onShowActiveStatus,
 }: Props) {
   const channelProductCounts = data.summary.channelProductCounts;
   const channelProductTotal = channelProductCounts.reduce(
@@ -48,12 +51,14 @@ export function ProductOperationsCommandCenter({
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
-          <p className="text-xs font-bold text-[var(--text-tertiary)]">판매중 재고상품</p>
+          {/* 판매중은 재고와 무관하다 — 재고 있는 판매중은 아래 칸이 거른다(KID-333 Q2). */}
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">판매중 상품</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
             {formatNumber(data.total)}
           </p>
         </div>
         <div className="mt-auto">
+          <Breakdown label="재고 있음" value={data.summary.sellingInStockCount} tone="text-teal-700" onClick={() => onShowActiveStatus('selling_in_stock')} />
           <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
           <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
           <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />

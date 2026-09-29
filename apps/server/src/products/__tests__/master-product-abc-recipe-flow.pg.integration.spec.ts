@@ -80,6 +80,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     const abcRepository = new MasterProductAbcRepositoryAdapter(
       prismaService,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prismaService as never).listings,
     );
     const abcRead = new ProductAbcReadUseCase(abcRepository, profitability);
     const displayMedia = new CatalogDisplayMediaService(
@@ -107,6 +108,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
         channelAccounts, advertisingLedgerTestReader(prismaService),
+        channelFactTestPorts(prismaService as never).listings,
       ),
       inventory,
       new SellpiaProductSalesService(prismaService, inventoryReader),
@@ -114,8 +116,8 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(
         prismaService,
         profitability,
-        new ProductTransactionalReadRepositoryAdapter(),
         channelAccounts,
+        channelFactTestPorts(prismaService as never).listings,
       ),
       new MasterProductContributionReadService(
         new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(prismaService)),
@@ -358,6 +360,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     const repository = new MasterProductAbcRepositoryAdapter(
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prisma as never).listings,
     );
     const listTargets = repository.listCurrentAbcTargetIds.bind(repository);
     repository.listCurrentAbcTargetIds = async (organizationId) => {

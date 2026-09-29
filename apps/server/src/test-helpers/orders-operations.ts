@@ -95,7 +95,7 @@ export function todayOrdersTestAdapter(prisma: PrismaClient): OrderCollectionTod
     new OperationRepositoryAdapter(prisma as never),
     new OperationOwnerRegistry(undefined as never, undefined as never),
   );
-  return new OrderCollectionTodayOrdersAdapter(operations);
+  return new OrderCollectionTodayOrdersAdapter(operations, prisma as never);
 }
 
 /** Orders 수집 마지막 성공 시각 capability의 실제 구현(실행 계약 reader). */

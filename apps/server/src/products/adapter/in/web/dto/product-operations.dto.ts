@@ -53,6 +53,7 @@ export class ProductOperationsListQueryDto {
   periodDays: (typeof PERIOD_DAYS)[number] = 30;
 
   @IsIn(ACTIVE_STATUSES)
+  /** 기본 판매중은 재고와 무관하다. 재고 있는 판매중은 `selling_in_stock`(KID-333 Q2). */
   activeStatus: (typeof ACTIVE_STATUSES)[number] = 'active';
 
   @IsOptional()

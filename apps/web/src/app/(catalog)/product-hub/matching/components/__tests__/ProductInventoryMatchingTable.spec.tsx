@@ -26,7 +26,7 @@ function product(linked = true): ChannelProductMatchingQueueRow {
       externalId: '13712531060',
       displayName: '동물 친구들 블록',
       status: 'active',
-      saleStatus: '판매중',
+      saleState: 'on_sale',
       masterProductId: linked ? masterProductId : null,
       channelImageUrl: null,
       updatedAt: '2026-08-03T00:00:00.000Z',

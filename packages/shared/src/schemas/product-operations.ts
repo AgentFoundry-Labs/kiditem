@@ -38,9 +38,14 @@ export type ProductOperationsInventoryFocus = z.infer<
   typeof ProductOperationsInventoryFocusSchema
 >;
 
+/**
+ * 상품 상태 거르기(KID-333 Q2). `active`(판매중)는 재고와 무관하고, 재고 있는 판매중은 `selling_in_stock`이다 —
+ * 판매중 판정은 Channels 정본(`readSellingListings`)이다.
+ */
 export const ProductOperationsActiveStatusSchema = z.enum([
   'all',
   'active',
+  'selling_in_stock',
   'inactive',
 ]);
 export type ProductOperationsActiveStatus = z.infer<
@@ -316,6 +321,8 @@ export const ProductOperationsListSummarySchema = z.object({
   abcOfficialCutoffDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
+  /** 걸러진 상품 가운데 재고 있는 판매중 상품 수(`selling_in_stock` 필터와 같은 사실). */
+  sellingInStockCount: z.number().int().nonnegative(),
   inventoryStatusCounts: z.object({
     sellable: z.number().int().nonnegative(),
     out_of_stock: z.number().int().nonnegative(),

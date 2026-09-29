@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
@@ -44,7 +45,7 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
     });
     const evidence = new MasterProductProfitabilityReadService(sellpia, prisma as never, new ProductTransactionalReadRepositoryAdapter());
     const products = new ProductDataStatusUseCase(
-      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as never).accounts),
+      new ProductOperationsDataStatusRepositoryAdapter(prisma as never, evidence, profitCatalogTestReaders(prisma as never).accounts, channelFactTestPorts(prisma as never).listings),
     );
 
     const targetCutoff = published.plan.to;

@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import {
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
@@ -302,6 +303,7 @@ describe('ensure:absolute_product_abc_formula (PostgreSQL)', () => {
       new MasterProductAbcRepositoryAdapter(
         prisma as never,
         new ProductTransactionalReadRepositoryAdapter(),
+        channelFactTestPorts(prisma as never).listings,
       ).publish(publicationInput()),
     );
     try {
