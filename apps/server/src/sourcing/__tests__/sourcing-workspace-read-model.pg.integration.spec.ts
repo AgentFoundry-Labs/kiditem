@@ -9,10 +9,10 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { SourcingRecommendationRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation.repository.adapter';
-import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
-import { SourcingReviewRepositoryAdapter } from '../adapter/out/repository/sourcing-review.repository.adapter';
-import { SourcingValidationRepositoryAdapter } from '../adapter/out/repository/sourcing-validation.repository.adapter';
+import { SourcingRecommendationRepositoryAdapter } from '../adapter/out/persistence/sourcing-recommendation.repository';
+import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/persistence/sourcing-recommendation-source.repository';
+import { SourcingReviewRepositoryAdapter } from '../adapter/out/persistence/sourcing-review.repository';
+import { SourcingValidationRepositoryAdapter } from '../adapter/out/persistence/sourcing-validation.repository';
 import { SourcingReviewService } from '../application/service/sourcing-review.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';

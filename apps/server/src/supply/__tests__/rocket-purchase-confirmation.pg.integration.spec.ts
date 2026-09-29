@@ -1,6 +1,6 @@
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -14,17 +14,17 @@ import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketPoCatalogService } from '../../orders/application/service/rocket-po-catalog.service';
-import { RocketPoCatalogRepositoryAdapter } from '../../orders/adapter/out/repository/rocket-po-catalog.repository.adapter';
-import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
-import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
-import { SellpiaTransferOutcomePersistenceAdapter } from '../../orders/adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
+import { RocketPoCatalogRepositoryAdapter } from '../../orders/adapter/out/persistence/rocket-po-catalog.repository';
+import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
+import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository';
+import { SellpiaTransferOutcomePersistenceAdapter } from '../../orders/adapter/out/persistence/sellpia-transfer-outcome.repository';
 import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import type { RocketWorkbookDecisionRequest } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketWorkbookExportTransactionPort } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 /** 워크북을 관측한 Orders 직배송 실행(`orders.coupang_directship`, KID-359). */

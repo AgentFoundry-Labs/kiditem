@@ -25,7 +25,7 @@ import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SabangnetImportProductWrite,
   type SalesProductRepositoryPort,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 import {
   SALES_PRODUCT_IMAGE_MIRROR_PORT,
   type SalesProductImageMirrorPort,

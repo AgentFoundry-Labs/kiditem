@@ -24,15 +24,15 @@ import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../../common/operation/application/service/operation.service';
 import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
 import { WingItemwinnerOperationOwner } from '../adapter/in/operation/wing-daily-operation-owners';
-import { AdvertisingExtensionStatusRepositoryAdapter } from '../adapter/out/repository/advertising-extension-status.repository.adapter';
-import { WingItemwinnerOperationRepository } from '../adapter/out/repository/wing-itemwinner-operation.repository';
+import { AdvertisingExtensionStatusRepositoryAdapter } from '../adapter/out/persistence/advertising-extension-status.repository';
+import { WingItemwinnerOperationRepository } from '../adapter/out/persistence/wing-itemwinner-operation.repository';
 import { AdvertisingExtensionService } from '../application/service/advertising-extension.service';
 
 // 확장 수집기(advertising.wing_itemwinner)가 밟는 길을 서버에서 그대로: begin → itemwinner_rows 청크 →

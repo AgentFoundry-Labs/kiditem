@@ -9,7 +9,7 @@ import type {
   ProductsListingGenerationCapabilityPort,
   ProductsListingGenerationInput,
   ProductsListingGenerationResult,
-} from '../../../application/port/in/capability/listing-generation.port';
+} from '../../../application/port/in/generation/listing-generation.port';
 
 /** Products owns the capability boundary for generation on an existing candidate. */
 @Injectable()

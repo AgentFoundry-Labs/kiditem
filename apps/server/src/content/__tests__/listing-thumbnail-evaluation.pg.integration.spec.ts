@@ -9,7 +9,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ListingThumbnailEvaluationRepositoryAdapter } from '../adapter/out/repository/listing-thumbnail-evaluation.repository.adapter';
+import { ListingThumbnailEvaluationRepositoryAdapter } from '../adapter/out/persistence/listing-thumbnail-evaluation.repository';
 import { ListingThumbnailEvaluationService } from '../application/service/listing-thumbnail-evaluation.service';
 import { ThumbnailVisionAiService } from '../application/service/thumbnail-vision-ai.service';
 import type { ThumbnailVisionProviderPort } from '../application/port/out/provider/thumbnail-vision-provider.port';

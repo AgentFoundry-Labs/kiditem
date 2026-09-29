@@ -13,7 +13,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ordersOperationsApp } from '../../test-helpers/orders-operations';
 import { SellpiaShipmentTrackingOperationOwner } from '../../orders/adapter/in/operation/sellpia-shipment-tracking-operation-owner';
-import { OrderOperationCapturePersistenceAdapter } from '../../orders/adapter/out/persistence/order-operation-capture.persistence.adapter';
+import { OrderOperationCapturePersistenceAdapter } from '../../orders/adapter/out/persistence/order-operation-capture.repository';
 import { ORDER_OPERATION_CAPTURE_PORT } from '../../orders/application/port/in/order-operation-capture.port';
 import { sellpiaInventoryOperationProviders } from '../product-source.module';
 import { SellpiaInventoryOperationOwner } from '../adapter/in/operation/sellpia-inventory-operation-owner';

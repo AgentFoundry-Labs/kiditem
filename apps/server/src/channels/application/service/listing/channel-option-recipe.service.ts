@@ -9,7 +9,7 @@ import {
 } from '../../port/in/channel-option-recipe.port';
 import {
   type ChannelOptionRecipeRepositoryPort,
-} from '../../port/out/persistence/channel-option-recipe.repository.port';
+} from '../../port/out/repository/channel-option-recipe.repository.port';
 
 export class ChannelOptionRecipeService
 implements ChannelOptionRecipePort {

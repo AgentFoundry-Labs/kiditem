@@ -30,7 +30,7 @@ import {
   type ChannelAccountPersistencePort,
   type MallAccountRecord,
   type MallAccountWrite,
-} from '../../port/out/persistence/channel-account.persistence.port';
+} from '../../port/out/repository/channel-account.persistence.port';
 import type { ChannelCredentialsPort } from '../../port/out/credentials/channel-credentials.port';
 
 const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';

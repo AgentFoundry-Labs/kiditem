@@ -10,7 +10,7 @@ import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { createHash } from 'node:crypto';
 import { isKiditemError } from '@kiditem/shared/errors';
 import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
-import { SourceRecordRepositoryAdapter } from '../adapter/out/repository/source-record.repository.adapter';
+import { SourceRecordRepositoryAdapter } from '../adapter/out/persistence/source-record.repository';
 import { SourcingFinalDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-final-discovery-capability.adapter';
 import { SourceRecordDuplicateError } from '../domain/source-record-admission';
 import { canonicalSourceRecordIdentity } from '../domain/source-record-identity';

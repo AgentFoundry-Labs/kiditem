@@ -48,7 +48,7 @@ import {
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductRepositoryPort,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 import type { ChannelRegistrableDetailPagePort } from '../../port/out/content/registrable-detail-page.port';
 import {
   MALL_BULK_SHEET_FILES_PORT,

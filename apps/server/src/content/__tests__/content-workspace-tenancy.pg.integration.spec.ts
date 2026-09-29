@@ -11,14 +11,14 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/persistence/content-asset-library.repository';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/persistence/content-workspace-lifecycle.repository';
 import { SalesProductOwnerReadAdapter } from '../adapter/out/channels/sales-product-owner.adapter';
-import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
-import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/persistence/thumbnail-generation-ledger.repository';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/persistence/registration-content-workspace.repository';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
 import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
-import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.repository';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 

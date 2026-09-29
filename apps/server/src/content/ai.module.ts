@@ -18,7 +18,7 @@ import { RenderImageController } from './adapter/in/http/render-image.controller
 import { ContentWorkspaceController } from './adapter/in/http/content-workspace.controller';
 import { TextAiController } from './adapter/in/http/text-ai.controller';
 import { ListingThumbnailEvaluationController } from './adapter/in/http/listing-thumbnail-evaluation.controller';
-import { ListingThumbnailEvaluationRepositoryAdapter } from './adapter/out/repository/listing-thumbnail-evaluation.repository.adapter';
+import { ListingThumbnailEvaluationRepositoryAdapter } from './adapter/out/persistence/listing-thumbnail-evaluation.repository';
 import { ListingThumbnailEvaluationService } from './application/service/listing-thumbnail-evaluation.service';
 import { ThumbnailJobsController } from './adapter/in/http/thumbnail-jobs.controller';
 import { ThumbnailJobReviewController } from './adapter/in/http/thumbnail-job-review.controller';
@@ -28,13 +28,13 @@ import { ThumbnailEditorController } from './adapter/in/http/thumbnail-editor.co
 // adapter/out
 import { DetailPageGenerationSinkAdapter } from './adapter/out/direct-output/detail-page-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
-import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
-import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/repository/catalog-display-media.repository.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/persistence/ai-catalog-media-publication.repository';
+import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/persistence/catalog-display-media.repository';
 import { AiDirectJobOperationsAdapter } from './adapter/out/runtime/ai-direct-job-operations.adapter';
 import { AI_DIRECT_JOB_OPERATION_OWNERS } from './adapter/in/operation/ai-direct-job-operation-owners';
 import { OperationModule } from '../common/operation/operation.module';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
-import { TEXT_JUDGEMENT_PORT } from './application/port/in/capability/text-judgement.port';
+import { TEXT_JUDGEMENT_PORT } from './application/port/in/judgement/text-judgement.port';
 import { TextJudgementService } from './application/service/text-judgement.service';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';
@@ -44,16 +44,16 @@ import { ThumbnailReferenceImagesService } from './adapter/out/gemini/thumbnail-
 import { ThumbnailImageFetcherService } from './adapter/out/image-fetch/thumbnail-image-fetcher.adapter';
 import { SharpGeneratedImageValidatorAdapter } from './adapter/out/image-validation/sharp-generated-image-validator.adapter';
 import { DetailPageTemplateStylesAdapter } from './adapter/out/runtime/detail-page-template-styles.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/repository/content-asset-library.repository.adapter';
-import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/repository/content-workspace-lifecycle.repository.adapter';
-import { RegistrationContentWorkspaceRepositoryAdapter } from './adapter/out/repository/registration-content-workspace.repository.adapter';
-import { DetailPageGenerationRepositoryAdapter } from './adapter/out/repository/detail-page-generation.repository.adapter';
-import { DetailPageRepositoryAdapter } from './adapter/out/repository/detail-page.repository.adapter';
-import { DetailPageImageRepositoryAdapter } from './adapter/out/repository/detail-page-image.repository.adapter';
-import { ProductGenerationContextRepositoryAdapter } from './adapter/out/repository/product-generation-context.repository.adapter';
-import { SalesProductWorkspaceArchiveRepositoryAdapter } from './adapter/out/repository/sales-product-workspace-archive.repository.adapter';
-import { ThumbnailGenerationLedgerRepositoryAdapter } from './adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
-import { RegistrableThumbnailRepositoryAdapter } from './adapter/out/repository/registrable-thumbnail.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from './adapter/out/persistence/content-asset-library.repository';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from './adapter/out/persistence/content-workspace-lifecycle.repository';
+import { RegistrationContentWorkspaceRepositoryAdapter } from './adapter/out/persistence/registration-content-workspace.repository';
+import { DetailPageGenerationRepositoryAdapter } from './adapter/out/persistence/detail-page-generation.repository';
+import { DetailPageRepositoryAdapter } from './adapter/out/persistence/detail-page.repository';
+import { DetailPageImageRepositoryAdapter } from './adapter/out/persistence/detail-page-image.repository';
+import { ProductGenerationContextRepositoryAdapter } from './adapter/out/persistence/product-generation-context.repository';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from './adapter/out/persistence/sales-product-workspace-archive.repository';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from './adapter/out/persistence/thumbnail-generation-ledger.repository';
+import { RegistrableThumbnailRepositoryAdapter } from './adapter/out/persistence/registrable-thumbnail.repository';
 // application/service
 import { ImageAiService } from './application/service/image-ai.service';
 import { ImageEditDirectGenerationExecutorService } from './application/service/image-edit-direct-generation-executor.service';
@@ -95,7 +95,7 @@ import { AiDirectJobProcessorService } from './application/service/ai-direct-job
 import { AiDirectJobWorkerService } from './application/service/ai-direct-job-worker.service';
 import { AiUsageService } from './application/service/ai-usage.service';
 import { AI_USAGE_REPOSITORY_PORT } from './application/port/out/repository/ai-usage.repository.port';
-import { AiUsageRepositoryAdapter } from './adapter/out/repository/ai-usage.repository.adapter';
+import { AiUsageRepositoryAdapter } from './adapter/out/persistence/ai-usage.repository';
 import { AiUsageController } from './adapter/in/http/ai-usage.controller';
 import { AiDirectJobWakeRegistrationService } from './application/service/ai-direct-job-wake-registration.service';
 import { CatalogDisplayMediaService } from './application/service/catalog-display-media.service';

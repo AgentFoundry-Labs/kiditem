@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { AI_LISTING_CONTENT_QUERY_PORT } from './application/port/in/workspace/listing-content-query.port';
-import { ListingContentQueryRepositoryAdapter } from './adapter/out/repository/listing-content-query.repository.adapter';
+import { ListingContentQueryRepositoryAdapter } from './adapter/out/persistence/listing-content-query.repository';
 /** Content facts by scalar listing IDs; independent of provider and generation runtimes. */
 @Module({
   imports: [PrismaModule],

@@ -29,7 +29,7 @@ import { ANALYTICS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/cap
  *     retired (KID-110) — Advertising's Wing collection is the only
  *     listing-day traffic publisher.
  *   - Raw SQL and report hydration code lives under
- *     `adapter/out/repository/dashboard/*.repository.adapter.ts` (the only
+ *     `adapter/out/persistence/dashboard/*.repository.ts` (the only
  *     sub-domain that needed an out-adapter lane in this wave). Statistics
  *     and supplier-stats use Prisma directly because they have no
  *     `$queryRaw` surfaces (documented legacy exception, KID-334); traffic

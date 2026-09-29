@@ -19,14 +19,14 @@ import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
 import {
   ORDER_COLLECTION_SOURCE_PORT,
   orderCollectionJsonSubmission,
 } from '../application/port/in/order-collection-source.port';
-import { OrderCollectionSourceRepository } from '../adapter/out/repository/order-collection-source.repository';
+import { OrderCollectionSourceRepository } from '../adapter/out/persistence/order-collection-source.repository';
 import { OrderCollectionController } from '../adapter/in/web/order-collection.controller';
 import { OrderCollectionSourceController } from '../adapter/in/web/order-collection-source.controller';
 import { OrderCollectionService } from '../application/service/order-collection.service';
@@ -36,7 +36,7 @@ import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelsProductMappingGenerationAdapter } from '../../channels/adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
 
 const BASE = '/api/orders/collection';
 

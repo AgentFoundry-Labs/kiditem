@@ -8,7 +8,7 @@ import { readFile } from 'node:fs/promises';
 import {
   CONVERSATION_PORT,
   type ConversationOwner,
-} from '../../../../application/port/in/capability/conversation.port';
+} from '../../../../application/port/in/conversation/conversation.port';
 import { ConversationService } from '../../../../application/service/conversation.service';
 import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';

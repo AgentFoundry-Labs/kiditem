@@ -15,9 +15,9 @@ import {
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { DashboardSalesService } from '../../application/service/dashboard/dashboard-sales.service';
 import { buildDashboardContext } from '../../domain/dashboard/context';
-import { DashboardSalesRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-sales.repository.adapter';
-import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
-import { ProfitCalculationRepositoryAdapter } from '../../adapter/out/repository/dashboard/profit-calculation.repository.adapter';
+import { DashboardSalesRepositoryAdapter } from '../../adapter/out/persistence/dashboard/dashboard-sales.repository';
+import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/wing-traffic-aggregation.repository';
+import { ProfitCalculationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/profit-calculation.repository';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/profit-calculation.repository.port';
 import { DASHBOARD_SALES_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/dashboard-sales.repository.port';
@@ -51,7 +51,7 @@ import {
 } from '../../../common/kst';
 import { ProfitLossService } from '../../../finance/application/service/profit-loss/profit-loss.service';
 import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import {
   PRODUCT_ABC_READ_PORT,

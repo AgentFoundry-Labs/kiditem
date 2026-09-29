@@ -1,4 +1,4 @@
-import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.repository';
 import { seedAdCampaign, seedAdProductDays, seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
@@ -14,12 +14,12 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
-import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
-import { AdStrategyContextRepositoryAdapter } from '../adapter/out/repository/ad-strategy-context.repository.adapter';
-import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
+import { AdActionRepositoryAdapter } from '../adapter/out/persistence/ad-action.repository';
+import { AdListingRepositoryAdapter } from '../adapter/out/persistence/ad-listing.repository';
+import { AdStrategyContextRepositoryAdapter } from '../adapter/out/persistence/ad-strategy-context.repository';
+import { KeywordRankRepositoryAdapter } from '../adapter/out/persistence/keyword-rank.repository';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 
 describe('Advertising published product ABC consumers (PostgreSQL)', () => {
   let prisma: PrismaClient;

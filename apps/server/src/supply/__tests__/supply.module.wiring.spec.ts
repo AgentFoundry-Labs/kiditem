@@ -14,9 +14,9 @@ import { PurchaseOrderSubmissionService } from '../application/service/purchase-
 import { SupplyAgentCapabilityAdapter } from '../adapter/in/agent/supply-agent-capability.adapter';
 import { SupplyCapabilityCompositionAdapter } from '../adapter/in/agent/supply-capability-composition.adapter';
 import { Alibaba1688CheckoutRuntimeAdapter } from '../adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
-import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
-import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
-import { SupplySourcingProcurementRepositoryAdapter } from '../adapter/out/repository/supply-sourcing-procurement.repository.adapter';
+import { SupplierRepositoryAdapter } from '../adapter/out/persistence/supplier.repository';
+import { ProcurementRepositoryAdapter } from '../adapter/out/persistence/procurement.repository';
+import { SupplySourcingProcurementRepositoryAdapter } from '../adapter/out/persistence/supply-sourcing-procurement.repository';
 import { PURCHASE_ORDER_DRAFT_PORT } from '../application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from '../application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLY_CAPABILITY_COMPOSITION_PORT } from '../application/port/in/capability/supply-capability-composition.port';

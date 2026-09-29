@@ -20,16 +20,16 @@ import {
   CHANNEL_CATALOG_FRESHNESS_PORT,
   type ChannelCatalogFreshnessPort,
 } from '../channels/application/port/in/channel-catalog-freshness.port';
-import { countPublishedCatalogListings } from '../channels/adapter/out/repository/published-catalog-listing';
+import { countPublishedCatalogListings } from '../channels/adapter/out/persistence/published-catalog-listing';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import {
   ADVERTISING_LEDGER_READ_PORT,
   type AdvertisingLedgerReadPort,
-} from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+} from '../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import {
   ADVERTISING_KEYWORD_RANK_READ_PORT,
   type AdvertisingKeywordRankReadPort,
-} from '../advertising/application/port/in/capability/keyword-rank-read.port';
+} from '../advertising/application/port/in/ledger/keyword-rank-read.port';
 import type {
   ReadinessCheck,
   ReadinessResponse,

@@ -11,7 +11,7 @@ import {
 } from '../sourcing/application/port/in/capability/sourcing-capability-admission.port';
 import { SupplyAgentRuntimeModule } from '../supply/supply-agent-runtime.module';
 import { PrismaService } from '../prisma/prisma.service';
-import { PrismaCapabilityInvocationRepository } from './adapter/out/repository/prisma-capability-invocation.repository';
+import { PrismaCapabilityInvocationRepository } from './adapter/out/persistence/prisma-capability-invocation.repository';
 import {
   CAPABILITY_APPROVAL_PORT,
   CAPABILITY_INVOCATION_PORT,

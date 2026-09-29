@@ -6,8 +6,8 @@ import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '..
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { RegistrationContentWorkspacePort } from '../../content/application/port/in/workspace/registration-content-workspace.port';
-import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
-import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
+import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository';
 import { SalesProductMallSheetService } from '../application/service/sales-product/sales-product-mall-sheet.service';
 import { productTransactionalRead } from './product-transactional-read.fake';
 

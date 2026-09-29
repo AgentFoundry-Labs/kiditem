@@ -38,7 +38,7 @@ import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductBasicsRecord,
   type SalesProductRepositoryPort,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 
 
 /** 초안 삭제를 막는 이유마다 운영자에게 보이는 문장. 판매 상품은 지우지 않고 보관한다(KID-313). */

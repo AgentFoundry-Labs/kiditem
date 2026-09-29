@@ -3,7 +3,7 @@ import { UpdateMasterProductInputSchema } from '@kiditem/shared/product-operatio
 import { ProductInputException } from '../exception/product-input.exception';
 import { type ProductMetadataPort } from '../port/in/product-metadata.port';
 import { PRODUCT_QUERY_PORT, type ProductQueryPort } from '../port/in/product-query.port';
-import { PRODUCT_OPERATIONS_REPOSITORY_PORT, type ProductOperationsRepositoryPort } from '../port/out/persistence/product-operations.repository.port';
+import { PRODUCT_OPERATIONS_REPOSITORY_PORT, type ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 
 @Injectable()
 export class UpdateProductMetadataUseCase implements ProductMetadataPort {

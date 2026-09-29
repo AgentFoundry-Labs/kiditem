@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SourceRecordRepositoryAdapter } from './adapter/out/repository/source-record.repository.adapter';
+import { SourceRecordRepositoryAdapter } from './adapter/out/persistence/source-record.repository';
 import { SOURCE_RECORD_PORT } from './application/port/in/source-record.port';
 import { SOURCE_RECORD_REPOSITORY_PORT } from './application/port/out/repository/source-record.repository.port';
 

@@ -8,8 +8,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
+import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository';
 import type { PrismaClient } from '@prisma/client';
 
 describe('stock transfer mutation organization boundary (PG integration)', () => {

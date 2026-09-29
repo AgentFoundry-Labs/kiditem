@@ -24,7 +24,7 @@ import type {
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 import type {
   SabangnetChannelOverrideRow,
   SabangnetMallCategoryRow,

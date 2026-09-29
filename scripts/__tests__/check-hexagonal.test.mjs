@@ -170,16 +170,20 @@ test('products joins the scanner (KID-311)', () => {
   assert.ok(hexagonalBoundaryViolations('apps/server/src/products/read/product-abc-publication.reader.ts', '').length);
 });
 
-test('analytics joins the scanner: retired lanes refused, a listed adapter import passes (KID-311)', () => {
+test("analytics joins the scanner: retired lanes refused; another owner's adapter is left to the cross-owner rule (KID-311, KID-324)", async () => {
   for (const path of ['analytics/dto/x.dto.ts', 'analytics/services/x.service.ts', 'analytics/read/x.ts', 'analytics/controllers/x.controller.ts']) {
     assert.ok(hexagonalBoundaryViolations(`apps/server/src/${path}`, '').length, path);
   }
   const statistics = 'analytics/application/service/statistics/statistics.service.ts';
   const specifier = '../../../../orders/adapter/out/persistence/read/order-facts.reader';
   const source = `import { x } from '${specifier}';`;
-  const entry = { owner: 'analytics', file: statistics, specifier, removeWith: 'KID-334' };
-  assert.deepEqual(evaluateHexagonal([{ file: statistics, source }], [entry]), []);
-  assert.equal(evaluateHexagonal([{ file: statistics, source }], []).length, 1);
+  // A cross-owner edge is listed once, in CROSS_OWNER_EXCEPTIONS, not in KNOWN_VIOLATIONS.
+  assert.deepEqual(evaluateHexagonal([{ file: statistics, source }], []), []);
+  const { crossOwnerImportFindings } = await import('../check-hexagonal.mjs');
+  assert.equal(crossOwnerImportFindings(statistics, source).length, 1);
+  // A same-owner adapter import from the pure layer still needs a KNOWN_VIOLATIONS entry.
+  const own = "import { x } from '../../../adapter/out/persistence/read/statistics-facts';";
+  assert.equal(evaluateHexagonal([{ file: statistics, source: own }], []).length, 1);
 });
 
 test('a known violation must name a scanned owner, a file under it, a specifier and a KID ticket (KID-311)', () => {
@@ -211,4 +215,61 @@ test('the vacated controllers/, services/ and dto/ lanes are retired for every s
   }
   assert.deepEqual(hexagonalBoundaryViolations('apps/server/src/orders/adapter/in/web/dto/x.dto.ts', ''), []);
   assert.deepEqual(hexagonalBoundaryViolations('apps/server/src/orders/coupang-directship/services/x.ts', ''), []);
+});
+
+// KID-324: another owner is reachable only through its public incoming ports.
+test('another owner is imported only through its incoming ports, never its internals (KID-324)', async () => {
+  const { crossOwnerImportFindings } = await import('../check-hexagonal.mjs');
+  const importer = 'channels/adapter/out/persistence/listing.repository.ts';
+  for (const target of [
+    '../../../../products/adapter/out/persistence/product.repository',
+    '../../../../products/domain/option-pricing-resolver',
+    '../../../../products/application/service/product.service',
+    '../../../../products/transaction/product-mapping-lock',
+    '../../../../analytics/sellpia-sales/read/sellpia-sales-daily-facts',
+    '../../../../orders/adapter/out/persistence/read/order-facts.reader',
+  ]) {
+    assert.equal(crossOwnerImportFindings(importer, `import { x } from '${target}';`).length, 1, target);
+  }
+  for (const target of [
+    '../../../../products/application/port/in/product-query.port',
+    '../../../../products/product-source.module',
+    '../../../../auth/decorators/current-organization.decorator',
+    '../../../../common/operation/transaction/operations-by-plan',
+    '../../../../prisma/prisma.service',
+    '../../../domain/listing/listing-product-summary',
+    '../read/own-facts',
+  ]) {
+    assert.deepEqual(crossOwnerImportFindings(importer, `import { x } from '${target}';`), [], target);
+  }
+  // Agent OS collects every owner's Agent capability catalog; no other owner may.
+  const catalog = 'agent-os/domain/catalog/final-capability.catalog.ts';
+  assert.deepEqual(crossOwnerImportFindings(catalog, "import { x } from '../../../products/domain/capability/products.capabilities';"), []);
+  assert.equal(crossOwnerImportFindings(catalog, "import { x } from '../../../products/domain/option-pricing-resolver';").length, 1);
+  assert.equal(crossOwnerImportFindings(importer, "import { x } from '../../../../products/domain/capability/products.capabilities';").length, 1);
+  const foreign = "import { x } from '../../products/adapter/out/persistence/product.repository';";
+  assert.deepEqual(crossOwnerImportFindings('channels/__tests__/listing.pg.integration.spec.ts', foreign), []);
+  assert.deepEqual(crossOwnerImportFindings('channels/listing/listing.spec.ts', foreign), []);
+  assert.deepEqual(crossOwnerImportFindings('test-helpers/fixtures.ts', "import { x } from '../products/adapter/out/persistence/product.repository';"), []);
+  assert.deepEqual(crossOwnerImportFindings('main.ts', "import { x } from './channels/adapter/out/persistence/x';"), []);
+  assert.deepEqual(
+    crossOwnerImportFindings(importer, "import('../../../../products/transaction/product-mapping-lock')"),
+    [{ from: importer, to: 'products/transaction/product-mapping-lock' }],
+  );
+});
+
+test('a cross-owner exception allows exactly one from/to pair and fails when stale (KID-324)', async () => {
+  const { evaluateCrossOwnerImports, crossOwnerExceptionShapeErrors, CROSS_OWNER_EXCEPTIONS } = await import('../check-hexagonal.mjs');
+  const from = 'readiness/readiness.service.ts';
+  const source = "import { x } from '../channels/adapter/out/persistence/published-catalog-listing';";
+  const entry = { from, to: 'channels/adapter/out/persistence/published-catalog-listing', removeWith: 'KID-324' };
+  assert.deepEqual(evaluateCrossOwnerImports([{ file: from, source }], [entry]), []);
+  assert.match(evaluateCrossOwnerImports([{ file: from, source }], [])[0], /readiness\/readiness\.service\.ts imports another owner's internals: channels\/adapter\/out\/persistence\/published-catalog-listing/);
+  assert.match(evaluateCrossOwnerImports([], [entry])[0], /Stale CROSS_OWNER_EXCEPTIONS entry \(removeWith KID-324\)/);
+  assert.deepEqual(crossOwnerExceptionShapeErrors(CROSS_OWNER_EXCEPTIONS), []);
+  const errors = crossOwnerExceptionShapeErrors([{ ...entry, to: 'channels/domain/x', removeWith: 'later' }, { ...entry, to: '' }, entry, entry]);
+  assert.equal(errors.length, 3);
+  assert.match(errors[0], /removeWith must be KID-<n>/);
+  assert.match(errors[1], /from and to are required/);
+  assert.match(errors[2], /duplicate entry/);
 });

@@ -1,5 +1,5 @@
 import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../../../test-helpers/channel-fact-ports';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { periodBasisStatus } from '@kiditem/shared/dashboard';
 import { SalesAnalysisService } from '../sales-analysis.service';

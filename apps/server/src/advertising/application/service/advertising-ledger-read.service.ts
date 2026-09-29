@@ -12,7 +12,7 @@ import type {
   AdvertisingLedgerReadPort,
   AdWindowFacts,
   MonthlyAdAllocation,
-} from '../port/in/capability/advertising-ledger-read.port';
+} from '../port/in/ledger/advertising-ledger-read.port';
 import { AD_LEDGER_READ_REPOSITORY_PORT, type AdLedgerReadRepositoryPort } from '../port/out/repository/ad-ledger-read.repository.port';
 import {
   AD_LEDGER_MONTHLY_ALLOCATION_PORT,

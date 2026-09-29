@@ -8,9 +8,9 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/repository/registration-content-workspace.repository.adapter';
+import { RegistrationContentWorkspaceRepositoryAdapter } from '../adapter/out/persistence/registration-content-workspace.repository';
 import { RegistrationContentWorkspaceService } from '../application/service/registration-content-workspace.service';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ImportDetailPageInput } from '../application/port/in/workspace/registration-content-workspace.port';

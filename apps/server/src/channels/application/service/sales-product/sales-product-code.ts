@@ -1,5 +1,5 @@
 import type { SalesProductOptionReplacementPlan } from '../../../domain/sales-product/sales-product';
-import type { SalesProductRepositoryPort } from '../../port/out/persistence/sales-product.repository.port';
+import type { SalesProductRepositoryPort } from '../../port/out/repository/sales-product.repository.port';
 
 /**
  * 가져오기(사방넷)가 쓰는 단품 KID 발급. 운영 경로의 발급은 `ensureSalesProductCodes` 하나다 —

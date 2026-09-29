@@ -89,3 +89,52 @@ test("requires incoming ports to use capability names rather than caller or runt
     "apps/server/src/supply/application/port/in/gateway/gateway-control.port.ts",
   ]);
 });
+
+test("rejects retired backend lanes: adapter/out/repository, application/usecase and port/out/persistence (KID-324)", () => {
+  const result = analyzeDirectoryArchitecture({
+    architectureDoc: "",
+    serverSrcDirs: [],
+    gatewaySrcDirs: [],
+    webAppDirs: [],
+    webSrcDirs: ["app"],
+    webAppApiExists: false,
+    serverFiles: [
+      "apps/server/src/channels/adapter/out/persistence/listing.repository.ts",
+      "apps/server/src/channels/adapter/out/repository/listing.repository.ts",
+      "apps/server/src/inventory/application/service/transfers.service.ts",
+      "apps/server/src/inventory/application/usecase/transfers.service.ts",
+      "apps/server/src/products/application/port/out/repository/product.repository.port.ts",
+      "apps/server/src/products/application/port/out/persistence/product.repository.port.ts",
+      "apps/server/src/common/operation/adapter/out/repository/operation.repository.ts",
+    ],
+  });
+
+  assert.deepEqual(result.retiredLaneFiles, [
+    "apps/server/src/channels/adapter/out/repository/listing.repository.ts",
+    "apps/server/src/common/operation/adapter/out/repository/operation.repository.ts",
+    "apps/server/src/inventory/application/usecase/transfers.service.ts",
+    "apps/server/src/products/application/port/out/persistence/product.repository.port.ts",
+  ]);
+});
+
+test("rejects the retired *.repository.adapter.ts and *.persistence.adapter.ts file names (KID-324)", () => {
+  const result = analyzeDirectoryArchitecture({
+    architectureDoc: "",
+    serverSrcDirs: [],
+    gatewaySrcDirs: [],
+    webAppDirs: [],
+    webSrcDirs: ["app"],
+    webAppApiExists: false,
+    serverFiles: [
+      "apps/server/src/channels/adapter/out/persistence/listing.repository.ts",
+      "apps/server/src/channels/adapter/out/persistence/listing.repository.adapter.ts",
+      "apps/server/src/channels/adapter/out/persistence/account.persistence.adapter.spec.ts",
+      "apps/server/src/supply/adapter/out/transaction/submission.transaction.adapter.ts",
+    ],
+  });
+
+  assert.deepEqual(result.retiredAdapterFileNames, [
+    "apps/server/src/channels/adapter/out/persistence/account.persistence.adapter.spec.ts",
+    "apps/server/src/channels/adapter/out/persistence/listing.repository.adapter.ts",
+  ]);
+});

@@ -1,4 +1,4 @@
-import { ProductTransactionalReadRepositoryAdapter } from '../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { KiditemError } from '@kiditem/shared/errors';
 import { describe, expect, it, vi } from 'vitest';
 import { PurchaseOrderSubmissionTransactionAdapter } from './purchase-order-submission.transaction.adapter';

@@ -23,7 +23,7 @@ import {
 import {
   PRODUCT_OPERATIONS_REPOSITORY_PORT,
   type ProductOperationsRepositoryPort,
-} from '../port/out/persistence/product-operations.repository.port';
+} from '../port/out/repository/product-operations.repository.port';
 import {
   PRODUCT_AVAILABILITY_PORT,
   type ProductAvailabilityPort,
@@ -44,7 +44,7 @@ import {
   PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
   type ProductOperationsDataStatusRepositoryPort,
   type ProductOperationsDataStatusFacts,
-} from '../port/out/persistence/product-operations-data-status.repository.port';
+} from '../port/out/repository/product-operations-data-status.repository.port';
 import {
   MASTER_PRODUCT_CONTRIBUTION_READ_PORT,
   type MasterProductContributionReadPort,

@@ -1,6 +1,6 @@
 import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
+import { ProductSourceReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-source-read.repository';
 import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD, PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH } from '@kiditem/shared/product-abc';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
@@ -9,8 +9,8 @@ import { MasterProductProfitabilityReadService } from '../../../finance/applicat
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
 import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
-import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
-import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/persistence/master-product-abc.repository.port';
+import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository';
+import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/repository/master-product-abc.repository.port';
 import { PRODUCT_ABC_READ_PORT } from '../../../products/application/port/in/product-abc-read.port';
 import { ProductAbcReadUseCase } from '../../../products/application/service/product-abc-read.usecase';
 import { SourceFailureAlerts } from '../../../alerts/alerts.service';
@@ -18,7 +18,7 @@ import { DashboardInventoryService } from '../../application/service/dashboard/d
 import { buildDashboardContext } from '../../domain/dashboard/context';
 import { businessDateText } from '../../domain/dashboard/period/dashboard-period';
 import { shiftBusinessDateKey } from '../../../common/kst';
-import { DashboardInventoryRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-inventory.repository.adapter';
+import { DashboardInventoryRepositoryAdapter } from '../../adapter/out/persistence/dashboard/dashboard-inventory.repository';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import { PRODUCT_SOURCE_READ_PORT } from '../../../products/application/port/in/product-source-read.port';
 import { PrismaService } from '../../../prisma/prisma.service';

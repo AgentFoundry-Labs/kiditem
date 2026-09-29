@@ -11,7 +11,7 @@ import { makeTestPrisma, OTHER_ORGANIZATION_ID, resetDb, seedBaseFixture, TEST_O
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/persistence/operation.repository';
 import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../../common/operation/application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from '../../common/operation/application/service/operation-owner.registry';
@@ -20,7 +20,7 @@ import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/a
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
 import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
 import { readObservedOrderCount } from '../adapter/out/persistence/read/order-facts.reader';
-import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.persistence.adapter';
+import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.repository';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from '../application/port/out/transaction/coupang-direct-order-collection.transaction.port';

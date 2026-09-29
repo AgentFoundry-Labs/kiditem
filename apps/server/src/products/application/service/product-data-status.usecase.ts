@@ -7,7 +7,7 @@ import {
 import {
   PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
   type ProductOperationsDataStatusRepositoryPort,
-} from '../port/out/persistence/product-operations-data-status.repository.port';
+} from '../port/out/repository/product-operations-data-status.repository.port';
 
 @Injectable()
 export class ProductDataStatusUseCase {

@@ -5,7 +5,7 @@ import { SUPPLY_CAPABILITIES } from '../../../domain/capability/supply.capabilit
 import {
   SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT,
   type SupplyPurchaseOrderCapabilityPort,
-} from '../../../application/port/in/capability/purchase-order.port';
+} from '../../../application/port/in/procurement/purchase-order.port';
 import type { SupplyCapabilityCompositionPort } from '../../../application/port/in/capability/supply-capability-composition.port';
 
 /** Supply owns the definition-to-procurement-owner-port Adapter. */

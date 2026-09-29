@@ -1,7 +1,7 @@
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { InventoryItemNotFoundError } from '../application/exception/inventory-operation.error';
 import { ReturnTransfersService } from '../../orders/application/service/return-transfers/return-transfers.service';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
@@ -13,8 +13,8 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository.adapter';
-import { TransfersService } from '../application/usecase/transfers.service';
+import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository';
+import { TransfersService } from '../application/service/transfers.service';
 
 const MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000001';
 const FOREIGN_MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000005';

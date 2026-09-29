@@ -5,7 +5,7 @@ import { Test } from '@nestjs/testing';
 import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CONVERSATION_PORT } from '../../../../application/port/in/capability/conversation.port';
+import { CONVERSATION_PORT } from '../../../../application/port/in/conversation/conversation.port';
 import { ConversationController } from './conversation.controller';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 

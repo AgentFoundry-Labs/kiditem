@@ -8,8 +8,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
-import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
-import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProcurementRepositoryAdapter } from '../adapter/out/persistence/procurement.repository';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
 import { ProductSourceReadUseCase } from '../../products/application/service/product-source-read.usecase';
 
 const SELLPIA_SKU_ID = '21000000-0000-4000-8000-000000000001';

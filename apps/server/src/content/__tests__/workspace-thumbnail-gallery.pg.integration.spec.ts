@@ -10,7 +10,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/persistence/content-asset-library.repository';
 import { ContentAssetService } from '../application/service/content-asset.service';
 
 /**

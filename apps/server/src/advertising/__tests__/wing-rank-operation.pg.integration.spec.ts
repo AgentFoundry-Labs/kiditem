@@ -10,7 +10,7 @@ import {
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 import { advertisingKeywordOperationsApp, seedCoupangAccount } from '../../test-helpers/advertising-operations';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
-import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
+import { KeywordRankRepositoryAdapter } from '../adapter/out/persistence/keyword-rank.repository';
 import { CoupangMomentumReadService } from '../application/service/coupang-momentum-read.service';
 
 // 확장 수집기(advertising.wing_rank)가 밟는 길을 서버에서 그대로: begin → 키워드마다 wing_rank_keyword 청크 → finish.

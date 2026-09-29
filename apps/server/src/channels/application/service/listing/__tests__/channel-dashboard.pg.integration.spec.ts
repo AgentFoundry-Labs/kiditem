@@ -2,7 +2,7 @@ import { realRegistrationStates } from '../../../../../test-helpers/registration
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { ChannelDashboardService } from '../channel-dashboard.service';
-import { ChannelDashboardRepositoryAdapter } from '../../../../adapter/out/repository/channel-dashboard.repository.adapter';
+import { ChannelDashboardRepositoryAdapter } from '../../../../adapter/out/persistence/channel-dashboard.repository';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../../../port/out/repository/channel-dashboard.repository.port';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import {
@@ -18,14 +18,14 @@ import { businessDateKey, kstBusinessDate } from '../../../../../common/kst';
 import { seedMallOrderCoverageOperation } from '../../../../../test-helpers/__tests__/mall-order-coverage-operation';
 import { CHANNEL_ACCOUNT_PORT } from '../../../port/in/account/channel-account.port';
 import { ChannelAccountService } from '../../account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../../../adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../../../adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../../../adapter/out/credentials/channel-credentials.adapter';
-import { ChannelListingQueryPersistenceAdapter } from '../../../../adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../../../../adapter/out/persistence/channel-listing-query.repository';
 import { ChannelListingQueryService } from '../channel-listing-query.service';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelsProductMappingGenerationAdapter } from "../../../../adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 const PRIMARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000001';
 const SECONDARY_ACCOUNT_ID = '10000000-0000-4000-8000-000000000002';

@@ -8,7 +8,7 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { capabilityApprovalStateWhere } from '../adapter/out/repository/prisma-capability-invocation.repository';
+import { capabilityApprovalStateWhere } from '../adapter/out/persistence/prisma-capability-invocation.repository';
 import {
   CapabilityInvocationRecordSchema,
   type CapabilityInvocationRecord,

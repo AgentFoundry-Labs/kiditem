@@ -11,7 +11,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../../test-helpers/real-prisma';
 import { ownerTransaction } from '../../../prisma/owner-transaction';
-import { OperationRepositoryAdapter } from '../adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../adapter/out/persistence/operation.repository';
 import { OPERATION_PORT, type OperationPort } from '../application/port/in/operation.port';
 import type {
   JsonObject,

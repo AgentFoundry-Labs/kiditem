@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.repository';
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AdvertisingModule } from '../advertising.module';
-import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
+import { AdActionRepositoryAdapter } from '../adapter/out/persistence/ad-action.repository';
+import { AdListingRepositoryAdapter } from '../adapter/out/persistence/ad-listing.repository';
 import { AdActionService } from '../application/service/ad-action.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import {

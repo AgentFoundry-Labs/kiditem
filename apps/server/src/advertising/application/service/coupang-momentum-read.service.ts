@@ -4,7 +4,7 @@ import type {
   CoupangSerpMomentumItem,
   CoupangSerpMomentumSnapshot,
   CoupangWingSalesMomentumRow,
-} from '../port/in/capability/coupang-momentum-read.port';
+} from '../port/in/ledger/coupang-momentum-read.port';
 import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,

@@ -9,7 +9,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/repository/content-workspace-lifecycle.repository.adapter';
+import { ContentWorkspaceLifecycleRepositoryAdapter } from '../adapter/out/persistence/content-workspace-lifecycle.repository';
 
 /**
  * KID-310: the content workspace is owned by a sales-product draft, not by a

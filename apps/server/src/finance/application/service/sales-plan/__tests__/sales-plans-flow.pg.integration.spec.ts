@@ -1,6 +1,6 @@
 import { channelFactTestProviders } from '../../../../../test-helpers/channel-fact-ports';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../../../products/application/port/in/product-transactional-read.port';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';

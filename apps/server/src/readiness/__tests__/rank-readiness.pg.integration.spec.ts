@@ -20,16 +20,16 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { advertisingKeywordOperationsApp } from '../../test-helpers/advertising-operations';
-import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/persistence/keyword-rank-read.adapter';
 import { ReadinessController } from '../readiness.controller';
 import { ReadinessService } from '../readiness.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
 import { WING_RANK_CHUNK_KIND, WING_RANK_KIND } from '@kiditem/shared/advertising-operations';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 describe('Wing rank readiness over advertising.wing_rank operations through public Readiness HTTP + PostgreSQL', () => {
   let prisma: PrismaClient;

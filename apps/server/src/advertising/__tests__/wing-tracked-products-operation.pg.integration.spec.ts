@@ -8,7 +8,7 @@ import {
 } from '@kiditem/shared/advertising-operations';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 import { advertisingKeywordOperationsApp, seedCoupangAccount } from '../../test-helpers/advertising-operations';
-import { WingTrackedProductRepositoryAdapter } from '../adapter/out/repository/wing-tracked-product.repository.adapter';
+import { WingTrackedProductRepositoryAdapter } from '../adapter/out/persistence/wing-tracked-product.repository';
 
 // 확장 수집기(advertising.wing_tracked_products)가 밟는 길을 서버에서 그대로: begin → 키워드마다 wing_tracked_search 청크
 // → finish. 추적 스냅샷은 finish 트랜잭션에서만, 실행 ID와 함께 쓰인다(ADR-0025).

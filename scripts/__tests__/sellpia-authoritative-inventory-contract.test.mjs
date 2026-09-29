@@ -27,14 +27,14 @@ const channels = readFileSync(
 const catalogIdentityUpsert = readFileSync(
   join(
     repoRoot,
-    "apps/server/src/channels/adapter/out/repository/channel-catalog-identity-upsert.ts",
+    "apps/server/src/channels/adapter/out/persistence/channel-catalog-identity-upsert.ts",
   ),
   "utf8",
 );
 const dashboardSalesRepository = readFileSync(
   join(
     repoRoot,
-    "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-sales.repository.adapter.ts",
+    "apps/server/src/analytics/adapter/out/persistence/dashboard/dashboard-sales.repository.ts",
   ),
   "utf8",
 );
@@ -56,7 +56,7 @@ const supply = readFileSync(
 );
 
 const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
-  "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts",
+  "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.ts",
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
   "apps/server/src/analytics/__tests__/dashboard/dashboard-inventory.pg.integration.spec.ts",

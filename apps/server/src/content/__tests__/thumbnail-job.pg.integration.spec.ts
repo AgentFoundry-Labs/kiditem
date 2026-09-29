@@ -9,8 +9,8 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/persistence/thumbnail-generation-ledger.repository';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/persistence/content-asset-library.repository';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { ThumbnailGenerationLifecycleService } from '../application/service/thumbnail-generation-lifecycle.service';
 import { ThumbnailGenerationService } from '../application/service/thumbnail-generation.service';

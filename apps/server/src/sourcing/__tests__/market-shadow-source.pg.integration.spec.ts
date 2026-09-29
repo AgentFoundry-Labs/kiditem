@@ -10,9 +10,9 @@ import {
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { SourcingShadowSignalService } from '../application/service/sourcing-shadow-signal.service';
-import { MarketShadowSnapshotRepositoryAdapter } from '../adapter/out/repository/market-shadow-snapshot.repository.adapter';
+import { MarketShadowSnapshotRepositoryAdapter } from '../adapter/out/persistence/market-shadow-snapshot.repository';
 import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
-import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/persistence/trend-collection.repository';
 import type { PrismaClient } from '@prisma/client';
 
 const NOW = new Date('2026-09-06T16:30:00Z');

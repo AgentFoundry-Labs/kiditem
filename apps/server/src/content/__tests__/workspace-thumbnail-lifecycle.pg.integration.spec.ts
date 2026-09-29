@@ -9,10 +9,10 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/repository/content-asset-library.repository.adapter';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
-import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/repository/sales-product-workspace-archive.repository.adapter';
-import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/repository/thumbnail-generation-ledger.repository.adapter';
+import { ContentAssetLibraryRepositoryAdapter } from '../adapter/out/persistence/content-asset-library.repository';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
+import { SalesProductWorkspaceArchiveRepositoryAdapter } from '../adapter/out/persistence/sales-product-workspace-archive.repository';
+import { ThumbnailGenerationLedgerRepositoryAdapter } from '../adapter/out/persistence/thumbnail-generation-ledger.repository';
 
 describe('workspace thumbnail lifecycle (PG integration)', () => {
   let prisma: PrismaClient;

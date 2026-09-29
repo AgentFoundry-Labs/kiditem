@@ -8,7 +8,7 @@ import type {
 import {
   PRODUCT_AVAILABILITY_REPOSITORY_PORT,
   type ProductAvailabilityRepositoryPort,
-} from '../port/out/persistence/product-availability.repository.port';
+} from '../port/out/repository/product-availability.repository.port';
 
 @Injectable()
 export class ProductAvailabilityUseCase implements ProductAvailabilityPort {

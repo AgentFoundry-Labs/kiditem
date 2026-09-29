@@ -1,11 +1,11 @@
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
-import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
 import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
-import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
-import { ListingRegistrationPersistenceAdapter } from '../adapter/out/persistence/listing-registration.persistence.adapter';
+import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/persistence/channel-recipe-suggestion-context.repository';
+import { ListingRegistrationPersistenceAdapter } from '../adapter/out/persistence/listing-registration.repository';
 import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
 import { ChannelRegistrationService } from '../application/service/registration/channel-registration.service';
 import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-adapter-registry.adapter';

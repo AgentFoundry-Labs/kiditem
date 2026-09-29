@@ -7,7 +7,7 @@ import {
 import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
   type ProductAbcRepositoryPort,
-} from '../port/out/persistence/master-product-abc.repository.port';
+} from '../port/out/repository/master-product-abc.repository.port';
 import { productAbcEvidenceCutoff } from '../../domain/product-abc-display-status';
 import {
   buildProductAbcReadModel,

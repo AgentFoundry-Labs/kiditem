@@ -1,13 +1,13 @@
 import type { PrismaClient } from '@prisma/client';
 import { SourceFailureAlerts } from '../alerts/alerts.service';
-import { OperationRepositoryAdapter } from '../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../common/operation/adapter/out/persistence/operation.repository';
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../common/operation/application/service/operation.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { SOURCING_SERVER_OPERATION_OWNERS } from '../sourcing/adapter/in/operation/sourcing-server-operation-owners';
-import { SourcingOperationLedgerRepositoryAdapter } from '../sourcing/adapter/out/repository/sourcing-operation-ledger.repository.adapter';
-import { SourcingServerOperationRepositoryAdapter } from '../sourcing/adapter/out/repository/sourcing-server-operation.repository.adapter';
-import { SourcingSourcePublicationRepositoryAdapter } from '../sourcing/adapter/out/repository/sourcing-source-publication.repository.adapter';
+import { SourcingOperationLedgerRepositoryAdapter } from '../sourcing/adapter/out/persistence/sourcing-operation-ledger.repository';
+import { SourcingServerOperationRepositoryAdapter } from '../sourcing/adapter/out/persistence/sourcing-server-operation.repository';
+import { SourcingSourcePublicationRepositoryAdapter } from '../sourcing/adapter/out/persistence/sourcing-source-publication.repository';
 import type { SalesProductDraftPort } from '../sourcing/application/port/out/cross-domain/sales-product-draft.port';
 import { SourcingServerOperationService } from '../sourcing/application/service/sourcing-server-operation.service';
 import { SourcingServerOperationRunner } from '../sourcing/application/service/sourcing-server-operation.runner';

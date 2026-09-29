@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { DetailPageGenerationSinkAdapter } from '../detail-page-generation-sink.adapter';
-import { DetailPageGenerationRepositoryAdapter } from '../../repository/detail-page-generation.repository.adapter';
+import { DetailPageGenerationRepositoryAdapter } from '../../persistence/detail-page-generation.repository';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
 const PAGE = '00000000-0000-4000-8000-000000000002';

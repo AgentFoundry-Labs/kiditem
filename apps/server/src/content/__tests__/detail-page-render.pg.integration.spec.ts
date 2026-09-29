@@ -10,8 +10,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
-import { DetailPageImageRepositoryAdapter } from '../adapter/out/repository/detail-page-image.repository.adapter';
+import { DetailPageRepositoryAdapter } from '../adapter/out/persistence/detail-page.repository';
+import { DetailPageImageRepositoryAdapter } from '../adapter/out/persistence/detail-page-image.repository';
 import { DetailPageClientRenderService } from '../application/service/detail-page-client-render.service';
 
 const sharp: typeof import('sharp') = require('sharp');

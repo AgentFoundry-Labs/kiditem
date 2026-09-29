@@ -6,7 +6,7 @@ import {
 import {
   assertProductSourceLockCovers,
   type ProductSourceLock,
-} from '../transaction/product-source-lock';
+} from '../../transaction/product-source-lock';
 import type {
   ProductSourceReadModel,
 } from '../../../../domain/product-source-read-model';

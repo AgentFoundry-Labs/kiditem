@@ -388,17 +388,17 @@ folders are intentionally absent from this map.
 
 | Path | Structure | Required / Optional Contract |
 |---|---|---|
-| `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; ledger read helpers live in `adapter/out/persistence/read/` and pure mappers in `domain/`; architecture spec freezes invariants. |
+| `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/persistence/` + `application/port/out/*` ports; ledger read helpers still sit in the transitional `adapter/out/persistence/read/` and pure mappers in `domain/`; architecture spec freezes invariants. |
 | `apps/server/src/agent-os` | Hexagonal | Capability admission, transient Gateway control/conversation, MCP, repository, completed-event-history Interface at `application/port/out/history/`, outbound SQLite Adapter at `adapter/out/history/sqlite/`, and owner composition behind ports/adapters. The two cross-cutting contracts `application/port/out/capability-invocation.repository.port.ts` and `application/port/out/gateway-conversation.port.ts` are exact direct-port exceptions fixed by the approved KID-25 plan; every new outgoing port still requires an explicit lane directory. |
 | `apps/server/src/content` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
-| `apps/server/src/analytics` | Hexagonal | Dashboard, statistics, traffic, and supplier-stats code sits in a `<bundle>/` subfolder of each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`, `__tests__/<bundle>/`, …) with `<bundle>.module.ts` at the root; dashboard adds outgoing repository ports and adapters so its application services stay Prisma-free, and its architecture + module wiring specs freeze those invariants. Documented legacy exception: statistics and supplier-stats services inject `PrismaService` and read the Orders `order-facts.reader` directly (`check:hexagonal` allowlist, KID-334). The `sellpia-sales/` and `sellpia-product-sales/` bundles keep their own layout. |
+| `apps/server/src/analytics` | Hexagonal | Dashboard, statistics, traffic, and supplier-stats code sits in a `<bundle>/` subfolder of each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`, `__tests__/<bundle>/`, …) with `<bundle>.module.ts` at the root; dashboard adds outgoing repository ports and adapters so its application services stay Prisma-free, and its architecture + module wiring specs freeze those invariants. Documented legacy exception: statistics and supplier-stats services inject `PrismaService` and read the Orders `order-facts.reader` directly (`check:hexagonal` `CROSS_OWNER_EXCEPTIONS`, KID-392). The `sellpia-sales/` and `sellpia-product-sales/` bundles keep their own layout. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
 | `apps/server/src/channels` | Hexagonal | Account, sales-product, registration, listing and collection policies use `domain/<business>` and `application/service/<business>`, with NestJS providers permitted in both. Incoming adapters call input ports; modules bind services and outgoing adapters. Provider, documents, credentials and persistence IO stay outside the application. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
-| `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts stay in `adapter/out/persistence/read/`. |
+| `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts still sit in the transitional `adapter/out/persistence/read/`. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
-| `apps/server/src/orders` | Hexagonal | Controllers and DTOs under `adapter/in/web/`, services under `application/service/`, ledger read helpers in `adapter/out/persistence/read/`, pure mappers in `domain/`; Coupang shipments use a `shipments/` folder per layer and `coupang-directship/` stays at the root. |
+| `apps/server/src/orders` | Hexagonal | Controllers and DTOs under `adapter/in/web/`, services under `application/service/`, ledger read helpers in the transitional `adapter/out/persistence/read/`, pure mappers in `domain/`; Coupang shipments use a `shipments/` folder per layer and `coupang-directship/` stays at the root. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/products` | Hexagonal | Source MasterProduct identity/current stock, Sellpia collection/publication, image metadata, exports and ABC; incoming ports, `application/service` orchestration, pure domain rules and outgoing adapters; the `/api/categories` compatibility capability sits in the `category/` folders. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
@@ -414,25 +414,35 @@ Hexagonal owner capabilities use this shape:
 apps/server/src/{owner}/
   {owner}.module.ts
   adapter/in/web/         HTTP controllers and DTO binding; existing http lanes migrate with their owner
-  adapter/out/{lane}/     DB/provider/runtime/storage/event adapters
-  application/port/in/    incoming use-case ports, when other domains consume them
-  application/port/out/   outgoing DB/cross-domain/provider/runtime contracts
+  adapter/out/persistence/  database adapters, one `<name>.repository.ts` per port
+  adapter/out/{lane}/     provider/runtime/storage/event/transaction adapters
+  application/port/in/    incoming use-case ports; the only surface another owner imports
+  application/port/in/capability/  ports of abilities listed in the Agent capability catalog only
+  application/port/out/   outgoing contracts by lane (`repository/` for the database)
+  application/service/    orchestration
   domain/capability/      owner-defined Agent capability contracts, when platform-visible
-  application/usecase/   orchestration; existing application/service lanes follow owner guides
   domain/                 pure policy/model/service code
   mapper/                 row/DTO/domain/shared contract mapping
-  read/                   transitional internal query helpers, when still needed
-  transaction/            lock/fence functions for the caller's transaction (not a port lane)
+  read/                   transitional internal query helpers; removed as they move into persistence
+  transaction/            transitional lock/fence functions for the caller's transaction (not a port
+                          lane); locks another owner takes move to the provider's incoming port and
+                          the folder disappears (KID-393)
 ```
 
-Required: module file, orchestration in `application/usecase/` (or the owner's
-existing `application/service/`), and a port/adapter boundary for
-each DB, provider, runtime, storage, event, workflow, or cross-domain IO lane.
+Required: module file, orchestration in `application/service/`, and a
+port/adapter boundary for each DB, provider, runtime, storage, event, workflow,
+or cross-domain IO lane. Another owner's facts and abilities are consumed by
+injecting that owner's `application/port/in` token directly; the consumer keeps
+no anti-corruption output port of its own. `adapter/out/repository/`,
+`application/usecase/` and `application/port/out/persistence/` are retired
+(`check:directory-architecture`), and `check:hexagonal` rejects imports of
+another owner's `adapter/`, `domain/`, `application/service/`, `read/` or
+root `transaction/` outside exact migration exceptions.
 Optional: `adapter/in/web/` when no HTTP entrypoint exists, `application/port/in/`
 when no other owner consumes the use case, `domain/` when no pure policy/model
 exists yet, and `mapper/` when mapping is trivial.
 
-Owner persistence adapters implement fact queries behind public capabilities
+Owner persistence adapters implement fact queries behind incoming ports
 ([ADR-0021](adr/0021-owner-capabilities-replace-dedicated-readers.md)). They
 preserve organization scope, complete generations, coverage, and required
 transaction evidence; one registered reader file per ledger is not required.
@@ -467,7 +477,7 @@ scoped scalar listing IDs. Consumer adapters preserve the caller's transaction
 through an issued opaque `OwnerTransaction`; persistence adapters alone unwrap it.
 
 Cross-owner Channels references retain scalar IDs and indexes while consumers
-move to owner input contracts through their own output adapters. Channels organization, user and source-attempt references are scalar logical
+move to the owner's incoming ports, injected directly. Channels organization, user and source-attempt references are scalar logical
 references too; same-owner FK and organization constraints remain. Other owners
 still have explicitly inventoried migration exceptions. Removing a relation also
 requires lifecycle, missing-reference, and concurrent-change coverage. Channels owns every ChannelAccount mutation, including the compatibility account
@@ -522,14 +532,15 @@ forcing a full `application/domain/port` structure.
 
 Port folders are Interface seams, not decoration. `application/port/in/` and
 `application/port/out/` are the first-level direction split. The second-level
-folder is intentionally asymmetric: incoming ports are owner capability
+folder is intentionally asymmetric: incoming ports are owner use-case
 Interfaces, while outgoing ports are driven Adapter family Interfaces.
 
 Incoming ports stay flat while the owner publishes one or two use-case
-Interfaces. Use a capability folder under `application/port/in/` when three or
-more incoming ports share one owner capability, when a capability is published
-as an Agent/tool surface, or when the same incoming capability is exported for
-multiple consuming owners.
+Interfaces. Group three or more incoming ports that share one business concern
+under a business-noun folder (`application/port/in/<business>/`). The
+`application/port/in/capability/` folder holds only the ports of abilities
+published in the owner's Agent capability catalog (`domain/capability/`); an
+incoming port that is not in the catalog is not a capability.
 
 Incoming ports are never grouped by caller or entrypoint type. Folders such as
 `application/port/in/agent/`, `application/port/in/http/`, and
@@ -560,7 +571,6 @@ Outgoing ports use these lane folders when the lane exists:
 - `sink/`: finalized-output projection or event-consuming Interfaces.
 - `workflow/`: workflow orchestration, cancellation, or workflow engine
   Interfaces.
-- `cross-domain/`: anti-corruption Interfaces to another owner Module.
 
 Group ports into a lane directory when any of these are true:
 
@@ -1026,7 +1036,7 @@ Products owns the Sellpia inventory operation kind `products.sellpia_inventory`
 kind), the fixed source binding, the verified generation and
 `lastCompletedOperationId`, and atomic publication of current stock inside the
 operation's finish transaction. Its implementation
-separates `domain/`, `application/usecase/`, `application/port/in|out/`,
+separates `domain/`, `application/service/`, `application/port/in|out/`,
 `adapter/in/web/`, and `adapter/out/persistence/`; `products.module.ts` and its source runtime modules binds
 contracts to implementations. Consumers use published Products contracts.
 Products retains its canonical facts and lock authority behind those contracts;

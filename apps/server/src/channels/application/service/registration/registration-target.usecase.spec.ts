@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RegistrationTargetUseCase } from './registration-target.usecase';
-import type { RegistrationTargetRecord, RegistrationTargetRepositoryPort } from '../../port/out/persistence/registration-target.repository.port';
+import type { RegistrationTargetRecord, RegistrationTargetRepositoryPort } from '../../port/out/repository/registration-target.repository.port';
 
 const org = 'org';
 const product = { name: '공통 상품명', options: [

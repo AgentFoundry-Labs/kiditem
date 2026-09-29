@@ -38,11 +38,13 @@ retains warehouse records only; no second mutable source stock exists.
 
 ## Hexagonal Boundaries
 
-- Put public capability contracts in `application/port/in`, external contracts
-  in `application/port/out`, orchestration in `application/service`, pure product
+- Put incoming use-case ports in `application/port/in` (`capability/` only for
+  Agent-catalog abilities), outgoing contracts in `application/port/out/<lane>`
+  (database: `repository/`), orchestration in `application/service`, pure product
   and ABC rules in `domain`, and failures in the relevant `exception` directory.
-- Web adapters live in `adapter/in/web`; persistence readers and locks live in
-  `adapter/out/persistence`. Module wiring binds tokens to implementations.
+- Web adapters live in `adapter/in/web`; database adapters (`*.repository.ts`)
+  and read helpers live in `adapter/out/persistence`, lock adapters in
+  `adapter/out/transaction`. Module wiring binds tokens to implementations.
 - Consumers use input ports. The transactional read port binds directly to its
   persistence adapter and preserves the caller's transaction and organization
   lock evidence (ADR-0015); do not add a forwarding service just for symmetry.

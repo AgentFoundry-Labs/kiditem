@@ -13,7 +13,7 @@ belong to Supply; supplier payments belong to Finance.
   no delete route; operators work only on the Channels draft (KID-313).
 - Every collection path (scrape-url, extension ingest, Agent ingest) admits a
   record through `admitSourceRecord` inside the source-identity advisory lock
-  (`adapter/out/repository/source-record-admission.transaction.ts`). The same
+  (`adapter/out/persistence/source-record-admission.transaction.ts`). The same
   source twice is refused with `SourceRecordDuplicateError`, which
   `adapter/in/http/source-record-duplicate.filter.ts` maps to 409 with the
   existing draft or selling product. The record and its draft commit together;

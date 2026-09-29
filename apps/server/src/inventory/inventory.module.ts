@@ -4,17 +4,17 @@ import { ProductCollectionRuntimeModule } from '../products/product-collection-r
 import { SellpiaTransferOutcomeModule } from '../orders/sellpia-transfer-outcome.module';
 import { TransfersController } from './adapter/in/web/transfers.controller';
 import { WarehousesController } from './adapter/in/web/warehouses.controller';
-import { RocketWorkbookProgressRepositoryAdapter } from './adapter/out/persistence/rocket-workbook-progress.repository.adapter';
-import { TransfersRepositoryAdapter } from './adapter/out/persistence/transfers.repository.adapter';
-import { WarehousesRepositoryAdapter } from './adapter/out/persistence/warehouses.repository.adapter';
+import { RocketWorkbookProgressRepositoryAdapter } from './adapter/out/persistence/rocket-workbook-progress.repository';
+import { TransfersRepositoryAdapter } from './adapter/out/persistence/transfers.repository';
+import { WarehousesRepositoryAdapter } from './adapter/out/persistence/warehouses.repository';
 import { ROCKET_WORKBOOK_PROGRESS_PORT } from './application/port/in/stock/rocket-workbook-progress.port';
 import { TRANSFERS_PORT, WAREHOUSES_PORT } from './application/port/in/warehouse';
-import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from './application/port/out/persistence/rocket-workbook-progress.repository.port';
-import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/persistence/transfers.repository.port';
-import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/persistence/warehouses.repository.port';
-import { RocketWorkbookProgressService } from './application/usecase/rocket-workbook-progress.service';
-import { TransfersService } from './application/usecase/transfers.service';
-import { WarehousesService } from './application/usecase/warehouses.service';
+import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from './application/port/out/repository/rocket-workbook-progress.repository.port';
+import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/transfers.repository.port';
+import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/warehouses.repository.port';
+import { RocketWorkbookProgressService } from './application/service/rocket-workbook-progress.service';
+import { TransfersService } from './application/service/transfers.service';
+import { WarehousesService } from './application/service/warehouses.service';
 
 @Module({
   imports: [PrismaModule, ProductCollectionRuntimeModule, SellpiaTransferOutcomeModule],

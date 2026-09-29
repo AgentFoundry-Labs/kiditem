@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { ProductAvailabilityRepositoryAdapter } from './adapter/out/persistence/product-availability.repository.adapter';
-import { ProductSourceReadRepositoryAdapter } from './adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductCollectionFreshnessRepositoryAdapter } from './adapter/out/persistence/product-source-freshness.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from './adapter/out/persistence/product-transactional-read.repository.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from './adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from './adapter/out/persistence/product-availability.repository';
+import { ProductSourceReadRepositoryAdapter } from './adapter/out/persistence/product-source-read.repository';
+import { ProductCollectionFreshnessRepositoryAdapter } from './adapter/out/persistence/product-source-freshness.repository';
+import { ProductTransactionalReadRepositoryAdapter } from './adapter/out/persistence/product-transactional-read.repository';
+import { ProductMappingGenerationRepositoryAdapter } from './adapter/out/persistence/product-mapping-generation.repository';
 import {
   PRODUCT_AVAILABILITY_PORT,
 } from './application/port/in/product-availability.port';
@@ -17,13 +17,13 @@ import { PRODUCT_TRANSACTIONAL_READ_PORT } from './application/port/in/product-t
 import { PRODUCT_MAPPING_GENERATION_PORT } from './application/port/in/product-mapping-generation.port';
 import {
   PRODUCT_AVAILABILITY_REPOSITORY_PORT,
-} from './application/port/out/persistence/product-availability.repository.port';
+} from './application/port/out/repository/product-availability.repository.port';
 import {
   PRODUCT_COLLECTION_FRESHNESS_REPOSITORY_PORT,
-} from './application/port/out/persistence/product-source-freshness.repository.port';
+} from './application/port/out/repository/product-source-freshness.repository.port';
 import {
   PRODUCT_SOURCE_READ_REPOSITORY_PORT,
-} from './application/port/out/persistence/product-source-read.repository.port';
+} from './application/port/out/repository/product-source-read.repository.port';
 import { ProductAvailabilityUseCase } from './application/service/product-availability.usecase';
 import { ProductCollectionFreshnessUseCase } from './application/service/product-collection-freshness.usecase';
 import { ProductSourceReadUseCase } from './application/service/product-source-read.usecase';

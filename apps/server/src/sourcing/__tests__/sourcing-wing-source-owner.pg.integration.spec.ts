@@ -2,8 +2,8 @@ import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-dr
 import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
-import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
-import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
+import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/persistence/sourcing-recommendation-source.repository';
+import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/persistence/sourcing-1688-search-result.repository';
 import { SourcingWingCatalogIngestService } from '../application/service/sourcing-wing-catalog-ingest.service';
 import { SourcingWorkspaceController } from '../adapter/in/http/sourcing-workspace.controller';
 import type { PrismaClient } from '@prisma/client';

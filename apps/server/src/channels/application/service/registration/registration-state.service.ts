@@ -5,7 +5,7 @@ import type { RegistrationStatePort, SalesProductRegistrationView } from '../../
 import type {
   RegistrationStateAccountFacts,
   RegistrationStatePersistencePort,
-} from '../../port/out/persistence/registration-state.persistence.port';
+} from '../../port/out/repository/registration-state.persistence.port';
 import type { ChannelRegistrableContentFactsPort } from '../../port/out/content/registrable-content-facts.port';
 
 /**

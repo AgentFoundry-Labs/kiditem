@@ -8,7 +8,7 @@ const { at, importers, ownerFiles } = ownerSource(AI_ROOT);
 const OTHER_OWNERS = 'channels|products|sourcing';
 
 /** Outbound persistence adapters: the only places allowed to reach Prisma. */
-const ALLOWED_PRISMA_PREFIXES = ['adapter/out/direct-output/', 'adapter/out/repository/'];
+const ALLOWED_PRISMA_PREFIXES = ['adapter/out/direct-output/', 'adapter/out/persistence/'];
 
 /** Module specifiers that reach Prisma: the generated client or the Nest PrismaService. */
 const PRISMA_SPECIFIER = String.raw`@prisma/client|[^'"]*prisma/prisma\.service`;
@@ -82,8 +82,8 @@ describe('ai architecture ratchet', () => {
     // `*.spec.ts`/`*.test.ts`, at any depth. A spec reaches a concrete
     // repository adapter by importing it or by `vi.mock`-ing its module path.
     const serviceDir = at('application/service');
-    const repositoryImport = new RegExp(importFromPattern(String.raw`[^'"]*adapter/out/repository`), 'm');
-    const repositoryMock = /\bvi\.(?:do)?[mM]ock\(\s*['"][^'"]*adapter\/out\/repository/;
+    const repositoryImport = new RegExp(importFromPattern(String.raw`[^'"]*adapter/out/persistence`), 'm');
+    const repositoryMock = /\bvi\.(?:do)?[mM]ock\(\s*['"][^'"]*adapter\/out\/persistence/;
     const hits = readdirSync(serviceDir, { recursive: true, encoding: 'utf8' })
       .filter((file) => /(?:^|\/)__tests__\/.*\.ts$|\.(?:spec|test)\.ts$/.test(file))
       .filter((file) => {
@@ -100,7 +100,7 @@ describe('ai architecture ratchet', () => {
 
   it('keeps thumbnail repository internals out of the legacy Prisma helper folder', () => {
     const hits = importers(
-      [at('adapter/out/repository')],
+      [at('adapter/out/persistence')],
       String.raw`[^'"]*\.\./prisma/(?:thumbnail-generation|thumbnail-analysis|master-image-select)`,
     );
 

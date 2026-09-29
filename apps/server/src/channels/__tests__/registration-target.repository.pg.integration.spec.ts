@@ -1,7 +1,7 @@
 import { seedRegistrationOperation } from './registration-operation-seeds';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
+import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -15,7 +15,7 @@ import type {
   RegistrationTargetResolveInput,
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
-import type { RegistrationTargetCreateRecord } from '../application/port/out/persistence/registration-target.repository.port';
+import type { RegistrationTargetCreateRecord } from '../application/port/out/repository/registration-target.repository.port';
 import type { PrismaClient } from '@prisma/client';
 import { productTransactionalRead } from './product-transactional-read.fake';
 import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';

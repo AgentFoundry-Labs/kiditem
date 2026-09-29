@@ -11,15 +11,15 @@ import {
 import {
   updateChannelCatalogDetails,
   upsertChannelCatalogBasics,
-} from '../adapter/out/repository/channel-catalog-identity-upsert';
-import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
+} from '../adapter/out/persistence/channel-catalog-identity-upsert';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.repository';
 import type {
   ChannelCatalogDetailIdentityProduct,
   ChannelCatalogIdentityProduct,
 } from '../domain/collection/catalog-identities';
-import { publishWingCatalogWorkbook } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
+import { publishWingCatalogWorkbook } from '../adapter/out/persistence/channel-catalog-import.repository';
 import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
 import type { ParsedWingCatalogRow } from '../application/port/out/documents/channel-document.models';
 import { listingRawSaleStatus } from '../domain/listing/listing-sale-state';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';

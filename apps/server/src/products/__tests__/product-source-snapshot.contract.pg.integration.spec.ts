@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { InventorySkuSnapshotListResponseSchema } from '@kiditem/shared/inventory';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { ProductSourceSnapshotRepositoryAdapter } from '../adapter/out/persistence/product-source-snapshot.repository.adapter';
+import { ProductSourceSnapshotRepositoryAdapter } from '../adapter/out/persistence/product-source-snapshot.repository';
 import { ProductSourceSnapshotUseCase } from '../application/service/product-source-snapshot.usecase';
 
 /**

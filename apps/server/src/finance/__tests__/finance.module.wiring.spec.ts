@@ -8,7 +8,7 @@ import { ChannelsModule } from '../../channels/channels.module';
 import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
 import { ProductSourceModule } from '../../products/product-source.module';
 import { FinanceReportExportController } from '../adapter/in/web/report-export/finance-report-export.controller';
-import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
+import { MasterProductContributionRepositoryAdapter } from '../adapter/out/persistence/master-product-contribution.repository';
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from '../application/port/in/master-product-contribution-read.port';
 import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from '../application/port/out/repository/master-product-contribution.repository.port';
 import { MasterProductContributionReadService } from '../application/service/master-product-contribution-read.service';

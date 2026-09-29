@@ -7,14 +7,14 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelAccountPersistenceAdapter } from '../adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../adapter/out/credentials/channel-credentials.adapter';
 import { ChannelAccountService } from '../application/service/account/channel-account.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { ChannelAccountPort } from '../application/port/in/account/channel-account.port';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 describe('ChannelAccountPort + disposable Postgres', () => {
   let prisma: PrismaClient;

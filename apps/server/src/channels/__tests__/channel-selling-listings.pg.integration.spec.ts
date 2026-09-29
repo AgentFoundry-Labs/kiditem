@@ -10,7 +10,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.repository';
 
 /**
  * 판매중 정본 리더(KID-333 ②, 사장님 2026-09-29 Q1). 모든 화면·ABC·매칭 카드·대시보드가 이 판정 하나를 읽는다:

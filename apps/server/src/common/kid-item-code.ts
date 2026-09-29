@@ -6,7 +6,7 @@ import { Prisma } from '@prisma/client';
  *
  * Stays in `common/` rather than moving to either owner: Channels (e.g.
  * `channels/adapter/out/persistence/sales-product-code-rows.ts`) and Products
- * (`products/adapter/out/persistence/product-source-publication.repository.adapter.ts:216`)
+ * (`products/adapter/out/persistence/product-source-publication.repository.ts:216`)
  * both allocate from the same `kid_item_code_seq` database sequence, so a
  * single global allocator is the correct owner-neutral shape — splitting it
  * per owner would risk two sequences or a cross-owner call for one raw query.

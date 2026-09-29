@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
-import { SourceRecordRepositoryAdapter } from '../adapter/out/repository/source-record.repository.adapter';
+import { SourceRecordRepositoryAdapter } from '../adapter/out/persistence/source-record.repository';
 import { prepareSourcingScrapeResult } from '../application/service/sourcing-scrape-result.service';
 import { SourcingScrapeUrlService } from '../application/service/sourcing-scrape-url.service';
 import { SourcingFinalCapabilityAdapter } from '../adapter/in/agent/sourcing-final-capability.adapter';

@@ -146,7 +146,8 @@ Action, collection, transmission, and reconciliation behavior is executable in
   paginated.
 - Time filters use ISO values plus the established hour-boundary normalization.
 - Keep the hexagonal layout: HTTP in `adapter/in/web/`, services in
-  `application/service/`, ledger helpers in `adapter/out/persistence/read/`,
+  `application/service/`, database adapters in `adapter/out/persistence/`
+  (ledger helpers in its transitional `read/`),
   pure mappers in `domain/`. Coupang shipments add a `shipments/` folder per
   layer. `coupang-directship/` stays at the root because `nest-cli.json` and
   the Dockerfile bind its Python and template assets to that path. Verify with

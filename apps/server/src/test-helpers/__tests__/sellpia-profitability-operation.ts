@@ -10,7 +10,7 @@ import {
 } from '../../analytics/sellpia-product-sales/domain/sellpia-profitability-operation';
 import { SellpiaProfitabilityPublicationRepository } from '../../analytics/sellpia-product-sales/sellpia-profitability-publication.repository';
 import { ownerTransaction } from '../../prisma/owner-transaction';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 
 /**
  * 성공한 셀피아 상품 손익 실행(`analytics.sellpia_product_profitability`) 한 줄 — 세대를 읽는 스펙(ABC·재고 분석·Finance)이

@@ -28,7 +28,7 @@ import { SellpiaSalesService } from '../sellpia-sales.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
 import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
 import { seedAdBillings, seedAdProductDays, seedAdReportRun, seedCoupangAdAccount } from '../../../test-helpers/ad-ledger-seeds';
-import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
+import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/wing-traffic-aggregation.repository';
 
 // 확장 수집기(analytics.sellpia_sales)가 밟는 길을 서버에서 그대로: begin → sales_rows 청크 → finish.
 // 원장(SellpiaSalesDailySnapshot.operationId)은 finish 트랜잭션에서만 창 바꿔 쓰기로 쓰이고, 읽기는 성공한 실행의 창을

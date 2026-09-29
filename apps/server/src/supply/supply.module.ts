@@ -16,8 +16,8 @@ import { SupplySourcingProcurementService } from './application/service/supply-s
 import { RocketPurchasePreviewService } from './application/service/rocket-purchase-preview.service';
 import { RocketWorkbookExportService } from './application/service/rocket-purchase-confirmation.service';
 import { RocketFinalOrderReconciliationService } from './application/service/rocket-final-order-reconciliation.service';
-import { SupplierRepositoryAdapter } from './adapter/out/repository/supplier.repository.adapter';
-import { SupplySourcingProcurementRepositoryAdapter } from './adapter/out/repository/supply-sourcing-procurement.repository.adapter';
+import { SupplierRepositoryAdapter } from './adapter/out/persistence/supplier.repository';
+import { SupplySourcingProcurementRepositoryAdapter } from './adapter/out/persistence/supply-sourcing-procurement.repository';
 import { RocketPurchaseConfirmationTransactionAdapter } from './adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { RocketFinalOrderReconciliationTransactionAdapter } from './adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { SUPPLIER_REPOSITORY_PORT } from './application/port/out/repository/supplier.repository.port';

@@ -1,7 +1,7 @@
 /** Command-line composition for the organization-scoped account seed. */
 import type { PrismaService } from '../prisma/prisma.service';
 import { ChannelAccountService } from './application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from './adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from './adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from './adapter/out/credentials/channel-credentials.adapter';
 import type { ChannelsProductMappingGenerationPort } from './application/port/out/cross-domain/product-mapping-generation.port';
 import { createOrderCollectionMallSeedPrisma, loadOrderCollectionMallSeedEnv, resolveOrderCollectionMallSeedConfig, seedOrderCollectionMallAccounts } from './adapter/in/cli/mall-account-seed';

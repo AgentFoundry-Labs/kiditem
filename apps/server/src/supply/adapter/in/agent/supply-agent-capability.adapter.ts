@@ -14,7 +14,7 @@ import type {
   SupplyPurchaseOrderCapabilityPort,
   SupplyPurchaseOrderDraftCapabilityInput,
   SupplyPurchaseOrderSubmissionCapabilityInput,
-} from '../../../application/port/in/capability/purchase-order.port';
+} from '../../../application/port/in/procurement/purchase-order.port';
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),

@@ -9,7 +9,7 @@ import type {
   ProductCollectionFreshnessRepositoryTransaction,
   ProductSourceStateExpectation,
   ProductSourceStatePatch,
-} from '../port/out/persistence/product-source-freshness.repository.port';
+} from '../port/out/repository/product-source-freshness.repository.port';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';

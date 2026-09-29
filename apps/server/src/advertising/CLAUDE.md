@@ -15,8 +15,9 @@ throughout.
   observations, strategy proposals, and approved ad-action execution.
 - The ad report ledger (see Ad Report) is the only ad fact source for
   readers. Inside the owner, reads go through `AD_LEDGER_READ_REPOSITORY_PORT`
-  (`adapter/out/persistence/ad-ledger-read.persistence.adapter.ts`); other
-  owners inject `ADVERTISING_LEDGER_READ_PORT` only.
+  (`adapter/out/persistence/ad-ledger-read.repository.ts`); other
+  owners inject `ADVERTISING_LEDGER_READ_PORT` (`application/port/in/ledger/`)
+  only.
 - A measured day is a calendar day every active Coupang account's succeeded
   `advertising.ad_report` run window covers (`domain/ad-report-coverage`); a
   measured day without rows is 0, an unmeasured day is absent, never 0.

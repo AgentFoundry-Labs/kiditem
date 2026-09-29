@@ -13,7 +13,7 @@ import {
   type ProductSourceLatestCollectionRow,
   type ProductSourceSnapshotRepositoryPort,
   type ProductSourceSnapshotRow,
-} from '../port/out/persistence/product-source-snapshot.repository.port';
+} from '../port/out/repository/product-source-snapshot.repository.port';
 
 @Injectable()
 export class ProductSourceSnapshotUseCase implements ProductSourceSnapshotPort {

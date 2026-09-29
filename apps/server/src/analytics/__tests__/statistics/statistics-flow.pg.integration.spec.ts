@@ -23,7 +23,7 @@ import {
 import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import { seedPublishedProductAbcGrades } from '../../../products/__tests__/test-helpers/published-product-abc';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
-import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
 
 describe('Statistics flow (PG integration)', () => {
   let prisma: PrismaClient;

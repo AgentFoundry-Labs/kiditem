@@ -8,8 +8,8 @@ import { setupChannelListing, setupMaster, setupProductOption } from '../../test
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import { AdvertisingLedgerReadService } from '../application/service/advertising-ledger-read.service';
-import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
-import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-monthly-allocation.persistence.adapter';
+import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.repository';
+import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-monthly-allocation.repository';
 import { profitAdCost } from '../domain/ad-spend-rule';
 
 /**

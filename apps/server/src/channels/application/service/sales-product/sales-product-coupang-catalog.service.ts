@@ -11,7 +11,7 @@ import {
 import {
   SALES_PRODUCT_REPOSITORY_PORT,
   type SalesProductRepositoryPort,
-} from '../../port/out/persistence/sales-product.repository.port';
+} from '../../port/out/repository/sales-product.repository.port';
 
 /** 화면에 보여 줄 줄 수. 전부 보내면 1,000 줄짜리 파일에서 응답이 쓸데없이 커진다. */
 const SAMPLE_LIMIT = 50;

@@ -4,7 +4,7 @@ import type {
   RegistrationStateAccountFacts,
   RegistrationStatePersistencePort,
   RegistrationStateProductFacts,
-} from '../../../port/out/persistence/registration-state.persistence.port';
+} from '../../../port/out/repository/registration-state.persistence.port';
 import type { ChannelRegistrableContentFactsPort } from '../../../port/out/content/registrable-content-facts.port';
 
 const PRODUCT = '00000000-0000-4000-8000-000000000001';

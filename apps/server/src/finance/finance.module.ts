@@ -19,7 +19,7 @@ import { SalesPlansService } from './application/service/sales-plan/sales-plans.
 import { SettlementsController } from './adapter/in/web/settlement/settlements.controller';
 import { SettlementsService } from './application/service/settlement/settlements.service';
 import { ProfitabilityEvidenceModule } from './profitability-evidence.module';
-import { MasterProductContributionRepositoryAdapter } from './adapter/out/repository/master-product-contribution.repository.adapter';
+import { MasterProductContributionRepositoryAdapter } from './adapter/out/persistence/master-product-contribution.repository';
 import { MASTER_PRODUCT_CONTRIBUTION_READ_PORT } from './application/port/in/master-product-contribution-read.port';
 import { MASTER_PRODUCT_CONTRIBUTION_REPOSITORY_PORT } from './application/port/out/repository/master-product-contribution.repository.port';
 import { MasterProductContributionReadService } from './application/service/master-product-contribution-read.service';

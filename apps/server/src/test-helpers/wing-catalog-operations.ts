@@ -10,22 +10,22 @@ import {
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { OperationView } from '@kiditem/shared/operation';
 import type { PrismaService } from '../prisma/prisma.service';
-import { OperationRepositoryAdapter } from '../common/operation/adapter/out/repository/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../common/operation/adapter/out/persistence/operation.repository';
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../common/operation/application/service/operation.service';
-import { AiCatalogMediaPublicationRepositoryAdapter } from '../content/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../content/adapter/out/persistence/ai-catalog-media-publication.repository';
 import { ChannelIntegrityAdapter } from '../channels/adapter/out/integrity/channel-integrity.adapter';
 import { ChannelsDocumentsAdapter } from '../channels/adapter/out/documents/channel-documents.adapter';
 import type { ChannelDocumentsPort } from '../channels/application/port/out/documents/channel-documents.port';
 import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out/products/product-mapping-generation.adapter';
-import { ChannelCatalogPublicationRepositoryAdapter } from '../channels/adapter/out/repository/channel-catalog-publication.repository.adapter';
+import { ChannelCatalogPublicationRepositoryAdapter } from '../channels/adapter/out/persistence/channel-catalog-publication.repository';
 import { WingCatalogOperationService } from '../channels/application/service/collection/wing-catalog-operation.service';
 import {
   WingCatalogDetailsOperationOwner,
   WingCatalogExcelOperationOwner,
   WingCatalogListOperationOwner,
 } from '../channels/adapter/in/operation/wing-catalog-operation-owners';
-import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository';
 import { makeChannelListingQuery, makeChannelRecipes } from './channel-catalog-ports';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 

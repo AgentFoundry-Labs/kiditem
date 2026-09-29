@@ -13,12 +13,12 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
+import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/persistence/channel-product-matching.repository';
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
-import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
+import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository';
 import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
-import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import { freezeProductRegistrationPayload } from '../domain/registration/registration-submission-payload';
 import type { CoupangCatalogBasicProductV1 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { Prisma, PrismaClient } from '@prisma/client';

@@ -3,13 +3,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 import { advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import { seedAdReportRun, seedAdReportWindow } from '../../test-helpers/ad-ledger-seeds';
-import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/persistence/keyword-rank-read.adapter';
 import { ReadinessService } from '../readiness.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import { ChannelsProductMappingGenerationAdapter } from '../../channels/adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository';
 
 /**
  * 광고 readiness(KID-372 ①b): 기대일(어제까지 30일, 활성 계정 모두의 최근 보고서가 어제를 요청하고 보류했을 때만 그

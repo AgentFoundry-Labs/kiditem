@@ -14,7 +14,7 @@ each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`,
 Documented legacy exception: the statistics and supplier-stats application
 services inject `PrismaService` directly and read Orders through
 `orders/adapter/out/persistence/read/order-facts.reader` (frozen in
-`check:hexagonal` `KNOWN_VIOLATIONS`, removed with KID-334); the dashboard
+`check:hexagonal` `CROSS_OWNER_EXCEPTIONS`, removed with KID-392); the dashboard
 architecture spec therefore scopes its Prisma-free rules to `*/dashboard/`.
 
 ## Ownership and source boundaries
@@ -184,7 +184,7 @@ boundary with HTTP and persistence adapters around Prisma-free orchestration.
   `trend` is `down`, reorder suggestions are its `needsReorder` SKUs that still
   have stock (read through `SELLPIA_PRODUCT_SALES_SUMMARY_READ_PORT`), and a
   failed registration is a listing the mall listing state reads as `error`
-  (`channels/adapter/out/repository/mall-listing-errors.reader.ts`).
+  (`channels/adapter/out/persistence/mall-listing-errors.reader.ts`).
 - Rocket sales splits use Sellpia daily sales facts. `/rocket-orders` uses the
   current Rocket PO catalog; there is no `dashboard.rocket_sales` source.
 - Omit the retired Delivery Statistics surface until an Order-backed owner is

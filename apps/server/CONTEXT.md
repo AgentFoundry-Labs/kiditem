@@ -212,11 +212,25 @@ The canonical list is the [ledger reader manifest](../../scripts/ledger-readers.
 _Avoid_: snapshot table, fact table, cache, projection
 
 **Reader**:
-The one module through which a ledger is read for any purpose other than its
-owner's own publication. It carries the ledger's evidence gate, returns facts
-(measured dates, sums, the latest observed moment) and never a word derived
-from them. A screen composes readers; it does not query a ledger.
-_Avoid_: repository, query service, read port, distributor
+An owner's internal read implementation of its own ledger. It carries the
+ledger's evidence gate and returns facts (measured dates, sums, the latest
+observed moment), never a word derived from them. Only the owning domain calls
+it; every other caller goes through the owner's incoming port.
+_Avoid_: shared reader, cross-owner reader, query service, distributor
+
+**Incoming port**:
+A use case an owner offers to callers outside its domain — HTTP, an Agent
+capability, or another owner. It returns facts and outcomes in the owner's
+vocabulary, never ledger rows. A screen or another owner composes incoming
+ports; it does not query a ledger.
+_Avoid_: capability (unless catalogued for agents), read port, facts port
+
+**Capability**:
+A domain ability defined in the owner's capability catalog so an Agent can use
+it as a tool. It passes admission and approval and then calls that owner's
+incoming port; an incoming port that is not in the catalog is not a capability.
+_Avoid_: business capability, owner capability (for plain incoming ports),
+tool, skill
 
 **Published calculation**:
 A result computed from ledgers and stored with the generation and cutoff it

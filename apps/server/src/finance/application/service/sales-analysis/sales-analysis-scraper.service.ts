@@ -17,7 +17,7 @@ import {
   readObservedOrderCount,
 } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import type { AdTrafficSourceAccountDaily, AdTrafficSourceCoverage, AdTrafficSourceDailyPublished, AdTrafficSourcePublished } from '@kiditem/shared/advertising-operations';
 import type { SalesAnalysisDataSources } from '@kiditem/shared/finance';
 

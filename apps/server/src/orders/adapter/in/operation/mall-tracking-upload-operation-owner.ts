@@ -22,7 +22,7 @@ import {
 import {
   ORDER_MALL_ACCOUNT_PORT,
   type OrderMallAccountPort,
-} from '../../../application/port/out/persistence/order-mall-account.port';
+} from '../../../application/port/out/repository/order-mall-account.port';
 import {
   mallTrackingUploadResult,
   mallTrackingUploadRows,

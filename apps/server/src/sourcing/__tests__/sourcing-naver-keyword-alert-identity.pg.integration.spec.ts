@@ -7,7 +7,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
+import { TrendCollectionRepositoryAdapter } from '../adapter/out/persistence/trend-collection.repository';
 import { NaverKeywordResearchService } from '../application/service/naver-keyword-research.service';
 import type { PrismaClient } from '@prisma/client';
 

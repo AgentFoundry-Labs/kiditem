@@ -5,7 +5,7 @@ import type {
 } from '@kiditem/shared/thumbnail-execution';
 import type { ChannelsThumbnailExecutionPort, ThumbnailExecutionPlan } from '../../port/in/thumbnail-execution.port';
 import type { ChannelRegistrableThumbnailPort } from '../../port/out/content/registrable-thumbnail.port';
-import type { ThumbnailExecutionPersistencePort } from '../../port/out/persistence/thumbnail-execution.persistence.port';
+import type { ThumbnailExecutionPersistencePort } from '../../port/out/repository/thumbnail-execution.persistence.port';
 import { KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { resolveThumbnailAccount, thumbnailProductName } from '../../../domain/registration/thumbnail-update';
 

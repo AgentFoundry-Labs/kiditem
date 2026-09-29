@@ -15,7 +15,7 @@ const browserQaWebUrl = 'http://127.0.0.1:3000';
 const browserQaApiUrl = 'http://127.0.0.1:4000';
 
 const INVOCATION_REPOSITORY_TEST_PATH =
-  'src/agent-os/adapter/out/repository/prisma-capability-invocation.repository.spec.ts';
+  'src/agent-os/adapter/out/persistence/prisma-capability-invocation.repository.spec.ts';
 const INVOCATION_RACE_TEST_PATH =
   'src/agent-os/__tests__/capability-invocation-races.pg.integration.spec.ts';
 

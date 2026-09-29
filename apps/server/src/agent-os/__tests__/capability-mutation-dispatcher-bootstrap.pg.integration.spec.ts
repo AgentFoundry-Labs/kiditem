@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
-import { PrismaCapabilityInvocationRepository } from '../adapter/out/repository/prisma-capability-invocation.repository';
+import { PrismaCapabilityInvocationRepository } from '../adapter/out/persistence/prisma-capability-invocation.repository';
 import { AgentCapabilityRegistry } from '../application/service/agent-capability-registry.service';
 import { CapabilityMutationDispatcher } from '../application/service/capability-mutation-dispatcher.service';
 import { CAPABILITY_APPROVAL_WINDOW_MS } from '../domain/capability/capability-invocation.policy';

@@ -18,7 +18,7 @@ import {
   CONVERSATION_TURN_ID_FACTORY,
   type ConversationTurnIdFactory,
   type ConversationTurnCoordinates,
-} from '../port/in/capability/conversation.port';
+} from '../port/in/conversation/conversation.port';
 import {
   GATEWAY_CONVERSATION_PORT,
   type GatewayConversationPort,

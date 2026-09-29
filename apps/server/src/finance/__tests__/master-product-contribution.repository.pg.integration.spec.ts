@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { productAbcContributionMetricStatus } from '@kiditem/shared/product-abc';
-import { MasterProductContributionRepositoryAdapter } from '../adapter/out/repository/master-product-contribution.repository.adapter';
-import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { MasterProductContributionRepositoryAdapter } from '../adapter/out/persistence/master-product-contribution.repository';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,

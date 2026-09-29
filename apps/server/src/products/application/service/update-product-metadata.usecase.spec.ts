@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { UpdateProductMetadataUseCase } from './update-product-metadata.usecase';
-import type { ProductOperationsRepositoryPort } from '../port/out/persistence/product-operations.repository.port';
+import type { ProductOperationsRepositoryPort } from '../port/out/repository/product-operations.repository.port';
 import type { ProductQueryPort } from '../port/in/product-query.port';
 
 function setup() {

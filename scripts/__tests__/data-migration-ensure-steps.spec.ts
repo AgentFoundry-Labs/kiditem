@@ -152,7 +152,7 @@ describe('ensure:absolute_product_abc_formula', () => {
     expect(mapping).toMatch(/pg_advisory_xact_lock\(\s*hashtextextended\(\$\{lockKey\}, 0\)\s*\)/);
 
     const publication = readRepoFile(
-      'apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts',
+      'apps/server/src/products/adapter/out/persistence/master-product-abc.repository.ts',
     );
     const lockOrder = [
       'await lockProductMapping(tx, input.organizationId);',

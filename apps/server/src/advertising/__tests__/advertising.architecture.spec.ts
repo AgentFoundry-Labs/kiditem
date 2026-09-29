@@ -5,7 +5,7 @@ import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/a
 // Architecture guard tests freeze the Advertising port/adapter contract:
 //
 //   - PrismaService is imported only under
-//     `advertising/adapter/out/repository/**`.
+//     `advertising/adapter/out/persistence/**`.
 //   - The retired `services/` compatibility lane stays empty.
 //   - Shared persistence helpers stay inside outgoing repository adapters.
 //   - `application/**` does not import `@prisma/client` or expose Prisma
@@ -32,18 +32,18 @@ const OTHER_OWNERS =
   'automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|analytics';
 
 describe('Advertising architecture contract', () => {
-  it('PrismaService is imported only under advertising/adapter/out/repository/**', () => {
+  it('PrismaService is imported only under advertising/adapter/out/persistence/**', () => {
     const violators = importers([ADVERTISING_ROOT], String.raw`[^'"]*prisma/prisma\.service`)
-      .filter((file) => !file.startsWith('adapter/out/repository/'));
+      .filter((file) => !file.startsWith('adapter/out/persistence/'));
     expect(
       violators,
-      `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
+      `PrismaService is leaking outside adapter/out/persistence:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
   it('shared persistence helpers stay under outgoing repository adapters', () => {
     const violators = ownerFiles().filter(
-      (file) => file.endsWith('persistence.ts') && !file.startsWith('adapter/out/repository/'),
+      (file) => file.endsWith('persistence.ts') && !file.startsWith('adapter/out/persistence/'),
     );
     expect(
       violators,
@@ -93,14 +93,14 @@ describe('Advertising architecture contract', () => {
 
   it('no top-level dto/, util/, or adapter/out/prisma/ folders remain', () => {
     // Final hex layout uses adapter/in/http/dto/ for HTTP DTOs, domain/util/
-    // for pure helpers, and adapter/out/repository/ for Prisma adapters.
+    // for pure helpers, and adapter/out/persistence/ for Prisma adapters.
     // These legacy folders must not be reintroduced.
     const violators = ownerFiles().filter((file) =>
       ['dto/', 'util/', 'adapter/out/prisma/'].some((prefix) => file.startsWith(prefix)),
     );
     expect(
       violators,
-      `Legacy folders detected — move to hex layout (adapter/in/http/dto/, domain/util/, adapter/out/repository/):\n${violators.join('\n')}`,
+      `Legacy folders detected — move to hex layout (adapter/in/http/dto/, domain/util/, adapter/out/persistence/):\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 

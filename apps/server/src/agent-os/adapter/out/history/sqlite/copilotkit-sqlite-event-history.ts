@@ -8,7 +8,7 @@ import type {
 } from '@copilotkit/runtime/v2';
 import { AbstractAgent, type BaseEvent, type RunAgentInput } from '@ag-ui/client';
 import { EMPTY, map, type Observable } from 'rxjs';
-import type { ConversationOwner } from '../../../../application/port/in/capability/conversation.port';
+import type { ConversationOwner } from '../../../../application/port/in/conversation/conversation.port';
 import type { ConversationEventHistoryPort } from '../../../../application/port/out/history/conversation-event-history.port';
 
 export interface ConversationSqliteEventHistoryOptions {

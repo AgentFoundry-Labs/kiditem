@@ -50,7 +50,7 @@ type Priority = 'urgent' | 'high' | 'medium' | 'low';
  * Endpoint orchestration for `/api/ads/strategy/*` and `/api/ads/campaigns/register`.
  *
  * Heavy lifting (raw SQL latest-state reads, multi-step hydration, pure rule
- * evaluation, mapping) lives in `domain/`, `adapter/out/repository/`, `mapper/`,
+ * evaluation, mapping) lives in `domain/`, `adapter/out/persistence/`, `mapper/`,
  * and the three sub-service calculators (`AdGradeRulesService`,
  * `AdBudgetAllocatorService`, `AdRecommendService`).
  *

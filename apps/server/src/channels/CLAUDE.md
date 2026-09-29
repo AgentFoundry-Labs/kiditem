@@ -122,7 +122,7 @@ sync, registration, matching, and capacity behavior is executable in
   → `adapter/out`. Application and domain may use NestJS as described in the
   server guide; queries preserve the same owner and IO boundaries.
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 finalize 의 증거 거절은
-  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog)·`channel-account.repository.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
 - Listing-day traffic coverage comes from Advertising's succeeded
   `advertising.wing_traffic` operations, read through Advertising's transaction
   function `advertising/transaction/wing-traffic-coverage` (KID-362); Channels
@@ -132,7 +132,7 @@ sync, registration, matching, and capacity behavior is executable in
 - 판매중은 `readSellingListings` 하나가 정한다(KID-333): `isActive` ∧ 게시 상태 ∧ 원본 판매상태(rawJson,
   `domain/listing/listing-sale-state.ts`)가 있으면 판매중, 모르는 상태는 판매중이 아니다. 판매중을 세는 곳은 이 판정만 읽는다.
 - Persistence adapters may query Channels-owned facts without a dedicated
-  reader file. Other owners use public capabilities (ADR-0021); preserve
+  reader file. Other owners use the owner's incoming ports (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.
 - Keep cross-owner IDs as logical references validated by owner contracts.
   Keep Channels-related organization/user/source-attempt references scalar too;
@@ -178,7 +178,7 @@ sync, registration, matching, and capacity behavior is executable in
 - The Sabangnet listing import is one `channels.sabangnet_mall_listings`
   operation per organization (KID-363) holding `resource:sabangnet:login`; its
   plan freezes the mall account rows the hub picks
-  (`adapter/out/repository/mall-account-rows.ts`, any status). Finalize checks
+  (`adapter/out/persistence/mall-account-rows.ts`, any status). Finalize checks
   the `listing_scan` proof, publishes each mall's send records as listings with
   one option (`sellerSku` = Sabangnet model = Sellpia SKU code), and turns off
   only listings this source created that left the list, all with

@@ -1,22 +1,22 @@
 import { AI_LISTING_CONTENT_QUERY_PORT } from '../content/application/port/in/workspace/listing-content-query.port';
-import { ListingContentQueryRepositoryAdapter } from '../content/adapter/out/repository/listing-content-query.repository.adapter';
+import { ListingContentQueryRepositoryAdapter } from '../content/adapter/out/persistence/listing-content-query.repository';
 import { CHANNEL_LISTING_QUERY_PORT } from '../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT } from '../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_ACCOUNT_PORT } from '../channels/application/port/in/account/channel-account.port';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChannelListingQueryPersistenceAdapter } from '../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelListingQueryPersistenceAdapter } from '../channels/adapter/out/persistence/channel-listing-query.repository';
 import { ChannelListingQueryService } from '../channels/application/service/listing/channel-listing-query.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelOptionRecipeRepositoryAdapter } from '../channels/adapter/out/persistence/channel-option-recipe.repository';
 import { ChannelOptionRecipeService } from '../channels/application/service/listing/channel-option-recipe.service';
-import { ChannelAccountPersistenceAdapter } from '../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelAccountPersistenceAdapter } from '../channels/adapter/out/persistence/channel-account.repository';
 import { ChannelAccountService } from '../channels/application/service/account/channel-account.service';
-import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository';
 import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out/products/product-mapping-generation.adapter';
-import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
-import { ADVERTISING_LEDGER_READ_PORT } from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository';
+import { ADVERTISING_LEDGER_READ_PORT } from '../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { AdvertisingLedgerReadService } from '../advertising/application/service/advertising-ledger-read.service';
-import { AdLedgerReadPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-read.persistence.adapter';
-import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-monthly-allocation.persistence.adapter';
+import { AdLedgerReadPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-read.repository';
+import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-monthly-allocation.repository';
 
 /** Compose real owner fact capabilities for adapter/PG tests using one database client. */
 export function channelFactTestPorts(prisma: PrismaService) {

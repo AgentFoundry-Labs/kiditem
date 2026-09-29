@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ProductOperationsDataStatusFacts } from '../port/out/persistence/product-operations-data-status.repository.port';
+import type { ProductOperationsDataStatusFacts } from '../port/out/repository/product-operations-data-status.repository.port';
 import { ProductDataStatusUseCase } from './product-data-status.usecase';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';

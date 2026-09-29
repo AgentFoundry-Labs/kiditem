@@ -7,7 +7,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
-import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
+import { KeywordRankRepositoryAdapter } from '../adapter/out/persistence/keyword-rank.repository';
 import { KeywordRankService } from '../application/service/keyword-rank.service';
 import { currentBusinessDate } from '../domain/business-date';
 import type { PrismaClient } from '@prisma/client';

@@ -9,7 +9,7 @@ import type {
   ProductOperationsRepositoryDetail,
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryOption,
-} from '../application/port/out/persistence/product-operations.repository.port';
+} from '../application/port/out/repository/product-operations.repository.port';
 
 type AvailabilityBySkuId = ReadonlyMap<string, InventorySkuAvailability>;
 

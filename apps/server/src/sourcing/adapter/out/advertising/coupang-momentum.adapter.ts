@@ -4,7 +4,7 @@ import {
   type CoupangMomentumReadCapabilityPort,
   type CoupangSerpMomentumSnapshot,
   type CoupangWingSalesMomentumRow,
-} from '../../../../advertising/application/port/in/capability/coupang-momentum-read.port';
+} from '../../../../advertising/application/port/in/ledger/coupang-momentum-read.port';
 import type {
   CoupangMomentumPort,
   CoupangSerpSnapshot,

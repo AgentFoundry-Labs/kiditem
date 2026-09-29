@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { ProfitabilityEvidenceModule } from '../finance/profitability-evidence.module';
 import { ProductCollectionRuntimeModule } from './product-collection-runtime.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
-import { MasterProductAbcRepositoryAdapter } from './adapter/out/persistence/master-product-abc.repository.adapter';
+import { MasterProductAbcRepositoryAdapter } from './adapter/out/persistence/master-product-abc.repository';
 import { PRODUCT_ABC_READ_PORT } from './application/port/in/product-abc-read.port';
-import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/persistence/master-product-abc.repository.port';
+import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
 import { ProductAbcReadUseCase } from './application/service/product-abc-read.usecase';
 
 /**

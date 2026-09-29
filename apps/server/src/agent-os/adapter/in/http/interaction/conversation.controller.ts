@@ -31,7 +31,7 @@ import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import {
   CONVERSATION_PORT,
   type ConversationPort,
-} from '../../../../application/port/in/capability/conversation.port';
+} from '../../../../application/port/in/conversation/conversation.port';
 
 const CreateConversationSchema = CreateConversationRequestSchema;
 const SetConversationPreferenceSchema = z.object({
