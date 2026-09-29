@@ -597,7 +597,7 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'orderCollectionIcecreamMall',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
-    'mallSessionProbeV1',
+    'mallLoginCheckV2',
     // 쿠팡
     'coupangCatalogSnapshot',
     // 몰 쓰기 실행 kind(등록·품절·재개·가격·대표이미지, KID-256)
