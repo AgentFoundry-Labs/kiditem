@@ -91,24 +91,44 @@ export class SourcingServerOperationRunner {
     operationIdempotencyKey?: string;
   }): Promise<SourcingServerRun> {
     const requestIdempotencyKey = boundedKey(input.requestIdempotencyKey);
-    const replay = await this.reads.findByRequestKey({
+    const replay = await this.replay({
       organizationId: input.organizationId,
       kind: input.kind,
       sourceKey: input.scope.sourceKey,
       requestIdempotencyKey,
+      requestFingerprint: input.scope.requestFingerprint,
     });
-    if (replay) {
-      if (replay.plan.requestFingerprint !== input.scope.requestFingerprint) {
-        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
-      }
-      return { attempt: toAttempt(replay), created: false, token: null };
-    }
+    if (replay) return { attempt: replay, created: false, token: null };
     const begun = await this.operations.begin(input.organizationId, {
       kind: input.kind,
       scope: { ...input.scope, requestIdempotencyKey },
       idempotencyKey: input.operationIdempotencyKey ?? requestIdempotencyKey,
     }, { userId: input.userId });
     return { attempt: toAttempt(fromView(begun.operation)), created: !begun.reused, token: begun.reused ? null : begun.token };
+  }
+
+  /**
+   * 같은 요청 멱등 키로 이미 연 실행(재전송). 요청 내용(지문)이 다르면 계약과 같은 `idempotency_key_reused`로 거절한다.
+   * begin 전에 따로 부르는 곳(URL 수집)은 재전송이면 이미 수집한 원본 확인보다 먼저 그 실행을 돌려준다.
+   */
+  async replay(input: {
+    organizationId: string;
+    kind: SourcingServerKind;
+    sourceKey: string;
+    requestIdempotencyKey: string;
+    requestFingerprint: string;
+  }): Promise<SourcingSourceAttempt | null> {
+    const replay = await this.reads.findByRequestKey({
+      organizationId: input.organizationId,
+      kind: input.kind,
+      sourceKey: input.sourceKey,
+      requestIdempotencyKey: boundedKey(input.requestIdempotencyKey),
+    });
+    if (!replay) return null;
+    if (replay.plan.requestFingerprint !== input.requestFingerprint) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
+    }
+    return toAttempt(replay);
   }
 
   /** 원장 출력을 청크로 싣고 finish(succeeded). rejected>0이면 발행 없이 failed로 닫는다(실패 단위 결과 보존). */
