@@ -10,7 +10,6 @@ import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } fr
 import type { StockoutCheckPersistencePort, StockoutSubject } from '../../../application/port/out/persistence/stockout-check.persistence.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { LIVE_OPERATION_STATUSES, isFillOnly, readRegistrationOperations, readUnresolvedCompositionOptionIds, type RegistrationOperationFact } from '../repository/registration-operation-facts';
-import { readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { OPERATION_PORT, type OperationPort } from '../../../../common/operation/application/port/in/operation.port';
 import { WING_CATALOG_KINDS } from '@kiditem/shared/coupang-catalog-snapshot';
@@ -94,7 +93,6 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
       orderBy: [{ listingOptionId: 'asc' }, { lastObservedAt: 'desc' }, { id: 'desc' }], distinct: ['listingOptionId'],
     });
     const observationsByOption = new Map(optionObservations.map(row => [row.listingOptionId, row]));
-    const listingObservations = new Map((await readLatestListingSaleStatusFacts(tx, { organizationId, listingIds: ids })).map(row => [row.listingId, row]));
     return listings.map(listing => {
       const related = executions.filter(execution => execution.plan.channelListingId === listing.id
         || availabilityListing(execution, listing.id) !== null);
@@ -108,11 +106,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
         }];
       });
       let status = listing.status;
-      let statusAt = catalogObservedAt(listing);
-      const observation = listingObservations.get(listing.id);
-      if (observation?.saleStatus && (!statusAt || observation.observedAt > statusAt)) {
-        status = observation.saleStatus; statusAt = observation.observedAt;
-      }
+      const statusAt = catalogObservedAt(listing);
       if (getListingAvailabilityCapability(listing.channelAccount.channel, 'sold_out')?.axis === 'listing') {
         const latest = confirmed[0];
         if (latest && (!statusAt || latest.observedAt > statusAt)) status = latest.kind === 'sold_out' ? 'sold_out' : 'active';

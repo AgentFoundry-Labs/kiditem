@@ -29,7 +29,9 @@ describe('판매중 정본 규칙(KID-333 ②, 사장님 2026-09-29 Q1 (a))', ()
   it('상태 글자 분류는 공백·대소문자를 무시하고 사방넷 접두를 안다', () => {
     expect(classifyChannelListingSaleStatus(' 판매중 ')).toBe('on_sale');
     expect(classifyChannelListingSaleStatus('ON_SALE')).toBe('on_sale');
-    expect(classifyChannelListingSaleStatus('사방넷:완전품절')).toBe('off_sale');
+    // 사방넷 접두어는 저장값 그대로 `SABANGNET_STATUS_PREFIX`('사방넷 ', 공백)와 같다.
+    expect(classifyChannelListingSaleStatus('사방넷 공급중')).toBe('on_sale');
+    expect(classifyChannelListingSaleStatus('사방넷 완전품절')).toBe('off_sale');
     expect(classifyChannelListingSaleStatus('')).toBe('unknown');
   });
 });

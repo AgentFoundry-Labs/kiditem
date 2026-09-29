@@ -1031,8 +1031,7 @@ describe('AdStrategy flow (PG integration)', () => {
       myPrice?: number | null;
       winnerPrice?: number | null;
       winnerGapPrice?: number | null;
-      exposureStatus?: string | null;
-      saleStatus?: string | null;
+      productName?: string | null;
     }) {
       return prisma.channelListingDailySnapshot.create({
         data: {
@@ -1046,8 +1045,7 @@ describe('AdStrategy flow (PG integration)', () => {
           myPrice: params.myPrice ?? null,
           winnerPrice: params.winnerPrice ?? null,
           winnerGapPrice: params.winnerGapPrice ?? null,
-          exposureStatus: params.exposureStatus ?? null,
-          saleStatus: params.saleStatus ?? null,
+          productName: params.productName ?? null,
         },
       });
     }
@@ -1286,14 +1284,14 @@ describe('AdStrategy flow (PG integration)', () => {
         impressions: 10000,
         conversions: 10,
       });
-      // Our own daily row observed only the sale status, so channelState exists
+      // Our own daily row observed only the product name, so channelState exists
       // without any winner state of its own.
       await seedListingDaily({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: ours.listing.id,
         externalId: ours.listing.externalId,
         businessDate: periodBounds('14d').to.toISOString().slice(0, 10),
-        saleStatus: '판매중',
+        productName: '우리 상품',
       });
       // Seed a noisy daily snapshot in the OTHER organization — must not leak.
       await seedListingDaily({

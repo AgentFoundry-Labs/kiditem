@@ -1,10 +1,10 @@
 import type { MallListingState } from '../../../../domain/listing/mall-listing-state';
+import type { ChannelListingSaleState } from '@kiditem/shared/channel-listing';
 import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   ListingTrafficWindowFacts,
   ListingStateFact,
-  ListingSaleStatusFact,
 } from '../../../../domain/listing/observation-facts';
 import type { StoredListingAttribute } from '../../../../domain/collection/channel-listing-attributes';
 export const CHANNEL_LISTING_QUERY_PORT = Symbol('CHANNEL_LISTING_QUERY_PORT');
@@ -134,7 +134,34 @@ export interface ChannelCatalogFact {
   }>;
 }
 
+/** 판매중 정본 리더의 거르기. 비우면 조직의 켜진 리스팅 전부. */
+export interface ChannelSellingListingFilter {
+  channels?: readonly string[];
+  channelAccountIds?: readonly string[];
+  /** 쓸 수 있는 계정(`active`·`configured`)의 리스팅만. */
+  usableAccountsOnly?: boolean;
+}
+
+/** 켜진 리스팅 한 줄의 판매중 판정(KID-333 ②). 판매중만 세는 쪽은 `saleState === 'on_sale'`로 거른다. */
+export interface ChannelSellingListingFact {
+  listingId: string;
+  channel: string;
+  channelAccountId: string;
+  channelAccountName: string;
+  saleState: ChannelListingSaleState;
+  options: Array<{
+    optionId: string;
+    isActive: boolean;
+    components: Array<{ masterProductId: string; quantity: number }>;
+  }>;
+}
+
 export interface ChannelListingFactQueries {
+  /** 판매중 정본 판정 — 모든 화면·ABC·매칭 카드·대시보드가 이 하나를 읽는다. */
+  readSellingListings(
+    transaction: OwnerTransaction,
+    input: ChannelSellingListingFilter & { organizationId: string },
+  ): Promise<ChannelSellingListingFact[]>;
   readOptionCandidates(
     transaction: OwnerTransaction,
     input: {
@@ -237,10 +264,6 @@ export interface ChannelListingFactQueries {
     transaction: OwnerTransaction,
     input: { organizationId: string; listingIds: readonly string[] },
   ): Promise<readonly ListingStateFact[]>;
-  readLatestSaleStatus(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; listingIds: readonly string[] },
-  ): Promise<readonly ListingSaleStatusFact[]>;
   lockActiveOwner(
     transaction: OwnerTransaction,
     input: { organizationId: string; listingId: string },

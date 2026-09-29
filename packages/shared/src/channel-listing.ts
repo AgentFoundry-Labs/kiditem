@@ -33,14 +33,14 @@ export type ChannelListingSaleState = (typeof CHANNEL_LISTING_SALE_STATES)[numbe
 /** 게시(판매중) 상태 — 몰·적재 파일·Wing API·사방넷·몰 관리자 목록이 주는 글자를 소문자로 맞춰 비교한다. */
 const ON_SALE_LISTING_STATUSES = new Set([
   'active', 'on_sale', 'partial_on_sale', 'sale', 'selling', 'true', 'approved', 'published',
-  '활성', '판매 중', '판매중', '승인완료', '사방넷:공급중',
+  '활성', '판매 중', '판매중', '승인완료', '사방넷 공급중',
 ]);
 
 const OFF_SALE_LISTING_STATUSES = new Set([
   'inactive', 'off_sale', 'stopped', 'suspended', 'paused', 'soldout', 'sold_out', 'out_of_stock', 'hidden', 'held',
   'discontinued', 'deleted', 'rejected', 'ended',
   '비활성', '판매 중지', '판매중지', '품절', '단종', '승인반려', '판매종료', '미노출', '보류',
-  '사방넷:일시중지', '사방넷:완전품절',
+  '사방넷 일시중지', '사방넷 완전품절',
 ]);
 
 function normalizeStatus(status: string | null | undefined): string | null {
@@ -55,11 +55,6 @@ export function classifyChannelListingSaleStatus(status: string | null | undefin
   if (ON_SALE_LISTING_STATUSES.has(normalized)) return 'on_sale';
   if (OFF_SALE_LISTING_STATUSES.has(normalized)) return 'off_sale';
   return 'unknown';
-}
-
-/** 옛 이름 호환: 판매중 상태 글자인가(정본 판정은 `resolveChannelListingSaleState`). */
-export function isChannelListingOnSale(status: string | null | undefined): boolean {
-  return classifyChannelListingSaleStatus(status) === 'on_sale';
 }
 
 /** 정본 판정 — 위 세 조건. `unknown`은 판매중이 아니지만 화면이 "모름"으로 따로 보일 수 있게 구분해 돌려준다. */
@@ -78,12 +73,4 @@ export function resolveChannelListingSaleState(input: ChannelListingSaleStatusIn
 
 export function isChannelListingSelling(input: ChannelListingSaleStatusInput): boolean {
   return resolveChannelListingSaleState(input) === 'on_sale';
-}
-
-/**
- * @deprecated 옛 호출부 호환(PR B 트랙이 `resolveChannelListingSaleState`/포트로 바꾸며 지운다). 판매중이면 `'active'`, 아니면 null —
- * 옛 반환값(원문 상태 글자)을 쓰던 곳은 `isChannelListingOnSale`로 판정만 했으므로 이 모양이면 같은 결과다.
- */
-export function resolveChannelListingSaleStatus(input: ChannelListingSaleStatusInput & { latestSnapshotStatus?: string | null }): string | null {
-  return isChannelListingSelling(input) ? 'active' : null;
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { CHANNEL_LISTING_SALE_STATES } from '../channel-listing.js';
 
 export const ChannelRecipeSuggestionDecisionSchema = z.enum([
   'auto_apply',
@@ -104,7 +105,8 @@ export const ChannelProductMatchingQueueRowSchema = z.object({
     externalId: z.string().min(1),
     displayName: z.string().nullable(),
     status: z.string().nullable(),
-    saleStatus: z.string().nullable(),
+    /** 판매중 정본 판정(KID-333 ②) — `on_sale`만 판매중이다. */
+    saleState: z.enum(CHANNEL_LISTING_SALE_STATES),
     masterProductId: z.string().uuid().nullable(),
     channelImageUrl: DisplayImageUrlSchema,
     updatedAt: zIsoDate,

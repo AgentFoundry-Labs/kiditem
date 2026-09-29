@@ -18,10 +18,6 @@ import { withListingProductSummary } from '../../../../../channels/domain/listin
 import { Inject, Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import {
-  isChannelListingOnSale,
-  resolveChannelListingSaleStatus,
-} from "@kiditem/shared/channel-listing";
-import {
   PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD,
   productAbcDisplayStatus,
   productAbcSaleAgeDays,
@@ -243,19 +239,16 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
   async readInventoryAvailabilityFacts(organizationId: string) {
     return this.prisma.$transaction(
       async (tx) => {
-        const listingRows = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, channels: ['coupang', 'rocket'], activeAccountsOnly: true }).then(rows => rows.map(row => ({ ...row, options: row.options.map(option => ({ ...option, inventoryComponents: option.components })) })));
-        const listings = listingRows.map(withListingProductSummary);
+        // 판매중 리스팅만 — Channels 정본 판정(KID-333 ②), 전 채널, 쓸 수 있는 계정(active·configured).
+        const sellingRows = await this.channelListings.readSellingListings(ownerTransaction(tx), { organizationId, usableAccountsOnly: true });
+        const listings = sellingRows
+          .filter((listing) => listing.saleState === "on_sale")
+          .map((listing) => withListingProductSummary({ ...listing, options: listing.options.map((option) => ({ ...option, inventoryComponents: option.components })) }));
         const inventoryContext = { client: tx };
-        const [statusFacts, identities] = await Promise.all([
-          this.channelListings.readLatestSaleStatus(ownerTransaction(tx), {
-            organizationId,
-            listingIds: listings.map((listing) => listing.id),
-          }),
-          this.inventoryTransactionalRead.readSourceIdentities(inventoryContext, {
-            organizationId,
-            selector: { kind: "all" },
-          }),
-        ]);
+        const identities = await this.inventoryTransactionalRead.readSourceIdentities(inventoryContext, {
+          organizationId,
+          selector: { kind: "all" },
+        });
         const inventoryLock = await this.inventoryTransactionalRead.lock(
           inventoryContext,
           organizationId,
@@ -281,22 +274,11 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
           identities.every((product) =>
             availabilityBySkuId.has(product.masterProductId),
           );
-        const saleStatusByListing = new Map(
-          statusFacts.map((fact) => [fact.listingId, fact.saleStatus]),
-        );
         let unmatched = 0;
         let needsReview = 0;
         let matched = 0;
         const linkedMasterProductIds = new Set<string>();
         for (const listing of listings) {
-          const saleStatus = resolveChannelListingSaleStatus({
-            latestSnapshotStatus: saleStatusByListing.get(listing.id) ?? null,
-            rawStatus: rawSaleStatus(listing.rawJson),
-            optionStatuses: listing.options.map((option) => option.status),
-            listingStatus: listing.status,
-            isActive: listing.isActive,
-          });
-          if (!isChannelListingOnSale(saleStatus)) continue;
           for (const option of listing.options) {
             if (option.inventoryComponents.length === 0) {
               unmatched += 1;
@@ -379,15 +361,4 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
       { isolationLevel: "RepeatableRead" },
     );
   }
-}
-
-function rawSaleStatus(value: unknown): string | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ["saleStatus", "salesStatus", "sale_status", "판매상태"]) {
-    const candidate = record[key];
-    if (typeof candidate === "string" && candidate.trim())
-      return candidate.trim();
-  }
-  return null;
 }

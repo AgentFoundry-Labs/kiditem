@@ -154,21 +154,6 @@ export function needsAttention(state: MallListingState): boolean {
 }
 
 /**
- * 지금 팔리고 있다는 뜻의 몰 원문 상태. 원천마다 글자가 다르다 — 쿠팡 `승인완료`,
- * 사방넷 `사방넷 공급중`, 몰 관리자 `판매중`, 로켓 `활성`.
- *
- * 세는 쪽(판매중 기준 매칭률)이 이 목록을 다시 적지 않게 접는 표에서 뽑는다. 상태 하나를
- * 더 접으면 세는 곳도 같이 따라온다.
- */
-export const PUBLISHED_LISTING_STATUSES: readonly string[] = [
-  ...new Set(Object.entries(LISTING_STATUS_MAP)
-    .filter(([, state]) => state === 'published')
-    // 접는 표는 소문자로 비교하지만 저장된 값은 원문 그대로다(`ON_SALE`). 세는 쪽은 글자를
-    // 그대로 맞춰야 하므로 대문자도 함께 둔다.
-    .flatMap(([status]) => [status, status.toUpperCase()])),
-];
-
-/**
  * 몰이 등록을 거절했다는 뜻의 원문 상태(쿠팡 `승인반려` · `REJECTED`, 몰 관리자 `반려`).
  * 매트릭스 칸이 `error` 로 읽는 리스팅을 세는 쪽이 같은 표에서 뽑는다.
  */

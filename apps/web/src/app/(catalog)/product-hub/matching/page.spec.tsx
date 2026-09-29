@@ -63,7 +63,7 @@ const accounts = [{
   isPrimary: true,
 }];
 
-function productRow(id: string, saleStatus: string | null, linked: boolean) {
+function productRow(id: string, saleState: 'on_sale' | 'off_sale' | 'unknown', linked: boolean) {
   const masterProductId = linked ? '55555555-5555-4555-8555-555555555555' : null;
   return {
     channelAccount: { id: accounts[0]!.id, channel: 'coupang', name: '쿠팡 본계정' },
@@ -72,7 +72,7 @@ function productRow(id: string, saleStatus: string | null, linked: boolean) {
       externalId: `external-${id.slice(0, 4)}`,
       displayName: '채널 상품',
       status: null,
-      saleStatus,
+      saleState,
       masterProductId,
       channelImageUrl: null,
       updatedAt: '2026-08-03T00:00:00.000Z',
@@ -86,8 +86,8 @@ function productRow(id: string, saleStatus: string | null, linked: boolean) {
 function queue() {
   return {
     products: [
-      productRow('33333333-3333-4333-8333-333333333333', '판매중', true),
-      productRow('44444444-4444-4444-8444-444444444444', '판매중지', false),
+      productRow('33333333-3333-4333-8333-333333333333', 'on_sale', true),
+      productRow('44444444-4444-4444-8444-444444444444', 'off_sale', false),
     ],
     options: [],
     counts: {
@@ -158,9 +158,9 @@ describe('/product-hub/matching', () => {
     mappings.data = {
       ...queue(),
       products: [
-        productRow('33333333-3333-4333-8333-333333333333', '판매중', false),
-        productRow('44444444-4444-4444-8444-444444444444', '판매중', true),
-        productRow('55555555-5555-4555-8555-555555555555', '판매중', true),
+        productRow('33333333-3333-4333-8333-333333333333', 'on_sale', false),
+        productRow('44444444-4444-4444-8444-444444444444', 'on_sale', true),
+        productRow('55555555-5555-4555-8555-555555555555', 'on_sale', true),
       ],
       options: [
         optionRow('33333333-3333-4333-8333-333333333333', []),

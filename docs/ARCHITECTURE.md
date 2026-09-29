@@ -1073,6 +1073,15 @@ rows. It never creates a channel-origin MasterProduct. After recipe changes the
 listing summary is derived: all options must be configured and resolve to one
 canonical MasterProduct, otherwise `ChannelListing.masterProductId` is null.
 
+Whether a listing is selling is one Channels judgement, read through
+`CHANNEL_LISTING_QUERY_PORT.readSellingListings` (KID-333): the listing is
+active, its mall status is in the published set, and the mall's own sale status
+in `rawJson`, when present, is selling; an unknown status is not selling.
+Products (selling filter, per-mall selling counts, ABC population), the
+dashboard matching card, `/mall-channels` and the matching queue all read it,
+across every channel. Being in stock is not part of selling: Product Hub offers
+it as the separate `selling_in_stock` filter.
+
 The matching center owns direct option-component review. Its deterministic
 command may fill only an empty option component list when organization-fenced
 evidence uniquely selects one Sellpia SKU and a verified positive pack

@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
@@ -48,7 +49,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         inventory,
         { findDisplayMedia: async () => new Map() },
         new ProductAbcReadUseCase(
-          new MasterProductAbcRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()), evidence,
+          new MasterProductAbcRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter(), channelFactTestPorts(prismaService as never).listings), evidence,
         ),
         new ProductTransactionalReadRepositoryAdapter()),
     );

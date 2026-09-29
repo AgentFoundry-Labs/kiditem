@@ -8,10 +8,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  isChannelListingOnSale,
-  resolveChannelListingSaleStatus,
-} from '@kiditem/shared/channel-listing';
 import { buildPeriodBasis, periodBasisStatus, WING_TRAFFIC_SOURCE } from '@kiditem/shared/dashboard';
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
@@ -28,7 +24,6 @@ import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { addDays, businessDateKey, kstDayStart, parseBusinessDate } from '../../../../common/kst';
 import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
-  readLatestListingSaleStatusFacts,
   readListingTrafficWindowFacts,
   type ListingTrafficDailyFact,
 } from '../../../../channels/adapter/out/persistence/channel-listing-daily-facts';
@@ -41,7 +36,8 @@ import {
   type ProductSourceReadPort,
 } from '../../../application/port/in/product-source-read.port';
 import { lockProductSource } from './transaction/product-source-lock';
-import { listSellingMasterProductIds } from './selling-master-product.query';
+import { listInStockMasterProductIds, listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
+import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type { ProductSourceChange } from '../../../domain/product-source-change';
 import type {
   MasterProductOperationsListQuery,
@@ -147,6 +143,8 @@ implements ProductOperationsRepositoryPort {
     private readonly channelAccounts: ChannelAccountPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT)
     private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readListingAdWindowFacts' | 'readAdEvidenceCutoff'>,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: SellingListingReader,
   ) {}
 
   async listDisplayMediaTargets(
@@ -189,17 +187,23 @@ implements ProductOperationsRepositoryPort {
     const cutoff = new Date(`${productAbcEvidenceCutoff(new Date())}T00:00:00.000Z`);
     const periodStart = addDays(cutoff, -(query.periodDays - 1));
     const periodEnd = addDays(cutoff, 1);
-    const { sellingMasterProductIds, sellingChannelProducts, rows, inventoryIdentities, adByListing, traffic, adCoverage, orders, orderLines } =
+    const { sellingMasterProductIds, sellingInStockMasterProductIds, sellingChannelProducts, rows, inventoryIdentities, adByListing, traffic, adCoverage, orders, orderLines } =
       await this.prisma.$transaction(async (tx) => {
         const sellingMasterProductIds = await listSellingMasterProductIds(
           tx,
           organizationId,
           undefined,
+          this.channelListings,
+        );
+        const sellingInStockMasterProductIds = await listInStockMasterProductIds(
+          tx,
+          organizationId,
+          sellingMasterProductIds,
           this.inventoryTransactionalRead,
         );
         const sellingChannelProducts = await this.listSellingChannelProducts(tx, organizationId);
         const rows = await attachChannelListings(tx, organizationId, await tx.masterProduct.findMany({
-          where: productListWhere(organizationId, query, sellingMasterProductIds),
+          where: productListWhere(organizationId, query, sellingMasterProductIds, sellingInStockMasterProductIds),
           orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         }));
         const inventoryIdentities = await this.readInventoryIdentitiesInTransaction(
@@ -236,6 +240,7 @@ implements ProductOperationsRepositoryPort {
         const orderLines = await readListingOptionOrderFacts(tx, orderWindow);
         return {
           sellingMasterProductIds,
+          sellingInStockMasterProductIds,
           sellingChannelProducts,
           rows,
           inventoryIdentities,
@@ -294,58 +299,23 @@ implements ProductOperationsRepositoryPort {
       page: query.page,
       limit: query.limit,
       sellingChannelProducts,
+      sellingInStockMasterProductIds,
     };
   }
 
+  /** 몰별 판매중 등록상품 수 — Channels 정본 판정(KID-333 ②), 전 채널·쓸 수 있는 계정. */
   private async listSellingChannelProducts(
     tx: Prisma.TransactionClient,
     organizationId: string,
   ) {
-    const rows = await tx.channelListing.findMany({
-      where: {
-        organizationId,
-        channelAccount: {
-          is: {
-            organizationId,
-            status: 'active',
-            channel: { in: ['coupang', 'rocket'] },
-          },
-        },
-      },
-      select: {
-        id: true,
-        isActive: true,
-        status: true,
-        rawJson: true,
-        channelAccount: {
-          select: { id: true, channel: true, name: true },
-        },
-        options: {
-          where: { organizationId },
-          select: { status: true },
-        },
-      },
-    });
-    const statusFacts = await readLatestListingSaleStatusFacts(tx, {
+    const listings = await this.channelListings.readSellingListings(ownerTransaction(tx), {
       organizationId,
-      listingIds: rows.map((row) => row.id),
+      usableAccountsOnly: true,
     });
-    const saleStatusByListing = new Map(statusFacts.map((fact) => [
-      fact.listingId,
-      fact.saleStatus,
-    ]));
-    return rows.flatMap((row) => isChannelListingOnSale(
-      resolveChannelListingSaleStatus({
-        latestSnapshotStatus: saleStatusByListing.get(row.id) ?? null,
-        rawStatus: rawSaleStatus(row.rawJson),
-        optionStatuses: row.options.map((option) => option.status),
-        listingStatus: row.status,
-        isActive: row.isActive,
-      }),
-    ) ? [{
-      channelAccountId: row.channelAccount.id,
-      channel: row.channelAccount.channel,
-      channelAccountName: row.channelAccount.name,
+    return listings.flatMap((listing) => listing.saleState === 'on_sale' ? [{
+      channelAccountId: listing.channelAccountId,
+      channel: listing.channel,
+      channelAccountName: listing.channelAccountName,
     }] : []);
   }
 
@@ -445,25 +415,17 @@ function compareDisplayMediaTargets(
     || left.channelListingId.localeCompare(right.channelListingId);
 }
 
-function rawSaleStatus(value: Prisma.JsonValue | null): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
-    const candidate = record[key];
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-  }
-  return null;
-}
-
 function productListWhere(
   organizationId: string,
   query: MasterProductOperationsListQuery,
   sellingMasterProductIds: readonly string[],
+  sellingInStockMasterProductIds: readonly string[],
 ): Prisma.MasterProductWhereInput {
   const search = query.query?.trim();
   return {
     organizationId,
     ...(query.activeStatus === 'active' ? { id: { in: [...sellingMasterProductIds] } } : {}),
+    ...(query.activeStatus === 'selling_in_stock' ? { id: { in: [...sellingInStockMasterProductIds] } } : {}),
     ...(query.activeStatus === 'inactive' ? { id: { notIn: [...sellingMasterProductIds] } } : {}),
     ...(search ? {
       OR: [

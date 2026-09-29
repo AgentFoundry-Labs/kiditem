@@ -1,6 +1,6 @@
 import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
-import type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingSaleStatusFact, ListingStateFact } from '../../../domain/listing/observation-facts';
-export type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingSaleStatusFact, ListingStateFact } from '../../../domain/listing/observation-facts';
+import type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingStateFact } from '../../../domain/listing/observation-facts';
+export type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingStateFact } from '../../../domain/listing/observation-facts';
 import { Prisma } from '@prisma/client';
 import { addDays, businessDateKey } from '../../../../common/kst';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
@@ -236,22 +236,6 @@ export async function readListingTrafficWindowFacts(
   };
 }
 
-export async function readLatestListingSaleStatusFacts(
-  prisma: Prisma.TransactionClient,
-  input: Readonly<{
-    organizationId: string;
-    listingIds: readonly string[];
-  }>,
-): Promise<readonly ListingSaleStatusFact[]> {
-  const rows = await readLatestListingStateFacts(prisma, input);
-  return rows.map((row) => ({
-    listingId: row.listingId,
-    businessDate: calendarDate(row.businessDate),
-    saleStatus: row.saleStatus,
-    observedAt: row.lastObservedAt,
-  }));
-}
-
 /** State observations have their own provenance; traffic collection is independent. */
 export async function readLatestListingStateFacts(
   prisma: Prisma.TransactionClient,
@@ -270,25 +254,17 @@ export async function readLatestListingStateFacts(
       last_observed_at    AS "lastObservedAt",
       sample_count        AS "sampleCount",
       product_name        AS "productName",
-      status,
-      exposure_status     AS "exposureStatus",
-      sale_status         AS "saleStatus",
-      channel_price       AS "channelPrice",
       is_offer_winner     AS "isOfferWinner",
       my_price            AS "myPrice",
       winner_price        AS "winnerPrice",
-      winner_gap_price    AS "winnerGapPrice",
-      product_rank        AS "productRank",
-      category_rank       AS "categoryRank"
+      winner_gap_price    AS "winnerGapPrice"
     FROM channel_listing_daily_snapshots
     WHERE organization_id = ${input.organizationId}::uuid
       AND listing_id = ANY(${[...input.listingIds]}::uuid[])
       -- A row that observed only traffic (a Wing zero row, say) carries no
       -- listing state and must not hide an older state observation.
       AND num_nonnulls(
-        product_name, status, exposure_status, sale_status, channel_price,
-        is_offer_winner, my_price, winner_price, winner_gap_price,
-        product_rank, category_rank
+        product_name, is_offer_winner, my_price, winner_price, winner_gap_price
       ) > 0
     ORDER BY
       listing_id,
