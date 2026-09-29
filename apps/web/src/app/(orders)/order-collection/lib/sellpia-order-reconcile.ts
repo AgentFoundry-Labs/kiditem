@@ -1,22 +1,10 @@
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { resolveMallKeyFromSellpiaProvider } from './icecream-tracking-api';
+import type { SellpiaOrderSnapshotRow as SnapshotRow } from '@kiditem/shared/orders-action-operations';
+import { resolveMallKeyFromSellpiaProvider } from '@kiditem/shared/sellpia-providers';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 /** 셀피아에 올라와 있는 주문 한 건. 판매처는 수취인 괄호 안 이름과 같은 값이다. */
-export interface SellpiaOrderSnapshotRow {
-  orderNo: string;
-  receiver: string;
-  provider: string;
-}
-
-interface SellpiaOrderSnapshotResponse {
-  success?: boolean;
-  orderCount?: number;
-  rows?: SellpiaOrderSnapshotRow[];
-  partial?: boolean;
-  error?: string;
-}
+export type SellpiaOrderSnapshotRow = Pick<SnapshotRow, 'orderNo' | 'receiver' | 'provider'>;
 
 /** 몰 하나의 대조 결과. */
 export interface MallReconcileResult {
@@ -44,32 +32,6 @@ export interface SellpiaReconcileResult {
 /** 부분 조회라 누락 여부를 확정할 수 없을 때 운영자가 보는 문장. */
 export const SELLPIA_RECONCILE_PARTIAL_MESSAGE =
   '셀피아 대조: 일부 화면만 읽혀 누락 여부는 미확인입니다. 잠시 후 다시 대조해 주세요.';
-
-/**
- * 확장이 셀피아(대기목록 + 재고매칭)에서 현재 올라와 있는 주문을 읽어온다.
- * 조회만 하는 비파괴 동작이다.
- */
-export async function collectSellpiaOrderSnapshot(): Promise<{
-  rows: SellpiaOrderSnapshotRow[];
-  partial: boolean;
-}> {
-  // 셀피아 주문 스냅샷은 아직 옛 주문 워커가 답한다 — wave8b가 kind로 옮기며 이 옛 표시를 지운다.
-  const extensionId = await detectOrderCollectionExtensionId(1200, 'orderCollectionIcecreamMall');
-  if (!extensionId) {
-    throw new Error(
-      '주문수집 확장프로그램이 필요합니다. 확장을 로드하고 kiditem.sellpia.com 에 로그인한 뒤 다시 시도하세요.',
-    );
-  }
-  const response = await sendToExtension<SellpiaOrderSnapshotResponse>(
-    extensionId,
-    { action: 'collectSellpiaOrderSnapshot' },
-    180000, // 셀피아 화면 2개를 조회한다
-  );
-  if (!response?.success || !Array.isArray(response.rows)) {
-    throw new Error(response?.error ?? '셀피아 주문 목록을 읽지 못했습니다.');
-  }
-  return { rows: response.rows, partial: response.partial === true };
-}
 
 /**
  * 셀피아 주문번호는 "66_2026073013413794209"처럼 앞에 판매처 코드가 붙는다.

@@ -40,13 +40,13 @@ beforeEach(() => {
 });
 
 describe('collectSellpiaShipmentTracking (orders.sellpia_shipment_tracking)', () => {
-  it('그날 하루를 조회하는 실행을 시작하고, 성공하면 실행 id로 보관 캡처를 내려받아 송장 행을 돌려준다', async () => {
+  it('그날 하루를 조회하는 실행을 시작하고, 성공하면 실행 id로 보관 캡처를 내려받아 송장 행과 그 실행 id(업로드 실행의 원천)를 돌려준다', async () => {
     vi.mocked(apiClient.get)
       .mockResolvedValueOnce({ operation: operation('executing') })
       .mockResolvedValueOnce({ operation: operation('succeeded') });
     vi.mocked(apiClient.fetchRaw).mockResolvedValue(Response.json({ rows: [ROW], total: 3, range: { start: DATE, end: DATE }, confirmedRange: null }));
 
-    await expect(collectSellpiaShipmentTracking(DATE, { sleep })).resolves.toEqual([ROW]);
+    await expect(collectSellpiaShipmentTracking(DATE, { sleep })).resolves.toEqual({ operationId: ID, rows: [ROW] });
     expect(requestOperationStart).toHaveBeenCalledWith('orders.sellpia_shipment_tracking', { startDate: DATE, endDate: DATE }, { capability: 'orderCaptureOperationKindsV1' });
     expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/sellpia-shipment-tracking/${ID}/source`);
   });

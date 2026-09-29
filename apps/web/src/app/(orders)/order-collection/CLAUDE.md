@@ -67,22 +67,25 @@ convenience history.
   versioned failure evidence; only explicit authenticated empty evidence is a
   successful zero.
 - Backend conversion uses raw blob responses where appropriate. Server import,
-  Order rows, and transmission intents are durable truth.
+  Order rows, and operation results are durable truth.
 - Rocket PA collection carries the selected Rocket account, persists complete
   SHIPMENT/MILKRUN evidence, and exports every collected row for the selected
   transport. Workbook linkage is optional and unmatched rows stay visible.
 
 ## Submission Contract
 
-- Prepare the stable source-run/transport intent before irreversible Sellpia
-  upload. Preparation failure blocks extension IO.
-- Observed accepted/pending evidence finalizes the intent. Explicit confirmed
-  non-submission aborts it. Extension failure or tab loss leaves it prepared
-  for tested reconciliation/retry; Sellpia remains the order-level duplicate
-  authority.
-- Local submission markers may recover an already-prepared intent without
-  another upload. Privileged retry records audited non-submission before
-  reopening the same key.
+- Every generated order file records its source run (`sourceOperationId`;
+  Coupang direct files add `transport`). Sellpia transfer starts
+  `orders.sellpia_order_transfer` with that source; a legacy record without it
+  cannot be sent and tells the operator to collect again.
+- A `reconciling` transfer marks the row `셀피아 확인 필요`; resending waits
+  until the operator confirms or closes that run. A started transfer records
+  its run id, and the screen reconciles the row from the server run state on
+  reopen or when confirm/close is refused. Auto-invoice and Onch/Kidkids
+  tracking upload resolve `reconciling` the same way; post-transfer has no
+  confirmation step. A start refused by a `reconciling` run of the same action
+  re-opens that confirmation. Invoice targets and upload rows are chosen by the
+  server, never by this screen.
 - Upload never prechecks stock, requests Inventory freshness, invalidates
   Inventory queries, or auto-resubmits. Provider rejection displays the
   provider message.

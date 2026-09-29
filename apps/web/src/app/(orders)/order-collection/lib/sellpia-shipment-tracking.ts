@@ -41,17 +41,18 @@ export async function readSellpiaShipmentTrackingRows(
 
 /**
  * 셀피아 송장 조회(실행 kind `orders.sellpia_shipment_tracking`, KID-359 H3). 확장에 그날 하루 조회를 시작시키고,
- * 끝날 때까지 실행 reader를 본 뒤 보관 캡처에서 송장 행을 읽는다. 누를 때마다 새로 조회한다.
+ * 끝날 때까지 실행 reader를 본 뒤 보관 캡처에서 송장 행을 읽는다. 누를 때마다 새로 조회한다. 실행 id를 함께 돌려준다.
  */
 export async function collectSellpiaShipmentTracking(
   date: string,
   options: { sleep?: (ms: number) => Promise<void> } = {},
-): Promise<SellpiaTrackingRow[]> {
+): Promise<{ operationId: string; rows: SellpiaTrackingRow[] }> {
   const scope = { startDate: date, endDate: date };
   const operationId = await startOrderOperation(SELLPIA_SHIPMENT_TRACKING_KIND, scope);
   await waitForOrderOperation(SELLPIA_SHIPMENT_TRACKING_KIND, operationId, {
     source: 'sellpia_shipment_tracking',
     ...(options.sleep ? { sleep: options.sleep } : {}),
   });
-  return readSellpiaShipmentTrackingRows(operationId, scope);
+  // 실행 id는 몰 송장 업로드 실행(`orders.mall_tracking_upload`)이 서버에서 그 몰 행을 고르는 원천이다(KID-366).
+  return { operationId, rows: await readSellpiaShipmentTrackingRows(operationId, scope) };
 }

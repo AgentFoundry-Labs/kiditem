@@ -28,6 +28,10 @@ function generatedFile(
     orderNumbers: overrides.orderNumbers,
     transmissionRequestedAt: overrides.transmissionRequestedAt,
     fileKind: overrides.fileKind,
+    // 원천 실행이 있는 새 기록이 기본이다 — 옛 기록은 테스트가 undefined로 준다(KID-366).
+    sourceOperationId: 'sourceOperationId' in overrides ? overrides.sourceOperationId : `operation-${id}`,
+    sellpiaTransferConfirmationId: overrides.sellpiaTransferConfirmationId,
+    sellpiaTransferOperationId: overrides.sellpiaTransferOperationId,
   };
 }
 
@@ -41,6 +45,8 @@ function renderSection(items: StoredOrderCollectionFile[]) {
     onSellpiaPostProcess: vi.fn(),
     onSendSelectedToSellpia: vi.fn(),
     onSendToSellpia: vi.fn(),
+    onConfirmSellpiaTransfer: vi.fn(),
+    onCloseSellpiaTransfer: vi.fn(),
   };
 
   render(
@@ -49,7 +55,6 @@ function renderSection(items: StoredOrderCollectionFile[]) {
       bulkAction={null}
       lockedFileIds={new Set()}
       sellpiaSendingId={null}
-      sellpiaSettlingId={null}
       sellpiaPostProcessing={false}
       {...callbacks}
     />,
@@ -188,7 +193,6 @@ describe('GeneratedFilesSection', () => {
         bulkAction="send"
         lockedFileIds={new Set(['active', 'queued'])}
         sellpiaSendingId="active"
-        sellpiaSettlingId={null}
         sellpiaPostProcessing={false}
         onDelete={vi.fn()}
         onDeleteSelected={vi.fn()}
@@ -198,6 +202,8 @@ describe('GeneratedFilesSection', () => {
         onSellpiaPostProcess={vi.fn()}
         onSendSelectedToSellpia={vi.fn()}
         onSendToSellpia={vi.fn()}
+        onConfirmSellpiaTransfer={vi.fn()}
+        onCloseSellpiaTransfer={vi.fn()}
       />,
     );
 
@@ -210,28 +216,46 @@ describe('GeneratedFilesSection', () => {
       .toHaveLength(1);
   });
 
-  it('shows acceptance without a spinner while confirmed submission is finalized', () => {
-    const item = generatedFile('settling');
-    render(
-      <GeneratedFilesSection
-        items={[item]}
-        bulkAction={null}
-        lockedFileIds={new Set<string>()}
-        sellpiaSendingId={null}
-        sellpiaSettlingId={item.id}
-        sellpiaPostProcessing={false}
-        onDelete={vi.fn()}
-        onDeleteSelected={vi.fn()}
-        onDownload={vi.fn()}
-        onDownloadSelected={vi.fn()}
-        onPreview={vi.fn()}
-        onSellpiaPostProcess={vi.fn()}
-        onSendSelectedToSellpia={vi.fn()}
-        onSendToSellpia={vi.fn()}
-      />,
-    );
+  it('원천 실행 id가 없는 옛 기록은 셀피아 전송을 막고 다시 수집하라고 말한다', () => {
+    renderSection([generatedFile('legacy', { sourceOperationId: undefined })]);
 
-    expect(screen.getByRole('button', { name: '접수 확인됨' })).toBeDisabled();
-    expect(screen.queryByRole('button', { name: '전송 중' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '셀피아 전송 요청' })).toBeDisabled();
+    expect(screen.getByText('다시 수집')).toBeInTheDocument();
+  });
+
+  it('제출했지만 접수를 확인하지 못한 전송은 셀피아 확인 필요로 보여 주고 확인·닫기를 받는다', async () => {
+    const user = userEvent.setup();
+    const item = generatedFile('reconciling', { sellpiaTransferConfirmationId: 'operation-transfer' });
+    const callbacks = renderSection([item]);
+
+    expect(screen.getByText('셀피아 확인 필요')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '셀피아 전송 요청' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '접수됨 확인' }));
+    await user.click(screen.getByRole('button', { name: '미접수로 닫기' }));
+    expect(callbacks.onConfirmSellpiaTransfer).toHaveBeenCalledWith(item);
+    expect(callbacks.onCloseSellpiaTransfer).toHaveBeenCalledWith(item);
+  });
+
+  it('선택 전송에서 원천 실행이 없는 옛 기록·확인 필요·전송 확인 중 행은 빠진다', async () => {
+    const user = userEvent.setup();
+    const items = [
+      generatedFile('fresh'),
+      generatedFile('legacy', { sourceOperationId: undefined }),
+      generatedFile('reconciling', { sellpiaTransferConfirmationId: 'operation-transfer' }),
+      generatedFile('inflight', { sellpiaTransferOperationId: 'operation-running' }),
+    ];
+    const callbacks = renderSection(items);
+
+    for (const item of items) await user.click(screen.getByRole('checkbox', { name: `${item.id}.xlsx 선택` }));
+    await user.click(screen.getByRole('button', { name: '선택 전송 요청 (1)' }));
+
+    expect(callbacks.onSendSelectedToSellpia).toHaveBeenCalledWith([items[0]]);
+  });
+
+  it('시작한 전송의 끝을 아직 읽지 못한 행은 전송 확인 중으로 보여 주고 다시 보내지 않는다', () => {
+    renderSection([generatedFile('inflight', { sellpiaTransferOperationId: 'operation-running' })]);
+
+    expect(screen.getAllByText('전송 확인 중').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '전송 확인 중' })).toBeDisabled();
   });
 });

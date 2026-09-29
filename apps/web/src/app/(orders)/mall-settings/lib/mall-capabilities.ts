@@ -1,6 +1,6 @@
 import { channelCollectsViaExtension } from '@kiditem/shared/channel-registry';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
-import { isTrackingSupportedMall } from '../../order-collection/lib/icecream-tracking-api';
+import { isSellpiaProviderMall as isTrackingSupportedMall } from '@kiditem/shared/sellpia-providers';
 
 export interface MallCapabilities {
   /** 주문수집 파이프라인이 붙어 있는 몰. */

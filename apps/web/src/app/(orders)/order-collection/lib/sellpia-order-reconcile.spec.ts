@@ -1,19 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { collectSellpiaOrderSnapshot, reconcileCollectedOrdersWithSellpia } from './sellpia-order-reconcile';
-
-const bridge = vi.hoisted(() => ({ detectOrderCollectionExtensionId: vi.fn(), sendToExtension: vi.fn() }));
-vi.mock('@/lib/extension-bridge', () => bridge);
-
-describe('collectSellpiaOrderSnapshot until wave8b moves it to a kind', () => {
-  it('still finds the extension by the old order worker flag, not the new runtime default', async () => {
-    bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
-    bridge.sendToExtension.mockResolvedValue({ success: true, rows: [], partial: false });
-
-    await collectSellpiaOrderSnapshot();
-
-    expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(1200, 'orderCollectionIcecreamMall');
-  });
-});
+import { describe, expect, it } from 'vitest';
+import { reconcileCollectedOrdersWithSellpia } from './sellpia-order-reconcile';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 function file(
