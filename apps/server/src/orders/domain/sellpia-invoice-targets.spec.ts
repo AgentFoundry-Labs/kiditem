@@ -18,13 +18,14 @@ describe('자동송장 대상 규칙 — 최근 24시간 성공 전송의 받아
     expect(targets).toEqual(['A-1', 'C-3', 'B-2']);
   });
 
-  it('송장 실행이 발급했거나 선택했던 번호는 다시 고르지 않는다(비가역 보호)', () => {
+  it('송장이 발급된 번호는 다시 고르지 않고(비가역 보호), 그리드에 없어 못 찾은 번호는 24시간 안이면 다시 대상이다', () => {
     const targets = sellpiaInvoiceTargets({
       now,
       transfers: [{ finishedAt: hoursAgo(1), acceptedOrderNumbers: ['A-1', 'B-2', 'C-3'] }],
-      invoices: [{ attemptedOrderNumbers: ['B-2'] }, { attemptedOrderNumbers: ['C-3 '] }],
+      // C-3은 앞 송장 실행에서 못 찾은 번호였다(issued에 없음) → 다시 대상
+      invoices: [{ issuedOrderNumbers: ['B-2'] }, { issuedOrderNumbers: [' A-1 '] }],
     });
-    expect(targets).toEqual(['A-1']);
+    expect(targets).toEqual(['C-3']);
   });
 
   it('대상이 없으면 빈 배열 — owner plan이 ORDERS_SELLPIA_INVOICE_NO_TARGETS로 거절할 근거', () => {
