@@ -1,4 +1,11 @@
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import {
+  CLEAR_COUPANG_COOKIES_ACTION,
+  COUPANG_SHIPMENT_ACTIONS_CAPABILITY,
+  ClearCoupangCookiesMessageSchema,
+  ClearCoupangCookiesResponseSchema,
+} from '@kiditem/shared/extension-actions';
+import { detectOrderCollectionExtensionId } from '@/lib/extension-bridge';
+import { sendExtensionEntryAction } from '@/lib/extension-entry-action';
 
 /**
  * supplier.coupang.com 은 쿠키가 누적되면 요청 헤더가 서버 상한을 넘어 HTTP 400 을 돌려준다.
@@ -13,12 +20,7 @@ export function isCoupangCookieBloatMessage(message: string | null | undefined):
   return /쿠키가 커져|HTTP 400|쿠키를 정리/.test(message);
 }
 
-interface ClearCookiesResponse {
-  success?: boolean;
-  cleared?: number;
-  total?: number;
-  error?: string;
-}
+const CLEAR_COOKIES = { message: ClearCoupangCookiesMessageSchema, response: ClearCoupangCookiesResponseSchema };
 
 /**
  * ⚠️ 파괴적: supplier.coupang.com 에 적용되는 쿠키를 지운다. `.coupang.com` 공용 쿠키까지 걸려
@@ -26,19 +28,18 @@ interface ClearCookiesResponse {
  * 쿠키 값은 확장에서도 읽거나 반환하지 않으며, 정리한 개수만 돌려받는다.
  */
 export async function clearCoupangCookiesViaExtension(): Promise<number> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, COUPANG_SHIPMENT_ACTIONS_CAPABILITY);
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. Chrome에서 extensions/kiditem-os를 로드한 뒤 다시 시도해주세요.',
     );
   }
-  const response = await sendToExtension<ClearCookiesResponse>(
+  const response = await sendExtensionEntryAction(
     extensionId,
-    { action: 'clearCoupangCookies' },
+    CLEAR_COOKIES,
+    { action: CLEAR_COUPANG_COOKIES_ACTION },
     30000,
   );
-  if (!response?.success) {
-    throw new Error(response?.error ?? '쿠팡 쿠키 정리에 실패했습니다.');
-  }
-  return response.cleared ?? 0;
+  if (!response.success) throw new Error(response.error);
+  return response.cleared;
 }

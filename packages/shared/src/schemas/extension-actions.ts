@@ -131,7 +131,7 @@ export const CoupangShipmentPdfFileSchema = z.object({
   /** base64 PDF(성공했을 때). 파일은 부른 쪽(웹)이 합친다 — 서버 사실이 아니다. */
   b64: z.string().nullable(),
   bytes: z.number().int().nonnegative().nullable(),
-  /** 실패 이유(`coupang_cookie_bloat` 등). */
+  /** 한 장의 실패 이유. 쿠키 과다(400·413·431)는 장별 실패가 아니라 액션 전체가 `SITE_COOKIE_BLOAT`로 실패한다. */
   error: z.string().max(200).nullable(),
 }).strict();
 export const FetchCoupangShipmentPdfBatchResponseSchema = z.object({

@@ -116,9 +116,9 @@ beforeEach(() => {
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true, operationRuntime: true },
+      capabilities: { operationRuntime: true },
     }),
-    setAuthToken: () => ({ success: true }),
+    setAuthToken: () => ({ success: true, environmentId: 'local' }),
   };
   vi.mocked(detectExtensionId).mockResolvedValue(EXTENSION_ID);
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([EXTENSION_ID]);

@@ -348,6 +348,9 @@ const LOGIN_CHECK_REASON_TEXT: Readonly<Record<string, string>> = {
   redirected_away: '몰이 다른 페이지로 넘겨 로그인 상태를 확인하지 못했습니다',
   login_page_not_reachable: '몰 로그인 페이지에 닿지 못했습니다',
   network_error: '몰에 연결하지 못했습니다',
+  http_unauthorized: '몰이 인증되지 않은 요청이라고 응답했습니다',
+  verification_required: '몰이 본인확인 화면을 보여 줍니다 — 브라우저에서 본인확인을 마쳐야 합니다',
+  no_login_address: '몰 로그인 주소가 없어 확인하지 못했습니다',
   extension_no_answer: '확장이 로그인 확인에 답하지 않았습니다',
 };
 
