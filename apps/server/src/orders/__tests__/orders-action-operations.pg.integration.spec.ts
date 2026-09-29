@@ -282,7 +282,7 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
   });
 
   describe('orders.sellpia_auto_invoice · orders.sellpia_post_transfer', () => {
-    it('대상은 24시간 안 성공 전송의 받아들여진 번호 − 이미 시도한 번호; 발급 결과가 다음 대상에서 빠진다', async () => {
+    it('대상은 24시간 안 성공 전송의 받아들여진 번호 − 이미 발급된 번호; 못 찾은 번호는 다음 자동송장 plan에 다시 들어온다', async () => {
       const old = await submittedTransfer(['O-1'], [sellpiaNo(1)]);
       await prisma.operation.update({ where: { id: old }, data: { finishedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) } });
       await submittedTransfer(['K-1', 'K-2', 'K-3'], [sellpiaNo(2), sellpiaNo(3)]);
@@ -307,9 +307,12 @@ describe('Orders 작업 실행 kind 6종(KID-355 wave8b) over the operation cont
         notFoundOrderNumbers: [sellpiaNo(3)],
       });
 
+      const retry = await harness.beginRun(SELLPIA_AUTO_INVOICE_KIND, {});
+      expect(retry.operation.plan).toEqual({ targetOrderNumbers: [sellpiaNo(3)] });
+      await harness.put(retry, [{ chunkKind: SELLPIA_AUTO_INVOICE_CHUNK_KIND, payload: [{ orderNo: sellpiaNo(3), trackingNumber: 'T-3', courier: 'CJ대한통운' }] }]);
+      await harness.finish(retry).expect(200);
       const none = await harness.begin(SELLPIA_AUTO_INVOICE_KIND, {}).expect(422);
       expect(none.body).toMatchObject({ code: 'ORDERS_SELLPIA_INVOICE_NO_TARGETS' });
-      await expect(prisma.operation.count({ where: { organizationId: ORG, kind: SELLPIA_AUTO_INVOICE_KIND } })).resolves.toBe(1);
     });
 
     it('대상 밖 번호를 발급했다는 finish는 거절되고, 채번 후 못 읽음은 reconciling → 운영자가 본 행으로 confirm', async () => {

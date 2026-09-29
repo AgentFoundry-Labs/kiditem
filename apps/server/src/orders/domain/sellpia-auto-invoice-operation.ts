@@ -74,10 +74,10 @@ export function sellpiaAutoInvoiceResult(
   });
 }
 
-/** 성공한 송장 실행 result → 대상 규칙이 빼는 번호(선택한 대상 전부). 모양이 틀린 result는 null(옛 모양은 없다). */
-export function sellpiaInvoiceAttempted(result: unknown): SellpiaInvoiceOutcomeView | null {
+/** 성공한 송장 실행 result → 대상 규칙이 빼는 번호(실제 발급된 번호만; 못 찾은 번호는 다시 대상). 모양이 틀린 result는 null. */
+export function sellpiaInvoiceIssued(result: unknown): SellpiaInvoiceOutcomeView | null {
   const parsed = SellpiaAutoInvoiceResultSchema.safeParse(result);
-  return parsed.success ? { attemptedOrderNumbers: parsed.data.selectedOrderNumbers } : null;
+  return parsed.success ? { issuedOrderNumbers: parsed.data.issued.map((row) => row.orderNo) } : null;
 }
 
 /** 성공한 전송 실행 result → 대상 규칙이 쓰는 받아들여진 번호. 모양이 틀린 result는 null. */

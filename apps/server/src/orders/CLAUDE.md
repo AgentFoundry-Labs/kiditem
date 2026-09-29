@@ -113,7 +113,8 @@ Action, collection, transmission, and reconciliation behavior is executable in
   `GET …/action-operations/:id/source` regenerates it again and refuses when
   the numbers differ from the plan.
 - Auto-invoice targets are the accepted numbers of transfers that succeeded in
-  the last 24 hours minus every number a succeeded invoice already selected.
+  the last 24 hours minus every number a succeeded invoice issued; a number
+  the grid did not show stays a target within those 24 hours.
   A `reconciling` transfer is not a source until confirmed. No targets refuses
   the start; an issued row outside the plan fails the finish.
 - Transfer, auto invoice and tracking upload may finish `reconciling`. The

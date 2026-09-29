@@ -4,7 +4,7 @@ import {
   readSellpiaInvoiceOperatorConfirmation,
   sellpiaAutoInvoicePlan,
   sellpiaAutoInvoiceResult,
-  sellpiaInvoiceAttempted,
+  sellpiaInvoiceIssued,
   sellpiaTransferAccepted,
 } from './sellpia-auto-invoice-operation';
 
@@ -37,10 +37,10 @@ describe('셀피아 자동송장 실행 규칙(KID-355 wave8b)', () => {
     expect(readSellpiaInvoiceOperatorConfirmation({ issued: [] })).toBeNull();
   });
 
-  it('시도한 번호는 선택한 대상 전부다 — 한 번 고른 번호는 다시 고르지 않는다', () => {
-    expect(sellpiaInvoiceAttempted({ issued: [row('A-1')], selectedOrderNumbers: ['A-1', 'A-2'], notFoundOrderNumbers: ['A-2'] }))
-      .toEqual({ attemptedOrderNumbers: ['A-1', 'A-2'] });
-    expect(sellpiaInvoiceAttempted({ broken: true })).toBeNull();
+  it('송장 result에서 빼는 번호는 실제 발급된 번호뿐이다 — 못 찾은 번호는 다시 대상이 된다', () => {
+    expect(sellpiaInvoiceIssued({ issued: [row('A-1')], selectedOrderNumbers: ['A-1', 'A-2'], notFoundOrderNumbers: ['A-2'] }))
+      .toEqual({ issuedOrderNumbers: ['A-1'] });
+    expect(sellpiaInvoiceIssued({ broken: true })).toBeNull();
   });
 
   it('성공 전송 result에서 받아들여진 번호를 읽고, 모양이 틀리면 무시한다', () => {
