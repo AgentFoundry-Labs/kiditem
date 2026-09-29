@@ -652,6 +652,13 @@
       "text": "이 몰에 올릴 송장 행이 없습니다. 셀피아 송장 조회를 먼저 실행해 주세요.",
       "retryable": false
     },
+    "ORDERS_ACTION_CLOSED_BY_OPERATOR": {
+      "owner": "orders",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "운영자가 처리되지 않았다고 확인해 닫았습니다. 필요하면 다시 실행해 주세요.",
+      "retryable": false
+    },
     "PRODUCTS_NOT_FOUND": {
       "owner": "products",
       "kind": "not_found",

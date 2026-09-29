@@ -192,6 +192,7 @@ export const ERROR_DEFINITIONS = {
   ORDERS_TRANSFER_NO_TARGETS: def('orders', 'validation', '전송할 주문번호가 없습니다. 주문 파일에 주문 행이 있는지 확인해 주세요.'),
   ORDERS_SELLPIA_INVOICE_NO_TARGETS: def('orders', 'precondition', '최근 하루 안에 셀피아로 전송된 주문 가운데 송장을 낼 대상이 없습니다.'),
   ORDERS_TRACKING_UPLOAD_NO_ROWS: def('orders', 'precondition', '이 몰에 올릴 송장 행이 없습니다. 셀피아 송장 조회를 먼저 실행해 주세요.'),
+  ORDERS_ACTION_CLOSED_BY_OPERATOR: def('orders', 'conflict', '운영자가 처리되지 않았다고 확인해 닫았습니다. 필요하면 다시 실행해 주세요.'),
 
   // products
   PRODUCTS_NOT_FOUND: def('products', 'not_found', '상품을 찾을 수 없습니다.'),
