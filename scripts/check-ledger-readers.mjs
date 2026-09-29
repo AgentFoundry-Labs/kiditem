@@ -534,8 +534,17 @@ function unwrapExpression(node) {
 }
 
 // One program/checker per distinct source text: the ledger loop calls the
-// detectors once per ledger for the same file (KID-400).
+// detectors once per ledger for the same file. The caller releases the caches
+// after each file so only one Program is alive at a time (KID-400).
 const sourceAnalysisCache = new Map();
+const commentFreeCodeCache = new Map();
+const rawSqlCache = new Map();
+function releaseSourceCaches() {
+  sourceAnalysisCache.clear();
+  commentFreeCodeCache.clear();
+  rawSqlCache.clear();
+}
+
 function createSourceAnalysis(source) {
   const cached = sourceAnalysisCache.get(source);
   if (cached) return cached;
@@ -977,11 +986,10 @@ function collectPrismaRawSql(source) {
   return queries;
 }
 
-// Comment-stripped source per file, computed once instead of once per ledger
-// (the printer pass was most of the scanner's run time, KID-400).
-const commentFreeCodeCache = new Map();
+// Comment-stripped source, computed once per source text instead of once per
+// ledger (the printer pass was most of the scanner's run time, KID-400).
 function commentFreeCode(file, source) {
-  const cached = commentFreeCodeCache.get(file);
+  const cached = commentFreeCodeCache.get(source);
   if (cached !== undefined) return cached;
   const code = path.extname(file) === '.sql'
     ? source
@@ -990,11 +998,10 @@ function commentFreeCode(file, source) {
         file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
       ),
     );
-  commentFreeCodeCache.set(file, code);
+  commentFreeCodeCache.set(source, code);
   return code;
 }
 
-const rawSqlCache = new Map();
 function collectPrismaRawSqlCached(source) {
   const cached = rawSqlCache.get(source);
   if (cached) return cached;
@@ -1129,23 +1136,23 @@ export function inspectLedgerReaders({
     (file) => !isTestOrSeed(file),
   );
 
-  // Read every source once; the ledger loop below used to re-read the whole
-  // tree per ledger, which was most of the scanner's run time (KID-400).
-  const sources = new Map(files.map((file) => [file, readFileSync(path.join(root, file), 'utf8')]));
-
-  for (const ledger of manifest.ledgers) {
-    const ownerReadRoots = [
-      path.posix.join(ledger.owner.root, 'adapter/out/persistence'),
-    ];
-    const readAllowed = new Set([
+  // File-outer, ledger-inner (KID-400): each file is parsed and printed once
+  // and its analysis is dropped before the next file, so peak memory stays at
+  // one file instead of one Program per file for the whole run. Violations are
+  // stable-sorted back into the historical (ledger, file) order.
+  const ledgerRules = manifest.ledgers.map((ledger, ledgerIndex) => ({
+    ledger,
+    ledgerIndex,
+    ownerReadRoots: [path.posix.join(ledger.owner.root, 'adapter/out/persistence')],
+    readAllowed: new Set([
       ...ledger.ownerPublications.map((publication) => publication.path),
       ...ledger.legacyReaders.map((legacy) => legacy.path),
-    ]);
-    const mutationAllowed = new Set(
-      ledger.ownerPublications.map((publication) => publication.path),
-    );
-    for (const file of files) {
-      const source = sources.get(file);
+    ]),
+    mutationAllowed: new Set(ledger.ownerPublications.map((publication) => publication.path)),
+  }));
+  for (const file of files) {
+    const source = readFileSync(path.join(root, file), 'utf8');
+    for (const { ledger, ledgerIndex, ownerReadRoots, readAllowed, mutationAllowed } of ledgerRules) {
       for (const kind of detectLedgerAccess(source, ledger, file)) {
         const allowed = LEDGER_MUTATION_ACCESS_KINDS.has(kind)
           ? mutationAllowed.has(file)
@@ -1160,10 +1167,16 @@ export function inspectLedgerReaders({
           kind,
           ledger: ledger.name,
           owner: ledger.owner.name,
+          ledgerIndex,
         });
       }
     }
-    if (requireNoLegacy) {
+    releaseSourceCaches();
+  }
+  violations.sort((a, b) => a.ledgerIndex - b.ledgerIndex);
+  for (const violation of violations) delete violation.ledgerIndex;
+  if (requireNoLegacy) {
+    for (const ledger of manifest.ledgers) {
       for (const legacy of ledger.legacyReaders) {
         legacyViolations.push({ ...legacy, ledger: ledger.name });
       }

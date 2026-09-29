@@ -30,14 +30,8 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Check diff formatting
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git diff --check "${BASE_SHA}...HEAD"
-
-      - name: Check agent instruction hygiene
-        run: node scripts/check-agents-hygiene.mjs
       - name: Detect Gateway and code changes
+        # First step so the outputs exist even when a later hygiene check fails (KID-400).
         id: changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -48,19 +42,26 @@ jobs:
           else
             echo "gateway=false" >> "$GITHUB_OUTPUT"
           fi
-          # Docs-only PRs (Markdown, docs/, templates, LICENSE) skip the unit and script-contract jobs; hygiene still checks them.
+          # Docs-only PRs (Markdown, docs/, templates, LICENSE) skip the unit job. The script-contract job always runs
+          # because its tests and scanners pin docs such as docs/TESTING.md, docs/ARCHITECTURE.md and scripts/README.md.
           if grep -Evq '^(docs/|\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE\.md)|LICENSE$)|\.md$' changed-files.txt; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
           fi
           rm -f changed-files.txt
+      - name: Check diff formatting
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git diff --check "${BASE_SHA}...HEAD"
 
+      - name: Check agent instruction hygiene
+        run: node scripts/check-agents-hygiene.mjs
   gateway_fast_checks:
     name: Gateway fast checks
     # Skipped unless Gateway sources, the Shared entry points it consumes, the lockfile, or this workflow changed.
     needs: pr-hygiene
-    if: needs.pr-hygiene.outputs.gateway == 'true'
+    if: ${{ !cancelled() && needs.pr-hygiene.outputs.gateway == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -86,7 +87,6 @@ jobs:
             node_modules
             apps/*/node_modules
             packages/*/node_modules
-            scripts/node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
         if: steps.node-modules.outputs.cache-hit != 'true'
@@ -101,7 +101,8 @@ jobs:
   unit_tests:
     name: Shared and server unit tests
     needs: pr-hygiene
-    if: needs.pr-hygiene.outputs.code == 'true'
+    # Runs even when hygiene fails (whitespace is the most common first-run failure), skips docs-only PRs.
+    if: ${{ !cancelled() && needs.pr-hygiene.outputs.code == 'true' }}
     # PostgreSQL integration specs stay out: they need Testcontainers (develop-validation.yml).
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -128,7 +129,6 @@ jobs:
             node_modules
             apps/*/node_modules
             packages/*/node_modules
-            scripts/node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
         if: steps.node-modules.outputs.cache-hit != 'true'
@@ -178,8 +178,6 @@ jobs:
 
   script_contract_checks:
     name: Script contract tests
-    needs: pr-hygiene
-    if: needs.pr-hygiene.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -208,7 +206,6 @@ jobs:
             node_modules
             apps/*/node_modules
             packages/*/node_modules
-            scripts/node_modules
           key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
         if: steps.node-modules.outputs.cache-hit != 'true'
