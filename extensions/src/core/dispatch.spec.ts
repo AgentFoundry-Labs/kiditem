@@ -1,3 +1,4 @@
+import { PingResponseSchema } from '@kiditem/shared/extension-actions';
 import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 import { createExternalDispatch, createInternalDispatch, type LegacyExternalActions } from './dispatch';
@@ -95,8 +96,9 @@ describe('외부 메시지 dispatch(웹앱 → 확장, 유일한 onMessageExtern
   it('ping은 새 런타임 capability에 과도기 옛 표의 capability를 합쳐 한 번 답한다(새 런타임이 이긴다)', async () => {
     const dispatch = createExternalDispatch({ actions: {}, capabilities: { operationRuntime: true, shared: true }, version: () => '1.2.3', keepAlive: keepAlive() });
     expect((await call(dispatch, { action: 'ping' }, LOCAL)).response).toEqual({ success: true, version: '1.2.3', capabilities: { operationRuntime: true, shared: true } });
-    dispatch.attachLegacy({ forExternalAction: () => null, capabilities: () => ({ browserCollectionSessions: true, shared: false }) });
-    expect((await call(dispatch, { action: 'ping' }, OFFICE)).response).toEqual({
+    dispatch.attachLegacy({ forExternalAction: () => null, capabilities: () => ({ browserCollectionSessions: true, shared: false, snapshotSource: 'wing-inventory-v1' }) });
+    // shared 계약(`PingResponseSchema`)은 capability 값이 boolean뿐이다 — 옛 표의 문자열 값은 싣지 않는다.
+    expect(PingResponseSchema.parse((await call(dispatch, { action: 'ping' }, OFFICE)).response)).toEqual({
       success: true,
       version: '1.2.3',
       capabilities: { browserCollectionSessions: true, operationRuntime: true, shared: true },
@@ -121,6 +123,19 @@ describe('외부 메시지 dispatch(웹앱 → 확장, 유일한 onMessageExtern
     expect((await call(dispatch, { action: 'broken' }, LOCAL)).response).toMatchObject({ success: false, errorCode: 'VALIDATION_FAILED', error: 'bad' });
     expect(await call(dispatch, { action: 'nobody' }, LOCAL)).toEqual({ async: false, response: undefined });
     expect(await call(dispatch, 'not an object', LOCAL)).toEqual({ async: false, response: undefined });
+  });
+
+  it('옛 표를 붙인 뒤에도 모르는 origin의 ping·세션 액션은 FORBIDDEN이고 옛 핸들러를 부르지 않는다', async () => {
+    let calls = 0;
+    const dispatch = createExternalDispatch({ actions: {}, capabilities: {}, version: () => '1', keepAlive: keepAlive() });
+    dispatch.attachLegacy({
+      capabilities: () => { calls += 1; return {}; },
+      forExternalAction: () => { calls += 1; return { validate: (m) => m, handle: async () => { calls += 1; return []; } }; },
+    });
+    for (const action of ['ping', 'listCollectionSessions']) {
+      expect((await call(dispatch, { action }, { url: 'https://evil.test/' })).response).toMatchObject({ success: false, errorCode: 'FORBIDDEN' });
+    }
+    expect(calls).toBe(0);
   });
 
   it('옛 표 핸들러가 code를 실어 던지면 그 코드를 봉투에 싣는다', async () => {

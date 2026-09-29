@@ -336,7 +336,6 @@ KidItemDomains.register({
   capabilities: {
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
-    coupangCatalogSnapshotSource: "wing-inventory-v1",
     browserCollectionSessions: true,
   },
   // 광고 수집(캠페인·키워드·수익성)은 새 런타임의 실행 kind라, 이 도메인에는

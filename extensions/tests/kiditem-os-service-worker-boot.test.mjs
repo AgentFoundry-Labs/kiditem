@@ -592,6 +592,8 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   const [response] = responses;
   assert.equal(response.success, true);
   assert.equal(response.version, manifest.version);
+  // shared PingResponseSchema: capability 값은 boolean뿐이다.
+  for (const [name, value] of Object.entries(response.capabilities)) assert.equal(typeof value, 'boolean', name);
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',

@@ -2674,7 +2674,6 @@ KidItemDomains.register({
   }])),
   capabilities: {
     orderCollectionIcecreamMall: true,
-    collectCoupangShipmentFiles: true,
     collectKakaoOrders: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,

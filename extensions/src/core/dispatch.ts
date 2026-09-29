@@ -94,7 +94,9 @@ export function createExternalDispatch(deps: ExternalDispatchDeps) {
       return false;
     }
     if (message.action === PING_ACTION) {
-      respond({ success: true, version: deps.version(), capabilities: { ...(legacy?.capabilities() ?? {}), ...deps.capabilities } });
+      // shared 계약은 capability 값이 boolean뿐이다 — 옛 표의 다른 값은 싣지 않는다.
+      const legacyFlags = Object.fromEntries(Object.entries(legacy?.capabilities() ?? {}).filter(([, value]) => typeof value === 'boolean'));
+      respond({ success: true, version: deps.version(), capabilities: { ...legacyFlags, ...deps.capabilities } });
       return false;
     }
     const context: ActionContext = { environmentId: environment.environmentId, sender };
