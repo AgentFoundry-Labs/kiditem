@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SellpiaTransferOutcomePersistenceAdapter } from './adapter/out/persistence/sellpia-transfer-outcome.repository';
-import { SELLPIA_TRANSFER_OUTCOME_PORT } from './application/port/in/capability/sellpia-transfer-outcome.port';
+import { SELLPIA_TRANSFER_OUTCOME_PORT } from './application/port/in/transfer/sellpia-transfer-outcome.port';
 
 /**
  * Orders의 셀피아 전송 결과 capability(KID-388). Inventory 로켓 워크북 진행이 읽는다 — OrdersModule은 SupplyModule을,

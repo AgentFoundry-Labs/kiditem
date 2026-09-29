@@ -24,7 +24,7 @@ import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/pers
 import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/repository/product-operations-data-status.repository.port';
 import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/products-listing-generation-capability.adapter';
 import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/products-capability-composition.adapter';
-import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
+import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/generation/listing-generation.port';
 import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
 
 @Module({

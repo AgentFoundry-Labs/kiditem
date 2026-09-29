@@ -18,7 +18,7 @@ import {
   ADVERTISING_LEDGER_READ_PORT,
   type AdListingWindowFacts,
   type AdvertisingLedgerReadPort,
-} from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+} from '../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { addDays, businessDateKey, kstDayStart, parseBusinessDate } from '../../../../common/kst';
@@ -35,7 +35,7 @@ import {
   type ProductSourceReadModel,
   type ProductSourceReadPort,
 } from '../../../application/port/in/product-source-read.port';
-import { lockProductSource } from './transaction/product-source-lock';
+import { lockProductSource } from '../transaction/product-source-lock';
 import { listInStockMasterProductIds, listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
 import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type { ProductSourceChange } from '../../../domain/product-source-change';

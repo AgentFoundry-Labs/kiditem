@@ -34,7 +34,7 @@ import { AiDirectJobOperationsAdapter } from './adapter/out/runtime/ai-direct-jo
 import { AI_DIRECT_JOB_OPERATION_OWNERS } from './adapter/in/operation/ai-direct-job-operation-owners';
 import { OperationModule } from '../common/operation/operation.module';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
-import { TEXT_JUDGEMENT_PORT } from './application/port/in/capability/text-judgement.port';
+import { TEXT_JUDGEMENT_PORT } from './application/port/in/judgement/text-judgement.port';
 import { TextJudgementService } from './application/service/text-judgement.service';
 import { GeminiTextCompletionAdapter } from './adapter/out/gemini/gemini-text-completion.adapter';
 import { GeminiThumbnailVisionAdapter } from './adapter/out/gemini/gemini-thumbnail-vision.adapter';

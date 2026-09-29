@@ -7,7 +7,7 @@ import { lockProductMapping } from '../../products/transaction/product-mapping-l
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository';
-import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
+import { lockProductSource } from '../../products/adapter/out/transaction/product-source-lock';
 import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import {
   makeTestPrisma,

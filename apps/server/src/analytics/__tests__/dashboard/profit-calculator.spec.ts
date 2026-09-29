@@ -4,7 +4,7 @@ import { ProfitCalculationRepositoryAdapter } from "../../adapter/out/persistenc
 import type { PrismaService } from "../../../prisma/prisma.service";
 import type { ProductTransactionalReadPort } from "../../../products/application/port/in/product-transactional-read.port";
 import { readOrderLineWindowFacts } from "../../../orders/adapter/out/persistence/read/order-facts.reader";
-import type { AdvertisingLedgerReadPort } from "../../../advertising/application/port/in/capability/advertising-ledger-read.port";
+import type { AdvertisingLedgerReadPort } from "../../../advertising/application/port/in/ledger/advertising-ledger-read.port";
 import { businessDateKey, kstBusinessDate } from "../../../common/kst";
 import { businessDatesInWindow } from "../../domain/dashboard/period/dashboard-period";
 import { periodOf } from "./test-helpers/period";

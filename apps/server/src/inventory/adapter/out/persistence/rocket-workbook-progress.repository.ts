@@ -5,7 +5,7 @@ import type { RocketWorkbookProgressRepositoryPort } from '../../../application/
 import {
   SELLPIA_TRANSFER_OUTCOME_PORT,
   type SellpiaTransferOutcomePort,
-} from '../../../../orders/application/port/in/capability/sellpia-transfer-outcome.port';
+} from '../../../../orders/application/port/in/transfer/sellpia-transfer-outcome.port';
 
 @Injectable()
 export class RocketWorkbookProgressRepositoryAdapter

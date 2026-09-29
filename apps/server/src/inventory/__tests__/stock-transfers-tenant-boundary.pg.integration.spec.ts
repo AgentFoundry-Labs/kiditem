@@ -14,7 +14,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { TransfersRepositoryAdapter } from '../adapter/out/persistence/transfers.repository';
-import { TransfersService } from '../application/usecase/transfers.service';
+import { TransfersService } from '../application/service/transfers.service';
 
 const MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000001';
 const FOREIGN_MASTER_PRODUCT_ID = '10000000-0000-4000-8000-000000000005';

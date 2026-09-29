@@ -15,7 +15,7 @@ import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/tra
 import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketPoCatalogService } from '../../orders/application/service/rocket-po-catalog.service';
 import { RocketPoCatalogRepositoryAdapter } from '../../orders/adapter/out/persistence/rocket-po-catalog.repository';
-import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
+import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository';
 import { SellpiaTransferOutcomePersistenceAdapter } from '../../orders/adapter/out/persistence/sellpia-transfer-outcome.repository';
 import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';

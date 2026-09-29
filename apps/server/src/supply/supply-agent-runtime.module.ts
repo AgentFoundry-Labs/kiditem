@@ -9,7 +9,7 @@ import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
-import { SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT } from './application/port/in/capability/purchase-order.port';
+import { SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT } from './application/port/in/procurement/purchase-order.port';
 import { SUPPLY_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/supply-capability-composition.port';
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';

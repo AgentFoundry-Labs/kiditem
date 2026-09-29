@@ -10,7 +10,7 @@ import {
 import {
   lockProductSource,
   type ProductSourceLock,
-} from './transaction/product-source-lock';
+} from '../transaction/product-source-lock';
 import type {
   ProductCollectionFence,
   ProductLockEvidence,

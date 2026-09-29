@@ -45,7 +45,7 @@ import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapte
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
 import { RocketWorkbookExportService } from '../../supply/application/service/rocket-purchase-confirmation.service';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
-import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
+import { RocketWorkbookProgressService } from '../../inventory/application/service/rocket-workbook-progress.service';
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository';
 import { CoupangRocketPoOperationOwner } from '../adapter/in/operation/coupang-rocket-po-operation-owner';
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/persistence/rocket-po-catalog.repository';

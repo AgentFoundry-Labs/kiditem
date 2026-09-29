@@ -13,7 +13,7 @@ import { ChannelAccountService } from '../channels/application/service/account/c
 import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository';
 import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out/products/product-mapping-generation.adapter';
 import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository';
-import { ADVERTISING_LEDGER_READ_PORT } from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { ADVERTISING_LEDGER_READ_PORT } from '../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { AdvertisingLedgerReadService } from '../advertising/application/service/advertising-ledger-read.service';
 import { AdLedgerReadPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-read.repository';
 import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-monthly-allocation.repository';

@@ -8,7 +8,7 @@ import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
-import { lockProductSource } from './transaction/product-source-lock';
+import { lockProductSource } from '../transaction/product-source-lock';
 import type {
   ProductSourcePublicationRepositoryPort,
   SellpiaSnapshotPublicationChanges,

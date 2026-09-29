@@ -25,7 +25,7 @@ import {
   kstWindowDateRange,
   type KstQueryWindow,
 } from './kst';
-import type { AdvertisingLedgerReadPort } from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+import type { AdvertisingLedgerReadPort } from '../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { profitAdCost } from '../advertising/domain/ad-spend-rule';
 import {
   adSweepCoversChannelAccount,

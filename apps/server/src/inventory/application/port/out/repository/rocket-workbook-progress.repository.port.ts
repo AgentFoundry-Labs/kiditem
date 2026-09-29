@@ -1,7 +1,7 @@
 import type {
   SellpiaTransferOutcomeStatus,
   SellpiaTransferSourceRef,
-} from '../../../../../orders/application/port/in/capability/sellpia-transfer-outcome.port';
+} from '../../../../../orders/application/port/in/transfer/sellpia-transfer-outcome.port';
 
 export interface RocketWorkbookProgressRepositoryPort {
   /**

@@ -3,7 +3,7 @@ import type {
   AdCoverage,
   AdListingWindowFacts,
   AdWindowFacts,
-} from '../../in/capability/advertising-ledger-read.port';
+} from '../../in/ledger/advertising-ledger-read.port';
 
 export const AD_LEDGER_READ_REPOSITORY_PORT = Symbol('AdLedgerReadRepositoryPort');
 

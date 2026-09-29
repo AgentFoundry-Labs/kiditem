@@ -7,7 +7,7 @@ import type {
   SellpiaTransferOutcomePort,
   SellpiaTransferOutcomeStatus,
   SellpiaTransferSourceRef,
-} from '../../../application/port/in/capability/sellpia-transfer-outcome.port';
+} from '../../../application/port/in/transfer/sellpia-transfer-outcome.port';
 
 /**
  * 셀피아 전송 결과 capability(KID-388). 실행 표는 계약 리더(`readOperationsByPlan`)로만 읽는다

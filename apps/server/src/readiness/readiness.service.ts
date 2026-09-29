@@ -25,11 +25,11 @@ import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sell
 import {
   ADVERTISING_LEDGER_READ_PORT,
   type AdvertisingLedgerReadPort,
-} from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+} from '../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import {
   ADVERTISING_KEYWORD_RANK_READ_PORT,
   type AdvertisingKeywordRankReadPort,
-} from '../advertising/application/port/in/capability/keyword-rank-read.port';
+} from '../advertising/application/port/in/ledger/keyword-rank-read.port';
 import type {
   ReadinessCheck,
   ReadinessResponse,

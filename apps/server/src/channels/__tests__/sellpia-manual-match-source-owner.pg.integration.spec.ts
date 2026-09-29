@@ -16,7 +16,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { makeChannelsOperations } from '../../test-helpers/channels-operations';
-import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
+import { lockProductSource } from '../../products/adapter/out/transaction/product-source-lock';
 
 const ACCOUNT_ID = '71000000-0000-4000-8000-000000000001';
 

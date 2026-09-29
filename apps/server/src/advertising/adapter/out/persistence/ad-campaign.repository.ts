@@ -23,7 +23,7 @@ import type {
   AdPeriodRows,
   AdTrendWindow,
 } from '../../../application/port/out/repository/ad-campaign.repository.port';
-import type { AdCoverage } from '../../../application/port/in/capability/advertising-ledger-read.port';
+import type { AdCoverage } from '../../../application/port/in/ledger/advertising-ledger-read.port';
 
 const REPEATABLE_READ = {
   isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,

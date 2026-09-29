@@ -6,7 +6,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   TEXT_JUDGEMENT_PORT,
   type TextJudgementPort,
-} from '../../../../content/application/port/in/capability/text-judgement.port';
+} from '../../../../content/application/port/in/judgement/text-judgement.port';
 import type {
   KeywordRelevanceJudgePort,
   KeywordRelevanceJudgeRequest,

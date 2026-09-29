@@ -1,4 +1,4 @@
-import type { SellpiaTransferSourceRef } from '../../../../../orders/application/port/in/capability/sellpia-transfer-outcome.port';
+import type { SellpiaTransferSourceRef } from '../../../../../orders/application/port/in/transfer/sellpia-transfer-outcome.port';
 
 /**
  * Server-side state of one exported Rocket workbook workflow. Supply reads it

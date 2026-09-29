@@ -1,7 +1,7 @@
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../../content/application/port/in/workspace/listing-content-query.port';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
-import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../../channels/application/port/in/channel-option-recipe.port';
 import { PRODUCT_ABC_READ_PORT, type ProductAbcReadPort } from '../../../../../products/application/port/in/product-abc-read.port';

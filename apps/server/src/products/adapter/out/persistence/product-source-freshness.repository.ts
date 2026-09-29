@@ -15,7 +15,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   lockProductSource,
   type ProductSourceLock,
-} from './transaction/product-source-lock';
+} from '../transaction/product-source-lock';
 import type {
   ProductCollectionFreshnessRepositoryPort,
   ProductCollectionFreshnessRepositoryTransaction,

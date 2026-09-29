@@ -5,7 +5,7 @@ import { PRODUCTS_CAPABILITIES } from '../../../domain/capability/products.capab
 import {
   PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT,
   type ProductsListingGenerationCapabilityPort,
-} from '../../../application/port/in/capability/listing-generation.port';
+} from '../../../application/port/in/generation/listing-generation.port';
 import type { ProductsCapabilityCompositionPort } from '../../../application/port/in/capability/products-capability-composition.port';
 
 /** Products owns the definition-to-listing-generation-owner-port Adapter. */

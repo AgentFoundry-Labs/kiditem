@@ -78,14 +78,13 @@ describe('Inventory architecture contract', () => {
       'application/port/in/warehouse/',
       'application/port/in/stock/index.ts',
       'application/port/in/stock/rocket-workbook-progress',
-      'application/port/out/cross-domain/index.ts',
       'application/port/out/repository/index.ts',
       'application/port/out/repository/transfers',
       'application/port/out/repository/warehouses',
       'application/port/out/repository/rocket-workbook-progress',
-      'application/usecase/transfers',
-      'application/usecase/warehouses',
-      'application/usecase/rocket-workbook-progress',
+      'application/service/transfers',
+      'application/service/warehouses',
+      'application/service/rocket-workbook-progress',
       'inventory.module.ts',
     ];
     expect(files.filter((file) => !allowedPrefixes.some((prefix) => file.startsWith(prefix)))).toEqual([]);

@@ -4,7 +4,7 @@ import {
   readProductSourceAvailability,
   readProductAvailabilityCandidates,
 } from './read/product-source-availability';
-import { lockProductSource } from './transaction/product-source-lock';
+import { lockProductSource } from '../transaction/product-source-lock';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 import type { ProductAvailabilityCandidate } from '../../../application/port/in/product-availability.port';
 import type { ProductAvailabilityRepositoryPort } from '../../../application/port/out/repository/product-availability.repository.port';

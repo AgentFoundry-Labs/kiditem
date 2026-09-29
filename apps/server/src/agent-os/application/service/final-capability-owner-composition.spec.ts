@@ -11,12 +11,12 @@ import {
   registerFinalCapabilityCatalog,
 } from './final-capability-catalog-registrar.service';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/application/port/in/dashboard/analytics-overview-capability.port';
-import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/capability/listing-generation.port';
+import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/generation/listing-generation.port';
 import type {
   SourcingFinalCapabilityPort,
   SourcingSourceSnapshot,
 } from '../../../sourcing/application/port/in/capability/sourcing-final-capability.port';
-import type { SupplyPurchaseOrderCapabilityPort } from '../../../supply/application/port/in/capability/purchase-order.port';
+import type { SupplyPurchaseOrderCapabilityPort } from '../../../supply/application/port/in/procurement/purchase-order.port';
 
 const identifiers = {
   organizationId: '00000000-0000-4000-8000-000000000001',

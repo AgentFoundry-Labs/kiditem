@@ -81,7 +81,7 @@ import {
 import {
   CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
 } from '../application/port/out/repository/catalog-display-media.repository.port';
-import { TEXT_JUDGEMENT_PORT } from '../application/port/in/capability/text-judgement.port';
+import { TEXT_JUDGEMENT_PORT } from '../application/port/in/judgement/text-judgement.port';
 import { TextJudgementService } from '../application/service/text-judgement.service';
 
 const IMPORTS_KEY = 'imports';

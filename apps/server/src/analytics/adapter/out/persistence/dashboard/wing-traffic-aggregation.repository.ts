@@ -5,7 +5,7 @@ import type { ListingTrafficDailyFact, ListingTrafficWindowFacts } from '../../.
 import { Inject,  Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { AD_VAT_RATE, adConversions, performanceAdSpend } from '../../../../../advertising/domain/ad-spend-rule';
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {

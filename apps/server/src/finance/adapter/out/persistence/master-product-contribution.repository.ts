@@ -12,7 +12,7 @@ import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import {
   ADVERTISING_LEDGER_READ_PORT,
   type AdvertisingLedgerReadPort,
-} from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+} from '../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
 import { readExactSellpiaProductMonthlyFacts } from '../../../../analytics/sellpia-product-sales/read/sellpia-product-monthly-facts';
 import {

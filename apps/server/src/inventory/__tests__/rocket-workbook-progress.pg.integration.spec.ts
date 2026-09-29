@@ -4,7 +4,7 @@ import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG }
 import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';
 import { SellpiaTransferOutcomePersistenceAdapter } from '../../orders/adapter/out/persistence/sellpia-transfer-outcome.repository';
 import { RocketWorkbookProgressRepositoryAdapter } from '../adapter/out/persistence/rocket-workbook-progress.repository';
-import { RocketWorkbookProgressService } from '../application/usecase/rocket-workbook-progress.service';
+import { RocketWorkbookProgressService } from '../application/service/rocket-workbook-progress.service';
 
 // 로켓 워크북 진행(KID-388): 수집된 파일마다 Orders 전송 결과 capability가 비춘 최근 전송 실행 상태로 정한다.
 // succeeded → completed, 진행·reconciling → sellpia_transmitting, 없음·실패 → orders_collected(재전송 가능).

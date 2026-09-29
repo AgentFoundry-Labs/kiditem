@@ -13,9 +13,9 @@ import { TRANSFERS_PORT, WAREHOUSES_PORT } from '../application/port/in/warehous
 import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from '../application/port/out/repository/rocket-workbook-progress.repository.port';
 import { TRANSFERS_REPOSITORY_PORT } from '../application/port/out/repository/transfers.repository.port';
 import { WAREHOUSES_REPOSITORY_PORT } from '../application/port/out/repository/warehouses.repository.port';
-import { RocketWorkbookProgressService } from '../application/usecase/rocket-workbook-progress.service';
-import { TransfersService } from '../application/usecase/transfers.service';
-import { WarehousesService } from '../application/usecase/warehouses.service';
+import { RocketWorkbookProgressService } from '../application/service/rocket-workbook-progress.service';
+import { TransfersService } from '../application/service/transfers.service';
+import { WarehousesService } from '../application/service/warehouses.service';
 import { TransfersController } from '../adapter/in/web/transfers.controller';
 import { WarehousesController } from '../adapter/in/web/warehouses.controller';
 import { InventoryModule } from '../inventory.module';

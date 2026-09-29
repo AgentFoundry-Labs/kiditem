@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AdvertisingKeywordRankReadPort,
   WingRankCoverage,
-} from '../../../application/port/in/capability/keyword-rank-read.port';
+} from '../../../application/port/in/ledger/keyword-rank-read.port';
 import { readWingRankCoverage } from './read/keyword-rank-facts';
 
 @Injectable()

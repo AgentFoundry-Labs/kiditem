@@ -8,7 +8,7 @@ import type {
   TextJudgementPort,
   TextJudgementRequest,
   TextJudgementResult,
-} from '../port/in/capability/text-judgement.port';
+} from '../port/in/judgement/text-judgement.port';
 import {
   TEXT_COMPLETION_PORT,
   type TextCompletionPort,

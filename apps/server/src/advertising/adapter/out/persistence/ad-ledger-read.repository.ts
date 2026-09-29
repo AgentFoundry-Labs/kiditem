@@ -11,7 +11,7 @@ import type {
   AdListingWindowFacts,
   AdWindowDay,
   AdWindowFacts,
-} from '../../../application/port/in/capability/advertising-ledger-read.port';
+} from '../../../application/port/in/ledger/advertising-ledger-read.port';
 import {
   AD_RULE_RECENT_MEASURED_DAYS,
   type AdCampaignSelector,

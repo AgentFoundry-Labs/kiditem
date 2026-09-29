@@ -49,7 +49,7 @@ import {
   ADVERTISING_LEDGER_READ_PORT,
   type AdvertisingLedgerReadPort,
   type AdWindowDay,
-} from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+} from '../../../../../advertising/application/port/in/ledger/advertising-ledger-read.port';
 import { adConversions, AD_VAT_RATE, profitAdCost } from '../../../../../advertising/domain/ad-spend-rule';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import {

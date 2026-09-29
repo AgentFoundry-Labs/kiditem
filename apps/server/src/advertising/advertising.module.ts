@@ -83,7 +83,7 @@ import { KEYWORD_RANK_REPOSITORY_PORT } from "./application/port/out/repository/
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/repository/wing-tracked-product.repository.port";
 import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domain/keyword-relevance-judge.port";
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
-import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
+import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/ledger/coupang-momentum-read.port";
 import { ADVERTISING_HUB_READ_PORT } from "./application/port/in/advertising-hub-read.port";
 import { AdvertisingLedgerReadModule } from "./advertising-ledger-read.module";
 import { AD_LEDGER_READ_REPOSITORY_PORT } from "./application/port/out/repository/ad-ledger-read.repository.port";
