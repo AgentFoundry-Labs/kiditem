@@ -83,9 +83,10 @@ export const TestMallLoginResponseSchema = z.object({
   mallMessage: z.string().max(500).nullable(),
   /**
    * 로그인 안 됐으면 registry 코드, 됐으면 null. 판정→코드: 본인확인 화면 `SITE_VERIFICATION_REQUIRED`,
-   * 폼 없음 `MALL_CONTRACT_CHANGED`, 지원 안 하는 몰 `MALL_LOGIN_UNSUPPORTED`, 거절·폼 잔존 `MALL_LOGIN_REJECTED`,
-   * 결과 미확인 `MALL_LOGIN_UNCONFIRMED`, 로그인 페이지 못 엶 `MALL_LOGIN_PAGE_UNREACHABLE`.
-   * 이미 로그인돼 있으면 `submitted:false, verified:true, errorCode:null`.
+   * 지원 안 하는 몰 `MALL_LOGIN_UNSUPPORTED`, 거절·폼 잔존 `MALL_LOGIN_REJECTED`, 결과 미확인(폼을 다 못 채운 경우 포함)
+   * `MALL_LOGIN_UNCONFIRMED`, 로그인 페이지 못 엶 `MALL_LOGIN_PAGE_UNREACHABLE`.
+   * 로그인 폼이 없으면(이미 로그인된 화면) `submitted:false, verified:true, errorCode:null` — 웹은 이를
+   * 비밀번호 확인 성공으로 치지 않는다(막음 유지).
    */
   errorCode: z.string().max(100).nullable(),
 }).strict();
