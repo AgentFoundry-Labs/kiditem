@@ -4,11 +4,13 @@ Before working in this directory, always read this document first rather than re
 
 `background/orders/` collects approved marketplace order/export evidence from
 the operator's authenticated Chrome session, then returns non-secret rows or
-files to the KidItem web app for NestJS processing. It also owns Sellpia
-snapshot/profit collection, order-file upload, tracking
-registration, and Coupang cookie-overflow recovery. Coupang shipment date
-summary, Rocket PO and directship are operation kinds collected by
-`extensions/src` (`sites/coupang-supplier`), not by this worker.
+files to the KidItem web app for NestJS processing. Only Kakao collection
+and the session/login actions remain here (wave9). Sellpia order transfer,
+post-transfer, auto-invoice and snapshot, the Coupang shipment list, and
+Onch/Kidkids tracking upload are the Orders action kinds in `extensions/src`
+(KID-366 wave8b, `src/README.md`); Coupang shipment summary, Rocket PO and
+directship are operation kinds on `sites/coupang-supplier`. Add none of these
+back to this worker.
 
 ## Security And Environment
 
@@ -22,7 +24,7 @@ summary, Rocket PO and directship are operation kinds collected by
   Coupang cookie recovery is limited to named/path cookies for the supplier
   origin and must warn that shared Coupang sessions will be signed out; never
   read or return cookie values.
-- Old-path logins (Kakao attempt, Sellpia and tracking uploads) go through
+- Old-path logins (the Kakao attempt) go through
   `mall-session.js` `ensureLoggedIn` (`ok` · `rejected` · `unknown`); its
   one-row-per-mall spec is `loginUrl` · `fields`, and tabs, frame injection,
   and dialog swallowing are its driver seam in `worker.js`. Retry spacing and
@@ -147,13 +149,13 @@ summary, Rocket PO and directship are operation kinds collected by
   no rows when evidence is incomplete or vendor identity is missing/mixed.
 - Rocket capability is evidence-only: it never confirms a PO, submits quantity,
   reserves stock, or mutates Sellpia Inventory.
-- Order-file submission is irreversible. A click is not success: wait for
-  accepted/pending evidence. If the result is uncertain, perform the tested
-  read-only Sellpia lookup; all targets found is submitted, none is safe
-  non-submission, and partial evidence remains unknown.
-- Read-only reconciliation may search pending/stockmatch pages but never
-  registers, merges, matches stock, or numbers invoices. A successful response
-  reports bounded evidence and does not claim later Sellpia processing.
+- Order-file submission (`orders.sellpia_order_transfer`) is irreversible. A
+  click is not success: wait for accepted/pending evidence. If the result is
+  uncertain, perform the read-only Sellpia lookup; all targets found is
+  submitted, none on both screens is safe non-submission, and anything else
+  stops as `reconciling` for the operator.
+- Read-only reconciliation and the order snapshot may search pending/stockmatch
+  pages but never register, merge, match stock, or number invoices.
 - Read
   [sellpia-rocket-inventory-sync.md](../../../../docs/runbooks/sellpia-rocket-inventory-sync.md)
   before changing Rocket, order-file, or Inventory interaction.
