@@ -40,6 +40,11 @@ export interface OperationClient {
   cancel(operationId: string): Promise<OperationView>;
   /** 서버가 준비해 둔 실행을 세션 조직 안에서 받아 간다. 없으면 `operation: null`. */
   claim(request: OperationClaimRequest): Promise<OperationClaimResponse>;
+  /**
+   * 실행의 원천 파일(owner가 보관한 캡처, 예 `GET /api/orders/action-operations/:id/source`)을 바이트로 받는다(KID-366 wave8b).
+   * runner만 부르고 수집기는 `readSource`로 받는다. 2xx가 아니면 서버 오류 봉투를 `RuntimeError`로 바꾼다.
+   */
+  readSource?(path: string): Promise<Uint8Array>;
 }
 
 /** 서버가 거절했을 때 런타임이 할 일. */
@@ -96,6 +101,14 @@ export function createOperationClient(api: ApiPort): OperationClient {
       const response = await call(api, `${base}/${encodeURIComponent(operationId)}/cancel`, { method: 'POST' }, OperationCancelResponseSchema);
       return response.operation;
     },
+    async readSource(path) {
+      if (!/^\/api\/[A-Za-z0-9._~\-/]+$/.test(path)) {
+        throw new RuntimeError(RUNTIME_API_UNREACHABLE, '실행 원천 파일 경로가 올바르지 않습니다.', { path });
+      }
+      const response = await send(api, path, { method: 'GET', headers: {} });
+      if (!response.ok) await throwEnvelope(response, path);
+      return new Uint8Array(await response.arrayBuffer());
+    },
   };
 }
 
@@ -107,13 +120,23 @@ async function call<S extends z.ZodTypeAny>(
 ): Promise<z.output<S>> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
   if (request.token !== undefined) headers[OPERATION_TOKEN_HEADER] = request.token;
-  let response: Response;
+  const response = await send(api, path, {
+    method: request.method,
+    headers,
+    ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
+  });
+  if (!response.ok) await throwEnvelope(response, path);
+  const body = await response.json().catch(() => undefined);
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버 응답이 실행 계약과 다릅니다.', { path, status: response.status });
+  }
+  return parsed.data;
+}
+
+async function send(api: ApiPort, path: string, init: RequestInit): Promise<Response> {
   try {
-    response = await api.fetch(path, {
-      method: request.method,
-      headers,
-      ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
-    });
+    return await api.fetch(path, init);
   } catch (error) {
     // 입구 어댑터가 코드를 실어 던지면(옛 authedFetch의 `environment_auth_required` 등) 그 코드를 살린다.
     const code = (error as { code?: unknown } | null)?.code;
@@ -123,19 +146,16 @@ async function call<S extends z.ZodTypeAny>(
     }
     throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버에 연결하지 못했습니다.', { path }, error);
   }
+}
+
+/** 2xx가 아닌 응답의 서버 오류 봉투를 던진다(봉투가 없으면 연결 실패로). */
+async function throwEnvelope(response: Response, path: string): Promise<never> {
   const body = await response.json().catch(() => undefined);
-  if (!response.ok) {
-    const envelope = parseErrorEnvelope(body);
-    if (!envelope) {
-      throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버 응답을 읽지 못했습니다.', { path, status: response.status });
-    }
-    throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
+  const envelope = parseErrorEnvelope(body);
+  if (!envelope) {
+    throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버 응답을 읽지 못했습니다.', { path, status: response.status });
   }
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버 응답이 실행 계약과 다릅니다.', { path, status: response.status });
-  }
-  return parsed.data;
+  throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
 }
 
 async function sha256Hex(text: string): Promise<string> {
