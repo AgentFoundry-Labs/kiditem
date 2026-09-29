@@ -578,7 +578,12 @@ describe('isolated Agent OS browser-QA seed', () => {
           organizationId: 'organization-id',
           kind: 'sourcing.scrape_url',
           status: 'succeeded',
-          plan: expect.objectContaining({ sourceKey: '1688.scrape_url', scopeKey: 'product-url', startedBy: 'user-id' }),
+          plan: expect.objectContaining({
+            sourceKey: '1688.scrape_url',
+            scopeKey: 'product-url',
+            startedBy: 'user-id',
+            attemptPlan: expect.objectContaining({ source: '1688.scrape_url' }),
+          }),
         }),
       }),
     );
@@ -593,6 +598,8 @@ describe('isolated Agent OS browser-QA seed', () => {
           operationId: 'evidence-operation-id',
           sourceKey: '1688.scrape_url',
           isCurrent: true,
+          // The publication carries only the source plan, as the owner's finalize writes it.
+          plan: expect.not.objectContaining({ startedBy: expect.anything() }),
         }),
       }),
     );

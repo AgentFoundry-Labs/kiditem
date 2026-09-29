@@ -955,8 +955,8 @@ async function seedBrowserQaRecommendationWorkspace({
   }
 
   const { attemptPlan, ...scopeBase } = plan.evidenceOperation.scope;
-  // The row the server-run owner's plan() stores: the frozen attempt plan, the scope keys, and who started it.
-  const operationPlan = { ...attemptPlan, ...scopeBase, startedBy: userId } as Prisma.InputJsonObject;
+  // The row the server-run owner's plan() stores: the scope keys, the source plan, and who started it.
+  const operationPlan = { ...scopeBase, attemptPlan, startedBy: userId } as Prisma.InputJsonObject;
   const operationResult = {
     sourceKey: plan.evidencePublication.sourceKey,
     scopeKey: plan.evidencePublication.scopeKey,
@@ -997,7 +997,8 @@ async function seedBrowserQaRecommendationWorkspace({
   });
   const publicationRow = {
     ...plan.evidencePublication,
-    plan: operationPlan,
+    // Finalize publishes the source plan only.
+    plan: attemptPlan as Prisma.InputJsonObject,
     qualityReport: {
       source: plan.evidencePublication.sourceKey,
       planChecksum: plan.evidenceOperation.scope.planChecksum,
