@@ -4,6 +4,7 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, createSiteCaller, type SiteCa
 import { registerSite, type SiteDeps, type SiteLease } from '../registry';
 import { createSiteLoginGate, ensureLoggedIn, withLoginTab, type LoginOutcome } from '../site-login';
 import type { TabPage } from '../tab-page';
+import { submitCampaign, type AdCenterCampaignInput, type AdCenterCampaignSubmission } from './campaign';
 import { AD_CENTER_LOGIN, chooseWingAccount } from './login';
 
 /**
@@ -57,12 +58,20 @@ export interface AdCenterSite {
   listAds(input: { adGroupId: string; page: number }): Promise<{ ads: unknown[]; totalCount: number }>;
   readSettlement(input: { startDate: string; endDate: string; domain: AdSettlementDomain; campaignIds: number[] | null }): Promise<unknown[]>;
   pause(ms: number): Promise<void>;
+  /**
+   * 캠페인 등록(KID-386). 누르기 전 실패는 던지고, 눌렀거나 눌렀을 수 있으면 증거를 돌려준다(`./campaign`). 계정 잠금 탭이
+   * 없으면(광고 액션 실행은 광고센터 계정 키를 쥐지 않는다) 제 탭을 열어 쓰고, 끝나면 운영자에게 남긴다.
+   */
+  createCampaign(input: AdCenterCampaignInput, options?: { signal?: AbortSignal }): Promise<AdCenterCampaignSubmission>;
 }
 
 /** 광고센터 핸들. 요청마다: 로그인 문턱(바깥) → 첫 500이면 탭을 다시 열고 한 번 다시(안) → 호출기. */
 export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSite {
   const caller = createSiteCaller(AD_CENTER_CALLER, deps);
   const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
+  /** 잠금 탭이 없는 실행(광고 액션)이 연 제 탭. 한 번만 열고, 쓰기가 끝나면 운영자에게 남긴다. */
+  let own: Promise<TabPage> | null = null;
+  const ownTab = (): Promise<TabPage> => page ? Promise.resolve(page) : (own ??= deps.tabs.open(AD_CENTER_HOME_URL));
   const call = adCenterCall(deps, lease, page);
 
   /** `write`: 보고서 생성처럼 두 번 보내면 안 되는 호출 — 첫 500에도 다시 묻지 않는다. */
@@ -86,7 +95,7 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
 
   return {
     async readVendorId() {
-      if (!page) throw failed('tab_missing', '쿠팡 광고센터 탭이 없어 업체코드를 읽지 못했습니다.');
+      const page = await ownTab();
       // 로그인 뒤 다른 화면에 있으면 광고센터 첫 화면으로 옮긴다(업체코드는 광고센터 화면 머리에 있다).
       if (!(await page.currentUrl().catch(() => '')).startsWith(AD_CENTER_HOME_URL)) {
         await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true, stopAt: isLoginUrl });
@@ -186,6 +195,15 @@ export function createAdCenterSite(deps: SiteDeps, lease: SiteLease): AdCenterSi
     },
 
     pause: (ms) => deps.sleep(ms),
+
+    async createCampaign(input, options) {
+      const target = await ownTab();
+      try {
+        return await submitCampaign(target, input, options);
+      } finally {
+        if (target !== page) await target.leave().catch(() => undefined);
+      }
+    },
   };
 }
 
