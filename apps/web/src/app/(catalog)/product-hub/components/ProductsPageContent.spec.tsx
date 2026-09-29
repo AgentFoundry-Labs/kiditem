@@ -69,8 +69,6 @@ const state = vi.hoisted(() => ({
         channel: 'coupang',
         channelAccountName: 'Coupang Wing',
       }],
-      traffic: null,
-      visitorCount: null,
       viewCount: null,
       cartAddCount: null,
       orderCount: 4,

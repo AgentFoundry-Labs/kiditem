@@ -281,7 +281,6 @@ describe('ProductQueryUseCase', () => {
     expect(result.items[0]).toMatchObject({
       inventoryUnits: 100,
       depletion: { needsReorder: true },
-      visitorCount: 11,
       viewCount: 22,
       cartAddCount: 3,
       orderCount: 4,
@@ -660,8 +659,6 @@ function rawListProduct(id: string) {
     channelCount: 0,
     channelStatus: 'unlisted' as const,
     activeChannelProducts: [] as ProductOperationsActiveChannel[],
-    traffic: null,
-    visitorCount: 11,
     viewCount: 22,
     cartAddCount: 3,
     orderCount: 4,
