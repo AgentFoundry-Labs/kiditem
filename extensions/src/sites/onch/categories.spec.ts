@@ -25,6 +25,14 @@ describe('온채널 분류 목록(KID-366 listMallCategories, 옛 mall-utility-a
     expect(calls).toEqual([]);
   });
 
+  it('로그아웃 상태의 200 {isSuccess:false}는 빈 목록이 아니라 SITE_LOGIN_REQUIRED다(자격 없음)', async () => {
+    const fetch = async () => Response.json({ isSuccess: false, msg: '변경 사항이 없거나 처리가 실패하였습니다.' });
+    await expect(listMallCategories({ fetch }, 'onch', [])).rejects.toMatchObject({
+      code: 'SITE_LOGIN_REQUIRED',
+      details: { mallMessage: '변경 사항이 없거나 처리가 실패하였습니다.' },
+    });
+  });
+
   it('다른 몰은 VALIDATION_FAILED, 몰의 HTTP 실패는 SITE_REQUEST_FAILED', async () => {
     await expect(listMallCategories({ fetch: async () => Response.json({}) }, 'domeggook', [])).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
     await expect(listMallCategories({ fetch: async () => new Response('', { status: 500 }) }, 'onch', [])).rejects.toMatchObject({ code: 'SITE_REQUEST_FAILED' });

@@ -21769,6 +21769,12 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(SITE_REQUEST_FAILED, "\uBAB0 \uBD84\uB958 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: response.status, url: source.path, reason: "http", bodyHead: null });
     }
     const body = await response.json();
+    if (body?.isSuccess === false) {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uBAB0 \uAD00\uB9AC\uC790\uC5D0 \uB85C\uADF8\uC778\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC544 \uBD84\uB958 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", {
+        url: source.path,
+        mallMessage: typeof body.msg === "string" ? body.msg.slice(0, 200) : null
+      });
+    }
     const rows = Array.isArray(body?.[source.itemsKey]) ? body[source.itemsKey] : [];
     const hasChildren = path.length + 1 < source.levels;
     return rows.map((row) => String(row?.[source.nameKey] ?? "").trim()).filter(Boolean).map((name) => ({ id: name, name, hasChildren }));

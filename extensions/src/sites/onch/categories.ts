@@ -1,5 +1,5 @@
 import { RuntimeError } from '../../core/errors';
-import { SITE_REQUEST_FAILED } from '../../core/site-caller';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 
 /**
  * 몰 분류 목록 한 단(KID-366, 옛 `orders/mall-utility-actions.js` `listCategories` 이식). 온채널 상품등록 화면의 계단식 4단
@@ -47,6 +47,12 @@ export async function listMallCategories(
     throw new RuntimeError(SITE_REQUEST_FAILED, '몰 분류 목록을 읽지 못했습니다.', { status: response.status, url: source.path, reason: 'http', bodyHead: null });
   }
   const body = (await response.json()) as Record<string, unknown> | null;
+  // 온채널은 로그아웃 상태에서도 200으로 `{isSuccess:false, msg}`를 준다(wave8a QA) — 빈 목록이 아니라 로그인 필요다.
+  if (body?.isSuccess === false) {
+    throw new RuntimeError(SITE_LOGIN_REQUIRED, '몰 관리자에 로그인되어 있지 않아 분류 목록을 읽지 못했습니다.', {
+      url: source.path, mallMessage: typeof body.msg === 'string' ? body.msg.slice(0, 200) : null,
+    });
+  }
   const rows = Array.isArray(body?.[source.itemsKey]) ? (body![source.itemsKey] as unknown[]) : [];
   const hasChildren = path.length + 1 < source.levels;
   return rows
