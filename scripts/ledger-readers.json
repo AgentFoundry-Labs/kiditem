@@ -236,7 +236,6 @@
       "prismaModel": "review",
       "prismaType": "Review",
       "relationNames": [
-        "reviewCollectionFacts",
         "reviews"
       ],
       "ownerPublications": [
@@ -709,8 +708,7 @@
       "prismaModel": "coupangKeywordSerpDailySnapshot",
       "prismaType": "CoupangKeywordSerpDailySnapshot",
       "relationNames": [
-        "coupangKeywordSerpDailySnapshots",
-        "keywordSerpDailyProjections"
+        "coupangKeywordSerpDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -727,8 +725,7 @@
       "prismaModel": "coupangWingSalesRankDailySnapshot",
       "prismaType": "CoupangWingSalesRankDailySnapshot",
       "relationNames": [
-        "coupangWingSalesRankDailySnapshots",
-        "wingRankDailyProjections"
+        "coupangWingSalesRankDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -745,8 +742,7 @@
       "prismaModel": "coupangKeywordRankDailySnapshot",
       "prismaType": "CoupangKeywordRankDailySnapshot",
       "relationNames": [
-        "coupangKeywordRankDailySnapshots",
-        "keywordRankDailyProjections"
+        "coupangKeywordRankDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -783,7 +779,6 @@
       "prismaModel": "rocketPoCatalogSnapshot",
       "prismaType": "RocketPoCatalogSnapshot",
       "relationNames": [
-        "rocketPoCatalogSnapshot",
         "snapshot"
       ],
       "ownerPublications": [

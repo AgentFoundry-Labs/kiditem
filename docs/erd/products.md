@@ -111,7 +111,7 @@ erDiagram
     String sourceOrigin
     String sourceAccountKey
     DateTime lastVerifiedAt
-    String lastCompletedImportRunId FK
+    String lastCompletedImportRunId
     String lastCompletedOperationId
     String refreshReason
     String requestedSyncScope
@@ -141,5 +141,4 @@ erDiagram
 | MasterProductAbcGradeHistory | nextSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcGradeHistory | organization | references external | Core | Organization |
 | MasterProductAbcGradeHistory | previousSellpiaSourceImportRun | references external | Core | SourceImportRun |
-| SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |

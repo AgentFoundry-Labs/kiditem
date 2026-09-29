@@ -30,7 +30,7 @@ erDiagram
     String id PK
     String organizationId FK
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
     String receiptId FK
@@ -43,7 +43,7 @@ erDiagram
     String organizationId FK
     String channelAccountId
      /**
-    String effectSourceImportRunId FK
+    String effectSourceImportRunId
      /**
     String effectOperationId
     String rocketPurchaseConfirmationId FK
@@ -61,7 +61,7 @@ erDiagram
     String id PK
     String organizationId FK
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
     String shipmentDate
@@ -75,7 +75,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
     String externalOrderId
@@ -131,7 +131,7 @@ erDiagram
   Review {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String operationId
     DateTime publishedAt
     String listingId
@@ -183,10 +183,10 @@ erDiagram
   }
   RocketPoCatalogSnapshot {
     String id PK
-    String organizationId FK
+    String organizationId
     String channelAccountId
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
      /**
@@ -248,20 +248,14 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CoupangDirectTransportConsumption | organization | references external | Core | Organization |
-| CoupangDirectTransportConsumption | sourceImportRun | references external | Core | SourceImportRun |
-| CoupangDirectTransportReceipt | effectSourceImportRun | references external | Core | SourceImportRun |
 | CoupangDirectTransportReceipt | organization | references external | Core | Organization |
 | CoupangDirectTransportReceipt | rocketPurchaseConfirmation | references external | Supply | RocketPurchaseConfirmation |
 | CoupangShipmentDateSummary | organization | references external | Core | Organization |
-| CoupangShipmentDateSummary | sourceImportRun | references external | Core | SourceImportRun |
 | Order | organization | references external | Core | Organization |
-| Order | sourceImportRun | references external | Core | SourceImportRun |
 | OrderCollectionArtifact | organization | references external | Core | Organization |
 | OrderCollectionArtifact | sourceImportRun | references external | Core | SourceImportRun |
 | OrderLineItem | organization | references external | Core | Organization |
 | Review | organization | references external | Core | Organization |
-| Review | sourceImportRun | references external | Core | SourceImportRun |
-| RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaOrderTransmissionIntent | creator | references external | Core | User |
 | SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
 | SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |

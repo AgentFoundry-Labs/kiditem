@@ -111,7 +111,6 @@ model CoupangKeywordRankDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation("KeywordRankSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, keyword, vendorItemId, businessDate])
   @@index([sourceImportRunId, organizationId])
@@ -212,7 +211,6 @@ model CoupangKeywordSerpDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation("KeywordSerpSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, keyword, businessDate])
   @@index([sourceImportRunId, organizationId])
@@ -262,7 +260,6 @@ model CoupangWingSalesRankDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation("WingRankSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, keyword, vendorItemId, businessDate])
   @@index([organizationId, businessDate])

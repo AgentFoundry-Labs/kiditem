@@ -310,21 +310,7 @@ model SourceImportRun {
 
   organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
-  sellpiaProductMonthlySales              SellpiaProductMonthlySales[]             @relation("SellpiaProductMonthlySourceImport")
-  keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]        @relation("KeywordRankSource")
-  keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]        @relation("KeywordSerpSource")
-  wingRankDailyProjections                CoupangWingSalesRankDailySnapshot[]      @relation("WingRankSource")
-  lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
-  rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
-  rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
-  rocketPoCatalogSnapshot                 RocketPoCatalogSnapshot?
-  coupangShipmentDateSummaries            CoupangShipmentDateSummary[]
-  sellpiaSalesDailySnapshots              SellpiaSalesDailySnapshot[]              @relation("SellpiaSalesSource")
-  orders                                  Order[]
   orderCollectionArtifact                 OrderCollectionArtifact?
-  coupangDirectTransportEffectReceipts    CoupangDirectTransportReceipt[]          @relation("CoupangDirectTransportReceiptEffectSource")
-  coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[]      @relation("CoupangDirectTransportConsumptionSource")
-  reviewCollectionFacts                   Review[]                                 @relation("ReviewCollectionFacts")
   publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
   sellpiaAbcEvaluations                   MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationSellpiaSourceImport")
   previousSellpiaAbcGradeHistories        MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport")

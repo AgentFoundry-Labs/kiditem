@@ -23,7 +23,6 @@ model SellpiaSalesDailySnapshot {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation("SellpiaSalesSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   // 창 바꿔 쓰기(KID-361): 실행 finish가 창 안 줄을 지우고 다시 넣으므로 실행이 쓴 줄은 조직·일자·판매처마다 하나다.
   // 옛 run 줄(operation_id null)은 이관하지 않아 이 unique 밖에 둔다.
@@ -70,7 +69,6 @@ model SellpiaProductMonthlySales {
   capturedAt DateTime @default(now()) @map("captured_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation("SellpiaProductMonthlySourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_generation_identity_key", where: raw("source_import_run_id IS NOT NULL"))
   @@unique([organizationId, operationId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_operation_identity_key", where: raw("operation_id IS NOT NULL"))

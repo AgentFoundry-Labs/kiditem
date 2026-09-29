@@ -10,6 +10,7 @@ import {
   dropLegacyChannelScrapeTables,
   restoreLegacyChannelScrapeTables,
 } from '../../test-helpers/legacy-channel-scrape-tables';
+import { dropLegacySourceImportRunForeignKeys, restoreLegacySourceImportRunForeignKeys } from '../../test-helpers/legacy-source-import-run-foreign-keys';
 import {
   ensureSourceImportRunStatusCheck,
   SOURCE_IMPORT_RUN_STATUS_CHECK,
@@ -43,11 +44,13 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await prisma.$executeRaw`ALTER TABLE source_import_runs DROP CONSTRAINT IF EXISTS source_import_runs_status_check`;
     // Office 0.1.31 still had the channel_scrape_* tables KID-365 dropped.
     await restoreLegacyChannelScrapeTables(prisma);
+    await restoreLegacySourceImportRunForeignKeys(prisma);
   });
 
   afterEach(async () => {
     // Later suites share this database, so restore the pushed shape.
     await resetDb(prisma);
+    await dropLegacySourceImportRunForeignKeys(prisma);
     await dropLegacyChannelScrapeTables(prisma);
     await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
   });

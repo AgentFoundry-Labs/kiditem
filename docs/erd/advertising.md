@@ -9,7 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
-| AdAction | `ad_actions` | 광고 자동 실행 큐. 광고 보고서 원장(캠페인·키워드)→AdAction→ExecutionTask 파이프라인. 근거(캠페인·광고그룹·옵션·키워드·측정일)는 payload.adTarget, 실행 상태는 최신 ExecutionTask에서 파생한다. |
+| AdAction | `ad_actions` | 광고 자동 실행 큐. 광고 보고서 원장(캠페인·키워드)→AdAction→`advertising.ad_action` 실행 파이프라인. 근거(캠페인·광고그룹·옵션·키워드·측정일)는 payload.adTarget, 실행 상태는 승인이 준비한 실행(operationId)에서 읽는다. |
 | ChannelAdCampaign | `channel_ad_campaigns` | ChannelAdCampaign canonical state owned by advertising. |
 | ChannelAdCampaignAd | `channel_ad_campaign_ads` | ChannelAdCampaignAd canonical state owned by advertising. |
 | ChannelAdDailyBilling | `channel_ad_daily_billings` | ChannelAdDailyBilling canonical state owned by advertising. |
@@ -22,7 +22,6 @@
 | CoupangWingSalesRankDailySnapshot | `coupang_wing_sales_rank_daily_snapshots` | CoupangWingSalesRankDailySnapshot canonical state owned by advertising. |
 | CoupangWingTrackedProduct | `coupang_wing_tracked_products` | CoupangWingTrackedProduct canonical state owned by advertising. |
 | CoupangWingTrackedProductDailySnapshot | `coupang_wing_tracked_product_daily_snapshots` | CoupangWingTrackedProductDailySnapshot canonical state owned by advertising. |
-| ExecutionTask | `execution_tasks` | - |
 
 ## Mermaid ER Diagram
 
@@ -140,7 +139,7 @@ erDiagram
   CoupangKeywordRankDailySnapshot {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String keyword
     String vendorItemId
     DateTime businessDate
@@ -163,7 +162,7 @@ erDiagram
   CoupangKeywordSerpDailySnapshot {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String keyword
     DateTime businessDate
     Json items
@@ -196,7 +195,7 @@ erDiagram
   CoupangWingSalesRankDailySnapshot {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String keyword
     String vendorItemId
     DateTime businessDate
@@ -256,18 +255,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ExecutionTask {
-    String id PK
-    String actionId FK
-    String status
-    DateTime startedAt
-    DateTime finishedAt
-    Json beforeJson
-    Json afterJson
-    String errorMessage
-    DateTime createdAt
-  }
-  AdAction ||--o{ ExecutionTask : "action"
   CoupangWingTrackedProduct ||--o{ CoupangWingTrackedProductDailySnapshot : "trackedProduct"
 ```
 
@@ -282,12 +269,9 @@ erDiagram
 | ChannelAdKeywordDailySnapshot | organization | references external | Core | Organization |
 | ChannelAdProductDailySnapshot | organization | references external | Core | Organization |
 | CoupangKeywordRankDailySnapshot | organization | references external | Core | Organization |
-| CoupangKeywordRankDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangKeywordSerpDailySnapshot | organization | references external | Core | Organization |
-| CoupangKeywordSerpDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangKeywordTracker | organization | references external | Core | Organization |
 | CoupangRepresentativeKeywordOverride | organization | references external | Core | Organization |
 | CoupangWingSalesRankDailySnapshot | organization | references external | Core | Organization |
-| CoupangWingSalesRankDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangWingTrackedProduct | organization | references external | Core | Organization |
 | CoupangWingTrackedProductDailySnapshot | organization | references external | Core | Organization |

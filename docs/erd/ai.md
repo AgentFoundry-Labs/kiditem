@@ -9,7 +9,6 @@
 
 | Model | Table | Description |
 |---|---|---|
-| AiDirectJob | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
 | AiUsageRecord | `ai_usage_records` | Append-only metering of one Gemini call: tokens and an estimated cost, attributed to the agent whose request or job made it. Cost is null when the model has no registered price. |
 | ContentAsset | `content_assets` | 워크스페이스가 소유한 관리 이미지 한 표(KID-313 W3a): 운영자 업로드 · AI 썸네일 후보 · 상세 이미지 · 몰 카탈로그 사진이 모두 여기 한 행이다. 대표이미지는 ContentWorkspace.current_thumbnail_asset_id 가 가리킨다. |
 | ContentWorkspace | `content_workspaces` | Product content workspace owned by a sales product draft, its channel listing, or a direct detail page. |
@@ -24,26 +23,6 @@
 
 ```mermaid
 erDiagram
-  AiDirectJob {
-    String id PK
-    String organizationId FK
-    String jobType
-    String sourceResourceId
-    String status
-    Json payload
-    Json result
-    Int attempts
-    Int maxAttempts
-    DateTime scheduledFor
-    DateTime claimedAt
-    String claimedBy
-    DateTime leaseExpiresAt
-    DateTime finishedAt
-    String lastErrorCode
-    String lastErrorMessage
-    DateTime createdAt
-    DateTime updatedAt
-  }
   AiUsageRecord {
     String id PK
     String organizationId FK
@@ -214,7 +193,6 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| AiDirectJob | organization | references external | Core | Organization |
 | AiUsageRecord | organization | references external | Core | Organization |
 | ContentAsset | createdByUser | references external | Core | User |
 | ContentAsset | organization | references external | Core | Organization |

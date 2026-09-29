@@ -15,7 +15,6 @@
 | ChannelListingOption | `channel_listing_options` | ChannelListingOption canonical state owned by channels. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | ChannelListingOptionInventoryComponent canonical state owned by channels. |
-| ProductRegistrationExecution | `product_registration_executions` | One frozen registration intent. A reusable target has many executions; one active execution per target and idempotent requests prevent duplicate submissions (ADR-0020). |
 | RegistrationTarget | `registration_targets` | Persistent registration target with explicit marketplace overrides. Executions freeze submitted values separately (ADR-0020). |
 | RegistrationTargetOption | `registration_target_options` | Selected common option and explicit price overrides for one persistent registration target. |
 | SalesProduct | `sales_products` | Channels-owned common selling product identified by its KID. Reusable registration targets select its options and override its defaults; inventory and ABC remain Products-owned (ADR-0020). |
@@ -159,37 +158,6 @@ erDiagram
     Int quantity
     DateTime createdAt
   }
-  ProductRegistrationExecution {
-    String id PK
-    String organizationId FK
-    String registrationTargetId FK
-    String channelAccountId FK
-    String channelListingId FK
-    String executionKind
-    String expectedProviderAccountId
-    String idempotencyKey
-    String requestHash
-    String ownerIdempotencyKey
-    Json submissionPayloadJson
-    String submissionPayloadHash
-    String status
-    String providerOutcome
-    String providerSubmissionId
-    String externalListingId
-    Json resultJson
-    String lastErrorCode
-    String lastErrorMessage
-    String leaseToken
-    DateTime leaseClaimedAt
-    String reviewPayloadHash
-    DateTime approvedAt
-    String approvedByUserId
-    String requestedByUserId
-    DateTime startedAt
-    DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   RegistrationTarget {
     String id PK
     String organizationId FK
@@ -313,15 +281,12 @@ erDiagram
     DateTime capturedAt
   }
   ChannelAccount ||--o{ ChannelListing : "channelAccount"
-  ChannelAccount ||--o{ ProductRegistrationExecution : "channelAccount"
   ChannelAccount ||--o{ RegistrationTarget : "channelAccount"
   ChannelListing ||--o{ ChannelListingDailySnapshot : "listing"
   ChannelListing ||--o{ ChannelListingOption : "listing"
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
-  ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
   ChannelListingOption ||--o{ ChannelListingOptionDailySnapshot : "listingOption"
   ChannelListingOption ||--o{ ChannelListingOptionInventoryComponent : "channelListingOption"
-  RegistrationTarget o|--o{ ProductRegistrationExecution : "preparation"
   RegistrationTarget ||--o{ RegistrationTargetOption : "preparation"
   SalesProduct o|--o{ ChannelListing : "salesProduct"
   SalesProduct ||--o{ RegistrationTarget : "salesProduct"
