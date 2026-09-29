@@ -31,9 +31,9 @@ function publication(overrides: Partial<ProductAbcPublicationInput> = {}): Produ
   };
 }
 
-function sourceView(sourceImportRunId: string, publicationSequence: string) {
+function sourceView(operationId: string, publicationSequence: string) {
   return {
-    sourceImportRunId,
+    operationId,
     publicationSequence,
     mappingGeneration: '7',
     coverageStartDate: '2026-01-01',

@@ -436,7 +436,7 @@ function withoutTimestamps(rows: FormulaSnapshot): FormulaSnapshot {
 function publicationInput(): ProductAbcPublicationInput {
   const noSelection = {
     selectedComplete: {
-      sourceImportRunId: null,
+      operationId: null,
       publicationSequence: null,
       mappingGeneration: null,
       coverageStartDate: null,

@@ -176,9 +176,9 @@ function facts(): ProductOperationsDataStatusFacts {
   };
 }
 
-function sourceManifest(sourceImportRunId: string, generation: string) {
+function sourceManifest(operationId: string, generation: string) {
   return {
-    sourceImportRunId,
+    operationId,
     generation,
     mappingGeneration: '8',
     coverageStartDate: '2026-01-01',

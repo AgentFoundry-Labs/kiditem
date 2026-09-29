@@ -70,7 +70,7 @@ function snapshot(
     },
     sourceVector: {
       sellpia: {
-        sourceImportRunId: sellpiaRunId,
+        operationId: sellpiaRunId,
         publicationSequence: '12',
         mappingGeneration: '7',
         coverageStartDate: '2026-01-01',
@@ -159,7 +159,7 @@ describe('RecalculateProductAbcUseCase', () => {
       mappingGeneration: null,
       sourceVector: {
         sellpia: {
-          sourceImportRunId: null,
+          operationId: null,
           publicationSequence: null,
           mappingGeneration: null,
           coverageStartDate: null,

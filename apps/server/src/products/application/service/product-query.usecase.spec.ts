@@ -762,7 +762,7 @@ function abcStatusFacts() {
     }],
     sourceVector: {
       sellpia: {
-        sourceImportRunId: '00000000-0000-4000-8000-000000000011',
+        operationId: '00000000-0000-4000-8000-000000000011',
         generation: '4',
         mappingGeneration: '8',
         coverageStartDate: '2026-01-15',
@@ -770,7 +770,7 @@ function abcStatusFacts() {
         capturedAt: '2026-09-01T00:00:00.000Z',
       },
       advertising: {
-        sourceImportRunId: '00000000-0000-4000-8000-000000000012',
+        operationId: '00000000-0000-4000-8000-000000000012',
         generation: '5',
         mappingGeneration: '8',
         coverageStartDate: '2026-02-01',

@@ -167,11 +167,11 @@ function profitabilitySourceStatus(
 }
 
 function sourceManifest(source: SourceGenerationView) {
-  if (!source.sourceImportRunId || source.publicationSequence === null
+  if (!source.operationId || source.publicationSequence === null
     || source.mappingGeneration === null || !source.coverageStartDate
     || !source.coverageEndDate || !source.capturedAt) return null;
   return {
-    sourceImportRunId: source.sourceImportRunId,
+    operationId: source.operationId,
     generation: source.publicationSequence,
     mappingGeneration: source.mappingGeneration,
     coverageStartDate: source.coverageStartDate,
