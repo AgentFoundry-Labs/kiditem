@@ -1,5 +1,6 @@
 import { AD_ACTION_KIND } from '@kiditem/shared/advertising-operations';
 import type { OperationKind } from '@kiditem/shared/operation';
+import { AD_ACTION_LINKED_PHASE } from '../collectors/advertising.ad_action';
 import type { OperationRunner, RunOutcome } from '../core/runner';
 
 /**
@@ -25,14 +26,15 @@ const STOPPING_FAILURES: Readonly<Record<string, string>> = {
 };
 
 export type PreparedRunSummary =
-  | { ok: true; ran: number; created: number; uncertain: number; failed: number; messages: string[]; stopped?: string }
+  /** `linked`: 같은 이름 캠페인이 이미 있어 쓰지 않고 연결했다(`created`와 따로). */
+  | { ok: true; ran: number; created: number; linked: number; uncertain: number; failed: number; messages: string[]; stopped?: string }
   | { ok: false; error: string; errorCode?: string; ran: number };
 
 export async function runPreparedOperations(
   runner: OperationRunner,
   input: { kinds: OperationKind[]; workerId: string; signal: AbortSignal; maxRuns?: number },
 ): Promise<PreparedRunSummary> {
-  const counts = { ran: 0, created: 0, uncertain: 0, failed: 0 };
+  const counts = { ran: 0, created: 0, linked: 0, uncertain: 0, failed: 0 };
   const messages: string[] = [];
   const maxRuns = input.maxRuns ?? MAX_PREPARED_RUNS;
   while (counts.ran < maxRuns && !input.signal.aborted) {
@@ -58,13 +60,13 @@ function failureCode(outcome: RunOutcome): string | null {
   return null;
 }
 
-function classify(outcome: RunOutcome): { bucket: 'created' | 'uncertain' | 'failed'; message: string | null } {
+function classify(outcome: RunOutcome): { bucket: 'created' | 'linked' | 'uncertain' | 'failed'; message: string | null } {
   if (outcome.kind === 'finished') {
-    const { status, result, errorMessage } = outcome.operation;
+    const { status, result, progress, errorMessage } = outcome.operation;
     if (status === 'succeeded') {
-      const uncertain = result?.providerOutcome === 'uncertain';
       const message = typeof result?.message === 'string' ? result.message : null;
-      return uncertain ? { bucket: 'uncertain', message } : { bucket: 'created', message: null };
+      if (result?.providerOutcome === 'uncertain') return { bucket: 'uncertain', message };
+      return { bucket: progress?.phase === AD_ACTION_LINKED_PHASE ? 'linked' : 'created', message: null };
     }
     return { bucket: 'failed', message: errorMessage };
   }

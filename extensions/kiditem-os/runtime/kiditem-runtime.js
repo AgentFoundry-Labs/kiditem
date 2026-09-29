@@ -4909,6 +4909,7 @@ var KidItemRuntime = (() => {
   var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
   var CAMPAIGN_PAGE_SIZE = 500;
   var MAX_CAMPAIGN_PAGES = 20;
+  var AD_ACTION_LINKED_PHASE = "linked";
   var PRESSED_PHASE = "pressed";
   var EXISTING_MESSAGE = "\uAC19\uC740 \uC774\uB984\uC758 \uCEA0\uD398\uC778\uC774 \uC774\uBBF8 \uC788\uC5B4 \uC0C8\uB85C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
   var adActionCollector = {
@@ -4973,7 +4974,7 @@ var KidItemRuntime = (() => {
       observedAt: (/* @__PURE__ */ new Date()).toISOString(),
       message: submission.message?.slice(0, 500) ?? null
     };
-    yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: "submitted" } };
+    yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: existing ? AD_ACTION_LINKED_PHASE : "submitted" } };
     return {
       result: {
         actionId: plan.actionId,
@@ -20904,7 +20905,7 @@ var KidItemRuntime = (() => {
     ADVERTISING_AD_CENTER_FORM_CHANGED: "\uAD11\uACE0\uC13C\uD130 \uB4F1\uB85D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uB0A8\uC740 \uC561\uC158\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. \uAC1C\uBC1C\uC790\uC5D0\uAC8C \uC54C\uB824 \uC8FC\uC138\uC694."
   };
   async function runPreparedOperations(runner, input) {
-    const counts = { ran: 0, created: 0, uncertain: 0, failed: 0 };
+    const counts = { ran: 0, created: 0, linked: 0, uncertain: 0, failed: 0 };
     const messages = [];
     const maxRuns = input.maxRuns ?? MAX_PREPARED_RUNS;
     while (counts.ran < maxRuns && !input.signal.aborted) {
@@ -20929,11 +20930,11 @@ var KidItemRuntime = (() => {
   }
   function classify(outcome) {
     if (outcome.kind === "finished") {
-      const { status, result, errorMessage } = outcome.operation;
+      const { status, result, progress: progress4, errorMessage } = outcome.operation;
       if (status === "succeeded") {
-        const uncertain = result?.providerOutcome === "uncertain";
         const message = typeof result?.message === "string" ? result.message : null;
-        return uncertain ? { bucket: "uncertain", message } : { bucket: "created", message: null };
+        if (result?.providerOutcome === "uncertain") return { bucket: "uncertain", message };
+        return { bucket: progress4?.phase === AD_ACTION_LINKED_PHASE ? "linked" : "created", message: null };
       }
       return { bucket: "failed", message: errorMessage };
     }

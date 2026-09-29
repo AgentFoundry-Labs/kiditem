@@ -96,6 +96,8 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
     expect(log).not.toContain(expect.stringMatching(/^create/));
     expect(log.at(-1)).toBe('release ok');
     expect(chunks[0].payload[0]).toMatchObject({ campaignId: '777' });
+    // 팝업이 새로 만든 것과 따로 센다(실행 보기의 progress).
+    expect(chunks[0].progress).toEqual({ phase: 'linked' });
     expect(finish.result).toMatchObject({ providerOutcome: 'created', campaignId: '777', message: '같은 이름의 캠페인이 이미 있어 새로 만들지 않았습니다.' });
   });
 

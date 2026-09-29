@@ -165,10 +165,13 @@ async function loadApprovedActions(request, sequence) {
 function preparedRunText(summary) {
   if (!summary?.ok) return { text: `❌ ${summary?.error || '실행 실패'}`, error: true };
   if (!summary.ran) return { text: '❌ 실행할 승인 광고 액션이 없습니다.', error: true };
-  if (!summary.uncertain && !summary.failed) {
-    return { text: `✅ 광고 액션 ${summary.created}개를 광고센터에 등록했습니다.`, error: false };
+  // 같은 이름 캠페인이 이미 있어 쓰지 않고 연결한 것(linked)은 새로 등록한 것과 따로 보인다.
+  const linked = summary.linked || 0;
+  if (!summary.uncertain && !summary.failed && !summary.stopped) {
+    const linkedText = linked > 0 ? `했고, ${linked}개는 이미 있던 캠페인에 연결했습니다.` : '했습니다.';
+    return { text: `✅ 광고 액션 ${summary.created}개를 광고센터에 등록${linkedText}`, error: false };
   }
-  const counts = `${summary.created}개 등록, ${summary.uncertain}개는 광고센터에서 등록 여부 확인 필요, ${summary.failed}개 실패`;
+  const counts = `${summary.created}개 등록, ${linked > 0 ? `${linked}개는 이미 있던 캠페인에 연결, ` : ''}${summary.uncertain}개는 광고센터에서 등록 여부 확인 필요, ${summary.failed}개 실패`;
   const reasons = Array.isArray(summary.messages) && summary.messages.length > 0 ? ` ${summary.messages.join(' / ')}` : '';
   // 로그인·업체·등록 화면처럼 액션 하나와 무관한 실패면 런타임이 남은 준비 실행을 건드리지 않고 멈췄다.
   const stopped = summary.stopped ? ` 남은 액션은 실행하지 않았습니다. ${summary.stopped}` : '';

@@ -255,3 +255,19 @@ test('a Run stopped by a session-wide failure tells the operator what to do befo
   );
   assert.equal(result.className, 'sync-result error');
 });
+
+test('a Run that linked an action to a campaign already in the ad center counts it apart from new registrations', async () => {
+  const harness = createPopupHarness({
+    connected: ['local'],
+    runPreparedResponse: { ok: true, ran: 3, created: 2, linked: 1, uncertain: 0, failed: 0, messages: [] },
+  });
+  await completeStatusLoad(harness, 'local', { operations: [{ id: 'op-1' }] });
+
+  harness.document.getElementById('btnRunApproved').click();
+  await harness.flush();
+
+  assert.equal(
+    harness.document.getElementById('syncResult').textContent,
+    '✅ 광고 액션 2개를 광고센터에 등록했고, 1개는 이미 있던 캠페인에 연결했습니다.',
+  );
+});

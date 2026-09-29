@@ -37,6 +37,10 @@ const ADVERTISING_IDENTITY_MISMATCH = 'ADVERTISING_IDENTITY_MISMATCH' as const;
 /** `sites/ad-center`의 tetris 캠페인 목록 한 쪽 크기(`AD_CENTER_PAGE_SIZE`). */
 const CAMPAIGN_PAGE_SIZE = 500;
 const MAX_CAMPAIGN_PAGES = 20;
+/**
+ * 증거 청크의 progress 표식: 같은 이름 캠페인에 연결했다(쓰지 않음). 실행 보기의 progress로 남아 팝업이 새로 만든 것과 따로 센다.
+ */
+export const AD_ACTION_LINKED_PHASE = 'linked' as const;
 /** 광고센터 [완료]를 눌렀다는 progress 표식. */
 const PRESSED_PHASE = 'pressed';
 const EXISTING_MESSAGE = '같은 이름의 캠페인이 이미 있어 새로 만들지 않았습니다.';
@@ -114,7 +118,7 @@ async function* apply(plan: AdActionPlan, site: AdActionSite, signal: AbortSigna
     observedAt: new Date().toISOString(),
     message: submission.message?.slice(0, 500) ?? null,
   };
-  yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: 'submitted' } };
+  yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: existing ? AD_ACTION_LINKED_PHASE : 'submitted' } };
   return {
     result: {
       actionId: plan.actionId,
