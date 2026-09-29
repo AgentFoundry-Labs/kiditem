@@ -36,7 +36,8 @@ type Seeded = {
  * dropped `channel_ad_target_daily_snapshots`, which 013 still checks before
  * deleting a raw row, so its referencing column is recreated the same way.
  * KID-365 dropped the `channel_scrape_*` tables and the `raw_snapshot_id`
- * columns 013 reads; they are restored in their Office 0.1.31 shape the same way.
+ * columns 013 reads; they are restored in their pre-KID-365 0.1.31 shape (Office
+ * 0.1.30 has them too) the same way.
  */
 describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)', () => {
   let prisma: PrismaClient;

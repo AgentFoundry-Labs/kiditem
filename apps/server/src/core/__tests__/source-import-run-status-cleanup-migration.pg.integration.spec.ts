@@ -42,7 +42,7 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     // The shape before the cutover: nothing stops an unknown status.
     await prisma.$executeRaw`ALTER TABLE source_import_runs DROP CONSTRAINT IF EXISTS source_import_runs_status_check`;
-    // Office 0.1.31 still had the channel_scrape_* tables KID-365 dropped.
+    // The 0.1.31 schema before KID-365 (and Office 0.1.30) still has the channel_scrape_* tables KID-365 dropped.
     await restoreLegacyChannelScrapeTables(prisma);
     await restoreLegacySourceImportRunReferences(prisma);
   });

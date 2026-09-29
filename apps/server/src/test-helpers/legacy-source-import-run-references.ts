@@ -1,11 +1,16 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 /**
- * What Office 0.1.31 had around `source_import_runs` and KID-365 removed: the foreign keys into it that became plain
- * id columns (ADR-0013), and the old run columns it dropped (`channel_listings`/`channel_listing_options`
- * `last_import_run_id`, the ABC `…sellpia_source_import_run_id` columns). The executed v0.1.31 pre-schema migrations
- * (012, 014) still meet that Office shape, so their specs restore it here and drop it again after. Generated with
- * `prisma migrate diff` from the post-change to the pre-change schema.
+ * What the 0.1.31 schema before KID-365 (develop, the local QA database) had around `source_import_runs`: the
+ * foreign keys into it that KID-365 turned into plain id columns (ADR-0013), and the old run columns it dropped. The
+ * v0.1.31 pre-schema migrations (012, 014) run on that shape locally, so their specs restore it here and drop it
+ * again after. Generated with `prisma migrate diff` from the post-change to the pre-change schema.
+ *
+ * Office (release/office 0.1.30) has only part of it: `channel_listings`/`channel_listing_options`
+ * `last_import_run_id` with their foreign keys, and foreign keys into runs from `orders`, `sellpia_inventory_states`,
+ * `rocket_po_catalog_snapshots`, `rocket_purchase_confirmations` and `rocket_purchase_confirmation_transmissions`.
+ * It has no ABC `…sellpia_source_import_run_id` column, and its other tables here reach runs without a foreign key
+ * (the Coupang direct transport tables do not exist there).
  */
 const LEGACY_SOURCE_IMPORT_RUN_REFERENCES_DDL: readonly string[] = [
   `ALTER TABLE "channel_listings" ADD COLUMN "last_import_run_id" UUID`,

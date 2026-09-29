@@ -2,9 +2,11 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 
 /**
  * The `channel_scrape_*` tables and the `raw_snapshot_id` columns that pointed at
- * them, as the Office 0.1.31 schema had them. KID-365 dropped them from the
- * Prisma schema; the executed v0.1.31 data migrations (012-014) still run on
- * that Office shape, so their specs restore it here and drop it again after.
+ * them, as the 0.1.31 schema before KID-365 (develop, the local QA database)
+ * had them. KID-365 dropped them from the Prisma schema; the v0.1.31 pre-schema
+ * migrations (012-014) still run on that shape, so their specs restore it here
+ * and drop it again after. Office (release/office 0.1.30) also has all three
+ * tables and the listing/option `raw_snapshot_id` columns.
  * Generated with `prisma migrate diff` from the post-drop to the pre-drop schema.
  */
 const LEGACY_CHANNEL_SCRAPE_DDL: readonly string[] = [

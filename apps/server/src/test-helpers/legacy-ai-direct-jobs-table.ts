@@ -1,8 +1,9 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 /**
- * The `ai_direct_jobs` table as Office 0.1.31 had it. KID-365 dropped it from the Prisma schema; the pre-schema
- * migration v0.1.31:036 still reads it on that Office shape, so its spec restores it here and drops it again after.
+ * The `ai_direct_jobs` table as the 0.1.31 schema before KID-365 (develop, the local QA database) had it; Office
+ * (release/office 0.1.30) has it too. KID-365 dropped it from the Prisma schema; the pre-schema migration
+ * v0.1.31:036 still reads it on that shape, so its spec restores it here and drops it again after.
  */
 const LEGACY_AI_DIRECT_JOBS_DDL: readonly string[] = [
   `CREATE TABLE "ai_direct_jobs" (
