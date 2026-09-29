@@ -37,6 +37,8 @@ const ADVERTISING_IDENTITY_MISMATCH = 'ADVERTISING_IDENTITY_MISMATCH' as const;
 /** `sites/ad-center`의 tetris 캠페인 목록 한 쪽 크기(`AD_CENTER_PAGE_SIZE`). */
 const CAMPAIGN_PAGE_SIZE = 500;
 const MAX_CAMPAIGN_PAGES = 20;
+/** 광고센터 [완료]를 눌렀다는 progress 표식. */
+const PRESSED_PHASE = 'pressed';
 const EXISTING_MESSAGE = '같은 이름의 캠페인이 이미 있어 새로 만들지 않았습니다.';
 
 export const adActionCollector: Collector<AdActionPlan, AdActionResult, AdActionSite> = {
@@ -58,13 +60,14 @@ export const adActionCollector: Collector<AdActionPlan, AdActionResult, AdAction
     }
   },
 
-  failureResult(rawPlan, error) {
+  /** 누르기 전 실패는 `not_attempted`, [완료]를 누른 뒤 실패는 `uncertain`(사람이 광고센터에서 확인). */
+  failureResult(rawPlan, error, { progress }) {
     const parsed = AdActionPlanSchema.safeParse(rawPlan);
     if (!parsed.success) return null;
     return {
       actionId: parsed.data.actionId,
       actionType: parsed.data.actionType,
-      providerOutcome: 'not_attempted',
+      providerOutcome: progress?.phase === PRESSED_PHASE ? 'uncertain' : 'not_attempted',
       campaignId: null,
       message: error.message.slice(0, 500) || null,
     };
@@ -97,6 +100,8 @@ async function* apply(plan: AdActionPlan, site: AdActionSite, signal: AbortSigna
   } else {
     signal.throwIfAborted();
     const pressed = await site.createCampaign(campaign, { signal, onFilled: async () => report?.({ phase: 'filled' }) });
+    // 여기서부터의 실패(목록 다시 읽기·증거 쓰기)는 캠페인이 생겼을 수 있다 — failureResult가 uncertain으로 적는다.
+    await report?.({ phase: PRESSED_PHASE });
     let campaignId = pressed.campaignId;
     // 눌렀지만 번호를 못 읽었다 — 목록에서 이름으로 찾는다. 읽기 실패는 uncertain으로 남긴다(다시 누르지 않는다).
     if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);

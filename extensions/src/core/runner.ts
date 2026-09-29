@@ -140,7 +140,12 @@ export interface RunnableCollector {
    * 실패 finish에 실을 result(있으면). 수집기가 오류를 보고 정한다 — 광고 액션의 `not_attempted`처럼 owner가 실패에도 결과
    * 모양을 받는 kind(KID-386). fence_lost·취소는 finish를 보내지 않으므로 부르지 않는다.
    */
-  failureResult?(plan: Record<string, unknown>, error: { code: string; message: string }): Record<string, unknown> | null;
+  failureResult?(
+    plan: Record<string, unknown>,
+    error: { code: string; message: string },
+    /** 실패 전 마지막 progress(청크·report가 올린 것, 쓰기가 실패했어도) — 수집기가 어디까지 갔는지의 표식. */
+    state: { progress: Record<string, unknown> | null },
+  ): Record<string, unknown> | null;
 }
 
 const encoder = new TextEncoder();
@@ -334,6 +339,8 @@ async function execute(
         const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
         const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
         if (!empty) sequences.set(chunk.chunkKind, sequence);
+        // 쓰기가 실패해도 수집기가 어디까지 갔는지 남긴다(failureResult의 표식).
+        if (chunk.progress) lastProgress = chunk.progress;
         await write(() =>
           deps.client.putChunk({
             operationId,
@@ -383,7 +390,7 @@ async function execute(
     const login = loginFailureOf(error, input.loginBlocked === true);
     let failureResult: Record<string, unknown> | null = null;
     try {
-      failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }) ?? null;
+      failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }, { progress: lastProgress ?? null }) ?? null;
     } catch {
       failureResult = null;
     }

@@ -4909,6 +4909,7 @@ var KidItemRuntime = (() => {
   var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
   var CAMPAIGN_PAGE_SIZE = 500;
   var MAX_CAMPAIGN_PAGES = 20;
+  var PRESSED_PHASE = "pressed";
   var EXISTING_MESSAGE = "\uAC19\uC740 \uC774\uB984\uC758 \uCEA0\uD398\uC778\uC774 \uC774\uBBF8 \uC788\uC5B4 \uC0C8\uB85C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
   var adActionCollector = {
     kind: AD_ACTION_KIND,
@@ -4928,13 +4929,14 @@ var KidItemRuntime = (() => {
         await site.release({ error: failure2 }).catch(() => void 0);
       }
     },
-    failureResult(rawPlan, error) {
+    /** 누르기 전 실패는 `not_attempted`, [완료]를 누른 뒤 실패는 `uncertain`(사람이 광고센터에서 확인). */
+    failureResult(rawPlan, error, { progress: progress4 }) {
       const parsed3 = AdActionPlanSchema.safeParse(rawPlan);
       if (!parsed3.success) return null;
       return {
         actionId: parsed3.data.actionId,
         actionType: parsed3.data.actionType,
-        providerOutcome: "not_attempted",
+        providerOutcome: progress4?.phase === PRESSED_PHASE ? "uncertain" : "not_attempted",
         campaignId: null,
         message: error.message.slice(0, 500) || null
       };
@@ -4960,6 +4962,7 @@ var KidItemRuntime = (() => {
     } else {
       signal.throwIfAborted();
       const pressed = await site.createCampaign(campaign, { signal, onFilled: async () => report?.({ phase: "filled" }) });
+      await report?.({ phase: PRESSED_PHASE });
       let campaignId = pressed.campaignId;
       if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
       submission = { campaignId, message: pressed.message };
@@ -20621,6 +20624,7 @@ var KidItemRuntime = (() => {
           const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
           const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
           if (!empty) sequences.set(chunk.chunkKind, sequence);
+          if (chunk.progress) lastProgress = chunk.progress;
           await write(
             () => deps.client.putChunk({
               operationId,
@@ -20667,7 +20671,7 @@ var KidItemRuntime = (() => {
       const login = loginFailureOf(error, input.loginBlocked === true);
       let failureResult = null;
       try {
-        failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }) ?? null;
+        failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }, { progress: lastProgress ?? null }) ?? null;
       } catch {
         failureResult = null;
       }

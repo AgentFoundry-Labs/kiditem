@@ -85,7 +85,7 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
 
     await drain(PLAN, site, reports);
 
-    expect(reports.map((progress) => progress.phase)).toEqual(['checked', 'filled']);
+    expect(reports.map((progress) => progress.phase)).toEqual(['checked', 'filled', 'pressed']);
   });
 
   it('같은 이름 캠페인이 이미 있으면 만들지 않고 그 번호로 created(다시 시도한 실행이 캠페인을 두 번 만들지 않게)', async () => {
@@ -141,14 +141,20 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
   });
 
   it('실패(누르기 전)면 실패 finish의 result는 not_attempted', () => {
-    const result = adActionCollector.failureResult!(PLAN, { code: 'ADVERTISING_AD_CENTER_FORM_CHANGED', message: '광고센터 등록 화면이 바뀌었습니다.' });
+    const result = adActionCollector.failureResult!(PLAN, { code: 'ADVERTISING_AD_CENTER_FORM_CHANGED', message: '광고센터 등록 화면이 바뀌었습니다.' }, { progress: { phase: 'filled' } });
 
     expect(AdActionResultSchema.parse(result)).toEqual({
       actionId: ACTION, actionType: 'create_campaign', providerOutcome: 'not_attempted', campaignId: null, message: '광고센터 등록 화면이 바뀌었습니다.',
     });
   });
 
+  it('누른 뒤의 실패(증거 청크 쓰기 오류 등)는 not_attempted가 아니라 uncertain — 캠페인이 생겼을 수 있다', () => {
+    const result = adActionCollector.failureResult!(PLAN, { code: 'SITE_REQUEST_FAILED', message: '쓰기 실패' }, { progress: { phase: 'pressed' } });
+
+    expect(AdActionResultSchema.parse(result)).toMatchObject({ providerOutcome: 'uncertain', campaignId: null });
+  });
+
   it('계획을 읽지 못한 실패에는 result를 싣지 않는다', () => {
-    expect(adActionCollector.failureResult!({ actionId: 'x' }, { code: 'RUNTIME_PLAN_INVALID', message: '계획' })).toBeNull();
+    expect(adActionCollector.failureResult!({ actionId: 'x' }, { code: 'RUNTIME_PLAN_INVALID', message: '계획' }, { progress: null })).toBeNull();
   });
 });

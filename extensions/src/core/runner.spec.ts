@@ -592,6 +592,27 @@ describe('createRunner — 실행 하나의 순서', () => {
     }]);
   });
 
+  it('failureResult는 실패 전 마지막 progress를 받는다 — 누른 뒤 실패를 가르는 표식(KID-386)', async () => {
+    const seen: unknown[] = [];
+    const c: RunnableCollector = {
+      site: null,
+      collect: (_plan, _site, context) => (async function* () {
+        await context.report({ phase: 'pressed' });
+        yield { chunkKind: 'ad_action_evidence', payload: [{ campaignId: null }] };
+      })(),
+      failureResult: (_plan, _error, state) => {
+        seen.push(state.progress);
+        return { providerOutcome: 'uncertain' };
+      },
+    };
+    const h2 = harness({ putError: (_sequence, chunkKind) => (chunkKind === 'ad_action_evidence' ? new RuntimeError('SITE_REQUEST_FAILED', '쓰기 실패', null) : null) });
+
+    await runWith(h2, c);
+
+    expect(seen).toEqual([{ phase: 'pressed' }]);
+    expect(h2.finishes.at(-1)).toMatchObject({ outcome: 'failed', result: { providerOutcome: 'uncertain' } });
+  });
+
   it('로그인 까닭이 없는 실패는 result 없이 finish(failed)한다', async () => {
     const h = harness();
     const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {
