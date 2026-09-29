@@ -14,6 +14,11 @@ import {
 } from './coupang-shipment-extension';
 import { COUPANG_SHIPMENT_PAGE_URL } from './coupang-shipment-files';
 
+it('has no button-click download path — nothing called it (KID-366)', async () => {
+  const module = await import('./coupang-shipment-extension');
+  expect(module).not.toHaveProperty('clickCoupangShipmentDownloadsViaExtension');
+});
+
 describe('Coupang shipment extension actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();

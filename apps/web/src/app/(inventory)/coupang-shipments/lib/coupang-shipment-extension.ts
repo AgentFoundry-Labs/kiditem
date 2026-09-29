@@ -26,24 +26,6 @@ import {
   type CoupangShipmentFileKind,
 } from './coupang-shipment-files';
 
-export interface CoupangShipmentDownloadRow {
-  shipmentId: string;
-  outboundAt: string;
-  inboundDate: string;
-  center: string;
-  labelClicked: boolean;
-  statementClicked: boolean;
-}
-
-export interface CoupangShipmentDownloadResult {
-  success: boolean;
-  url?: string;
-  rows?: CoupangShipmentDownloadRow[];
-  labelCount?: number;
-  statementCount?: number;
-  error?: string;
-}
-
 /**
  * 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 요청 헤더 과다로 400 을
  * 반환한다. 확장이 이 코드로 알려주면 웹은 "쿠키 정리" 복구 흐름을 제안한다. 옛 파일 액션은
@@ -95,28 +77,6 @@ export async function openCoupangShipmentPageViaExtension(): Promise<string> {
   );
   if (!response.success) throwExtensionError(response, '쿠팡 쉽먼트 화면을 열지 못했습니다.');
   return response.url;
-}
-
-export async function clickCoupangShipmentDownloadsViaExtension(params: {
-  date?: string;
-  labels: boolean;
-  statements: boolean;
-}): Promise<CoupangShipmentDownloadResult> {
-  const extensionId = await getOrderCollectorExtensionId();
-  const response = await sendToExtension<CoupangShipmentDownloadResult>(
-    extensionId,
-    {
-      action: 'clickCoupangShipmentDownloads',
-      date: params.date,
-      labels: params.labels,
-      statements: params.statements,
-    },
-    120000,
-  );
-  if (!response?.success) {
-    throw new Error(response?.error ?? '쿠팡 쉽먼트 다운로드 실행에 실패했습니다.');
-  }
-  return response;
 }
 
 async function getOrderCollectorExtensionId(): Promise<string> {

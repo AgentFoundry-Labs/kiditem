@@ -17,6 +17,12 @@ vi.mock('@/lib/browser-download', () => ({ downloadBlob }));
 const bridge = vi.hoisted(() => ({ detectOrderCollectionExtensionId: vi.fn(), sendToExtension: vi.fn() }));
 vi.mock('@/lib/extension-bridge', () => bridge);
 
+it('has no Domeggook tracking upload — nothing called it (KID-366)', async () => {
+  const module = await import('./icecream-tracking-api');
+  expect(module).not.toHaveProperty('uploadDomeggookTrackingViaExtension');
+  expect(module).not.toHaveProperty('buildDomeggookShipFile');
+});
+
 describe('mall tracking uploads until wave8b moves them to kinds', () => {
   it('still find the extension by the old order worker flag, not the new runtime default', async () => {
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
