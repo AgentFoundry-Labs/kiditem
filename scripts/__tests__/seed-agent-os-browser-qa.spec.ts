@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
+import { SOURCING_SERVER_SCOPE_SCHEMAS } from '@kiditem/shared/sourcing-operation';
 import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
@@ -203,10 +204,20 @@ describe('isolated Agent OS browser-QA seed', () => {
     expect(recommendation).toMatchObject({
       recommendationRun: { status: 'complete' },
       recommendationItem: { rank: 1 },
-      evidenceIngestionRun: { status: 'complete' },
+      evidenceOperation: { kind: 'sourcing.scrape_url' },
+      evidencePublication: { isCurrent: true },
       evidenceObservation: { supportsCandidate: true },
       workspaceSnapshot: { scope: 'sourcing_agent_rag' },
     });
+    // The fixture's collection is a server-run kind whose scope the owner would accept (KID-389).
+    expect(SOURCING_SERVER_SCOPE_SCHEMAS['sourcing.scrape_url'].safeParse(recommendation.evidenceOperation.scope).success)
+      .toBe(true);
+    expect(recommendation.evidencePublication).toMatchObject({
+      sourceKey: recommendation.evidenceOperation.scope.sourceKey,
+      scopeKey: recommendation.evidenceOperation.scope.scopeKey,
+      targetKey: recommendation.evidenceOperation.scope.targetKey,
+    });
+    expect(recommendation.evidenceObservation.sourceKey).toBe(recommendation.evidenceOperation.scope.sourceKey);
 
     const supply = seed.createBrowserQaSeedPlan({
       profile: 'supply.purchase-order-submit.v1',
@@ -444,7 +455,8 @@ describe('isolated Agent OS browser-QA seed', () => {
         findFirst: purchaseOrderItemFindFirst,
         create: purchaseOrderItemCreate,
       },
-      sourcingEvidenceIngestionRun: { upsert: vi.fn() },
+      operation: { upsert: vi.fn() },
+      sourcingSourcePublication: { upsert: vi.fn() },
       sourcingEvidenceObservation: { upsert: vi.fn() },
       sourcingRecommendationRun: { upsert: recommendationRunUpsert },
       sourcingRecommendationItem: { upsert: vi.fn() },
@@ -523,7 +535,8 @@ describe('isolated Agent OS browser-QA seed', () => {
       organization: { upsert: vi.fn().mockResolvedValue({ id: 'organization-id' }) },
       user: { upsert: vi.fn().mockResolvedValue({ id: 'user-id' }) },
       organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-id' }) },
-      sourcingEvidenceIngestionRun: { upsert: vi.fn().mockResolvedValue({ id: 'evidence-run-id' }) },
+      operation: { upsert: vi.fn().mockResolvedValue({ id: 'evidence-operation-id' }) },
+      sourcingSourcePublication: { upsert: vi.fn().mockResolvedValue({ id: 'evidence-publication-id' }) },
       sourcingEvidenceObservation: { upsert: vi.fn().mockResolvedValue({ id: 'evidence-observation-id' }) },
       sourcingRecommendationRun: { upsert: vi.fn().mockResolvedValue({ id: 'recommendation-run-id' }) },
       sourcingRecommendationItem: { upsert: vi.fn().mockResolvedValue({ id: 'recommendation-item-id' }) },
@@ -545,24 +558,48 @@ describe('isolated Agent OS browser-QA seed', () => {
     expect(result).toMatchObject({
       profile: 'sourcing.recommendation.v1',
       variables: {},
-      evidenceIngestionRunId: 'evidence-run-id',
+      evidenceOperationId: 'evidence-operation-id',
       evidenceObservationId: 'evidence-observation-id',
       recommendationRunId: 'recommendation-run-id',
       recommendationItemId: 'recommendation-item-id',
       workspaceSnapshotId: 'workspace-snapshot-id',
     });
-    expect(transaction.sourcingEvidenceIngestionRun.upsert).toHaveBeenCalledWith(
+    // A succeeded server-run operation stands where the retired ingestion run did (KID-389).
+    expect(transaction.operation.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          organizationId_sourceKey_idempotencyKey: {
+          organizationId_kind_idempotencyKey: {
             organizationId: 'organization-id',
-            sourceKey: 'browser_qa',
+            kind: 'sourcing.scrape_url',
             idempotencyKey: 'browser-qa-recommendation-evidence',
           },
         },
         create: expect.objectContaining({
           organizationId: 'organization-id',
-          status: 'complete',
+          kind: 'sourcing.scrape_url',
+          status: 'succeeded',
+          plan: expect.objectContaining({
+            sourceKey: '1688.scrape_url',
+            scopeKey: 'product-url',
+            startedBy: 'user-id',
+            attemptPlan: expect.objectContaining({ source: '1688.scrape_url' }),
+          }),
+        }),
+      }),
+    );
+    // Its current publication makes the fixture a complete snapshot, and its facts carry the operation id.
+    expect(transaction.sourcingSourcePublication.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId_operationId: { organizationId: 'organization-id', operationId: 'evidence-operation-id' },
+        },
+        create: expect.objectContaining({
+          organizationId: 'organization-id',
+          operationId: 'evidence-operation-id',
+          sourceKey: '1688.scrape_url',
+          isCurrent: true,
+          // The publication carries only the source plan, as the owner's finalize writes it.
+          plan: expect.not.objectContaining({ startedBy: expect.anything() }),
         }),
       }),
     );
@@ -570,6 +607,7 @@ describe('isolated Agent OS browser-QA seed', () => {
       expect.objectContaining({
         create: expect.objectContaining({
           organizationId: 'organization-id',
+          operationId: 'evidence-operation-id',
           supportsCandidate: true,
         }),
       }),

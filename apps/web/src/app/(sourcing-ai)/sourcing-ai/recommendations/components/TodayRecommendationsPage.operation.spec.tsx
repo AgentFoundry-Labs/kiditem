@@ -23,7 +23,6 @@ vi.mock('../../market/lib/trend-collection-api', () => ({
 
 vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useSourcingRecommendations: () => ({ data: undefined, isLoading: false, error: null }),
-  useIngestSourcingCoupangObservations: () => ({ mutateAsync: vi.fn() }),
   useSourcingInterestTargets: () => ({ data: [], refetch: vi.fn() }),
   useSaveSourcingInterestTarget: () => ({ mutateAsync: vi.fn() }),
   useRefreshSourcingRecommendations: () => ({ mutate: vi.fn(), isPending: false, isError: false }),

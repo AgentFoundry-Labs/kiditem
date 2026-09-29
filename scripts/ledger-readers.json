@@ -269,30 +269,6 @@
       "legacyReaders": []
     },
     {
-      "name": "Sourcing evidence ingestion run",
-      "owner": "sourcing",
-      "table": "sourcing_evidence_ingestion_runs",
-      "prismaModel": "sourcingEvidenceIngestionRun",
-      "prismaType": "SourcingEvidenceIngestionRun",
-      "relationNames": [
-        "sourcingEvidenceIngestionRuns",
-        "triggeredSourcingEvidenceIngestionRuns"
-      ],
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
-          "reason": "Owns attempt admission, terminal publication, current-complete pointer replacement, and transaction-local validation."
-        }
-      ],
-      "legacyReaders": [
-        {
-          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-324",
-          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
-        }
-      ]
-    },
-    {
       "name": "Sourcing source publication",
       "owner": "sourcing",
       "table": "sourcing_source_publications",

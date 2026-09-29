@@ -48,6 +48,12 @@ export interface OperationOwnerPort {
    * `VALIDATION_FAILED` 로 거절한다 — 확인 경로(`resolve`)가 없는 kind 가 잠금을 영구히 쥐지 않게.
    */
   readonly reconciles?: true;
+  /**
+   * 서버만 여는 kind(KID-389): 요청 안에서 서버가 begin·putChunk·finish하거나(서버 구동 소싱) 워커가 prepare·claim한다
+   * (AI 생성 job). true면 HTTP 문(`POST /api/operations`·`/claim`)이 그 kind를 `VALIDATION_FAILED`(`server_driven_kind`)로
+   * 거절한다 — 브라우저가 서버 kind를 열거나 집어 조작한 청크로 원장을 쓰지 못하게. 없으면 확장이 begin하는 kind다.
+   */
+  readonly serverDriven?: true;
   plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult>;
   /**
    * `window`를 돌려주면 실행에 남는 확정 창을 그것으로 좁힌다(광고 보고서 kind의 전날 보류, KID-371).

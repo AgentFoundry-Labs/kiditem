@@ -30,6 +30,8 @@ import {
 @Injectable()
 abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
   abstract readonly kind: AiDirectJobKind;
+  /** 워커가 prepare·claim하는 kind — HTTP 문은 begin·claim을 거절한다(KID-389). */
+  readonly serverDriven = true as const;
   /** 워커 임대. `AI_DIRECT_JOB_LEASE_MS`(기본 60초)를 그대로 쓴다. */
   readonly leaseMs: number;
 

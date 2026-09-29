@@ -141,13 +141,6 @@
       "text": "이 수집 시도는 더 이상 유효하지 않습니다. 다시 시작해 주세요.",
       "retryable": true
     },
-    "ATTEMPT_TERMINAL": {
-      "owner": "common",
-      "kind": "conflict",
-      "httpStatus": 409,
-      "text": "이미 끝난 수집 시도입니다.",
-      "retryable": false
-    },
     "ATTEMPT_PAUSED": {
       "owner": "common",
       "kind": "in_progress",
@@ -1175,13 +1168,11 @@
     "provider_contract_changed": "SOURCING_PROVIDER_CONTRACT_CHANGED",
     "search_extraction_failed": "SOURCING_SEARCH_EXTRACTION_FAILED",
     "gateway_provider_unavailable": "AGENT_OS_GATEWAY_UNAVAILABLE",
-    "SOURCE_ATTEMPT_TERMINAL": "ATTEMPT_TERMINAL",
     "sellpia_manual_match_login_required": "SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED",
     "sellpia_manual_match_contract_drift": "MALL_CONTRACT_CHANGED",
     "sellpia_manual_match_invalid_snapshot": "SOURCE_SNAPSHOT_INVALID",
     "sellpia_manual_match_timeout": "SELLPIA_MANUAL_MATCH_TIMEOUT",
     "sellpia_manual_match_network_failed": "NETWORK_FAILED",
-    "SOURCE_ATTEMPT_IN_PROGRESS": "ATTEMPT_IN_PROGRESS",
     "ROCKET_PO_COLLECTION_INCOMPLETE": "SUPPLY_ROCKET_COLLECTION_INCOMPLETE",
     "COMMON_NOT_FOUND": "NOT_FOUND",
     "COMMON_BAD_REQUEST": "VALIDATION_FAILED",

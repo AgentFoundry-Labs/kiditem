@@ -83,12 +83,6 @@
     },
     {
       "train": "0.1.31",
-      "table": "sourcing_evidence_ingestion_runs",
-      "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
-      "note": "014 deletes every run written before is_current_complete, with the rows that depend on it."
-    },
-    {
-      "train": "0.1.31",
       "keys": [
         "unique:source_import_runs_ad_keyword_running_key",
         "unique:source_import_runs_ad_campaign_running_key",

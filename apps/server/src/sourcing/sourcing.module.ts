@@ -1,4 +1,10 @@
 import { SOURCING_EXTENSION_OPERATION_OWNERS } from "./adapter/in/operation/sourcing-extension-operation-owners";
+import { SOURCING_SERVER_OPERATION_OWNERS } from "./adapter/in/operation/sourcing-server-operation-owners";
+import { SourcingServerOperationRepositoryAdapter } from "./adapter/out/repository/sourcing-server-operation.repository.adapter";
+import { SOURCING_SERVER_OPERATION_PORT } from "./application/port/in/sourcing-server-operation.port";
+import { SOURCING_SERVER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-server-operation.repository.port";
+import { SourcingServerOperationService } from "./application/service/sourcing-server-operation.service";
+import { SourcingServerOperationRunner } from "./application/service/sourcing-server-operation.runner";
 import { SourcingChannelAccountAdapter } from "./adapter/out/channels/sourcing-channel-account.adapter";
 import { SourcingOperationLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-operation-ledger.repository.adapter";
 import { SOURCING_EXTENSION_OPERATION_PORT } from "./application/port/in/sourcing-extension-operation.port";
@@ -8,6 +14,7 @@ import { SourcingExtensionOperationService } from "./application/service/sourcin
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
+import { OperationModule } from "../common/operation/operation.module";
 import { AiModule } from "../content/ai.module";
 import { AiAgentRuntimeModule } from "../content/ai-agent-runtime.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
@@ -16,6 +23,7 @@ import { SalesProductModule } from "../channels/sales-product.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentGatewayAdapter } from "./adapter/out/agent/sourcing-agent.gateway.adapter";
 import { SourcingSourceRecordModule } from "./sourcing-source-record.module";
+import { SourcingSourcePublicationModule } from "./sourcing-source-publication.module";
 import { SourceRecordController } from "./adapter/in/http/source-record.controller";
 import { SourcingInterestTargetRepositoryAdapter } from "./adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation.repository.adapter";
@@ -95,7 +103,6 @@ import { SourcingMarketDiscoveryService } from "./application/service/sourcing-m
 import { SourcingRisingProductService } from "./application/service/sourcing-rising-product.service";
 import { SourcingCollectionSourceControlService } from "./application/service/sourcing-collection-source-control.service";
 import { SourcingInterestTargetService } from "./application/service/sourcing-interest-target.service";
-import { SourcingEvidenceLedgerService } from "./application/service/sourcing-evidence-ledger.service";
 import { SourcingLaunchCandidateService } from "./application/service/sourcing-launch-candidate.service";
 import { SourcingDecisionBatchService } from "./application/service/sourcing-decision-batch.service";
 import { TrendCollectService } from "./application/service/trend-collect.service";
@@ -112,7 +119,6 @@ import { SourcingRecommendationSourceRepositoryAdapter } from "./adapter/out/rep
 import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository/sourcing-decision-batch.repository.adapter";
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from "./adapter/out/repository/sourcing-browser-source-attempt.repository.adapter";
 import { Sourcing1688SearchResultRepositoryAdapter } from "./adapter/out/repository/sourcing-1688-search-result.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "./adapter/out/repository/live-commerce.repository.adapter";
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
@@ -141,7 +147,6 @@ import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "./application/po
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
-import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-browser-source-attempt.repository.port";
 import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-1688-search-result.repository.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 
@@ -169,7 +174,9 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
   imports: [
     PrismaModule,
     SourcingSourceRecordModule,
+    SourcingSourcePublicationModule,
     AlertsModule,
+    OperationModule,
     AiAgentRuntimeModule,
     SalesProductModule,
     AiModule,
@@ -201,6 +208,12 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     ...SOURCING_EXTENSION_OPERATION_OWNERS,
     SourcingExtensionOperationService,
     { provide: SOURCING_EXTENSION_OPERATION_PORT, useExisting: SourcingExtensionOperationService },
+    ...SOURCING_SERVER_OPERATION_OWNERS,
+    SourcingServerOperationService,
+    { provide: SOURCING_SERVER_OPERATION_PORT, useExisting: SourcingServerOperationService },
+    SourcingServerOperationRunner,
+    SourcingServerOperationRepositoryAdapter,
+    { provide: SOURCING_SERVER_OPERATION_REPOSITORY_PORT, useExisting: SourcingServerOperationRepositoryAdapter },
     SourcingOperationLedgerRepositoryAdapter,
     { provide: SOURCING_OPERATION_LEDGER_REPOSITORY_PORT, useExisting: SourcingOperationLedgerRepositoryAdapter },
     SourcingChannelAccountAdapter,
@@ -240,7 +253,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingRisingProductService,
     SourcingCollectionSourceControlService,
     SourcingInterestTargetService,
-    SourcingEvidenceLedgerService,
     SourcingLaunchCandidateService,
     SourcingDecisionBatchService,
     TrendCollectService,
@@ -257,7 +269,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingEvidenceLedgerRepositoryAdapter,
     SourcingLaunchCandidateRepositoryAdapter,
     SourcingDecisionBatchRepositoryAdapter,
-    SourcingBrowserSourceAttemptRepositoryAdapter,
     Sourcing1688SearchResultRepositoryAdapter,
     LiveCommerceRepositoryAdapter,
     CoupangMomentumAdapter,
@@ -330,10 +341,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     {
       provide: SOURCING_DECISION_BATCH_REPOSITORY_PORT,
       useExisting: SourcingDecisionBatchRepositoryAdapter,
-    },
-    {
-      provide: SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
-      useExisting: SourcingBrowserSourceAttemptRepositoryAdapter,
     },
     {
       provide: SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,

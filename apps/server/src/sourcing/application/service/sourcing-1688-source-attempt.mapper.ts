@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
-import type { SourcingBrowserSourceAttemptPlan } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import type { SourcingSourcePlan } from './sourcing-source-plan';
 import type { Sourcing1688OfferKeywordObservationInput } from '../port/out/repository/trend-collection.repository.port';
 
 export const SOURCE_1688_HOT_PRODUCT = '1688.hot_product';
@@ -26,13 +26,13 @@ export interface Browser1688SourceBatch {
   errors?: Array<{ keyword: string; message: string }>;
 }
 
-export function build1688SourcePlan(values: unknown[]): SourcingBrowserSourceAttemptPlan {
+export function build1688SourcePlan(values: unknown[]): SourcingSourcePlan {
   const keywords = normalizeLegacyCollectorKeywords(values);
   return { source: SOURCE_1688_HOT_PRODUCT, keywords };
 }
 
 export function parse1688SourcePlan(
-  value: SourcingBrowserSourceAttemptPlan,
+  value: SourcingSourcePlan,
 ): { source: string; keywords: string[] } {
   if (value.source !== SOURCE_1688_HOT_PRODUCT || !Array.isArray(value.keywords)) {
     throw new ConflictException('SOURCE_PLAN_MALFORMED');

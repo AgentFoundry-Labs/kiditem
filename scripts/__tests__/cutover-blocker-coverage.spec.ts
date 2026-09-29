@@ -99,11 +99,16 @@ describe('scripts/cutover-blocker-coverage.json', () => {
     }
   });
 
-  it("points a table at 014 exactly when 014's required-column list empties it", () => {
+  it("points a table at 014 exactly when 014's required-column list empties it and the schema keeps it", () => {
     const tables = entries
       .filter((entry) => entry.coveredBy === REMOVE_ROWS && entry.table !== undefined)
       .map((entry) => entry.table!);
-    expect(sorted(tables)).toEqual(sorted(REQUIRED_COLUMN_CLEANUPS.map((cleanup) => cleanup.table)));
+    // A table the schema drops (KID-389's ingestion runs) is no change existing rows could stop.
+    const schemaTables = new Set(tablesByDelegate().values());
+    expect(schemaTables.has('sourcing_evidence_ingestion_runs')).toBe(false);
+    expect(sorted(tables)).toEqual(sorted(REQUIRED_COLUMN_CLEANUPS
+      .map((cleanup) => cleanup.table)
+      .filter((table) => schemaTables.has(table))));
   });
 
   it("points a key at 014 exactly when 014's unique-key list reduces it to one row", () => {

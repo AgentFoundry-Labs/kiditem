@@ -54,12 +54,9 @@ const wait = (ms: number) => new Promise<void>((resolve) => {
 });
 
 function settledOutcome(result: TrendSourceCollectionResult): CollectionStartOutcome {
+  // A source whose plan is already running reports that operation's id (KID-389), so the screen follows it.
   const attempt = result.results.find((row) => row.attemptId);
   if (attempt?.attemptId) return { outcome: 'started', attemptId: attempt.attemptId };
-  // A source whose plan is already running begins no attempt of its own.
-  if (result.results.some((row) => /ATTEMPT_IN_PROGRESS/.test(row.error ?? ''))) {
-    return { outcome: 'running', attemptId: null };
-  }
   return { outcome: 'started', attemptId: null };
 }
 

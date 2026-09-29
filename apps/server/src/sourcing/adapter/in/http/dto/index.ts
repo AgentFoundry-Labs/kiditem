@@ -7,7 +7,6 @@ export { QuerySourcingAgentRagDto } from './sourcing-agent-rag.dto';
 export { ListEntryRecommendationsQueryDto } from './sourcing-entry-recommendation.dto';
 export { UpsertSourcingInterestTargetDto } from './sourcing-interest-target.dto';
 export {
-  SourcingCoupangObservationDto,
   SourcingRecommendationQueryDto,
   SourcingReviewBatchDto,
   SourcingReviewBatchParamsDto,

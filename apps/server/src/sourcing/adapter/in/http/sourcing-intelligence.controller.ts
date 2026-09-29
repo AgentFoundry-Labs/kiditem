@@ -13,7 +13,6 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { Roles } from '../../../../auth/decorators/roles.decorator';
 import { SourcingDecisionBatchService } from '../../../application/service/sourcing-decision-batch.service';
-import { SourcingEvidenceLedgerService } from '../../../application/service/sourcing-evidence-ledger.service';
 import { SourcingLaunchCandidateService } from '../../../application/service/sourcing-launch-candidate.service';
 import { SourcingCollectionSourceControlService } from '../../../application/service/sourcing-collection-source-control.service';
 import {
@@ -22,14 +21,12 @@ import {
   CreateLaunchCandidateDto,
   SetSourcingCollectionSourceEnabledDto,
 } from './dto/sourcing-intelligence.dto';
-import { toPublicAttempt } from './sourcing-source-attempt-http';
 import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/intelligence')
 export class SourcingIntelligenceController {
   constructor(
     private readonly sourceControls: SourcingCollectionSourceControlService,
-    private readonly evidence: SourcingEvidenceLedgerService,
     private readonly launchCandidates: SourcingLaunchCandidateService,
     private readonly decisions: SourcingDecisionBatchService,
   ) {}
@@ -51,14 +48,6 @@ export class SourcingIntelligenceController {
       sourceKey,
       enabled: body.enabled,
     });
-  }
-
-  @Get('evidence-runs/:id')
-  async getEvidenceRun(
-    @Param('id', ParseUUIDPipe) runId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return toPublicAttempt(await this.evidence.getRun(organizationId, runId));
   }
 
   @Post('launch-candidates')

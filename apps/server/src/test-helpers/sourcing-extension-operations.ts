@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
+import { SourceFailureAlerts } from '../alerts/alerts.service';
 import type { OperationView } from '@kiditem/shared/operation';
 import { OperationRepositoryAdapter } from '../common/operation/adapter/out/repository/operation.repository.adapter';
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';
@@ -31,7 +32,7 @@ export function sourcingExtensionOperations(
   const trends = new TrendCollectService({} as never, {} as never, {} as never, {} as never,
     new TrendCollectionRepositoryAdapter(db), {} as never);
   const service = new SourcingExtensionOperationService(
-    new SourcingOperationLedgerRepositoryAdapter(db, drafts),
+    new SourcingOperationLedgerRepositoryAdapter(db, drafts, new SourceFailureAlerts(db)),
     { isActiveCoupangAccount: async (organizationId, id) =>
       (await prisma.channelAccount.count({ where: { id, organizationId, channel: 'coupang' } })) === 1 },
     trends,

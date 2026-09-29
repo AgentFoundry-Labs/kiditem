@@ -5,14 +5,13 @@ import {
   SOURCING_OPERATION_ID_INDEX_RENAMES,
   SOURCING_OPERATION_ID_TABLES,
 } from '../../../../../scripts/data-migrations/v0.1.31/030_rename_sourcing_ingestion_run_ids_to_operation_ids';
-import { publishCompleteSourcingRunsMigration } from '../../../../../scripts/data-migrations/v0.1.31/031_publish_complete_sourcing_runs';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 
 /**
- * KID-360: 원장 12표의 `ingestion_run_id`가 스칼라 `operation_id`가 된다(030, 스키마 단계 전). 옛 COMPLETE run은
- * 발행 이력 표로 옮긴다(031, 스키마 단계 뒤). 두 마이그레이션 모두 다시 돌리면 아무것도 바꾸지 않는다.
+ * KID-360: 원장 12표의 `ingestion_run_id`가 스칼라 `operation_id`가 된다(030, 스키마 단계 전). 다시 돌리면 아무것도
+ * 바꾸지 않는다. 옛 run 표와 그 완결 이력은 KID-389에서 버린다(ADR-0010).
  */
-describe('030/031 sourcing operation ids and publications (PostgreSQL)', () => {
+describe('030 sourcing operation ids (PostgreSQL)', () => {
   let prisma: PrismaClient;
   beforeAll(async () => { prisma = makeTestPrisma(); await prisma.$connect(); });
   afterAll(async () => prisma?.$disconnect());
@@ -73,60 +72,5 @@ describe('030/031 sourcing operation ids and publications (PostgreSQL)', () => {
       expect(result.details.renamedColumns).not.toContain('sourcing_wing_catalog_product_facts');
       expect(result.details.renamedColumns).toHaveLength(SOURCING_OPERATION_ID_TABLES.length - 1);
     });
-  });
-
-  it('publishes each complete run once, current where the run was current complete, and ignores running or failed runs', async () => {
-    const run = (status: string, isCurrentComplete: boolean, targetKey: string, completedAt: Date | null) =>
-      prisma.sourcingEvidenceIngestionRun.create({
-        data: {
-          organizationId: ORG,
-          sourceKey: '1688.hot_product',
-          scopeKey: 'default',
-          targetKey,
-          idempotencyKey: `${targetKey}-${status}-${isCurrentComplete}`,
-          requestHash: 'a'.repeat(64),
-          collectorKey: 'collector',
-          collectorVersion: 'v1',
-          triggerKind: 'manual',
-          status,
-          isCurrentComplete,
-          attemptPlan: { keywords: ['장난감'] },
-          sourceWindowStartAt: new Date('2026-09-24T00:00:00Z'),
-          sourceWindowEndAt: new Date('2026-09-24T01:00:00Z'),
-          acceptedCount: 3,
-          coverageNumerator: 1,
-          coverageDenominator: 1,
-          qualityReport: { note: 'ok' },
-          completedAt,
-        },
-      });
-    const current = await run('COMPLETE', true, 'all', new Date('2026-09-24T02:00:00Z'));
-    const older = await run('COMPLETE', false, 'all', new Date('2026-09-23T02:00:00Z'));
-    await run('FAILED', false, 'all', new Date('2026-09-24T03:00:00Z'));
-    await run('RUNNING', false, 'other', null);
-
-    await expect(prisma.$transaction((tx) => publishCompleteSourcingRunsMigration.run(tx)))
-      .resolves.toEqual({ affectedRows: 2, details: { published: 2 } });
-    const publications = await prisma.sourcingSourcePublication.findMany({ orderBy: { completedAt: 'desc' } });
-    expect(publications.map((row) => [row.operationId, row.isCurrent])).toEqual([[current.id, true], [older.id, false]]);
-    expect(publications[0]).toMatchObject({
-      organizationId: ORG,
-      sourceKey: '1688.hot_product',
-      scopeKey: 'default',
-      targetKey: 'all',
-      collectorKey: 'collector',
-      collectorVersion: 'v1',
-      plan: { keywords: ['장난감'] },
-      windowStartAt: new Date('2026-09-24T00:00:00Z'),
-      windowEndAt: new Date('2026-09-24T01:00:00Z'),
-      acceptedCount: 3,
-      coverageNumerator: 1,
-      coverageDenominator: 1,
-      qualityReport: { note: 'ok' },
-      completedAt: new Date('2026-09-24T02:00:00Z'),
-    });
-
-    await expect(prisma.$transaction((tx) => publishCompleteSourcingRunsMigration.run(tx)))
-      .resolves.toEqual({ affectedRows: 0, details: { published: 0 } });
   });
 });

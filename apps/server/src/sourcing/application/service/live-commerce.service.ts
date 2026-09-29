@@ -14,15 +14,12 @@ import {
   type LiveCommerceRepositoryPort,
   type LiveCommerceSource,
 } from '../port/out/repository/live-commerce.repository.port';
-import {
-  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
-  type SourcingBrowserSourceAttemptRepositoryPort,
-} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import {
   hashCollectionRequest,
   mapTrendTypedRecordsToAuthorizedOutput,
 } from './sourcing-collection-mappers';
-import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
+import { SourcingServerOperationRunner } from './sourcing-server-operation.runner';
 
 const MAX_LIVE_KEYWORD_SAMPLE_TITLES = 3;
 const LIVE_COMPOSITE_ID_SEPARATOR = '\u0000';
@@ -33,6 +30,7 @@ export interface TaobaoLiveRequest {
   pageSize?: number;
 }
 
+const TAOBAO_KIND = SOURCING_OPERATION_KINDS.taobaoLive;
 const TAOBAO_SOURCE = { sourceKey: 'taobao.live', scopeKey: 'default', targetKey: 'all' };
 const TAOBAO_FAILURE_ALERT = {
   sourceType: 'sourcing.taobao-live',
@@ -61,8 +59,7 @@ export class LiveCommerceService {
     private readonly taobao: TaobaoLivePort,
     @Inject(LIVE_COMMERCE_REPOSITORY_PORT)
     private readonly repository: LiveCommerceRepositoryPort,
-    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
-    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly runs: SourcingServerOperationRunner,
   ) {}
 
   async status(organizationId: string, input: TaobaoLiveRequest = {}) {
@@ -109,8 +106,9 @@ export class LiveCommerceService {
   }
 
   async readTaobao(organizationId: string, input: TaobaoLiveRequest = {}) {
-    return this.attempts.readSourceStatus({
+    return this.runs.readSourceStatus({
       organizationId,
+      kinds: [TAOBAO_KIND],
       ...TAOBAO_SOURCE,
       currentPlanChecksum: hashCollectionRequest(taobaoPlan(input, new Date())),
     });
@@ -126,26 +124,26 @@ export class LiveCommerceService {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
     const plan = taobaoPlan(input, capturedAt);
-    const { created, attempt } = await this.attempts.beginAttempt({
+    const run = await this.runs.begin({
       organizationId,
-      ...TAOBAO_SOURCE,
-      idempotencyKey: requireIdempotencyKey(idempotencyKey),
-      // Omitted dates remain omitted in request identity so midnight transport
-      // replays recover the original server-frozen calendar date.
-      requestFingerprint: hashCollectionRequest({
-        ...plan, queryDate: input.queryDate ? canonicalTaobaoQueryDate(input.queryDate) : null,
-      }),
-      plan,
-      planChecksum: hashCollectionRequest(plan),
-      requestedByUserId: null,
-      collectorKey: 'taobao-live-collection',
-      collectorVersion: '2026-08-08',
-      triggerKind: 'manual',
-      // Preserve the former Taobao execution deadline as one fixed expiry.
-      expiresInMs: 15 * 60_000,
-      failureAlert: TAOBAO_FAILURE_ALERT,
+      userId: null,
+      kind: TAOBAO_KIND,
+      requestIdempotencyKey: idempotencyKey,
+      scope: {
+        ...TAOBAO_SOURCE,
+        // Omitted dates remain omitted in request identity so midnight transport
+        // replays recover the original server-frozen calendar date.
+        requestFingerprint: hashCollectionRequest({
+          ...plan, queryDate: input.queryDate ? canonicalTaobaoQueryDate(input.queryDate) : null,
+        }),
+        attemptPlan: plan,
+        planChecksum: hashCollectionRequest(plan),
+        collectorKey: 'taobao-live-collection',
+        collectorVersion: '2026-08-08',
+        failureAlert: TAOBAO_FAILURE_ALERT,
+      },
     });
-    if (!created) return attempt;
+    if (!run.created) return run.attempt;
 
     // Provider IO runs after begin commits and without a database lock.
     let result;
@@ -159,38 +157,32 @@ export class LiveCommerceService {
       });
       controls.signal?.throwIfAborted();
     } catch (error) {
-      const failed = await this.attempts.failAttempt({
-        organizationId,
-        attemptId: attempt.attemptId,
-        attemptToken: attempt.attemptToken,
-        code: controls.signal?.aborted ? 'SOURCE_COLLECTION_ABORTED' : 'SOURCE_COLLECTION_FAILED',
-        message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
-      });
+      const failed = await this.runs.fail(organizationId, run,
+        controls.signal?.aborted ? 'SOURCE_COLLECTION_ABORTED' : 'SOURCE_COLLECTION_FAILED',
+        (error instanceof Error ? error.message : String(error)).slice(0, 1_000));
       if (controls.signal?.aborted) controls.signal.throwIfAborted();
       return failed;
     }
+    const operationId = run.attempt.attemptId;
     const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
-      organizationId, operationId: attempt.attemptId, businessDate, source: 'taobao', ...room, capturedAt,
+      organizationId, operationId, businessDate, source: 'taobao', ...room, capturedAt,
     }));
     const products: LiveCommerceProductSnapshotUpsert[] = result.products.map((product) => ({
-      organizationId, operationId: attempt.attemptId, businessDate, source: 'taobao', ...product, capturedAt,
+      organizationId, operationId, businessDate, source: 'taobao', ...product, capturedAt,
     }));
     const output = mapTrendTypedRecordsToAuthorizedOutput({
-      permit: toPermit(attempt, organizationId),
+      permit: this.runs.permit(organizationId, run),
       typedRecords: [
         ...broadcasts.map((row) => ({ kind: 'live_commerce_broadcast' as const, row })),
         ...products.map((row) => ({ kind: 'live_commerce_product' as const, row })),
       ],
       qualityReport: { source: 'taobao', warningCount: result.warnings.length, warnings: result.warnings },
     });
-    return this.attempts.completeAttempt({
-      organizationId,
-      attemptId: attempt.attemptId,
-      attemptToken: attempt.attemptToken,
-      planChecksum: attempt.planChecksum,
+    return this.runs.complete(organizationId, run, output, {
       contentChecksum: hashCollectionRequest(result),
-      output,
-      sourceWindowEndAt: capturedAt,
+      windowStartAt: null,
+      windowEndAt: capturedAt,
+      warnings: result.warnings,
     });
   }
 

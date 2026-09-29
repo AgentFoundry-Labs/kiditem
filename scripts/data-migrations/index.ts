@@ -29,7 +29,6 @@ import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cu
 import { normalizeSalesProductStatusMigration } from './v0.1.31/027_normalize_sales_product_status';
 import { closeGenerationsLeftByDirectJobCutoverMigration } from './v0.1.31/036_close_generations_left_by_direct_job_cutover';
 import { renameSourcingIngestionRunIdsMigration } from './v0.1.31/030_rename_sourcing_ingestion_run_ids_to_operation_ids';
-import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_complete_sourcing_runs';
 import { removeRetiredSourceFailureAlertsMigration } from './v0.1.31/032_remove_retired_source_failure_alerts';
 import { removeRetiredMallAdminListingAlertsMigration } from './v0.1.31/033_remove_retired_mall_admin_listing_alerts';
 import { moveAdCountingAbcFormulaStatesMigration } from './v0.1.31/034_move_ad_counting_abc_formula_states';
@@ -82,7 +81,6 @@ export const dataMigrations: readonly DataMigration[] = [
   normalizeSalesProductStatusMigration,
   // 030 runs after 014, which empties Office 0.1.30 runs and their observations first.
   renameSourcingIngestionRunIdsMigration,
-  publishCompleteSourcingRunsMigration,
   removeRetiredSourceFailureAlertsMigration,
   removeRetiredMallAdminListingAlertsMigration,
   moveAdCountingAbcFormulaStatesMigration,

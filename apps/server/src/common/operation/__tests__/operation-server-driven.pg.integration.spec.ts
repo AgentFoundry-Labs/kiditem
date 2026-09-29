@@ -33,6 +33,7 @@ const failures: Array<Pick<OperationFailedContext, 'operationId' | 'errorCode' |
 class WorkerOwner implements OperationOwnerPort {
   readonly kind = 'test.worker';
   readonly leaseMs = 60_000;
+  readonly serverDriven = true as const;
 
   async plan(scope: JsonObject): Promise<OperationPlanResult> {
     return { plan: { job: scope.job ?? null }, lockKeys: [String(scope.lockKey ?? 'resource:job:1')] };
@@ -356,5 +357,24 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
       await expect(heartbeat(operation.id, first.token)).rejects.toMatchObject({ code: 'OPERATION_NOT_FOUND' });
       await expect(prisma.operationLock.count({ where: { operationId: operation.id } })).resolves.toBe(1);
     }
+  });
+  it('HTTP begin of a server-driven kind is rejected (server_driven_kind); server-side begin of the same kind still opens', async () => {
+    await expect(operations.begin(ORG, { kind: 'test.worker', scope: { job: 'h' } }, { userId: null, origin: 'http' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'server_driven_kind', kinds: ['test.worker'] } });
+    expect(await prisma.operation.count({ where: { kind: 'test.worker' } })).toBe(0);
+
+    const begun = await operations.begin(ORG, { kind: 'test.worker', scope: { job: 'h' } }, { userId: null });
+    expect(begun.operation).toMatchObject({ kind: 'test.worker', status: 'executing', attempts: 1, maxAttempts: 1 });
+  });
+
+  it('HTTP begin of a browser kind is open; the organization-scoped claim refuses a server-driven kind in its list', async () => {
+    const begun = await operations.begin(ORG, { kind: 'test.browser', scope: {} }, { userId: null, origin: 'http' });
+    expect(begun.operation.status).toBe('executing');
+
+    await prepare({ job: 'c' });
+    await expect(operations.claimForOrganization(ORG, { kinds: ['test.browser', 'test.worker'], workerId: 'ext' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'server_driven_kind', kinds: ['test.worker'] } });
+    // 서버 워커의 claim은 그대로 집는다.
+    expect((await claim())?.operation.plan).toEqual({ job: 'c' });
   });
 });

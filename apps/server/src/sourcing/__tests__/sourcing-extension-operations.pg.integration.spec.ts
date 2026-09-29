@@ -5,6 +5,7 @@ import type { INestApplication } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
+import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { OPERATION_TOKEN_HEADER, OperationBeginResponseSchema } from '@kiditem/shared/operation';
@@ -58,7 +59,7 @@ describe('sourcing extension-driven operation kinds (PostgreSQL)', () => {
     const history = new TrendCollectionRepositoryAdapter(db);
     const trends = new TrendCollectService({} as never, {} as never, {} as never, {} as never, history, {} as never);
     const service = new SourcingExtensionOperationService(
-      new SourcingOperationLedgerRepositoryAdapter(db, realSalesProductDraftPort(prisma)),
+      new SourcingOperationLedgerRepositoryAdapter(db, realSalesProductDraftPort(prisma), new SourceFailureAlerts(db)),
       // Channels 계정 capability 자리: 이 조직의 쿠팡 계정 행을 그대로 본다.
       { isActiveCoupangAccount: async (organizationId, id) =>
         (await prisma.channelAccount.count({ where: { id, organizationId, channel: 'coupang' } })) === 1 },

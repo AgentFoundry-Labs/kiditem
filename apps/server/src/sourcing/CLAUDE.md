@@ -31,8 +31,8 @@ belong to Supply; supplier payments belong to Finance.
   `POST products/sales-products/:salesProductId/generation`, whose idempotency
   receipt (`sourcing.quick_process`) records `{ salesProductId }` — a directly
   authored draft with no source record starts generation like any other.
-- `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` are the
-  append-only collection/evidence ledger. Supplier-offer snapshots, launch
+- Sourcing operation kinds and the append-only `SourcingEvidenceObservation`
+  ledger (keyed by `operationId`) are the collection/evidence record. Supplier-offer snapshots, launch
   candidates, decisions, and procurement intents retain immutable provenance.
 - `SourcingLaunchCandidate` freezes the supplier variant, target account,
   bundle/plan, compliance/IP/QC versions, economics, and launch quantity.
@@ -70,8 +70,13 @@ belong to Supply; supplier payments belong to Finance.
   source/scope/target keys and lock keys; `finalize` writes ledger rows
   (`operationId`) and one `sourcing_source_publications` row inside the finish
   transaction, and throws on an incomplete plan so a failed run writes
-  nothing. These kinds have no attempt routes and write no
-  `sourcing_evidence_ingestion_runs` row; server-run sources still use attempts.
+  nothing. These kinds have no attempt routes.
+- Server-run collection is eight `serverDriven` kinds (`naver_trend`,
+  `shortstrend_trend`, `taobao_live`, `market_shadow`, `naver_keyword_analysis`,
+  `keyword_search_1688`, `image_search_1688`, `scrape_url`; KID-389) owned by
+  `adapter/in/operation/sourcing-server-operation-owners.ts`. The service
+  begins, puts chunks, and finishes inside the request; the HTTP operation
+  routes refuse these kinds. There is no attempt table.
 - "Complete and current" is the publication row with `isCurrent`, one per
   (organization, source, scope, target). Other owners (Supply's procurement
   gate) reach it through `SOURCING_SOURCE_PUBLICATION_PORT`.

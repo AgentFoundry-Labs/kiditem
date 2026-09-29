@@ -41,6 +41,11 @@ export class OperationOwnerRegistry implements OnModuleInit {
     return this.owners.get(kind);
   }
 
+  /** 서버만 여는 kind인가(KID-389). 모르는 kind는 false — begin이 `unknown_operation_kind`로 따로 거절한다. */
+  isServerDriven(kind: string): boolean {
+    return this.owners.get(kind)?.serverDriven === true;
+  }
+
   /** kind의 임대 길이. owner가 정하지 않았으면 계약 기본 30분(KID-358). */
   leaseMs(kind: string): number {
     return this.owners.get(kind)?.leaseMs ?? OPERATION_LEASE_MS;

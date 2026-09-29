@@ -12,13 +12,13 @@ import {
   type SearchNaverAutocompleteKeywordsResult,
 } from '../port/out/provider/naver-keyword-research.port';
 import { TREND_COLLECTION_REPOSITORY_PORT, type TrendCollectionRepositoryPort } from '../port/out/repository/trend-collection.repository.port';
-import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttemptRepositoryPort,
-  type SourcingBrowserSourceAttempt } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { hashCollectionRequest } from './sourcing-collection-mappers';
-import { requireIdempotencyKey } from './sourcing-source-attempt-primitives';
+import { SourcingServerOperationRunner, type SourcingSourceAttempt } from './sourcing-server-operation.runner';
 import type { AuthorizedCollectionOutput } from '../port/out/repository/sourcing-collection.repository.port';
 
 const SOURCE = 'naver.keyword_analysis';
+const KIND = SOURCING_OPERATION_KINDS.naverKeywordAnalysis;
 const VERSION = 'naver-keyword-analysis/v1';
 const MAX_ANALYSIS_SEEDS = 12;
 const MAX_ANALYSIS_AUTOCOMPLETE_SEEDS = 5;
@@ -35,7 +35,7 @@ export class NaverKeywordResearchService {
     @Inject(SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT) private readonly popularKeywords: NaverDatalabPopularKeywordPort,
     @Inject(SOURCING_NAVER_AUTOCOMPLETE_KEYWORD_PORT) private readonly autocompleteKeywords: NaverAutocompleteKeywordPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT) private readonly trendRepo: TrendCollectionRepositoryPort,
-    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT) private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly runs: SourcingServerOperationRunner,
   ) {}
 
   async collectAnalysis(input: {
@@ -46,14 +46,14 @@ export class NaverKeywordResearchService {
     const inputHash = hashCollectionRequest(normalized);
     const failureAlert = sourceFailureAlert(inputHash);
     input.signal?.throwIfAborted();
-    const { attempt, created } = await this.attempts.beginAttempt({ organizationId: input.organizationId,
-      sourceKey: SOURCE, scopeKey: 'default', targetKey: inputHash,
-      idempotencyKey: requireIdempotencyKey(input.idempotencyKey ?? ''), requestFingerprint: inputHash,
-      plan: { source: SOURCE, input: normalized }, planChecksum: inputHash,
-      requestedByUserId: input.requestedByUserId ?? null, collectorKey: 'naver-keyword-analysis',
-      collectorVersion: VERSION, triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert,
+    const run = await this.runs.begin({ organizationId: input.organizationId, userId: input.requestedByUserId ?? null,
+      kind: KIND, requestIdempotencyKey: input.idempotencyKey ?? '',
+      scope: { sourceKey: SOURCE, scopeKey: 'default', targetKey: inputHash, requestFingerprint: inputHash,
+        attemptPlan: { source: SOURCE, input: normalized }, planChecksum: inputHash,
+        collectorKey: 'naver-keyword-analysis', collectorVersion: VERSION, failureAlert },
     });
-    if (!created) return { attempt, payload: attempt.state === 'COMPLETE'
+    const { attempt } = run;
+    if (!run.created) return { attempt, payload: attempt.state === 'COMPLETE'
       ? await this.trendRepo.findKeywordAnalysisSnapshot({ organizationId: input.organizationId, inputHash, attemptId: attempt.attemptId }) : null };
     try {
       const result = await this.collectAnalysisProviders(normalized, input);
@@ -63,16 +63,13 @@ export class NaverKeywordResearchService {
       const capturedAt = new Date();
       const payload = SourcingKeywordAnalysisSnapshotSchema.parse({ version: VERSION,
         generatedAt: capturedAt.toISOString(), input: normalized, result });
-      const complete = await this.attempts.completeAttempt({ organizationId: input.organizationId,
-        attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
-        contentChecksum: hashCollectionRequest(payload), output: analysisOutput(input.organizationId, attempt, payload),
-        sourceWindowEndAt: capturedAt });
+      const complete = await this.runs.complete(input.organizationId, run, analysisOutput(input.organizationId, attempt, payload), {
+        contentChecksum: hashCollectionRequest(payload), windowStartAt: null, windowEndAt: capturedAt });
       return { attempt: complete, payload: complete.state === 'COMPLETE' ? payload : null };
     } catch (error) {
-      const failed = await this.attempts.failAttempt({ organizationId: input.organizationId,
-        attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
-        code: input.signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
-        message: error instanceof Error ? error.message : String(error) });
+      const failed = await this.runs.fail(input.organizationId, run,
+        input.signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
+        error instanceof Error ? error.message : String(error));
       input.signal?.throwIfAborted();
       return { attempt: failed, payload: null };
     }
@@ -85,7 +82,7 @@ export class NaverKeywordResearchService {
 
   status(organizationId: string, rawInput: Record<string, unknown>) {
     const inputHash = hashCollectionRequest(SourcingKeywordAnalysisInputSchema.parse(rawInput));
-    return this.attempts.readSourceStatus({ organizationId, sourceKey: SOURCE, scopeKey: 'default',
+    return this.runs.readSourceStatus({ organizationId, kinds: [KIND], sourceKey: SOURCE, scopeKey: 'default',
       targetKey: inputHash, currentPlanChecksum: inputHash });
   }
 
@@ -175,7 +172,7 @@ function sourceFailureAlert(inputHash: string) {
   };
 }
 
-function analysisOutput(organizationId: string, attempt: SourcingBrowserSourceAttempt,
+function analysisOutput(organizationId: string, attempt: SourcingSourceAttempt,
   payload: NaverKeywordAnalysisSnapshotPayload): AuthorizedCollectionOutput {
   const capturedAt = new Date(payload.generatedAt);
   const payloadHash = hashCollectionRequest(payload);

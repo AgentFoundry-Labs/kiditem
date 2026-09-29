@@ -1,5 +1,5 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
-import type { AdmittedSourceRecord } from './source-record.repository.port';
+import type { AdmittedSourceRecord, SourceRecordWrite } from './source-record.repository.port';
 import type { AuthorizedCollectionOutput, SourcingCollectionPermit } from './sourcing-collection.repository.port';
 
 export const SOURCING_OPERATION_LEDGER_REPOSITORY_PORT = Symbol('SOURCING_OPERATION_LEDGER_REPOSITORY_PORT');
@@ -36,4 +36,18 @@ export interface SourcingOperationLedgerRepositoryPort {
   countWingCatalogSnapshots(transaction: OwnerTransaction, organizationId: string, operationId: string): Promise<Map<string, number>>;
   /** 발행 1행을 쓰고 같은 대상의 이전 현재 발행을 내린다. */
   publish(transaction: OwnerTransaction, organizationId: string, operationId: string, publication: SourcingOperationPublicationInput): Promise<void>;
+  /** URL 수집(KID-389): 원본 기록과 그 초안을 같은 트랜잭션에서 입장시킨다. 같은 원본이면 `SourceRecordDuplicateError`. */
+  admitScrapeUrlRecord(transaction: OwnerTransaction, record: SourceRecordWrite): Promise<AdmittedSourceRecord>;
+  /** 서버 구동 원천의 실패 알림을 연다(옛 attempt 실패와 같은 알림 행, 취소 코드는 알림이 무시한다). */
+  recordSourceFailure(transaction: OwnerTransaction, failure: SourcingSourceFailure): Promise<void>;
+  /** 성공한 수집이 같은 원천의 열린 실패 알림을 닫는다. */
+  resolveSourceFailure(transaction: OwnerTransaction, input: { organizationId: string; dedupeKey: string; operationId: string }): Promise<void>;
+}
+
+export interface SourcingSourceFailure {
+  organizationId: string;
+  operationId: string;
+  code: string;
+  message: string;
+  alert: { sourceType: string; dedupeKey: string; title: string; href: string };
 }

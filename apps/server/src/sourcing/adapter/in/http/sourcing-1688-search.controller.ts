@@ -3,7 +3,6 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { Sourcing1688KeywordSearchService } from '../../../application/service/sourcing-1688-keyword-search.service';
 import { Sourcing1688ImageSearchService } from '../../../application/service/sourcing-1688-image-search.service';
-import { toPublicAttempt } from './sourcing-source-attempt-http';
 import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/wholesale/1688')
@@ -14,25 +13,25 @@ export class Sourcing1688SearchController {
   async searchKeywords(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser,
     @Headers('idempotency-key') idempotencyKey: string, @Body() input: unknown) {
     const result = await this.keywords.search({ organizationId, requestedByUserId: user.id, idempotencyKey: idempotencyKey ?? '', input });
-    return { ...result, attempts: result.attempts.map(toPublicAttempt) };
+    return result;
   }
 
   @Post('image-matches')
   async matchImages(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser,
     @Headers('idempotency-key') idempotencyKey: string, @Body() input: unknown) {
     const result = await this.images.search({ organizationId, requestedByUserId: user.id, idempotencyKey: idempotencyKey ?? '', input });
-    return { ...result, attempts: result.attempts.map(toPublicAttempt) };
+    return result;
   }
 
   @Get('keyword-search/:attemptId')
   async readKeywordAttempt(@Param('attemptId', ParseUUIDPipe) attemptId: string, @CurrentOrganization() organizationId: string) {
     const result = await this.keywords.read({ organizationId, attemptId });
-    return { ...result, attempt: toPublicAttempt(result.attempt) };
+    return result;
   }
 
   @Get('image-matches/:attemptId')
   async readImageAttempt(@Param('attemptId', ParseUUIDPipe) attemptId: string, @CurrentOrganization() organizationId: string) {
     const result = await this.images.read({ organizationId, attemptId });
-    return { ...result, attempt: toPublicAttempt(result.attempt) };
+    return result;
   }
 }

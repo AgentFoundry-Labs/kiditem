@@ -1,11 +1,10 @@
 import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
 import { Sourcing1688SearchController } from '../adapter/in/http/sourcing-1688-search.controller';
 import { Sourcing1688SearchResultController } from '../adapter/in/http/sourcing-1688-search-result.controller';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
 import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
 import { Sourcing1688ImageSearchService } from '../application/service/sourcing-1688-image-search.service';
@@ -23,7 +22,7 @@ const offer = { offerId: '123', title: '儿童餐盘', priceCny: 3.5,
   sourceUrl: 'https://detail.1688.com/offer/123.html', imageUrl: null,
   monthlySales: 10, tradeScore: 4.8, repurchaseRate: '20%', supplierName: 'factory', score: 88 };
 
-describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
+describe('1688 키워드·이미지 검색 = 서버 구동 kind (disposable PostgreSQL)', () => {
   let prisma: PrismaClient;
   let controller: Sourcing1688SearchController;
   let results: Sourcing1688SearchResultController;
@@ -36,13 +35,12 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-      new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort);
+    const { runner: attempts } = sourcingServerOperations(prisma, unusedSalesProductDraftPort);
     const repository = new Sourcing1688SearchResultRepositoryAdapter(prisma as never);
     searchResultsRepository = repository;
     wing = sourcingExtensionOperations(prisma, noDrafts);
     controller = new Sourcing1688SearchController(
-      new Sourcing1688KeywordSearchService(keywordProvider, attempts, repository),
+      new Sourcing1688KeywordSearchService(keywordProvider, attempts),
       new Sourcing1688ImageSearchService(imageProvider, attempts, repository),
     );
     results = new Sourcing1688SearchResultController(new Sourcing1688SearchResultService(repository, attempts));
@@ -110,7 +108,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       const read = await results.latest('儿童餐盘', undefined, organizationId);
       expect(read).toMatchObject({ observations: [{ items: [{ offerId: '123' }] }],
         sourceStatuses: [{ latestAttemptState: 'RUNNING' }] });
-      await prisma.sourcingEvidenceIngestionRun.update({ where: { id: read.sourceStatuses[0].latestAttemptId! }, data: { leaseExpiresAt: new Date(0) } });
+      await prisma.operation.update({ where: { id: read.sourceStatuses[0].latestAttemptId! }, data: { expiresAt: new Date(0) } });
       expect(await results.latest('儿童餐盘', undefined, organizationId)).toMatchObject({
         observations: [{ items: [{ offerId: '123' }] }],
         sourceStatuses: [{ ready: true, latestAttemptState: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }],
@@ -280,7 +278,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       expect(retry).toMatchObject({ attempts: [{ state: 'RUNNING' }], result: null });
       expect(retry.attempts[0]).not.toHaveProperty('attemptToken');
       expect(await controller.readKeywordAttempt(retry.attempts[0].attemptId, organizationId)).toMatchObject({ attempt: { state: 'RUNNING' }, unit: null });
-      await expect(controller.readKeywordAttempt(retry.attempts[0].attemptId, '00000000-0000-4000-8000-000000000099')).rejects.toThrow('SOURCE_ATTEMPT_NOT_FOUND');
+      await expect(controller.readKeywordAttempt(retry.attempts[0].attemptId, '00000000-0000-4000-8000-000000000099')).rejects.toMatchObject({ code: 'OPERATION_NOT_FOUND' });
       await expect(controller.searchKeywords(organizationId, user as never, 'other-active', input)).rejects.toThrow();
       expect(keywordProvider.openSession).toHaveBeenCalledTimes(1);
     } finally { finish([offer]); await first; }
@@ -294,7 +292,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       return [{ ...offer, offerId: 'newer' }];
     });
     const first = await controller.searchKeywords(organizationId, user as never, 'during-disable', input);
-    expect(first.attempts[0]).toMatchObject({ state: 'FAILED', errorCode: 'SOURCE_DISABLED', acceptedCount: 0 });
+    expect(first.attempts[0]).toMatchObject({ state: 'FAILED', errorCode: 'SOURCING_SOURCE_DISABLED', acceptedCount: 0 });
     expect(first.result?.units[0]).toMatchObject({ discovered: 1, accepted: 1 });
     expect(await controller.searchKeywords(organizationId, user as never, 'during-disable', input)).toEqual(first);
     expect((await results.latest('儿童餐盘', undefined, organizationId)).observations[0].items[0].offerId).toBe('123');
@@ -305,8 +303,8 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
 
   it('rejects explicit source disable and untrusted plan inputs before provider IO', async () => {
     await prisma.sourcingCollectionSourceControl.createMany({ data: ['1688.hot_product', '1688.image_search'].map((sourceKey) => ({ organizationId, sourceKey, enabled: false })) });
-    await expect(controller.searchKeywords(organizationId, user as never, 'disabled', { keywords: ['儿童餐盘'] })).rejects.toThrow('SOURCE_DISABLED');
-    await expect(controller.matchImages(organizationId, user as never, 'disabled', { targetIds: ['product-1::'] })).rejects.toThrow('SOURCE_DISABLED');
+    await expect(controller.searchKeywords(organizationId, user as never, 'disabled', { keywords: ['儿童餐盘'] })).rejects.toMatchObject({ code: 'SOURCING_SOURCE_DISABLED' });
+    await expect(controller.matchImages(organizationId, user as never, 'disabled', { targetIds: ['product-1::'] })).rejects.toMatchObject({ code: 'SOURCING_SOURCE_DISABLED' });
     await expect(controller.searchKeywords(organizationId, user as never, 'invalid', { keywords: ['x'], source: 'other' })).rejects.toThrow('INVALID_1688_KEYWORD_REQUEST');
     await expect(controller.matchImages(organizationId, user as never, 'invalid', { targetIds: ['product-1::'], imageUrl: 'https://attacker.example/a' })).rejects.toThrow('INVALID_1688_IMAGE_REQUEST');
     expect(keywordProvider.openSession).not.toHaveBeenCalled();
@@ -333,7 +331,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     session.searchKeyword.mockRejectedValueOnce(new Error('unexpected provider fixture'));
     await expect(controller.searchKeywords(organizationId, user as never, 'unexpected', { keywords: ['儿童餐盘'] })).rejects.toThrow('unexpected provider fixture');
     expect(session.close).toHaveBeenCalledTimes(1);
-    expect(await prisma.sourcingEvidenceIngestionRun.count({ where: { status: 'FAILED' } })).toBe(1);
+    expect(await prisma.operation.count({ where: { kind: 'sourcing.keyword_search_1688', status: 'failed' } })).toBe(1);
   });
 
   it('keeps image URL rejection and duplicate handling, preserves the prior complete result, and records an exact empty image result', async () => {
@@ -363,8 +361,9 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     const input = { keywords: ['儿童餐盘'] };
     const old = await controller.searchKeywords(organizationId, user as never, 'corrupt-old', input);
     await controller.searchKeywords(organizationId, user as never, 'valid-newer', input);
-    await prisma.sourcingEvidenceIngestionRun.update({ where: { id: old.attempts[0].attemptId }, data: {
-      qualityReport: { resultSchemaVersion: 'sourcing-1688-search-result/v1', keyword: '儿童餐盘', targetId: null,
+    const stored = await prisma.operation.findUniqueOrThrow({ where: { id: old.attempts[0].attemptId } });
+    await prisma.operation.update({ where: { id: old.attempts[0].attemptId }, data: {
+      result: { ...(stored.result as Record<string, unknown>),
         unitResult: { keyword: '儿童餐盘', targetId: null, outcome: 'complete', discovered: 7, accepted: 7, duplicate: 0, failed: 0 } },
     } });
     await expect(controller.searchKeywords(organizationId, user as never, 'corrupt-old', input)).rejects.toThrow('1688 search result is not yet available.');

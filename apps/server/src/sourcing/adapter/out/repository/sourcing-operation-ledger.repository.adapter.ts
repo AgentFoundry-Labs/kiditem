@@ -3,6 +3,7 @@ import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
 import {
   SALES_PRODUCT_DRAFT_PORT,
@@ -12,13 +13,16 @@ import type {
   AuthorizedCollectionOutput,
   SourcingCollectionPermit,
 } from '../../../application/port/out/repository/sourcing-collection.repository.port';
+import type { SourceRecordWrite } from '../../../application/port/out/repository/source-record.repository.port';
 import type {
   SourcingOperationLedgerRepositoryPort,
   SourcingOperationPublicationInput,
   SourcingSourceAccessFailure,
+  SourcingSourceFailure,
 } from '../../../application/port/out/repository/sourcing-operation-ledger.repository.port';
 import { persistBrowserSourceAttemptFacts } from './sourcing-browser-source-attempt.persistence';
 import { publishSourceSnapshot } from './sourcing-source-publication.repository.adapter';
+import { admitSourceRecordWithDraftIn } from './source-record-admission.transaction';
 
 /**
  * 확장 구동 소싱 kind(KID-360)의 finish 트랜잭션 persistence. 원장 쓰기는 옛 attempt 종료와 같은
@@ -30,6 +34,8 @@ export class SourcingOperationLedgerRepositoryAdapter implements SourcingOperati
   constructor(
     private readonly prisma: PrismaService,
     @Inject(SALES_PRODUCT_DRAFT_PORT) private readonly drafts: SalesProductDraftPort,
+    // 서버 구동 원천(KID-389)의 실패 알림은 옛 attempt와 같은 알림 행이다. 확장 kind는 실행 행만 쓴다(KID-355 정책 B).
+    private readonly alerts: SourceFailureAlerts,
   ) {}
 
   async sourceAccessFailure(
@@ -89,6 +95,31 @@ export class SourcingOperationLedgerRepositoryAdapter implements SourcingOperati
       contentChecksum: publication.contentChecksum,
       qualityReport: publication.qualityReport,
       completedAt: publication.completedAt,
+    });
+  }
+
+  admitScrapeUrlRecord(transaction: OwnerTransaction, record: SourceRecordWrite) {
+    return admitSourceRecordWithDraftIn(ownerTransactionClient(transaction), record, this.drafts);
+  }
+
+  recordSourceFailure(transaction: OwnerTransaction, failure: SourcingSourceFailure): Promise<void> {
+    return this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), {
+      code: failure.code,
+      organizationId: failure.organizationId,
+      dedupeKey: failure.alert.dedupeKey,
+      sourceType: failure.alert.sourceType,
+      attemptId: failure.operationId,
+      title: failure.alert.title,
+      message: failure.message,
+      href: failure.alert.href,
+    });
+  }
+
+  resolveSourceFailure(transaction: OwnerTransaction, input: { organizationId: string; dedupeKey: string; operationId: string }): Promise<void> {
+    return this.alerts.resolveSourceFailure(ownerTransactionClient(transaction), {
+      organizationId: input.organizationId,
+      dedupeKey: input.dedupeKey,
+      attemptId: input.operationId,
     });
   }
 }

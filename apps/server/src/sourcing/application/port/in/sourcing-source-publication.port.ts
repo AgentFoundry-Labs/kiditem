@@ -8,7 +8,7 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 export const SOURCING_SOURCE_PUBLICATION_PORT = Symbol('SOURCING_SOURCE_PUBLICATION_PORT');
 
 export interface SourcingSourcePublicationView {
-  /** 이 발행을 만든 실행(operations.id, 스칼라). 옛 run으로 만든 행은 옛 run id를 그대로 가진다. */
+  /** 이 발행을 만든 실행(operations.id, 스칼라). */
   operationId: string;
   sourceKey: string;
   scopeKey: string;

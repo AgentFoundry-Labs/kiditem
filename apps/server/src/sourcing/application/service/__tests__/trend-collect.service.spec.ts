@@ -10,7 +10,7 @@ import type {
   TrendCollectionRepositoryPort,
   TrendSeedRow,
 } from '../../port/out/repository/trend-collection.repository.port';
-import type { SourcingBrowserSourceAttempt } from '../../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import type { SourcingSourceAttempt } from '../sourcing-server-operation.runner';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -92,21 +92,27 @@ function buildPorts() {
     findTiktokCcHistory: vi.fn(async () => []),
   };
   const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
-  let attempt: SourcingBrowserSourceAttempt;
-  const attempts = {
-    beginAttempt: vi.fn(async (input) => {
-      attempt = { ...input, attemptId: '00000000-0000-4000-8000-000000000010',
-        attemptToken: '00000000-0000-4000-8000-000000000011', generation: 1, state: 'RUNNING',
-        acceptedCount: 0, expiresAt: new Date(Date.now() + 60_000), completedAt: null,
-        contentChecksum: null, errorCode: null, errorMessage: null };
-      return { attempt, created: true };
+  let attempt: SourcingSourceAttempt;
+  // 실행 계약 runner 자리: 이 스펙은 공급자 매핑을 본다(실행·발행은 PG 스펙이 본다).
+  const runs = {
+    begin: vi.fn(async (input: { scope: { sourceKey: string; scopeKey: string; targetKey: string; planChecksum: string; attemptPlan: Record<string, unknown> } }) => {
+      attempt = { attemptId: '00000000-0000-4000-8000-000000000010', sourceKey: input.scope.sourceKey,
+        scopeKey: input.scope.scopeKey, targetKey: input.scope.targetKey, plan: { ...input.scope.attemptPlan },
+        planChecksum: input.scope.planChecksum, state: 'RUNNING', acceptedCount: 0,
+        expiresAt: new Date(Date.now() + 60_000), completedAt: null, contentChecksum: null, errorCode: null, errorMessage: null };
+      return { attempt, created: true, token: '00000000-0000-4000-8000-000000000011' };
     }),
-    completeAttempt: vi.fn(async (input) => {
-      collectionOutputs.push(input.output);
-      return { ...attempt, state: 'COMPLETE' as const, acceptedCount: input.output.discoveredCount };
+    permit: vi.fn(() => ({ runId: attempt.attemptId, organizationId: ORGANIZATION_ID, sourceKey: attempt.sourceKey,
+      scopeKey: attempt.scopeKey, targetKey: attempt.targetKey, leaseToken: '', generation: 1, leaseExpiresAt: attempt.expiresAt })),
+    complete: vi.fn(async (_organizationId: string, _run: unknown, output: { discoveredCount: number; typedRecords: Array<{ kind: string; row: unknown }> }, head: { windowStartAt: Date | null; windowEndAt: Date | null }) => {
+      collectionOutputs.push(output);
+      windows.push(head);
+      return { ...attempt, state: 'COMPLETE' as const, acceptedCount: output.discoveredCount };
     }),
-    failAttempt: vi.fn(async (input) => ({ ...attempt, state: 'FAILED' as const, errorMessage: input.message })),
+    fail: vi.fn(async (_organizationId: string, _run: unknown, _code: string, message: string) => ({ ...attempt, state: 'FAILED' as const, errorMessage: message })),
+    readSourceStatus: vi.fn(),
   };
+  const windows: Array<{ windowStartAt: Date | null; windowEndAt: Date | null }> = [];
 
   const service = new TrendCollectService(
     keywordResearch,
@@ -114,12 +120,13 @@ function buildPorts() {
     popularKeywords,
     shortstrend,
     repository,
-    attempts as never,
+    runs as never,
   );
 
   return {
     service,
-    attempts,
+    runs,
+    windows,
     keywordResearch,
     datalabTrend,
     popularKeywords,
@@ -143,14 +150,14 @@ function typedRows(
 describe('source start isolation', () => {
   it('continues aggregate sources after rejected start without inventing an attempt, but single-source propagates', async () => {
     const ports = buildPorts();
-    ports.attempts.beginAttempt.mockRejectedValueOnce(new Error('SOURCE_DISABLED'));
+    ports.runs.begin.mockRejectedValueOnce(new Error('SOURCE_DISABLED'));
     const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts'], null, 'aggregate');
     expect(result.results[0]).toMatchObject({ source: 'naver', ok: false, error: 'SOURCE_DISABLED' });
     expect(result.results[0]).not.toHaveProperty('attemptId');
     expect(result.results[1]).toMatchObject({ source: 'shorts', ok: true });
     expect(ports.shortstrend.fetchTrending).toHaveBeenCalledOnce();
-    expect(ports.attempts.failAttempt).not.toHaveBeenCalled();
-    ports.attempts.beginAttempt.mockRejectedValueOnce(new Error('ACTIVE_ATTEMPT_CONFLICT'));
+    expect(ports.runs.fail).not.toHaveBeenCalled();
+    ports.runs.begin.mockRejectedValueOnce(new Error('ACTIVE_ATTEMPT_CONFLICT'));
     await expect(ports.service.collectSource(ORGANIZATION_ID, 'naver', null, 'distinct'))
       .rejects.toThrow('ACTIVE_ATTEMPT_CONFLICT');
   });
@@ -643,13 +650,11 @@ describe('TrendCollectService', () => {
       expect(result).toMatchObject({ businessDate: '2026-09-07',
         results: [{ source: 'naver', ok: true }, { source: 'shorts', ok: true }] });
       const sourceWindow = {
-        sourceWindowStartAt: new Date('2026-09-06T15:00:00.000Z'),
-        sourceWindowEndAt: new Date(capturedAt),
+        windowStartAt: new Date('2026-09-06T15:00:00.000Z'),
+        windowEndAt: new Date(capturedAt),
       };
-      expect(ports.attempts.completeAttempt.mock.calls.map(([input]) => ({
-        sourceWindowStartAt: input.sourceWindowStartAt,
-        sourceWindowEndAt: input.sourceWindowEndAt,
-      }))).toEqual([sourceWindow, sourceWindow]);
+      expect(ports.windows.map(({ windowStartAt, windowEndAt }) => ({ windowStartAt, windowEndAt })))
+        .toEqual([sourceWindow, sourceWindow]);
       expect(typedRows(ports, 'shorts')).toMatchObject([
         { videoKey: 'vid-1', businessDate: new Date('2026-09-07T00:00:00.000Z') },
       ]);

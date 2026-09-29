@@ -36,7 +36,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Operation](erd/operation.md) | 3 |
 | [Orders](erd/orders.md) | 10 |
 | [Products](erd/products.md) | 6 |
-| [Sourcing](erd/sourcing.md) | 35 |
+| [Sourcing](erd/sourcing.md) | 34 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 5 |
 
@@ -125,7 +125,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourcingDecisionBatch | Sourcing | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
 | SourcingDecisionBatchItem | Sourcing | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
 | SourcingDecisionEvidence | Sourcing | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
-| SourcingEvidenceIngestionRun | Sourcing | `sourcing_evidence_ingestion_runs` | Durable source-owner attempt. Browser sources use RUNNING, COMPLETE, and FAILED with a frozen plan and current COMPLETE pointer. |
 | SourcingEvidenceObservation | Sourcing | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
 | SourcingInterestTarget | Sourcing | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingKeywordPreference | Sourcing | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
@@ -1700,44 +1699,6 @@ erDiagram
     Int ordinal
     DateTime createdAt
   }
-  SourcingEvidenceIngestionRun {
-    String id PK
-    String organizationId FK
-    String sourceKey
-    String scopeKey
-    String leaseToken
-    DateTime leaseExpiresAt
-    DateTime sourceControlCheckedAt
-    Int generation
-    Int staleDiscardedCount
-    String targetKey
-    String idempotencyKey
-    String requestHash
-    String collectorKey
-    String collectorVersion
-    String triggerKind
-    String triggeredByUserId FK
-    String status
-    Json attemptPlan
-    String planChecksum
-    String contentChecksum
-    Boolean isCurrentComplete
-    DateTime sourceWindowStartAt
-    DateTime sourceWindowEndAt
-    Int discoveredCount
-    Int acceptedCount
-    Int rejectedCount
-    Int duplicateCount
-    Int coverageNumerator
-    Int coverageDenominator
-    Json qualityReport
-    String errorCode
-    String errorMessage
-    DateTime startedAt
-    DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   SourcingEvidenceObservation {
     String id PK
     String organizationId FK
@@ -2353,7 +2314,6 @@ erDiagram
   Organization ||--o{ SourcingDecisionBatch : "organization"
   Organization ||--o{ SourcingDecisionBatchItem : "organization"
   Organization ||--o{ SourcingDecisionEvidence : "organization"
-  Organization ||--o{ SourcingEvidenceIngestionRun : "organization"
   Organization ||--o{ SourcingEvidenceObservation : "organization"
   Organization ||--o{ SourcingInterestTarget : "organization"
   Organization ||--o{ SourcingKeywordPreference : "organization"
@@ -2462,7 +2422,6 @@ erDiagram
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
   User o|--o{ SourceRecord : "triggeredByUser"
   User ||--o{ SourcingDecisionBatch : "requestedByUser"
-  User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
   User ||--o{ SourcingLaunchCandidate : "createdByUser"
   User ||--o{ SourcingReviewBatch : "requestedBy"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"

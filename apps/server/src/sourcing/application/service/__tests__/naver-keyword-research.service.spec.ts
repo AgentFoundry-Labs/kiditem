@@ -16,10 +16,11 @@ function setup() {
     keyword: input.keyword, generatedAt, items: [] })) };
   const trend = { compareSearchTrends: vi.fn(async (input) => ({ source: 'naver-datalab-search-trend', keywords: input.keywords,
     startDate: '2026-08-06', endDate: '2026-09-06', timeUnit: 'date', generatedAt, items: [] })) };
-  const attempt = { attemptId: 'attempt', attemptToken: 'token', planChecksum: 'checksum', targetKey: 'input', state: 'RUNNING' };
+  const attempt = { attemptId: 'attempt', planChecksum: 'checksum', targetKey: 'input', state: 'RUNNING' };
+  // 실행 계약 runner 자리: 이 스펙은 공급자 호출 순서·상한만 본다(실행·발행은 PG 스펙).
   const service = new NaverKeywordResearchService(keyword as never, trend as never, popular as never, autocomplete as never, {} as never,
-    { beginAttempt: async () => ({ attempt, created: true }), completeAttempt: async () => ({ ...attempt, state: 'COMPLETE' }),
-      failAttempt: async (input: { message: string }) => ({ ...attempt, state: 'FAILED', errorMessage: input.message }) } as never);
+    { begin: async () => ({ attempt, created: true, token: 'token' }), complete: async () => ({ ...attempt, state: 'COMPLETE' }),
+      fail: async (_organizationId: string, _run: unknown, _code: string, message: string) => ({ ...attempt, state: 'FAILED', errorMessage: message }) } as never);
   return { service, keyword, trend, popular, autocomplete };
 }
 

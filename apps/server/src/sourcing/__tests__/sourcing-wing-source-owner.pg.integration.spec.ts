@@ -1,10 +1,7 @@
 import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
+import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
 import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
 import { SourcingWingCatalogIngestService } from '../application/service/sourcing-wing-catalog-ingest.service';
@@ -13,14 +10,13 @@ import type { PrismaClient } from '@prisma/client';
 import type { SourcingWingCatalogObservation } from '@kiditem/shared/sourcing';
 
 const organizationId = TEST_ORGANIZATION_ID;
-const user = { id: TEST_USER_ID };
 const item: SourcingWingCatalogObservation = { productId: '123', itemId: null, vendorItemId: null, productName: '연필',
   itemName: null, brandName: null, manufacture: null, categoryHierarchy: null, imagePath: null,
   salePriceKrw: 1000, ratingAverage: null, ratingCount: null, viewsLast28d: null,
   salesLast28d: null, estimatedRevenue28d: null, conversionRate28d: null, deliveryInfo: null,
   sourceKeyword: 'A Pencil', capturedAt: '2026-09-05T00:00:00.000Z' };
 
-describe('Wing catalog source owner with disposable PostgreSQL (KID-360: sourcing.wing_catalog operations + manual ingest)', () => {
+describe('Wing catalog source owner with disposable PostgreSQL (KID-360: sourcing.wing_catalog operations)', () => {
   let prisma: PrismaClient;
   let controller: SourcingWorkspaceController;
   let wing: ReturnType<typeof sourcingExtensionOperations>;
@@ -29,8 +25,6 @@ describe('Wing catalog source owner with disposable PostgreSQL (KID-360: sourcin
     prisma = makeTestPrisma();
     await prisma.$connect();
     const service = new SourcingWingCatalogIngestService(
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort),
       new SourcingRecommendationSourceRepositoryAdapter(prisma as never),
     );
     controller = new SourcingWorkspaceController(undefined as never, service,
@@ -199,59 +193,6 @@ describe('Wing catalog source owner with disposable PostgreSQL (KID-360: sourcin
       normalizedKeyword: 'a pencil',
       limit: 50,
     })).resolves.toEqual({ generatedAt: expect.any(Date), items: [], rejectedCount: 0 });
-  });
-
-  it('preserves the separate bounded manual-ingestion contract on the same owner path without implicit recommendation work', async () => {
-    const command = { idempotencyKey: randomUUID(), items: Array.from({ length: 13 }, (_, index) => ({
-      productId: String(index), productName: '연필', sourceKeyword: `manual ${index}`,
-      capturedAt: '2026-09-05T00:00:00.000Z',
-    })) };
-    const first = await controller.ingestCoupangObservations(command as never, organizationId, user as never);
-    expect(first.state).toBe('COMPLETE');
-    expect(first).not.toHaveProperty('attemptToken');
-    expect(await controller.ingestCoupangObservations(command as never, organizationId, user as never)).toEqual(first);
-    await expect(controller.getWingCatalogSnapshot('manual 12', organizationId)).resolves.toMatchObject({
-      items: [{ productId: '12', productName: '연필', itemName: null }],
-    });
-    expect(await prisma.sourcingEvidenceIngestionRun.count()).toBe(1);
-    expect(await prisma.sourcingRecommendationRun.count()).toBe(0);
-  });
-
-  it('deduplicates identical manual observations before publishing exact reader coverage', async () => {
-    const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
-    const manualItem = {
-      productId: 'manual-duplicate',
-      productName: '중복 수동 관측',
-      sourceKeyword: '수동 중복',
-      capturedAt: '2026-09-05T00:00:00.000Z',
-    };
-    const terminal = await controller.ingestCoupangObservations({
-      idempotencyKey: randomUUID(),
-      items: [manualItem, manualItem],
-    } as never, organizationId, user as never);
-
-    expect(terminal).toMatchObject({
-      state: 'COMPLETE',
-      acceptedCount: 1,
-    });
-    await expect(controller.getWingCatalogSnapshot('수동 중복', organizationId))
-      .resolves.toMatchObject({ items: [{ productId: 'manual-duplicate' }], rejectedCount: 0 });
-    await expect(sources.listLatestCoupangObservations({
-      organizationId,
-      cutoffAt: await databaseNow(),
-      lookbackDays: 30,
-      limit: 50,
-    })).resolves.toMatchObject({
-      items: [{ productId: 'manual-duplicate' }],
-      rejectedCount: 0,
-    });
-    const run = await prisma.sourcingEvidenceIngestionRun.findFirstOrThrow({
-      where: { organizationId, sourceKey: 'coupang.wing_catalog' },
-    });
-    expect(run).toMatchObject({ discoveredCount: 1, acceptedCount: 1, duplicateCount: 0 });
-    expect(run.qualityReport).toMatchObject({
-      wingReceipts: [{ count: 1, acceptedCount: 1, duplicateCount: 0 }],
-    });
   });
 
   /**

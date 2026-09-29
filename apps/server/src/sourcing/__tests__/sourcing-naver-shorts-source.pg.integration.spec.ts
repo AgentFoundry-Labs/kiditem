@@ -1,9 +1,8 @@
 import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
 import { TrendQueryService } from '../application/service/trend-query.service';
 import { TrendCollectionController } from '../adapter/in/http/trend-collection.controller';
@@ -20,7 +19,7 @@ const KST_NOON = new Date('2026-09-07T03:00:00.000Z');
 const NEXT_KST_DAWN = new Date('2026-09-07T18:30:00.000Z');
 const COLLECTION_CLOCKS: Array<[string, Date]> = [['03:30 KST', KST_DAWN], ['12:00 KST', KST_NOON]];
 
-describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
+describe('네이버·쇼츠 트렌드와 키워드 분석 = 서버 구동 kind (disposable PostgreSQL)', () => {
   let prisma: PrismaClient;
   let service: TrendCollectService;
   let analysis: NaverKeywordResearchService;
@@ -35,16 +34,12 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     history = new TrendCollectionRepositoryAdapter(prisma as never);
-    const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-      new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort);
+    const { runner } = sourcingServerOperations(prisma, unusedSalesProductDraftPort);
     analysis = new NaverKeywordResearchService({ searchRelatedKeywords } as never,
-      { compareSearchTrends } as never, { searchPopularKeywords }, { searchAutocompleteKeywords }, history,
-      attempts as never);
+      { compareSearchTrends } as never, { searchPopularKeywords }, { searchAutocompleteKeywords }, history, runner);
     service = new TrendCollectService(
       { searchRelatedKeywords } as never, { compareSearchTrends } as never,
-      { searchPopularKeywords }, { fetchTrending }, history,
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort) as never,
+      { searchPopularKeywords }, { fetchTrending }, history, runner,
     );
   });
   afterAll(async () => prisma?.$disconnect());
@@ -52,7 +47,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     vi.resetAllMocks();
-    vi.useFakeTimers({ toFake: ['Date'] });
+    // 시각은 고정점에서 실제로 흐른다: 실행·발행의 시작·완료 순서가 시각으로 갈린다(계약은 JS 시계를 쓴다).
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true });
     vi.setSystemTime(KST_DAWN);
     fetchTrending.mockResolvedValue({ source: 'shortstrend', generatedAt: new Date().toISOString(),
       items: [{ videoKey: ' video-1 ', rank: 1.4, title: 'Kids', viewCount: 100.6, keyword: '문구' },
@@ -134,7 +130,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     expect(await analysis.collectAnalysis({ organizationId, input, idempotencyKey: 'analysis', requestedByUserId: TEST_USER_ID })).toEqual(first);
     expect(searchRelatedKeywords).toHaveBeenCalledTimes(1);
     expect(searchAutocompleteKeywords).toHaveBeenCalledWith({ keyword: '슬라임', maxResults: 30, signal: undefined });
-    await expect(analysis.collectAnalysis({ organizationId, input: { ...input, device: 'pc' }, idempotencyKey: 'analysis' })).rejects.toThrow('SOURCE_IDEMPOTENCY_KEY_REUSED');
+    await expect(analysis.collectAnalysis({ organizationId, input: { ...input, device: 'pc' }, idempotencyKey: 'analysis' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'idempotency_key_reused' } });
     searchRelatedKeywords.mockRejectedValueOnce(new Error('SearchAd unavailable'));
     expect(await analysis.collectAnalysis({ organizationId, input, idempotencyKey: 'analysis-failed' }))
       .toMatchObject({ attempt: { state: 'FAILED' }, payload: null });
@@ -247,6 +244,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     const controller = new TrendCollectionController(service, new TrendQueryService(history));
     const completed = (await controller.collect({ sources: [source] }, organizationId,
       { id: TEST_USER_ID } as never, 'yesterday-complete')).results[0];
+    // 실행 순서는 시작 시각으로 갈린다: 가짜 시계가 20ms 단위로만 흐르므로 다음 수집을 1초 뒤로 둔다.
+    vi.setSystemTime(new Date(Date.now() + 1_000));
     const failProvider = () => source === 'shorts'
       ? fetchTrending.mockRejectedValueOnce(new Error('provider failed'))
       : searchPopularKeywords.mockRejectedValueOnce(new Error('provider failed'));
@@ -259,6 +258,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       latestComplete: { attemptId: completed.attemptId }, latestAttempt: { attemptId: yesterdayFailure.attemptId, state: 'FAILED' },
       errorMessage: yesterdayFailure.error });
     failProvider();
+    vi.setSystemTime(new Date(Date.now() + 1_000));
     const todayFailure = (await controller.collect({ sources: [source] }, organizationId,
       { id: TEST_USER_ID } as never, 'today-failed')).results[0];
     const failedToday = (await controller.status(organizationId))[source];
@@ -267,7 +267,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       errorMessage: todayFailure.error });
   });
 
-  it('replays a RUNNING request without IO and rejects a distinct active start while preserving source-owned status', async () => {
+  it('진행 중 요청의 재전송은 IO 없이 RUNNING, 같은 plan의 다른 요청은 계약 겹침으로 그 실행을 가리킨다', async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     fetchTrending.mockImplementationOnce(async () => { await gate; return { source: 'shortstrend', items: [] }; });
@@ -276,7 +276,8 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     try {
       const replay = await service.collect(organizationId, ['shorts'], TEST_USER_ID, 'held');
       expect(replay.results[0].state).toBe('RUNNING');
-      await expect(service.collectSource(organizationId, 'shorts', TEST_USER_ID, 'distinct')).rejects.toThrow('Conflict');
+      expect(await service.collectSource(organizationId, 'shorts', TEST_USER_ID, 'distinct'))
+        .toMatchObject({ ok: false, state: 'RUNNING', attemptId: replay.results[0].attemptId });
       expect(fetchTrending).toHaveBeenCalledOnce();
       expect(await service.status(organizationId, 'shorts')).toMatchObject({ ready: false, latestComplete: null, latestAttempt: { state: 'RUNNING' } });
     } finally { release(); }

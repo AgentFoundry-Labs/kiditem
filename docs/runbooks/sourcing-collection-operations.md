@@ -11,14 +11,15 @@ attempt.
 The ownership flow is exact:
 
 ```text
-sourcing screen CTA -> source owner attempt (SourcingEvidenceIngestionRun)
-browser source -> KidItem OS collector -> token-fenced owner terminal
-server source  -> Office Chrome CDP    -> token-fenced owner terminal
-owner COMPLETE snapshot -> sourcing screen
+sourcing screen CTA -> Sourcing operation kind (the response's attemptId is the operation id)
+browser source -> KidItem OS collector -> token-fenced owner finalize
+server source  -> Office Chrome CDP    -> server begin, putChunk, finish in the request
+owner current publication -> sourcing screen
 ```
 
-The source owner is the only writer of its attempts, canonical facts, and
-terminal status. A screen reads the owner's latest COMPLETE snapshot; a running
+The source owner is the only writer of its canonical facts and publications;
+the operation row holds the attempt and its terminal status. Server-run kinds
+cannot be opened or claimed over `POST /api/operations` (KID-389). A screen reads the owner's latest COMPLETE snapshot; a running
 attempt is never a substitute payload, and completing a collection publishes no
 downstream calculation.
 
@@ -96,7 +97,7 @@ And these source-status fields:
 
 | Field | Meaning |
 | --- | --- |
-| `ready` | The latest COMPLETE attempt still matches the current frozen plan. |
+| `ready` | The current publication still matches the current frozen plan. |
 | `latestAttempt` | The newest attempt in any state, including a running one. |
 | `latestComplete` | The snapshot every reader uses. A failed attempt keeps the previous one. |
 | `actualCutoffAt` | The moment that snapshot actually covers, which may be older than the request. |
@@ -111,11 +112,12 @@ fallback, and image matching stays tabless HTTP.
 
 ### Diagnose a keyword search by its unit result
 
-A keyword search opens one attempt per keyword, and every outcome, including a
-provider failure, terminalizes that attempt as COMPLETE with `errorCode` null
-and its failure Alert resolved. So a CDP outage leaves no FAILED attempt and no
-Alert to find: the bounded code lives in the unit result, in `result.units[]` of
-the start response and as `unit` in
+A keyword search opens one server-run operation
+(`sourcing.keyword_search_1688`) per keyword. A unit with a failed item, a CDP
+outage included, finishes that operation FAILED with `errorCode`
+`SOURCE_PLAN_INCOMPLETE` and publishes nothing, so the previous snapshot stays
+current. The bounded code lives in the unit result, which the operation keeps:
+in `result.units[]` of the start response and as `unit` in
 `GET /api/sourcing/wholesale/1688/keyword-search/:attemptId`. Image matching
 uses the same shape.
 
@@ -147,15 +149,17 @@ already collected keep their published facts.
 
 ## Failure, Retry, And Attention
 
-A source that reports its own failure, which is every source except the two 1688
-searches, commits a bounded code and a durable Alert in the owner's terminal
-transaction. The Alert is a human notification, not execution state.
+Every source, the two 1688 searches included, finishes a failed collection as a
+FAILED operation with a bounded code, and the owner records a durable Alert in
+the same finish transaction. A 1688 unit with a failed item closes FAILED with
+`SOURCE_PLAN_INCOMPLETE` and keeps its unit result on the operation; nothing is
+published. The Alert is a human notification, not execution state.
 
 | Situation | Safe action | Never do |
 | --- | --- | --- |
 | A running collection is no longer wanted | Let the lease expire, or complete the human step the collector is waiting on. | Delete or edit the attempt row, or start a second collection for the same source. |
 | The browser needs login, OTP, CAPTCHA, or account selection | Keep the provider tab, finish the human action, then use the screen CTA again. | Treat authentication as a transient error, or bypass it with a copied session. |
-| Provider outage or timeout | Keep the previous COMPLETE snapshot, record the bounded code from the attempt or the unit result, restore provider readiness, then start a new collection. | Replace the snapshot with empty data, or read a COMPLETE 1688 attempt as a successful collection without checking its unit. |
+| Provider outage or timeout | Keep the previous COMPLETE snapshot, record the bounded code from the attempt or the unit result, restore provider readiness, then start a new collection. | Replace the snapshot with empty data, or read a FAILED 1688 search as an empty result without checking its unit. |
 | The frozen plan no longer matches the targets | Start a new collection so the owner freezes the current plan. | Edit the stored plan or its checksum. |
 | Fence or token lost | Stop the collector, close the tabs it owns, and read the source status. | Send a late terminal report, or reuse a token from an earlier attempt. |
 

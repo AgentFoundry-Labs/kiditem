@@ -1,46 +1,45 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { Sourcing1688ImageMatchInputSchema, type Sourcing1688BatchUnitResult } from '@kiditem/shared/sourcing';
 import { kstBusinessDate } from '../../../common/kst';
 import { extractSupplierOfferId, parseAllowedSupplierUrl } from '../../domain/supplier-source-url-policy';
 import { SOURCING_1688_IMAGE_SEARCH_PORT, type Sourcing1688ImageSearchPort } from '../port/out/provider/1688-image-search.port';
-import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT, type SourcingBrowserSourceAttempt,
-  type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { SOURCING_1688_IMAGE_COLLECTOR_KEY, SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION, type Sourcing1688SearchResultRepositoryPort } from '../port/out/repository/sourcing-1688-search-result.repository.port';
 import { hashCollectionRequest, map1688HotProductsToAuthorizedOutput } from './sourcing-collection-mappers';
-import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
-import { batchResult, failedUnit, searchUnit, sourceAlert } from './sourcing-1688-search-result';
+import { boundedKey, SourcingServerOperationRunner, type SourcingSourceAttempt } from './sourcing-server-operation.runner';
+import { batchResult, failedUnit, searchUnit, sourceAlert, unitResultOf } from './sourcing-1688-search-result';
 
 const SOURCE = '1688.image_search';
+const KIND = SOURCING_OPERATION_KINDS.imageSearch1688;
 const RESULT_LIMIT = 18;
 
 @Injectable()
 export class Sourcing1688ImageSearchService {
   constructor(
     @Inject(SOURCING_1688_IMAGE_SEARCH_PORT) private readonly imageSearch: Sourcing1688ImageSearchPort,
-    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT) private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly runs: SourcingServerOperationRunner,
     @Inject(SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT) private readonly searchResults: Sourcing1688SearchResultRepositoryPort,
   ) {}
 
   async read(input: { organizationId: string; attemptId: string }) {
-    const attempt = await this.attempts.readAttempt(input);
+    const attempt = await this.runs.read(input.organizationId, input.attemptId, [KIND]);
     if (!attempt || attempt.sourceKey !== SOURCE || attempt.scopeKey !== 'default'
       || typeof attempt.plan.targetId !== 'string' || attempt.plan.maxResults !== RESULT_LIMIT) {
-      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
+      throw new KiditemNotFoundError('OPERATION_NOT_FOUND', { details: { attemptId: input.attemptId } });
     }
-    const unit = attempt.state === 'RUNNING' ? null
-      : await this.searchResults.findUnitResult({ ...input, sourceKey: SOURCE });
-    return { attempt, unit };
+    return { attempt, unit: unitResultOf(attempt, SOURCE) };
   }
 
   async search(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string; input: unknown; signal?: AbortSignal }) {
     const parsed = Sourcing1688ImageMatchInputSchema.safeParse(input.input);
     if (!parsed.success) throw new BadRequestException('INVALID_1688_IMAGE_REQUEST');
-    const key = requireIdempotencyKey(input.idempotencyKey);
+    const key = boundedKey(input.idempotencyKey);
     const signal = input.signal ?? AbortSignal.timeout(15 * 60_000);
     const resolved = await this.searchResults.resolveImageTargets({ organizationId: input.organizationId, targetIds: parsed.data.targetIds });
     const targets = new Map(resolved.targets.map((target) => [target.targetId, target]));
-    const attempts: SourcingBrowserSourceAttempt[] = [];
+    const attempts: SourcingSourceAttempt[] = [];
     const units: Sourcing1688BatchUnitResult[] = [];
     for (const targetId of parsed.data.targetIds) {
       signal.throwIfAborted();
@@ -48,18 +47,20 @@ export class Sourcing1688ImageSearchService {
       const keyword = target?.searchQuery.trim() || 'unauthorized-target';
       const targetKey = `image-target:${hashCollectionRequest(targetId)}`;
       const plan = { source: SOURCE, targetId, imageUrl: target?.imageUrl ?? null, keyword, maxResults: RESULT_LIMIT };
-      const { attempt, created } = await this.attempts.beginAttempt({
-        organizationId: input.organizationId, sourceKey: SOURCE, scopeKey: 'default', targetKey,
-        idempotencyKey: hashCollectionRequest({ key, targetId }),
-        requestFingerprint: hashCollectionRequest({ targetId, maxResults: RESULT_LIMIT }),
-        plan, planChecksum: hashCollectionRequest(plan), requestedByUserId: input.requestedByUserId,
-        collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY, collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-        triggerKind: 'manual', expiresInMs: 15 * 60_000, failureAlert: sourceAlert(SOURCE, targetKey),
+      const run = await this.runs.begin({
+        organizationId: input.organizationId, userId: input.requestedByUserId, kind: KIND,
+        requestIdempotencyKey: hashCollectionRequest({ key, targetId }),
+        scope: { sourceKey: SOURCE, scopeKey: 'default', targetKey,
+          requestFingerprint: hashCollectionRequest({ targetId, maxResults: RESULT_LIMIT }),
+          attemptPlan: plan, planChecksum: hashCollectionRequest(plan),
+          collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY, collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+          failureAlert: sourceAlert(SOURCE, targetKey) },
       });
-      if (!created) {
+      const { attempt } = run;
+      if (!run.created) {
         attempts.push(attempt);
         if (attempt.state === 'RUNNING') return { attempts, result: null };
-        const unit = await this.searchResults.findUnitResult({ organizationId: input.organizationId, attemptId: attempt.attemptId, sourceKey: SOURCE });
+        const unit = unitResultOf(attempt, SOURCE);
         if (!unit) throw new BadRequestException('1688 search result is not yet available.');
         units.push(unit);
         continue;
@@ -93,7 +94,7 @@ export class Sourcing1688ImageSearchService {
             } catch { rejectedCount += 1; return []; }
           });
           unit = searchUnit(keyword, targetId, result.items.length, rejectedCount);
-          output = map1688HotProductsToAuthorizedOutput({ permit: toPermit(attempt, input.organizationId), rows,
+          output = map1688HotProductsToAuthorizedOutput({ permit: this.runs.permit(input.organizationId, run), rows,
             discoveredCount: result.items.length, rejectedCount });
         } catch (error) {
           signal.throwIfAborted();
@@ -102,9 +103,8 @@ export class Sourcing1688ImageSearchService {
         }
       }
       output.qualityReport = { resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION, keyword, targetId, unitResult: unit };
-      const terminal = await this.attempts.completeAttempt({ organizationId: input.organizationId,
-        attemptId: attempt.attemptId, attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
-        contentChecksum: hashCollectionRequest(output), output });
+      const terminal = await this.runs.complete(input.organizationId, run, output, {
+        contentChecksum: hashCollectionRequest(output), windowStartAt: null, windowEndAt: null });
       attempts.push(terminal);
       units.push(unit);
     }

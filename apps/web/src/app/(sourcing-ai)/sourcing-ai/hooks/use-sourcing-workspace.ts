@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   RecommendationSurface,
   ReviewWorkspaceKey,
-  SourcingCoupangObservationCommand,
   SourcingKeywordPreferenceCommand,
   SourcingInterestTargetCommand,
   SourcingReviewBatchCommand,
@@ -28,19 +27,6 @@ export function useSourcingRecommendations(
     queryFn: () => sourcingWorkspaceApi.recommendations({ surface, ...input }),
     enabled: organizationId !== null,
     refetchInterval: 60_000,
-  });
-}
-
-export function useIngestSourcingCoupangObservations() {
-  const organizationId = useSourcingWorkspaceOrganizationId();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (input: SourcingCoupangObservationCommand) =>
-      sourcingWorkspaceApi.ingestCoupangObservations(input),
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-      }),
   });
 }
 

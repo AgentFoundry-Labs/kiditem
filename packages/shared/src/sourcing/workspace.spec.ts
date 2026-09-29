@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  SourcingCoupangObservationCommandSchema,
   SourcingKeywordPreferenceCommandSchema,
   SourcingKeywordPreferenceSchema,
   SourcingReadEnvelopeSchema,
@@ -130,51 +129,6 @@ describe('sourcing workspace contracts', () => {
       },
     });
     expect(parsed).not.toHaveProperty('sourceSnapshot');
-  });
-
-  it('accepts only bounded, strict Wing observation batches', () => {
-    expect(
-      SourcingCoupangObservationCommandSchema.parse({
-        idempotencyKey: '11111111-1111-4111-8111-111111111111',
-        items: [
-          {
-            productId: '123',
-            itemId: null,
-            vendorItemId: '456',
-            productName: '유아 우산',
-            sourceKeyword: '우산',
-            salePriceKrw: 12000,
-            ratingCount: 10,
-            ratingAverage: 4.5,
-            viewsLast28d: 100,
-            salesLast28d: 20,
-            capturedAt: '2026-08-10T00:00:00.000Z',
-          },
-        ],
-      }),
-    ).toMatchObject({ items: [{ productId: '123' }] });
-
-    expect(() =>
-      SourcingCoupangObservationCommandSchema.parse({
-        idempotencyKey: '11111111-1111-4111-8111-111111111111',
-        items: [
-          {
-            productId: '123',
-            itemId: null,
-            vendorItemId: null,
-            productName: '유아 우산',
-            sourceKeyword: '우산',
-            salePriceKrw: null,
-            ratingCount: null,
-            ratingAverage: null,
-            viewsLast28d: null,
-            salesLast28d: null,
-            capturedAt: '2026-08-10T00:00:00.000Z',
-            untrusted: true,
-          },
-        ],
-      }),
-    ).toThrow();
   });
 
   it('keeps keyword preference updates keyed and compare-and-swap protected', () => {

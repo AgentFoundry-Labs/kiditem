@@ -32,12 +32,9 @@ import {
   hashCollectionRequest,
   mapTrendTypedRecordsToAuthorizedOutput,
 } from './sourcing-collection-mappers';
-import {
-  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
-  type SourcingBrowserSourceAttempt,
-  type SourcingBrowserSourceAttemptRepositoryPort,
-} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
-import { requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
+import { KiditemError } from '@kiditem/shared/errors';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import { SourcingServerOperationRunner, type SourcingSourceAttempt } from './sourcing-server-operation.runner';
 import type {
   TrendCollectionControls,
   TrendCollectionPort,
@@ -100,8 +97,7 @@ export class TrendCollectService implements TrendCollectionPort {
     private readonly shortstrend: ShortstrendTrendPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly repository: TrendCollectionRepositoryPort,
-    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
-    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly runs: SourcingServerOperationRunner,
   ) {}
 
   listSeeds(organizationId: string): Promise<TrendSeedRow[]> {
@@ -145,13 +141,13 @@ export class TrendCollectService implements TrendCollectionPort {
     const seeds = (await this.repository.listSeeds(organizationId)).filter((seed) => seed.enabled);
     const { capturedAt: _capturedAt, ...coverage } = trendPlan(source, seeds, new Date());
     const checksum = hashCollectionRequest(coverage);
-    const query = { organizationId, sourceKey: coverage.source, scopeKey: 'default',
+    const query = { organizationId, kinds: [TREND_KIND[source]], sourceKey: coverage.source, scopeKey: 'default',
       targetKey: checksum, currentPlanChecksum: checksum };
-    const current = await this.attempts.readSourceStatus(query);
+    const current = await this.runs.readSourceStatus(query);
     if (current.latestComplete) return current;
     const previousTarget = await this.repository.findLatestCompleteTrendScope({ organizationId, source });
     if (!previousTarget) return current;
-    const previous = await this.attempts.readSourceStatus({ ...query, targetKey: previousTarget });
+    const previous = await this.runs.readSourceStatus({ ...query, targetKey: previousTarget });
     if (!previous.latestComplete) return current;
     return { ...(current.latestAttempt ? current : previous), ready: false,
       latestComplete: previous.latestComplete, actualCutoffAt: previous.actualCutoffAt };
@@ -203,33 +199,38 @@ export class TrendCollectService implements TrendCollectionPort {
     const plan = trendPlan(source, seeds, capturedAt);
     const { capturedAt: _capturedAt, ...coverage } = plan;
     const planChecksum = hashCollectionRequest(coverage);
-    const failureAlert = trendFailureAlert(plan.source);
-    const { attempt, created } = await this.attempts.beginAttempt({
-      organizationId, sourceKey: plan.source, scopeKey: 'default', targetKey: planChecksum,
-      idempotencyKey: requireIdempotencyKey(collectionRunKey ?? ''),
-      requestFingerprint: hashCollectionRequest({ source }), plan, planChecksum,
-      requestedByUserId: triggeredByUserId ?? null, collectorKey: 'trend-' + source,
-      collectorVersion: 'trend-source/v1', expiresInMs: 15 * 60_000, triggerKind: 'manual', failureAlert,
-    });
-    if (!created) return trendResult(source, attempt);
+    let run;
     try {
-      const frozen = attempt.plan as typeof plan;
+      run = await this.runs.begin({
+        organizationId, userId: triggeredByUserId ?? null, kind: TREND_KIND[source],
+        requestIdempotencyKey: collectionRunKey ?? '',
+        scope: { sourceKey: plan.source, scopeKey: 'default', targetKey: planChecksum,
+          requestFingerprint: hashCollectionRequest({ source }), attemptPlan: plan, planChecksum,
+          collectorKey: 'trend-' + source, collectorVersion: 'trend-source/v1', failureAlert: trendFailureAlert(plan.source) },
+      });
+    } catch (error) {
+      // 같은 plan이 이미 도는 중(계약의 겹침 거절): 그 실행을 알려 화면이 그 진행을 따라가게 한다.
+      const running = inProgressOperationId(error);
+      if (!running) throw error;
+      return { businessDate, source, ok: false, collected: 0, attemptId: running, state: 'RUNNING', actualCutoffAt: null,
+        error: errorMessage(error) };
+    }
+    if (!run.created) return trendResult(source, run.attempt);
+    try {
+      const frozen = run.attempt.plan as typeof plan;
       const observedAt = new Date(frozen.capturedAt);
       const day = kstBusinessDate(observedAt);
-      const permit = toPermit(attempt, organizationId);
+      const permit = this.runs.permit(organizationId, run);
       const output = source === 'naver'
         ? await this.collectNaver(organizationId, frozen.keywords, day, observedAt, permit, signal)
         : await this.collectShorts(organizationId, frozen.keywords, day, observedAt, permit, signal);
       signal?.throwIfAborted();
-      const complete = await this.attempts.completeAttempt({ organizationId, attemptId: attempt.attemptId,
-        attemptToken: attempt.attemptToken, planChecksum: attempt.planChecksum,
-        contentChecksum: hashCollectionRequest(output), output,
-        sourceWindowStartAt: kstDayStart(observedAt), sourceWindowEndAt: observedAt });
+      const complete = await this.runs.complete(organizationId, run, output, {
+        contentChecksum: hashCollectionRequest(output), windowStartAt: kstDayStart(observedAt), windowEndAt: observedAt });
       return trendResult(source, complete);
     } catch (error) {
-      const failed = await this.attempts.failAttempt({ organizationId, attemptId: attempt.attemptId,
-        attemptToken: attempt.attemptToken, code: signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED',
-        message: errorMessage(error) });
+      const failed = await this.runs.fail(organizationId, run,
+        signal?.aborted ? 'SOURCE_COLLECTION_CANCELLED' : 'SOURCE_COLLECTION_FAILED', errorMessage(error));
       signal?.throwIfAborted();
       return trendResult(source, failed);
     }
@@ -575,13 +576,25 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const TREND_KIND = {
+  naver: SOURCING_OPERATION_KINDS.naverTrend,
+  shorts: SOURCING_OPERATION_KINDS.shortstrendTrend,
+} as const;
+
+/** 계약의 겹침 거절(`OPERATION_IN_PROGRESS`)이면 지금 그 대상을 쥔 실행 id. */
+function inProgressOperationId(error: unknown): string | null {
+  if (!(error instanceof KiditemError) || error.code !== 'OPERATION_IN_PROGRESS') return null;
+  const operationId = (error.details as { operationId?: unknown } | undefined)?.operationId;
+  return typeof operationId === 'string' ? operationId : null;
+}
+
 function trendFailureAlert(sourceKey: string) {
   return { sourceType: sourceKey, dedupeKey: 'source:' + sourceKey,
     title: sourceKey === 'naver.trend' ? '네이버 트렌드 수집 실패' : '쇼츠 트렌드 수집 실패',
     href: '/sourcing-ai/market' };
 }
 
-function trendResult(source: TrendCollectSource, attempt: SourcingBrowserSourceAttempt) {
+function trendResult(source: TrendCollectSource, attempt: SourcingSourceAttempt) {
   return { source, businessDate: String(attempt.plan.businessDate), attemptId: attempt.attemptId,
     state: attempt.state, ok: attempt.state === 'COMPLETE', collected: attempt.acceptedCount,
     actualCutoffAt: attempt.state === 'COMPLETE' ? String(attempt.plan.capturedAt) : null,

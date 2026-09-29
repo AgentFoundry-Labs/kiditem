@@ -1,11 +1,10 @@
 import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { LiveCommerceController } from '../adapter/in/http/live-commerce.controller';
 import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { LiveCommerceService } from '../application/service/live-commerce.service';
 import type { TaobaoLiveCollection, TaobaoLivePort } from '../application/port/out/provider/taobao-live.port';
 
@@ -15,7 +14,7 @@ const fixture: TaobaoLiveCollection = {
   warnings: ['지정 방송방: provider warning'],
 };
 
-describe('Taobao direct source owner (PG integration)', () => {
+describe('타오바오 라이브 = 서버 구동 kind sourcing.taobao_live (PG integration)', () => {
   let prisma: PrismaClient;
   let provider: TaobaoLivePort;
   let service: LiveCommerceService;
@@ -44,7 +43,7 @@ describe('Taobao direct source owner (PG integration)', () => {
       collect: vi.fn(async () => structuredClone(fixture)),
     };
     service = new LiveCommerceService(provider, new LiveCommerceRepositoryAdapter(prisma as never),
-      new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort));
+      sourcingServerOperations(prisma, unusedSalesProductDraftPort).runner);
     http = new LiveCommerceController(service);
   });
 
@@ -84,15 +83,18 @@ describe('Taobao direct source owner (PG integration)', () => {
     try {
       const replay = await http.collectTaobao({ liveIds: ['live-1'] }, 'concurrent', TEST_ORGANIZATION_ID);
       expect(replay.state).toBe('RUNNING');
-      await expect(http.collectTaobao({ liveIds: ['other'] }, 'concurrent', TEST_ORGANIZATION_ID)).rejects.toThrow('SOURCE_IDEMPOTENCY_KEY_REUSED');
-      await expect(http.collectTaobao({ queryDate: '20260101' }, 'different', TEST_ORGANIZATION_ID)).rejects.toThrow();
+      await expect(http.collectTaobao({ liveIds: ['other'] }, 'concurrent', TEST_ORGANIZATION_ID))
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'idempotency_key_reused' } });
+      // 같은 원천·대상의 두 번째 수집은 계약의 겹침 거절이다(옛 SOURCE_ATTEMPT_IN_PROGRESS 자리).
+      await expect(http.collectTaobao({ queryDate: '20260101' }, 'different', TEST_ORGANIZATION_ID))
+        .rejects.toMatchObject({ code: 'OPERATION_IN_PROGRESS' });
       expect(provider.collect).toHaveBeenCalledTimes(1);
       expect((await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).products).toEqual([]);
     } finally { release(structuredClone(fixture)); }
     expect((await pending).state).toBe('COMPLETE');
   });
 
-  it('rejects a provider result after fixed expiry and derives failure until a new explicit start records expiry and publishes', async () => {
+  it('임대(15분)가 지난 뒤 온 공급자 결과는 거절되고 만료 실패로 보이며, 알림은 열렸다가 새 수집의 성공이 닫는다', async () => {
     let release!: (value: TaobaoLiveCollection) => void;
     let started!: () => void;
     const entered = new Promise<void>((resolve) => { started = resolve; });
@@ -100,19 +102,18 @@ describe('Taobao direct source owner (PG integration)', () => {
     const pending = http.collectTaobao({}, 'expires', TEST_ORGANIZATION_ID);
     await entered;
     const running = (await http.status(TEST_ORGANIZATION_ID)).sources[0].sourceStatus!.latestAttempt!;
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: running.attemptId }, data: { leaseExpiresAt: new Date(Date.now() - 1_000) },
-    });
-    release(structuredClone(fixture));
-    await expect(pending).rejects.toThrow('SOURCE_ATTEMPT_EXPIRED');
+    expect(running.state).toBe('RUNNING');
+    await prisma.operation.update({ where: { id: running.attemptId }, data: { expiresAt: new Date(Date.now() - 1_000) } });
     expect((await http.status(TEST_ORGANIZATION_ID)).sources[0]).toMatchObject({
       sourceStatus: { ready: false, latestAttempt: { state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' }, latestComplete: null, actualCutoffAt: null },
     });
+    release(structuredClone(fixture));
+    await expect(pending).rejects.toMatchObject({ code: 'OPERATION_FENCE_LOST' });
     expect((await http.list({ days: 7 }, TEST_ORGANIZATION_ID)).products).toEqual([]);
-    expect(await prisma.alert.count()).toBe(0);
+    expect(await prisma.sourcingSourcePublication.count()).toBe(0);
+    expect(await prisma.alert.findFirstOrThrow()).toMatchObject({ status: 'OPEN', attemptId: running.attemptId });
     provider.collect = vi.fn(async () => structuredClone(fixture));
     expect((await http.collectTaobao({}, 'after-expiry', TEST_ORGANIZATION_ID)).state).toBe('COMPLETE');
-    expect(await prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: running.attemptId } })).toMatchObject({ status: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
     expect(await prisma.alert.findFirstOrThrow()).toMatchObject({ status: 'RESOLVED' });
   });
 

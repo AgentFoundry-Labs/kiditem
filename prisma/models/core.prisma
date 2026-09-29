@@ -135,7 +135,6 @@ model Organization {
   liveCommerceProductDailySnapshots   LiveCommerceProductDailySnapshot[]
   tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]
   sourcingCollectionSourceControls    SourcingCollectionSourceControl[]
-  sourcingEvidenceIngestionRuns       SourcingEvidenceIngestionRun[]
   sourcingSourcePublications          SourcingSourcePublication[]
   sourcingEvidenceObservations        SourcingEvidenceObservation[]
   sourcingWingCatalogProductSnapshots     SourcingWingCatalogProductSnapshot[]
@@ -172,7 +171,6 @@ model User {
   triggeredThumbnailGenerations              ThumbnailGeneration[]                          @relation("ThumbnailGenerationTriggeredBy")
   createdContentAssets                       ContentAsset[]                                 @relation("ContentAssetCreatedBy")
   createdContentWorkspaces                   ContentWorkspace[]                             @relation("ContentWorkspaceCreatedBy")
-  triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
   requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
   requestedSourcingReviewBatches             SourcingReviewBatch[]                          @relation("SourcingReviewBatchRequestedBy")
   createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")

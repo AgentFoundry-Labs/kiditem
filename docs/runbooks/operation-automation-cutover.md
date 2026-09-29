@@ -91,8 +91,10 @@ the writer-stopped target after its dump. Rehearse on the local QA database
      `tiktok_creative_trend_daily_snapshots`, whose old rows name no
      ingestion run; and `dedupe_key` for `alerts`, so the signal alerts
      `v0.1.31:005` keeps are deleted too.
-   - Every Office 0.1.30 `sourcing_evidence_ingestion_runs` row (the table
-     has no `is_current_complete` yet), after the rows that point at it:
+   - Every Office 0.1.30 `sourcing_evidence_ingestion_runs` row (the schema
+     step then drops the table; KID-389 discards its completed history under
+     ADR-0010, so each source collects once again), after the rows that
+     point at it:
      evidence observations, 1688 keyword observations, market facts,
      recommendation and validation evidence links, and the human-entered
      review hand-off items, registered supplier offers and their price

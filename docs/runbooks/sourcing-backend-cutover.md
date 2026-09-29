@@ -38,7 +38,8 @@ reset.
    - `sourcing_1688_hot_product_daily_snapshots` — the known irreversible
      data-loss scope;
    - `sourcing_evidence_ingestion_runs` and
-     `sourcing_evidence_observations`;
+     `sourcing_evidence_observations` (0.1.31 drops the run table; its rows
+     are discarded under ADR-0010, KID-389);
    - downstream Supplier offer, launch-candidate, decision, and procurement
      rows that can reference evidence.
 

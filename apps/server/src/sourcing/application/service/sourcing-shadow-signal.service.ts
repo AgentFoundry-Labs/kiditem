@@ -1,17 +1,13 @@
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
+  ConflictException,
   Inject,
   Injectable,
   NotFoundException,
   Optional,
 } from '@nestjs/common';
 import { canonicalJson } from '../../domain/sourcing-stable-json';
-import {
-  SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
-  type SourcingBrowserSourceAttemptRepositoryPort,
-  type SourcingBrowserSourceAttempt,
-} from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { addDays, businessDateKey, kstBusinessDate, kstDayStart } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import { MarketShadowSnapshotDocumentSchema } from '../../domain/market-shadow-snapshot-document';
@@ -24,6 +20,10 @@ import {
   type LinkfoxEchotikShadowPort,
   type MarketShadowSignalPort,
 } from '../port/out/provider/market-shadow-signal.port';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import { KiditemError } from '@kiditem/shared/errors';
+import { SourcingServerOperationRunner, toAttempt, type SourcingSourceAttempt } from './sourcing-server-operation.runner';
+import { sourceDocumentRef, type SourceDocumentSplit } from './sourcing-server-output.codec';
 import {
   MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,
   MARKET_SHADOW_SNAPSHOT_SCOPE,
@@ -141,6 +141,7 @@ const SHADOW_ALERT = {
   href: '/sourcing-ai/market',
 };
 const SHADOW_REQUEST_FINGERPRINT = shadowHash({ source: MARKET_SHADOW_SNAPSHOT_SCOPE });
+const SHADOW_KIND = SOURCING_OPERATION_KINDS.marketShadow;
 
 @Injectable()
 export class SourcingShadowSignalService {
@@ -151,8 +152,7 @@ export class SourcingShadowSignalService {
     private readonly snapshots: MarketShadowSnapshotRepositoryPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly trends: TrendCollectionRepositoryPort,
-    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
-    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly runs: SourcingServerOperationRunner,
     @Optional()
     @Inject(LINKFOX_ECHOTIK_SHADOW_PORT)
     private readonly linkfox?: LinkfoxEchotikShadowPort,
@@ -166,8 +166,9 @@ export class SourcingShadowSignalService {
     const { organizationId, idempotencyKey } = input;
     if (!idempotencyKey?.trim() || idempotencyKey.length > 128)
       throw new BadRequestException('A bounded Idempotency-Key is required');
-    const replayId = await this.snapshots.findAttemptIdByKey(organizationId, idempotencyKey);
-    if (replayId) return this.readAttempt(organizationId, replayId);
+    const replay = await this.runs.replay({ organizationId, kind: SHADOW_KIND, sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
+      requestIdempotencyKey: idempotencyKey, requestFingerprint: SHADOW_REQUEST_FINGERPRINT });
+    if (replay) return this.readAttempt(organizationId, replay.attemptId);
     controls.signal?.throwIfAborted();
     const businessDate = kstBusinessDate(now);
     const seedKeywords = buildSeedKeywords(await this.trends.listSeeds(organizationId));
@@ -185,24 +186,36 @@ export class SourcingShadowSignalService {
       linkfoxPilot,
       linkfoxPageSize: 50,
     };
-    const admitted = await this.attempts.beginAttempt({
+    // 유료 짝 수집은 KST 하루 1회이고 실패해도 그날 입장을 쓴다: 그날 실행이 하나라도 있으면 거절한다.
+    const today = { organizationId, kinds: [SHADOW_KIND], sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE, scopeKey: 'day',
+      targetKey: plan.businessDate };
+    const admittedToday = await this.runs.latest(today);
+    if (admittedToday) throw dailyLimit(admittedToday.attemptId);
+    const run = await this.runs.begin({
       organizationId,
-      sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
-      scopeKey: 'day',
-      targetKey: plan.businessDate,
-      idempotencyKey,
-      requestFingerprint: SHADOW_REQUEST_FINGERPRINT,
-      plan,
-      planChecksum: shadowHash(plan),
-      requestedByUserId: input.requestedByUserId ?? null,
-      collectorKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
-      collectorVersion: GENERATOR_VERSION,
-      expiresInMs: 15 * 60_000,
-      triggerKind: 'manual',
-      failureAlert: SHADOW_ALERT,
+      userId: input.requestedByUserId ?? null,
+      kind: SHADOW_KIND,
+      requestIdempotencyKey: idempotencyKey,
+      // 계약 멱등 키도 그날 하나: 동시에 들어온 두 번째 begin은 같은 실행을 받는다(reused).
+      operationIdempotencyKey: `market_shadow:${plan.businessDate}`,
+      scope: {
+        sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        scopeKey: 'day',
+        targetKey: plan.businessDate,
+        requestFingerprint: SHADOW_REQUEST_FINGERPRINT,
+        attemptPlan: plan,
+        planChecksum: shadowHash(plan),
+        collectorKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        collectorVersion: GENERATOR_VERSION,
+        failureAlert: SHADOW_ALERT,
+      },
+    }).catch(async (error: unknown) => {
+      // 같은 날 두 입장이 동시에 왔다: 먼저 연 실행이 그날 입장이다.
+      const winner = isAdmissionRace(error) ? await this.runs.latest(today) : null;
+      throw winner ? dailyLimit(winner.attemptId) : error;
     });
-    if (!admitted.created) return this.readAttempt(organizationId, admitted.attempt.attemptId);
-    const attempt = admitted.attempt;
+    if (!run.created) throw dailyLimit(run.attempt.attemptId);
+    const attempt = run.attempt;
     let payload: MarketShadowSnapshotPayload | undefined;
     let failure: { code: string; message: string } | undefined;
     try {
@@ -233,12 +246,7 @@ export class SourcingShadowSignalService {
       };
     try {
       if (failure) {
-        await this.attempts.failAttempt({
-          organizationId,
-          attemptId: attempt.attemptId,
-          attemptToken: attempt.attemptToken,
-          ...failure,
-        });
+        await this.runs.fail(organizationId, run, failure.code, failure.message);
       } else if (payload) {
         const payloadHash = shadowHash(payload);
         const observationKey = shadowHash({
@@ -246,18 +254,7 @@ export class SourcingShadowSignalService {
           day: plan.businessDate,
         });
         const typedDocument = MarketShadowSnapshotDocumentSchema.parse(payload);
-        await this.attempts.completeAttempt({
-          organizationId,
-          attemptId: attempt.attemptId,
-          attemptToken: attempt.attemptToken,
-          planChecksum: attempt.planChecksum,
-          contentChecksum: payloadHash,
-          // The KST business date is UTC midnight, 09:00 KST. Collected before
-          // dawn that start is later than the capture, so the stored window is
-          // reversed and a reader of its dates sees no covered day (KID-139).
-          sourceWindowStartAt: kstDayStart(now),
-          sourceWindowEndAt: now,
-          output: {
+        await this.runs.complete(organizationId, run, {
             discoveredCount: 1,
             rejectedCount: 0,
             typedRecords: [{
@@ -269,7 +266,7 @@ export class SourcingShadowSignalService {
                 evidenceRevision: 1,
                 schemaVersion: GENERATOR_VERSION,
                 businessDate,
-                document: typedDocument,
+                document: sourceDocumentRef('typed') as unknown as typeof typedDocument,
                 capturedAt: now,
               },
             }],
@@ -296,11 +293,19 @@ export class SourcingShadowSignalService {
                 availableAt: now,
                 revisionAt: null,
                 payloadHash,
-                rawPayload: payload,
+                rawPayload: sourceDocumentRef('raw'),
                 ingestedAt: now,
               },
             ],
-          },
+        }, {
+          contentChecksum: payloadHash,
+          // 문서는 품목 하나씩 청크 원소로 싣고 finalize가 옛 문서 그대로 다시 모은다(청크 원소 상한은 품목 하나에 걸린다).
+          documents: { raw: splitShadowDocument(payload), typed: splitShadowDocument(typedDocument) },
+          // The KST business date is UTC midnight, 09:00 KST. Collected before
+          // dawn that start is later than the capture, so the stored window is
+          // reversed and a reader of its dates sees no covered day (KID-139).
+          windowStartAt: kstDayStart(now),
+          windowEndAt: now,
         });
       }
     } catch (error) {
@@ -315,7 +320,7 @@ export class SourcingShadowSignalService {
     organizationId: string,
     attemptId: string,
   ): Promise<MarketShadowCollectionResult> {
-    const attempt = await this.attempts.readAttempt({ organizationId, attemptId });
+    const attempt = await this.runs.read(organizationId, attemptId, [SHADOW_KIND]);
     if (
       !attempt ||
       attempt.sourceKey !== MARKET_SHADOW_SNAPSHOT_SCOPE ||
@@ -332,7 +337,7 @@ export class SourcingShadowSignalService {
   }
 
   private safeReceipt(
-    attempt: SourcingBrowserSourceAttempt,
+    attempt: SourcingSourceAttempt,
   ): Omit<MarketShadowCollectionResult, 'snapshot'> {
     return {
       attemptId: attempt.attemptId,
@@ -345,7 +350,7 @@ export class SourcingShadowSignalService {
 
   async getStatus(organizationId: string, now = new Date()): Promise<MarketShadowSourceStatus> {
     const latest = await this.snapshots.readLatest(organizationId);
-    const latestAttempt = latest.latestAttempt ? this.safeReceipt(latest.latestAttempt) : null;
+    const latestAttempt = latest.latestAttempt ? this.safeReceipt(toAttempt(latest.latestAttempt)) : null;
     const latestComplete = latest.latestComplete;
     return {
       ready: !!latestComplete
@@ -504,6 +509,31 @@ export class SourcingShadowSignalService {
       new Set(rows.map((row) => businessDateKey(row.businessDate))).size,
     );
   }
+}
+
+/** 그날 입장을 이미 쓴 실행(옛 SHADOW_DAILY_LIMIT 응답 그대로 — 실행 id를 싣는다). */
+/** 섀도 문서의 원천별 품목 목록(Google `items`, Linkfox `products`)을 뼈대에서 떼어 품목 단위로 나눈다. */
+function splitShadowDocument(document: unknown): SourceDocumentSplit {
+  const skeleton = structuredClone(document) as { result?: { sources?: Array<Record<string, unknown>> } };
+  const lists: SourceDocumentSplit['lists'] = [];
+  (skeleton.result?.sources ?? []).forEach((source, index) => {
+    for (const key of ['items', 'products']) {
+      const items = source[key];
+      if (!Array.isArray(items)) continue;
+      lists.push({ path: ['result', 'sources', index, key], items });
+      source[key] = [];
+    }
+  });
+  return { skeleton, lists };
+}
+
+function isAdmissionRace(error: unknown): boolean {
+  return error instanceof KiditemError && (error.code === 'OPERATION_IN_PROGRESS'
+    || (error.code === 'VALIDATION_FAILED' && error.details?.reason === 'idempotency_key_reused'));
+}
+
+function dailyLimit(attemptId: string): ConflictException {
+  return new ConflictException({ code: 'SHADOW_DAILY_LIMIT', attemptId });
 }
 
 function shadowHash(value: unknown): string {

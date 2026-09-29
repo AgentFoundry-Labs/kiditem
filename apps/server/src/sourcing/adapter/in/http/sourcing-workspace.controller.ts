@@ -14,19 +14,15 @@ import {
   SourcingWingCatalogKeywordSchema,
 } from '@kiditem/shared/sourcing';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
-import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingRecommendationService } from '../../../application/service/sourcing-recommendation.service';
 import { SourcingWingCatalogIngestService } from '../../../application/service/sourcing-wing-catalog-ingest.service';
 import { SourcingKeywordSuggestionService } from '../../../application/service/sourcing-keyword-suggestion.service';
 import { SourcingKeywordPreferenceService } from '../../../application/service/sourcing-keyword-preference.service';
-import { toPublicAttempt } from './sourcing-source-attempt-http';
 import {
-  SourcingCoupangObservationDto,
   SourcingKeywordPreferenceDto,
   SourcingKeywordPreferenceParamsDto,
   SourcingRecommendationQueryDto,
 } from './dto';
-import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/workspace')
 export class SourcingWorkspaceController {
@@ -48,32 +44,6 @@ export class SourcingWorkspaceController {
       limit: query.limit,
       cursor: query.cursor,
     });
-  }
-
-  @Post('coupang-observations')
-  ingestCoupangObservations(
-    @Body() body: SourcingCoupangObservationDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.wingCatalog.ingest({
-      organizationId,
-      actorUserId: user.id,
-      idempotencyKey: body.idempotencyKey,
-      items: body.items.map((item) => ({
-        productId: item.productId,
-        itemId: item.itemId ?? null,
-        vendorItemId: item.vendorItemId ?? null,
-        productName: item.productName,
-        sourceKeyword: item.sourceKeyword,
-        salePriceKrw: item.salePriceKrw ?? null,
-        ratingCount: item.ratingCount ?? null,
-        ratingAverage: item.ratingAverage ?? null,
-        viewsLast28d: item.viewsLast28d ?? null,
-        salesLast28d: item.salesLast28d ?? null,
-        capturedAt: item.capturedAt,
-      })),
-    }).then(toPublicAttempt);
   }
 
   @Post('recommendations/refresh')

@@ -9,8 +9,8 @@ import { SourcingFinalCapabilityAdapter } from '../adapter/in/agent/sourcing-fin
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingExtensionIngestController } from '../adapter/in/http/sourcing-extension-ingest.controller';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
@@ -27,7 +27,7 @@ const scraped = {
   specs: { material: 'silicone' }, seller_login_id: 'seller', arbitrary_provider_field: { retained: true },
 };
 
-describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', () => {
+describe('URL 수집 = 서버 구동 kind sourcing.scrape_url: 원본 기록·초안·발행은 finish 한 트랜잭션 (PostgreSQL)', () => {
   let prisma: PrismaClient;
   let records: SourceRecordRepositoryAdapter;
   let app: INestApplication;
@@ -38,8 +38,8 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     prisma = makeTestPrisma(); await prisma.$connect();
     records = new SourceRecordRepositoryAdapter(prisma as never);
     const drafts = realSalesProductDraftPort(prisma);
-    const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never, new SourceFailureAlerts(prisma as never), drafts);
-    const owner = new SourcingScrapeUrlService(attempts, records, drafts, { scrapeProductUrl: async () => { providerCalls++; return provider(); } });
+    const { runner } = sourcingServerOperations(prisma, drafts);
+    const owner = new SourcingScrapeUrlService(runner, records, drafts, { scrapeProductUrl: async () => { providerCalls++; return provider(); } });
     capability = new SourcingFinalCapabilityAdapter(undefined as never, undefined as never, undefined as never,
       undefined as never, owner, undefined as never, undefined as never);
     const sourcing = new SourcingService(records, records, undefined as never,
@@ -47,7 +47,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     const module = await Test.createTestingModule({ controllers: [SourcingExtensionIngestController], providers: [
       { provide: SourcingService, useValue: sourcing },
     ] }).compile();
-    app = module.createNestApplication(); app.setGlobalPrefix('api');
+    app = module.createNestApplication(); app.setGlobalPrefix('api'); app.useGlobalFilters(new GlobalExceptionFilter());
     app.use((req: any, _res: any, next: () => void) => { req.authUser = { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID }; next(); });
     await app.init();
   });
@@ -78,8 +78,10 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     expect(result.sourceRecordId).toBeTruthy(); expect(result).not.toHaveProperty('operation');
     expect(result.attempt).not.toHaveProperty('attemptToken');
     expect((await collect('first').expect(201)).body).toEqual(result);
-    await request(app.getHttpServer()).post('/api/sourcing/scrape-url').set('idempotency-key', 'first')
-      .send({ url: 'https://detail.1688.com/offer/456.html' }).expect(409);
+    // 같은 멱등 키의 다른 요청은 계약과 같은 거절이다(옛 SOURCE_IDEMPOTENCY_KEY_REUSED 자리).
+    const reused = await request(app.getHttpServer()).post('/api/sourcing/scrape-url').set('idempotency-key', 'first')
+      .send({ url: 'https://detail.1688.com/offer/456.html' }).expect(400);
+    expect(reused.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'idempotency_key_reused' } });
     expect(providerCalls).toBe(1);
     expect(await prisma.sourcingEvidenceObservation.count()).toBe(1);
     expect(await prisma.sourceRecord.count()).toBe(1);
@@ -97,7 +99,8 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
       expect((await collect('pending').expect(201)).body.attempt.state).toBe('RUNNING');
       const conflict = await request(app.getHttpServer()).post('/api/sourcing/scrape-url')
         .set('idempotency-key', 'other').send({ url: `${sourceUrl}?track=other` }).expect(409);
-      expect(conflict.body.code).toBe('SOURCE_ATTEMPT_IN_PROGRESS');
+      // 같은 URL 대상의 두 번째 수집은 계약의 겹침 거절이다(옛 SOURCE_ATTEMPT_IN_PROGRESS 자리).
+      expect(conflict.body.code).toBe('OPERATION_IN_PROGRESS');
       const status = (await request(app.getHttpServer()).get('/api/sourcing/scrape-url/status').query({ url: sourceUrl })).body;
       expect(status.source).toMatchObject({ ready: false, latestComplete: null, latestAttempt: { state: 'RUNNING' } });
       expect(providerCalls).toBe(1);
@@ -112,7 +115,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     expect(refused).toMatchObject({ code: 'SOURCING_DUPLICATE_RECORD', details: { reason: 'draft_exists',
       existing: { sourceRecordId: complete.sourceRecordId, salesProductId: complete.salesProductId, salesProductStatus: 'draft' } } });
     expect((await collect('original').expect(201)).body).toEqual(complete);
-    expect(await prisma.sourcingEvidenceIngestionRun.count()).toBe(1);
+    expect(await prisma.operation.count({ where: { kind: 'sourcing.scrape_url' } })).toBe(1);
     expect(await prisma.sourceRecord.findUniqueOrThrow({ where: { id: complete.sourceRecordId } })).toEqual(before);
     expect(providerCalls).toBe(1);
     const status = (await request(app.getHttpServer()).get('/api/sourcing/scrape-url/status').query({ url: sourceUrl })).body;
@@ -173,7 +176,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
       expect(await prisma.sourceRecordImage.count()).toBe(0);
       expect(await prisma.salesProduct.count()).toBe(0);
       expect(await prisma.sourcingEvidenceObservation.count()).toBe(0);
-      expect(await prisma.sourcingEvidenceIngestionRun.count({ where: { isCurrentComplete: true } })).toBe(0);
+      expect(await prisma.sourcingSourcePublication.count()).toBe(0);
       expect(await prisma.alert.findFirstOrThrow()).toMatchObject({ status: 'OPEN', attemptId: failed.attempt.attemptId });
     } finally {
       await prisma.$executeRaw`ALTER TABLE source_record_images DROP CONSTRAINT scrape_url_fixture_failure`;
@@ -204,6 +207,11 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
       salesProductId: draft.id,
       href: `/product-pipeline/collected-products/${draft.id}`,
     });
+    // 원본 기록 · 초안 · 원장 관측 · 현재 발행이 모두 같은 실행(finish 트랜잭션)의 것이다.
+    const operationId = collected.attempt.attemptId as string;
+    expect(await prisma.sourcingEvidenceObservation.count({ where: { operationId } })).toBe(1);
+    expect(await prisma.sourcingSourcePublication.findMany({ select: { operationId: true, isCurrent: true, qualityReport: true } }))
+      .toMatchObject([{ operationId, isCurrent: true, qualityReport: { scrapeUrlResult: { sourceRecordId, salesProductId: draft.id } } }]);
   });
 
   it('reads fixed expiry without mutation and rejects the old provider result after a new explicit attempt', async () => {
@@ -214,12 +222,12 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
       return { ok: true, scraped_data: { ...scraped, title: 'late old product' } }; };
     const first = collect('expired').then((response) => response);
     await started;
-    const running = await prisma.sourcingEvidenceIngestionRun.findFirstOrThrow();
-    await prisma.sourcingEvidenceIngestionRun.update({ where: { id: running.id }, data: { leaseExpiresAt: new Date(Date.now() - 1000) } });
+    const running = await prisma.operation.findFirstOrThrow({ where: { kind: 'sourcing.scrape_url' } });
+    await prisma.operation.update({ where: { id: running.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
     try {
       const status = (await request(app.getHttpServer()).get('/api/sourcing/scrape-url/status').query({ url: sourceUrl })).body;
       expect(status.source.latestAttempt).toMatchObject({ state: 'FAILED', errorCode: 'ATTEMPT_EXPIRED' });
-      expect((await prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: running.id } })).status).toBe('RUNNING');
+      expect((await prisma.operation.findUniqueOrThrow({ where: { id: running.id } })).status).toBe('executing');
       provider = async () => ({ ok: true, scraped_data: scraped });
       expect((await collect('replacement').expect(201)).body.attempt.state).toBe('COMPLETE');
     } finally { release(); }

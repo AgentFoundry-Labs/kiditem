@@ -8,33 +8,6 @@ export type RecommendationSurface = z.infer<typeof RecommendationSurfaceSchema>;
 export const ReviewWorkspaceKeySchema = z.enum(['entry', 'final']);
 export type ReviewWorkspaceKey = z.infer<typeof ReviewWorkspaceKeySchema>;
 
-const SourcingCoupangObservationItemSchema = z
-  .object({
-    productId: z.string().trim().min(1).max(200),
-    itemId: z.string().trim().max(200).nullable(),
-    vendorItemId: z.string().trim().max(200).nullable(),
-    productName: z.string().trim().min(1).max(500),
-    sourceKeyword: z.string().trim().min(1).max(200),
-    salePriceKrw: z.number().int().nonnegative().nullable(),
-    ratingCount: z.number().int().nonnegative().nullable(),
-    ratingAverage: z.number().min(0).max(5).nullable(),
-    viewsLast28d: z.number().int().nonnegative().nullable(),
-    salesLast28d: z.number().int().nonnegative().nullable(),
-    capturedAt: InstantSchema,
-  })
-  .strict();
-
-export const SourcingCoupangObservationCommandSchema = z
-  .object({
-    idempotencyKey: z.string().uuid(),
-    items: z.array(SourcingCoupangObservationItemSchema).min(1).max(100),
-  })
-  .strict();
-
-export type SourcingCoupangObservationCommand = z.infer<
-  typeof SourcingCoupangObservationCommandSchema
->;
-
 const SourcingWarningSchema = z
   .object({
     code: z.string().min(1).max(100),
