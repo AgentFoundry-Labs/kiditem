@@ -90,6 +90,8 @@ Action, collection, transmission, and reconciliation behavior is executable in
   at that operation's finish; a window's coverage is the succeeded
   `orders.mall_orders` operations' `result.coverage`. Orders and coverage only
   an old import run carries are not facts (KID-365).
+  적용 범위는 몰 주문 수집 실행이 선언한 창만이다. 사실을 낸 원천마다 적용
+  범위를 요구하던 규칙은 KID-365에서 폐기.
 - Coupang shipment date summary is the operation kind
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
   old scan-proof validation and writes date rows with `operationId`; the

@@ -152,6 +152,28 @@ describe('Order facts reader over disposable PostgreSQL: orders are facts only w
     });
   });
 
+  it('counts a directship operation\'s orders as measured on a day only mall order operations declared covered — the source that produced facts needs no coverage of its own (KID-365)', async () => {
+    // 직배송 주문은 몰 적용 범위를 낸 계정(ACCOUNT_ID)이 아닌 다른 계정에서 왔다.
+    await seedOrder(TEST_ORGANIZATION_ID, SECOND_ACCOUNT_ID, 'ORDER-DIRECTSHIP', 15_000, [
+      { totalPrice: 15_000, quantity: 3 },
+    ]);
+    await seedCoverage(TEST_ORGANIZATION_ID, ACCOUNT_ID);
+
+    const result = await prisma.$transaction((tx) =>
+      readOrderWindowFacts(tx, { organizationId: TEST_ORGANIZATION_ID, from: FROM, to: TO }),
+    );
+
+    expect(result).toMatchObject({
+      revenue: 15_000,
+      orderCount: 1,
+      quantity: 3,
+      includedDates: ['2026-05-01'],
+      missingDates: [],
+      sourceCoverage: [{ channelAccountId: ACCOUNT_ID, mallKey: 'haebub-mall', includedDates: ['2026-05-01'] }],
+    });
+    expect(result.sourceCoverage).toHaveLength(1);
+  });
+
   it('keeps the account channel as coverage identity when the operation mall key is not a registered mall', async () => {
     await prisma.channelAccount.create({
       data: {

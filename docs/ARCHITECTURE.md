@@ -1100,11 +1100,15 @@ Confirmation creates the official workbook in the browser after the server
 commit. It never submits to a marketplace provider or writes
 `MasterProduct.currentStock`.
 
-Coupang PA collection belongs to Orders. The selected Rocket account and
-transport are validated, and `Order` and `OrderLineItem` are persisted with
-deterministic identities keyed by the succeeded operation (`Order.operationId`).
-In the same Prisma transaction,
-Orders calls Supply's reconciliation port; Supply resolves exactly one active
+Coupang PA collection belongs to Orders. The Rocket PO operation
+(`orders.coupang_rocket_po`) publishes only the catalog snapshot and Channels
+observed identities; it writes no `Order` rows. The only `Order` and
+`OrderLineItem` writer is directship conversion
+(`coupang-direct-order-collection.transaction.adapter.ts`): it validates the
+selected Rocket account and transport and persists them with deterministic
+identities keyed by the succeeded `orders.coupang_directship` operation
+(`Order.operationId`). In the same Prisma transaction, Orders calls Supply's
+reconciliation port; Supply resolves exactly one active
 confirmation line by account/PO/product without mutating Products current stock
 or physical stock. A barcode mismatch, ambiguous confirmation, or persistence
 failure rolls back the entire import and no Sellpia workbook is returned.
