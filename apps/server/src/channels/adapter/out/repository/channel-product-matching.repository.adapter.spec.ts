@@ -133,23 +133,16 @@ function withPublishedInventory(prisma: unknown) {
       ...store.sellpiaInventorySku,
       findMany: async (query: Record<string, any>) => {
           const rows = await originalFindMany(query);
-          return rows.map((row: Record<string, any>) => query.select?.lastImportRunId
-            ? {
-                id: row.id,
-                currentStock: row.currentStock ?? 100,
-                isActive: row.isActive ?? true,
-                lastImportRunId: row.lastImportRunId ?? 'inventory-run',
-              }
-            : {
-                name: '',
-                optionName: null,
-                barcode: null,
-                purchasePrice: null,
-                salePrice: null,
-                isActive: true,
-                masterProductId: null,
-                ...row,
-              });
+          return rows.map((row: Record<string, any>) => ({
+            name: '',
+            optionName: null,
+            barcode: null,
+            purchasePrice: null,
+            salePrice: null,
+            isActive: true,
+            masterProductId: null,
+            ...row,
+          }));
       },
     };
     store.sellpiaInventoryState ??= {

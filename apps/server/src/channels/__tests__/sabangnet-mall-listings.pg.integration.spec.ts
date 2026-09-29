@@ -168,15 +168,14 @@ describe('Sabangnet mall listings over the operation contract (PG integration)',
         status: true,
         rawJson: true,
         lastOperationId: true,
-        lastImportRunId: true,
         options: { select: { externalOptionId: true, sellerSku: true, barcode: true, salePrice: true, status: true, rawJson: true, lastOperationId: true } },
       },
     });
-    expect(listings.map((listing) => [listing.channelAccountId, listing.externalId, listing.status, listing.lastOperationId, listing.lastImportRunId]))
+    expect(listings.map((listing) => [listing.channelAccountId, listing.externalId, listing.status, listing.lastOperationId]))
       .toEqual([
-        [ELEVENST, '8123', '사방넷 일시중지', operation.id, null],
-        [ELEVENST, '8124', '사방넷 공급중', operation.id, null],
-        [KIDSNOTE, 'KN-1', '사방넷 공급중', operation.id, null],
+        [ELEVENST, '8123', '사방넷 일시중지', operation.id],
+        [ELEVENST, '8124', '사방넷 공급중', operation.id],
+        [KIDSNOTE, 'KN-1', '사방넷 공급중', operation.id],
       ]);
     expect(listings[2]!.options).toEqual([
       expect.objectContaining({

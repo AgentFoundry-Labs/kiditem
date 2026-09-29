@@ -1135,12 +1135,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       { name: 'Rocket PO operation', provenance: { lastOperationId: randomUUID() }, eligible: true },
       {
         name: 'completed Rocket PO catalog run',
-        provenance: { lastImportRunId: (await completedRun({ sourceType: 'coupang_rocket_po_catalog', parserVersion: 'rocket-po-v1' })).id },
+        provenance: await completedRun({ sourceType: 'coupang_rocket_po_catalog', parserVersion: 'rocket-po-v1' }).then(() => ({})),
         eligible: false,
       },
       {
         name: 'completed Rocket matching CSV run',
-        provenance: { lastImportRunId: (await completedRun({ sourceType: 'coupang_rocket_matching_csv', parserVersion: null })).id },
+        provenance: await completedRun({ sourceType: 'coupang_rocket_matching_csv', parserVersion: null }).then(() => ({})),
         eligible: false,
       },
     ];

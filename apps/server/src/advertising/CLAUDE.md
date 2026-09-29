@@ -138,7 +138,7 @@ option and day, only for keywords that drew a click.
   `advertising.wing_itemwinner` writes the listing/option winner columns and
   `advertising.wing_traffic` the listing-day traffic columns (sum of options,
   zero for a catalog listing Wing left out) in their finish transactions; a new
-  row carries `operationId`, `rawSnapshotId` stays null, and traffic provenance
+  row carries `operationId`, and traffic provenance
   is `wing.traffic.sourceAttemptId`. Every writer of Wing listing-day facts holds
   `account:<id>` and `resource:wing-daily:<id>`, so one runs per account. The
   traffic run's result (confirmed dates, account daily and period summaries,

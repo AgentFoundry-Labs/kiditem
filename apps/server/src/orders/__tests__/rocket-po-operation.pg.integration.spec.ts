@@ -191,7 +191,7 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
     });
     expect((await listSaved()).map((po) => [po.firstProductName, po.rocketPoOperationId])).toEqual([['P2 item', b]]);
     const listing = await prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: 'P2' } });
-    expect(listing).toMatchObject({ lastOperationId: b, lastImportRunId: null });
+    expect(listing).toMatchObject({ lastOperationId: b });
 
     const failed = await beginRun();
     await put(failed, COUPANG_ROCKET_PO_CHUNK_KIND, 1, [{ poNumber: '1001', rows: [row('P3')] }]);

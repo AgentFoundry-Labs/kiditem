@@ -56,7 +56,7 @@ export type ChannelCatalogIdentityUpsertInput = {
   channelAccountId: string;
   products: ChannelCatalogIdentityProduct[];
   /**
-   * 이 관측을 반영한 실행(`operations.id`, KID-354). 옛 `last_import_run_id`는 늘 비운다(KID-365). 매칭·readiness는
+   * 이 관측을 반영한 실행(`operations.id`, KID-354). 매칭·readiness는
    * 이 값이 있는 행만 완료 반영으로 본다(실행은 finish 트랜잭션 안에서만 원장을 쓴다).
    */
   lastOperationId?: string | null;

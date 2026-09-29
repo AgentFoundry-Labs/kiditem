@@ -41,7 +41,7 @@ import { AdListingRepositoryAdapter } from "./adapter/out/repository/ad-listing.
 import { AdCampaignRepositoryAdapter } from "./adapter/out/repository/ad-campaign.repository.adapter";
 import { AdActionRepositoryAdapter } from "./adapter/out/repository/ad-action.repository.adapter";
 import { AdStrategyContextRepositoryAdapter } from "./adapter/out/repository/ad-strategy-context.repository.adapter";
-import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel-scrape.repository.adapter";
+import { AdvertisingExtensionStatusRepositoryAdapter } from "./adapter/out/repository/advertising-extension-status.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
@@ -78,7 +78,7 @@ import { AD_LISTING_REPOSITORY_PORT } from "./application/port/out/repository/ad
 import { AD_CAMPAIGN_REPOSITORY_PORT } from "./application/port/out/repository/ad-campaign.repository.port";
 import { AD_ACTION_REPOSITORY_PORT } from "./application/port/out/repository/ad-action.repository.port";
 import { AD_STRATEGY_CONTEXT_REPOSITORY_PORT } from "./application/port/out/repository/ad-strategy-context.repository.port";
-import { CHANNEL_SCRAPE_REPOSITORY_PORT } from "./application/port/out/repository/channel-scrape.repository.port";
+import { ADVERTISING_EXTENSION_STATUS_REPOSITORY_PORT } from "./application/port/out/repository/advertising-extension-status.repository.port";
 import { KEYWORD_RANK_REPOSITORY_PORT } from "./application/port/out/repository/keyword-rank.repository.port";
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/repository/wing-tracked-product.repository.port";
 import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domain/keyword-relevance-judge.port";
@@ -118,8 +118,8 @@ const REPOSITORY_PORT_BINDINGS = [
     useExisting: AdStrategyContextRepositoryAdapter,
   },
   {
-    provide: CHANNEL_SCRAPE_REPOSITORY_PORT,
-    useExisting: ChannelScrapeRepositoryAdapter,
+    provide: ADVERTISING_EXTENSION_STATUS_REPOSITORY_PORT,
+    useExisting: AdvertisingExtensionStatusRepositoryAdapter,
   },
   {
     provide: KEYWORD_RANK_REPOSITORY_PORT,
@@ -168,7 +168,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdCampaignRepositoryAdapter,
     AdActionRepositoryAdapter,
     AdStrategyContextRepositoryAdapter,
-    ChannelScrapeRepositoryAdapter,
+    AdvertisingExtensionStatusRepositoryAdapter,
     KeywordRankRepositoryAdapter,
     // Wing 일별 사실 실행 kind(ADR-0025, KID-362)
     WingItemwinnerOperationRepository,

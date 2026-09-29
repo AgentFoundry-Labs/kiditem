@@ -359,7 +359,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notifications. Unmoved source owners call its terminal-transaction API; for kinds moved to the operation contract the reader derives one alert per source identity (kind plus the per-kind plan field in `alerts/operation-failure-sources.ts`: channel account, mall, keyword target or source key) from the newest failed operation through `common/operation/transaction/latest-operation-outcomes` and stores only operator dismissals (`operation_failure` rows). Consumers poll open/resolved alerts. Human notifications only, with transaction-scoped failure upsert/resolution and no execution or freshness state. The writer keeps a Korean producer sentence and otherwise derives the message from the terminal code (`operatorErrorText`); the title is the producer's Korean title or `<source> 실패`. |
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), one mall-neutral registration execution per target (`register` · `update` · `sold_out` · `resume` · `composition_change`) with channel adapters (`adapter/out/channel/<key>`) answering mall-specific identity, evidence and prepare-time facts, representative-image uploads as `thumbnail_update` executions on channels whose adapter supports them (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (the `channels.registration` operation: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), one mall-neutral registration execution per target (`register` · `update` · `sold_out` · `resume` · `composition_change`) with channel adapters (`adapter/out/channel/<key>`) answering mall-specific identity, evidence and prepare-time facts, representative-image uploads as `thumbnail_update` executions on channels whose adapter supports them (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers; `common/operation` is the sole writer of the operation contract (`operations`, `operation_chunks`, `operation_locks`: identity, token, lease, chunk staging, overlap locks and rejections) that owners join per kind through `plan`/`finalize` ([ADR-0025](adr/0025-operations-are-one-contract.md)). |
 | `apps/server/src/core` | Platform Support | Pure transaction-client reads of shared source-import completion provenance; source owners retain publication and coverage authority. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -798,8 +798,7 @@ reclaimed by the next claim; a saved result is reused without calling the model
 again. Cancelling a generation locks its live operation before the ledger row (the
 order finish uses) and cancels both in one transaction, and the lease heartbeat aborts in-flight provider and
 image-download work. Gemini adapters receive the model captured at enqueue time
-and never select an environment fallback during execution. The retired
-`ai_direct_jobs` table is no longer read or written and is dropped separately.
+and never select an environment fallback during execution.
 
 ## Detail-Page Client Rasterization
 
@@ -941,8 +940,8 @@ product sharing the same source stock. A target references a priced selling
 product and active account. Archiving sets `archivedAt`; successful submission
 leaves the target reusable ([ADR-0022](adr/0022-sales-product-draft-exists-from-collection.md)).
 
-`ProductRegistrationExecution` freezes each intent's payload, hash, approval,
-actor, account, idempotency key, lease and provider outcome. Changing a target
+A `channels.registration` operation (ADR-0025) freezes each intent's payload,
+hash, approval, actor, account, idempotency key, lease and provider outcome. Changing a target
 cannot change an existing execution. Only one unresolved execution may hold a
 target or actual listing's active fence. Sourcing provides candidate eligibility
 through its public contract; Content(AI) — the `content` directory — owns content
@@ -955,7 +954,7 @@ creates a source `MasterProduct`.
 optional SourceRecord provenance (immutable; deleted with its draft)
   -> Channels SalesProduct + options
   -> reusable RegistrationTarget + selected options
-  -> frozen ProductRegistrationExecution + approval evidence
+  -> frozen channels.registration operation + approval evidence
   -> executing/uncertain persisted before provider IO
   -> confirmed provider evidence
   -> Channels transaction publishes actual Listing/options/composition

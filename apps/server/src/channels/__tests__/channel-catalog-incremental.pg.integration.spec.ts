@@ -425,11 +425,10 @@ describe('Wing catalog incremental browser sync over the operation contract (PG 
     expect(p2Detail).toMatchObject({ documents: [{ id: 'P2-D1' }], modifiedOn: '2026-09-01T00:00:00' });
     await expect(prisma.channelListing.findFirstOrThrow({
       where: { organizationId: ORG, channelAccountId, externalId: 'P1' },
-      select: { lastImportRunId: true, lastOperationId: true, options: { select: { lastImportRunId: true, lastOperationId: true } } },
+      select: { lastOperationId: true, options: { select: { lastOperationId: true } } },
     })).resolves.toEqual({
-      lastImportRunId: null,
       lastOperationId: initial.details.id,
-      options: [{ lastImportRunId: null, lastOperationId: initial.details.id }],
+      options: [{ lastOperationId: initial.details.id }],
     });
 
     const second: SyncProduct[] = [

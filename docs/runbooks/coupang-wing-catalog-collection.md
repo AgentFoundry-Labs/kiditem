@@ -117,7 +117,7 @@ unrelated-image fallback.
 
 - Ledger facts are written only in the operation's finish transaction and
   marked `lastOperationId`; a failed, cancelled or expired operation writes
-  nothing. `source_import_runs` and `channel_scrape_*` are not used.
+  nothing. `source_import_runs` is not used.
 - The list publishes observed listing/option fields and representative media.
   It preserves richer detail fields and detail/option media. An unknown stock
   value does not clear existing stock; an observed zero remains zero.

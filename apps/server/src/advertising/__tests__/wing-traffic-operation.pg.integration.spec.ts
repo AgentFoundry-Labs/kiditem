@@ -211,13 +211,12 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     const [a] = await listingDays(listingA.id);
     expect(a).toMatchObject({
       businessDate: dateAt(day), trafficViews: 15, trafficRevenue: 1500, trafficOrders: 2,
-      operationId: run.operation.id, rawSnapshotId: null,
+      operationId: run.operation.id,
       metaJson: { 'traffic.currentSource': 'wing.traffic', 'wing.traffic': { sourceAttemptId: run.operation.id, businessDate: day } },
     });
     const [b] = await listingDays(listingB.id);
     expect(b).toMatchObject({ trafficViews: 0, trafficRevenue: 0, trafficObservedAt: new Date(`${day}T20:00:00.000Z`), operationId: run.operation.id });
     await expect(prisma.sourceImportRun.count({ where: { organizationId: ORG } })).resolves.toBe(0);
-    await expect(prisma.channelScrapeSnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
   });
 
   it('a re-run of the same day replaces the values in place, and the confirmed window can stop before an unpublished last day', async () => {

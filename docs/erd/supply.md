@@ -114,7 +114,7 @@ erDiagram
     String organizationId FK
     String channelAccountId
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String rocketPoOperationId
     String idempotencyKey
@@ -163,7 +163,7 @@ erDiagram
     String organizationId FK
     String confirmationId FK
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String directshipOperationId
     String transport
@@ -285,11 +285,9 @@ erDiagram
 | RocketPurchaseConfirmation | confirmer | references external | Core | User |
 | RocketPurchaseConfirmation | organization | references external | Core | Organization |
 | RocketPurchaseConfirmation | rocketPurchaseConfirmation | referenced by external | Orders | CoupangDirectTransportReceipt |
-| RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationLine | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | organization | references external | Core | Organization |
-| RocketPurchaseConfirmationTransmission | sourceImportRun | references external | Core | SourceImportRun |
 | Supplier | organization | references external | Core | Organization |
 | SupplierOfferPriceTier | organization | references external | Core | Organization |
 | SupplierOfferSkuSnapshot | evidenceObservation | references external | Sourcing | SourcingEvidenceObservation |

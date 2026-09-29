@@ -15,7 +15,6 @@ import type { AdConfigRepositoryPort } from '../../application/port/out/reposito
 import type { AdCampaignRepositoryPort } from '../../application/port/out/repository/ad-campaign.repository.port';
 import type { AdActionRepositoryPort } from '../../application/port/out/repository/ad-action.repository.port';
 import type { AdStrategyContextRepositoryPort } from '../../application/port/out/repository/ad-strategy-context.repository.port';
-import type { ChannelScrapeRepositoryPort } from '../../application/port/out/repository/channel-scrape.repository.port';
 import type { KeywordRankRepositoryPort } from '../../application/port/out/repository/keyword-rank.repository.port';
 
 /** Vitest mock variant of every method on `AdBenchmarkRepositoryPort`. */
@@ -95,16 +94,6 @@ export type MockAdStrategyContextRepo = {
 export function buildMockAdStrategyContextRepo(): MockAdStrategyContextRepo {
   return {
     loadStrategyContext: vi.fn(),
-  };
-}
-
-export type MockChannelScrapeRepo = {
-  [K in keyof ChannelScrapeRepositoryPort]: ReturnType<typeof vi.fn>;
-};
-
-export function buildMockChannelScrapeRepo(): MockChannelScrapeRepo {
-  return {
-    findExtensionStatusSnapshot: vi.fn(),
   };
 }
 

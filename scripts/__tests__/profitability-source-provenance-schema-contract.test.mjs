@@ -12,13 +12,13 @@ const localDevelopment = readFileSync(join(repoRoot, 'scripts/run-local-developm
 test('persists exact source provenance for absolute ABC publication', () => {
   for (const field of [
     'officialCutoffDate',
-    'publishedSellpiaSourceImportRunId',
+    'publishedSellpiaOperationId',
     'publishedMappingGeneration',
     'gradeBasisCutoffDate',
-    'sellpiaSourceImportRunId',
+    'sellpiaOperationId',
     'sellpiaGeneration',
-    'previousSellpiaSourceImportRunId',
-    'nextSellpiaSourceImportRunId',
+    'previousSellpiaOperationId',
+    'nextSellpiaOperationId',
   ]) {
     assert.match(coreSchema, new RegExp(`\\b${field}\\b`));
   }

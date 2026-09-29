@@ -31,7 +31,7 @@ import { OperationOwnerRegistry } from '../../common/operation/application/servi
 import { OperationService } from '../../common/operation/application/service/operation.service';
 import { AdvertisingIngestController } from '../adapter/in/http/advertising-ingest.controller';
 import { WingItemwinnerOperationOwner } from '../adapter/in/operation/wing-daily-operation-owners';
-import { ChannelScrapeRepositoryAdapter } from '../adapter/out/repository/channel-scrape.repository.adapter';
+import { AdvertisingExtensionStatusRepositoryAdapter } from '../adapter/out/repository/advertising-extension-status.repository.adapter';
 import { WingItemwinnerOperationRepository } from '../adapter/out/repository/wing-itemwinner-operation.repository';
 import { AdvertisingExtensionService } from '../application/service/advertising-extension.service';
 
@@ -71,7 +71,7 @@ describe('advertising.wing_itemwinner owner over the operation contract + dispos
           provide: AdvertisingExtensionService,
           inject: [OPERATION_PORT],
           useFactory: (operations: never) =>
-            new AdvertisingExtensionService(new ChannelScrapeRepositoryAdapter(ports.accounts, ports.listings, prisma as never, operations)),
+            new AdvertisingExtensionService(new AdvertisingExtensionStatusRepositoryAdapter(ports.accounts, ports.listings, prisma as never, operations)),
         },
       ],
     }).compile();
@@ -188,14 +188,12 @@ describe('advertising.wing_itemwinner owner over the operation contract + dispos
       winnerPrice: 11500,
       winnerGapPrice: -500,
       operationId: run.operation.id,
-      rawSnapshotId: null,
       sampleCount: 1,
     });
     const optionRows = await prisma.channelListingOptionDailySnapshot.findMany({ where: { organizationId: ORG } });
     expect(optionRows).toHaveLength(1);
-    expect(optionRows[0]).toMatchObject({ listingOptionId, externalOptionId: '1001', isOfferWinner: true, operationId: run.operation.id, rawSnapshotId: null });
+    expect(optionRows[0]).toMatchObject({ listingOptionId, externalOptionId: '1001', isOfferWinner: true, operationId: run.operation.id });
     await expect(prisma.sourceImportRun.count({ where: { organizationId: ORG } })).resolves.toBe(0);
-    await expect(prisma.channelScrapeSnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
   });
 
   it('a later run the same day updates the one listing-day row in place and restamps it', async () => {

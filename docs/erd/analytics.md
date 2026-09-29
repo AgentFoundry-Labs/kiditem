@@ -19,7 +19,7 @@ erDiagram
   SellpiaProductMonthlySales {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String operationId
     String legacySellpiaInventorySkuId
     String masterProductId
@@ -42,7 +42,7 @@ erDiagram
   SellpiaSalesDailySnapshot {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String operationId
     DateTime businessDate
     String sellerId
@@ -62,6 +62,4 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | SellpiaProductMonthlySales | organization | references external | Core | Organization |
-| SellpiaProductMonthlySales | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaSalesDailySnapshot | organization | references external | Core | Organization |
-| SellpiaSalesDailySnapshot | sourceImportRun | references external | Core | SourceImportRun |

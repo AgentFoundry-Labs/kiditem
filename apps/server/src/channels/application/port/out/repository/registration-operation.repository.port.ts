@@ -38,8 +38,8 @@ export interface RegistrationConfirmationEvidence {
 }
 
 /**
- * `channels.registration` 의 Channels 쪽 영속 조합(KID-364). 옛 `product_registration_executions` 행은 읽지도
- * 쓰지도 않는다 — 실행 자체는 실행 계약이 갖고, 여기서는 대상 · 계정 · 리스팅 · 옵션만 확인하고 쓴다.
+ * `channels.registration` 의 Channels 쪽 영속 조합(KID-364). 실행 자체는 실행 계약이 갖고, 여기서는 대상 · 계정 ·
+ * 리스팅 · 옵션만 확인하고 쓴다.
  */
 export interface RegistrationOperationRepositoryPort {
   /** 대상 · 계정 · 상품 · 옵션 · 리스팅을 잠가 확인하고 어댑터 사실을 얼린 문서를 돌려준다. 쓰지 않는다. */

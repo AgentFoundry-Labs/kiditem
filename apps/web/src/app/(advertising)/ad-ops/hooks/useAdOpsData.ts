@@ -75,8 +75,8 @@ const AD_OPS_METRIC_STALE_TIME = 60_000;
 const EXTENSION_STATUS_STALE_TIME = 5 * 60_000;
 
 // H3 — `/api/ads/extension/status` shape moved to current-state semantics.
-// `snapshotCount` is now `rawSnapshotCount` (counts ChannelScrapeSnapshot rows
-// instead of legacy AdSnapshot), and `itemWinnerCount` is now
+// `snapshotCount` is now `rawSnapshotCount` (rows the latest item-winner
+// operation returned instead of legacy AdSnapshot), and `itemWinnerCount` is now
 // `currentWinnerObservedListings` (latest daily-fact observed listings instead
 // of legacy ItemWinner row count). Aliased to the shared schema type.
 // H3: StatusContent surfaces `latestScrapeAt` / `latestChannelStateAt` /
