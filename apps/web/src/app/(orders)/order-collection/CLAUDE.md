@@ -79,9 +79,12 @@ convenience history.
   `orders.sellpia_order_transfer` with that source; a legacy record without it
   cannot be sent and tells the operator to collect again.
 - A `reconciling` transfer marks the row `셀피아 확인 필요`; resending waits
-  until the operator confirms or closes that run. Post-transfer, auto-invoice,
-  and Onch/Kidkids tracking upload run as their own kinds and resolve
-  `reconciling` the same way. Invoice targets and upload rows are chosen by the
+  until the operator confirms or closes that run. A started transfer records
+  its run id, and the screen reconciles the row from the server run state on
+  reopen or when confirm/close is refused. Auto-invoice and Onch/Kidkids
+  tracking upload resolve `reconciling` the same way; post-transfer has no
+  confirmation step. A start refused by a `reconciling` run of the same action
+  re-opens that confirmation. Invoice targets and upload rows are chosen by the
   server, never by this screen.
 - Upload never prechecks stock, requests Inventory freshness, invalidates
   Inventory queries, or auto-resubmits. Provider rejection displays the

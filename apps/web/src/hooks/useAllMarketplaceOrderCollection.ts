@@ -63,10 +63,10 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import {
-  readSellpiaOrders,
   reconcileCollectedOrdersWithSellpia,
   SELLPIA_RECONCILE_PARTIAL_MESSAGE,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
+import { readSellpiaOrderSnapshot } from '@/lib/order-action-operations';
 import { useOrderCollectionSessionControls } from '@/app/(orders)/order-collection/hooks/use-order-collection-session-controls';
 import type { BrowserMallCollectionResult } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
@@ -744,7 +744,7 @@ export function usePersistedAllMarketplaceOrderCollection({
     try {
       const [history, snapshot] = await Promise.all([
         loadGeneratedOrderFiles(),
-        readSellpiaOrders(),
+        readSellpiaOrderSnapshot(),
       ]);
       const reconciled = reconcileCollectedOrdersWithSellpia({
         history,

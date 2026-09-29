@@ -17,9 +17,11 @@ families and NestJS owner APIs; generated files may use `fetchRaw()`.
 - Rocket catalog and preview use Supply's purchase-order action contract and do
   not create Inventory commitments.
 - Sellpia submission is the operation `orders.sellpia_order_transfer`: the
-  server rebuilds the file from the source run, and the run is the idempotency
-  fence. A submitted-but-unconfirmed run stays `reconciling` until the operator
-  confirms or closes it; it never triggers Inventory work.
+  server rebuilds the file from the source run. The shared Sellpia lock stops
+  concurrent sends; a resend after success is allowed only through the resend
+  confirmation. A submitted-but-unconfirmed run stays `reconciling` and holds
+  the lock until the operator confirms or closes it; it never triggers
+  Inventory work.
 - Extension-backed local errors may suppress the global query toast. Local file
   history is convenience state, not order authority.
 

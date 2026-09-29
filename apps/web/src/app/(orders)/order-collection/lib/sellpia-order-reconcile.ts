@@ -1,5 +1,4 @@
 import type { SellpiaOrderSnapshotRow as SnapshotRow } from '@kiditem/shared/orders-action-operations';
-import { readSellpiaOrderSnapshot } from '@/lib/order-action-operations';
 import { resolveMallKeyFromSellpiaProvider } from '@kiditem/shared/sellpia-providers';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
@@ -33,15 +32,6 @@ export interface SellpiaReconcileResult {
 /** 부분 조회라 누락 여부를 확정할 수 없을 때 운영자가 보는 문장. */
 export const SELLPIA_RECONCILE_PARTIAL_MESSAGE =
   '셀피아 대조: 일부 화면만 읽혀 누락 여부는 미확인입니다. 잠시 후 다시 대조해 주세요.';
-
-/**
- * 셀피아(대기목록 + 재고매칭)에 지금 올라와 있는 주문(실행 `orders.sellpia_order_snapshot`, KID-366). 조회만 하는 비파괴
- * 실행이고, 한 화면만 읽었으면 `partial`이다.
- */
-export async function readSellpiaOrders(): Promise<{ rows: SnapshotRow[]; partial: boolean }> {
-  const { rows, partial } = await readSellpiaOrderSnapshot();
-  return { rows, partial };
-}
 
 /**
  * 셀피아 주문번호는 "66_2026073013413794209"처럼 앞에 판매처 코드가 붙는다.

@@ -1,49 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
-import { SELLPIA_ORDER_SNAPSHOT_KIND } from '@kiditem/shared/orders-action-operations';
-import { readSellpiaOrders, reconcileCollectedOrdersWithSellpia } from './sellpia-order-reconcile';
-
-const api = vi.hoisted(() => ({ get: vi.fn() }));
-const start = vi.hoisted(() => ({ requestOperationStart: vi.fn() }));
-vi.mock('@/lib/api-client', () => ({ apiClient: api }));
-vi.mock('@/lib/operation-start', () => start);
-
-const SNAPSHOT_ID = '11111111-1111-4111-8111-111111111111';
-
-describe('셀피아 주문 읽기 = 실행 orders.sellpia_order_snapshot (KID-366)', () => {
-  it('스냅샷 실행을 시작해 result의 행과 일부만 읽었는지를 돌려준다', async () => {
-    start.requestOperationStart.mockResolvedValue({ outcome: 'started', operationId: SNAPSHOT_ID });
-    api.get.mockResolvedValue({
-      operation: {
-        id: SNAPSHOT_ID,
-        kind: SELLPIA_ORDER_SNAPSHOT_KIND,
-        status: 'succeeded',
-        lockKeys: [],
-        plan: null,
-        progress: null,
-        result: {
-          orderCount: 1,
-          rows: [{ orderNo: '66_A-1', receiver: '홍길동(키드키즈)', provider: '키드키즈', source: 'pending' }],
-          partial: true,
-        },
-        window: null,
-        errorCode: null,
-        errorMessage: null,
-        startedAt: '2026-09-29T00:00:00.000Z',
-        finishedAt: '2026-09-29T00:00:05.000Z',
-        expiresAt: '2026-09-29T00:30:00.000Z',
-        attempts: 1,
-        maxAttempts: 1,
-        scheduledFor: null,
-      },
-    });
-
-    await expect(readSellpiaOrders()).resolves.toEqual({
-      rows: [{ orderNo: '66_A-1', receiver: '홍길동(키드키즈)', provider: '키드키즈', source: 'pending' }],
-      partial: true,
-    });
-    expect(start.requestOperationStart).toHaveBeenCalledWith(SELLPIA_ORDER_SNAPSHOT_KIND, {}, { capability: 'orderActionOperationKindsV1' });
-  });
-});
+import { describe, expect, it } from 'vitest';
+import { reconcileCollectedOrdersWithSellpia } from './sellpia-order-reconcile';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 
 function file(

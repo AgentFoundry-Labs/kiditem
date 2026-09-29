@@ -4,14 +4,6 @@ import { downloadBlob } from '@/lib/browser-download';
 import { sellpiaProviderMatchesMall } from '@kiditem/shared/sellpia-providers';
 import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
-export interface IcecreamUploadResult {
-  success: boolean;
-  injected?: boolean;
-  needsAuth?: boolean;
-  message?: string;
-  error?: string;
-}
-
 // 아이스크림몰 출고완료 업로드는 네이티브 파일 다이얼로그를 거쳐야 해 확장 자동화가 불가능하다.
 // 파일만 만들어 주고 업로드는 화면의 [파일선택]으로 사람이 올린다(order-tracking-actions 참조).
 // 예전 uploadIcecreamTrackingViaExtension 브리지는 실제 등록으로 이어지지 않아 제거했다.
