@@ -14,6 +14,8 @@ export interface CollectContext {
   tabId: number | null;
   /** 청크 사이에 progress만 곧바로 올린다(운영자 검증 대기 `attention` 등). 임대도 연장된다. */
   report?(progress: Record<string, unknown>): Promise<void>;
+  /** 이 실행의 원천 파일(수집기가 `sourcePath`를 선언했을 때만). runner가 서버에서 받아 준다(KID-366 wave8b). */
+  readSource?(): Promise<Uint8Array>;
 }
 
 /** 수집기가 청크를 다 낸 뒤 finish에 실을 값(생성기 반환값). */
@@ -37,6 +39,8 @@ export interface Collector<
   readonly kind: OperationKind;
   /** 이 kind가 쓰는 사이트(`sites/<site>`) — 없으면 null(더미 kind). */
   readonly site: string | null;
+  /** 실행 id → 그 실행의 원천 파일 경로(`/api/...`). 서버 경로는 runner가 부른다 — 수집기는 context `readSource`로만 받는다. */
+  sourcePath?(operationId: string): string;
   /**
    * `site`는 입구가 그 사이트로 조립해 넘기는 핸들이다. 수집기는 sites를 import하지 못하므로 필요한 모양을 자기
    * 폴더에 인터페이스로 선언하고(`TSite`), 입구가 `sites/<site>`의 구현을 넘긴다(KID-354).

@@ -151,6 +151,9 @@ export function createCoupangDirectshipCollector({
         orderNumbers,
         rocketWorkbookExportId: conversion.rocketWorkbookExportId,
         transmissionIntentKey: conversion.transmissionIntentKey,
+        // 셀피아 전송 scope: 직배송 실행 id + 운송유형 — 한 실행이 운송유형마다 파일 하나를 낸다(KID-366).
+        sourceOperationId: conversion.importRunId,
+        transport,
       };
       addGeneratedFile(historyItem);
       lastId = historyItem.id;

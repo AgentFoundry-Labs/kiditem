@@ -5,6 +5,10 @@ import { createSellpiaProfit } from './profit';
 import { createSellpiaSales } from './sales';
 import { createSellpiaTracking } from './tracking';
 import { createSellpiaManualMatch } from './manual-match';
+import { createSellpiaInvoice } from './invoice';
+import { createSellpiaPostTransfer } from './post-transfer';
+import { createSellpiaSnapshot } from './snapshot';
+import { createSellpiaTransfer } from './transfer';
 
 export { SELLPIA_INVENTORY_FILE, SELLPIA_INVENTORY_URL, type SellpiaInventoryRow } from './inventory';
 export { SELLPIA_PROFIT_FILE, SELLPIA_PROFIT_URL, type SellpiaProfitRowProduct, type SellpiaProfitRows } from './profit';
@@ -14,7 +18,9 @@ export { SELLPIA_ORIGIN, SELLPIA_PAGE_GUARD, SELLPIA_REPRINT_URL, SELLPIA_SHIPME
 /**
  * 셀피아(kiditem.sellpia.com) 사이트 핸들(KID-359 H3 → KID-361·363 wave3). 화면마다 파일 하나(`tracking.ts`·`inventory.ts`·
  * `sales.ts`·`profit.ts`·`manual-match.ts`)가 메서드 묶음을 만들고, 여기서 하나로 합친다 — 트랙이 같은 파일을 고치지 않게
- * 각 트랙은 자기 파일 + 아래 spread 한 줄만 더한다. 운영자 탭은 건드리지 않고 매번 백그라운드 탭을 새로 열어 읽고 닫는다.
+ * 각 트랙은 자기 파일 + 아래 spread 한 줄만 더한다. 읽기(스냅샷 포함)는 운영자 탭을 건드리지 않고 매번 백그라운드 탭을 새로
+ * 열어 읽고 닫는다. 셀피아에 쓰는 주문 작업(`transfer.ts`·`post-transfer.ts`·`invoice.ts`, KID-366 wave8b)은 운영자 셀피아
+ * 탭을 쓰고 앞으로 가져온다(`sites/operator-tab.ts`).
  * 탭 잠금은 서버 lockKey `resource:sellpia:login`이 하고, 이 사이트는 브라우저 자원에 origin을 두지 않는다(탭을 스스로 연다).
  */
 export function createSellpiaSite(tabs: TabPages) {
@@ -24,6 +30,10 @@ export function createSellpiaSite(tabs: TabPages) {
     ...createSellpiaSales(tabs),
     ...createSellpiaProfit(tabs),
     ...createSellpiaManualMatch(tabs),
+    ...createSellpiaTransfer(tabs),
+    ...createSellpiaPostTransfer(tabs),
+    ...createSellpiaInvoice(tabs),
+    ...createSellpiaSnapshot(tabs),
   };
 }
 

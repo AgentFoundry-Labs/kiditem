@@ -183,6 +183,37 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(h.finishes).toEqual([{ outcome: 'reconciling', result: { mallOutcome: 'submitted' } }]);
   });
 
+  it('수집기가 원천 파일 경로를 선언하면 수집기는 readSource로 그 실행의 파일을 runner를 거쳐 받는다(서버 통신은 runner만, KID-366 wave8b)', async () => {
+    const h = harness();
+    const read: string[] = [];
+    h.client.readSource = async (path) => {
+      read.push(path);
+      return new Uint8Array([1, 2, 3]);
+    };
+    let bytes: Uint8Array | null = null;
+    const c = collector(async function* (): AsyncGenerator<RunnableChunk> {
+      yield echoChunk(1);
+    }, {
+      sourcePath: (operationId) => `/api/orders/action-operations/${operationId}/source`,
+      collect: (_plan, _site, context) => (async function* () {
+        bytes = (await context.readSource?.()) ?? null;
+        yield echoChunk(1);
+      })(),
+    });
+
+    await runWith(h, c);
+
+    expect(read).toEqual([`/api/orders/action-operations/${OP}/source`]);
+    expect(bytes).toEqual(new Uint8Array([1, 2, 3]));
+  });
+
+  it('원천 경로를 선언하지 않은 수집기에는 readSource가 없다', async () => {
+    const h = harness();
+    let offered: unknown = 'unset';
+    await runWith(h, collector([], { collect: (_plan, _site, context) => (async function* () { offered = context.readSource; })() }));
+    expect(offered).toBeUndefined();
+  });
+
   it('begin이 성공하면 수집 전에 onBegun으로 operationId·reused를 알린다', async () => {
     const h = harness();
     const seen: Array<{ operationId: string; reused: boolean; stepsSoFar: string[] }> = [];

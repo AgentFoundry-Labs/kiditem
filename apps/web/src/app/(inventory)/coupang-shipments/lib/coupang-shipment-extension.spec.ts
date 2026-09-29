@@ -5,6 +5,49 @@ const bridge = vi.hoisted(() => ({
   sendToExtension: vi.fn(),
 }));
 vi.mock('@/lib/extension-bridge', () => bridge);
+const api = vi.hoisted(() => ({ get: vi.fn() }));
+const start = vi.hoisted(() => ({ requestOperationStart: vi.fn() }));
+vi.mock('@/lib/api-client', () => ({ apiClient: api }));
+vi.mock('@/lib/operation-start', () => start);
+vi.mock('@/lib/operation-login', () => ({
+  operationLoginOptions: vi.fn(async () => ({})),
+  noteOperationLoginFailureForMall: vi.fn(),
+  ROCKET_LOGIN_MALL_KEY: 'coupang-direct',
+}));
+
+const LIST_ID = '11111111-1111-4111-8111-111111111111';
+
+/** 배송 목록 실행(`orders.coupang_shipment_list`)이 끝난 모습. */
+function shipmentList(status: 'succeeded' | 'failed', patch: Record<string, unknown> = {}) {
+  return {
+    operation: {
+      id: LIST_ID,
+      kind: 'orders.coupang_shipment_list',
+      status,
+      lockKeys: [],
+      plan: null,
+      progress: null,
+      result: status === 'succeeded'
+        ? {
+          date: '2026-09-29',
+          shipments: [{ seq: '101', center: '평택1', outbound: '2026-09-29', boxes: 2, status: null }],
+          scannedPages: 1,
+          stopReason: 'short_page',
+        }
+        : null,
+      window: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: '2026-09-29T00:00:00.000Z',
+      finishedAt: '2026-09-29T00:00:05.000Z',
+      expiresAt: '2026-09-29T00:30:00.000Z',
+      attempts: 1,
+      maxAttempts: 1,
+      scheduledFor: null,
+      ...patch,
+    },
+  };
+}
 
 import {
   clearCoupangCookiesViaExtension,
@@ -23,6 +66,8 @@ describe('Coupang shipment extension actions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
+    start.requestOperationStart.mockResolvedValue({ outcome: 'started', operationId: LIST_ID });
+    api.get.mockResolvedValue(shipmentList('succeeded'));
   });
 
   it('opens the shipment page through the new runtime shipment capability', async () => {
@@ -59,20 +104,17 @@ describe('Coupang shipment extension actions', () => {
     expect((error as Error).message).toBe('쿠키가 커져 요청이 거절됐습니다.');
   });
 
-  it('fetches label and manifest PDFs in shared-shape batches and names drafts by date and center', async () => {
-    bridge.sendToExtension.mockImplementation(async (_id: string, message: { action: string; items?: Array<{ seq: string; kind: string }> }) => {
-      if (message.action === 'collectCoupangShipmentList') {
-        return { success: true, shipments: [{ seq: '101', center: '평택1', status: '', outbound: '', inbound: '', boxes: '', qty: '', po: '', invoice: '' }] };
-      }
-      return {
-        success: true,
-        files: (message.items ?? []).map((item) => ({ seq: item.seq, kind: item.kind, ok: true, b64: btoa('%PDF'), bytes: 4, error: null })),
-      };
-    });
+  it('배송 목록은 실행 orders.coupang_shipment_list로 받고, 그 행의 seq·center로 PDF 묶음을 받아 발송일·센터로 이름 짓는다', async () => {
+    bridge.sendToExtension.mockImplementation(async (_id: string, message: { action: string; items?: Array<{ seq: string; kind: string }> }) => ({
+      success: true,
+      files: (message.items ?? []).map((item) => ({ seq: item.seq, kind: item.kind, ok: true, b64: btoa('%PDF'), bytes: 4, error: null })),
+    }));
 
     const result = await collectCoupangShipmentDraftsViaExtension('2026-09-29');
 
-    expect(bridge.sendToExtension).toHaveBeenNthCalledWith(2, 'ext', {
+    expect(start.requestOperationStart).toHaveBeenCalledWith('orders.coupang_shipment_list', { date: '2026-09-29' }, { capability: 'orderActionOperationKindsV1' });
+    expect(bridge.sendToExtension).toHaveBeenCalledOnce();
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('ext', {
       action: 'fetchCoupangShipmentPdfBatch',
       items: [{ seq: '101', kind: 'label' }, { seq: '101', kind: 'manifest' }],
     }, 120000);
@@ -83,12 +125,15 @@ describe('Coupang shipment extension actions', () => {
     expect(result.failed).toEqual([]);
   });
 
+  it('배송 목록 실행이 쿠키 과다로 끝나면 쿠키 정리 복구 오류로 알린다', async () => {
+    api.get.mockResolvedValue(shipmentList('failed', { errorCode: 'SITE_COOKIE_BLOAT', errorMessage: '쿠팡 쿠키가 너무 많아 요청이 거절됐습니다.' }));
+    const error = await collectCoupangShipmentDraftsViaExtension('2026-09-29').catch((caught: unknown) => caught);
+    expect(isCoupangCookieBloatError(error)).toBe(true);
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
   it('turns a PDF batch cookie bloat failure into the cookie recovery error', async () => {
-    bridge.sendToExtension.mockImplementation(async (_id: string, message: { action: string }) => (
-      message.action === 'collectCoupangShipmentList'
-        ? { success: true, shipments: [{ seq: '101', center: '평택1' }] }
-        : { success: false, errorCode: 'coupang_cookie_bloat', error: '쿠키가 커져 요청이 거절됐습니다.' }
-    ));
+    bridge.sendToExtension.mockResolvedValue({ success: false, errorCode: 'coupang_cookie_bloat', error: '쿠키가 커져 요청이 거절됐습니다.' });
     const error = await collectCoupangShipmentDraftsViaExtension('2026-09-29').catch((caught: unknown) => caught);
     expect(isCoupangCookieBloatError(error)).toBe(true);
   });

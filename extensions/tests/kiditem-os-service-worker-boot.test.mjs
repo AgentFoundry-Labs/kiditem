@@ -596,7 +596,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   for (const [name, value] of Object.entries(response.capabilities)) assert.equal(typeof value, 'boolean', name);
   for (const capability of [
     // 주문수집
-    'orderCollectionIcecreamMall',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
     // 새 런타임 entry 액션 묶음(KID-366)
@@ -609,6 +608,8 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'coupangCatalogSnapshot',
     // 몰 쓰기 실행 kind(등록·품절·재개·가격·대표이미지, KID-256)
     'channelsRegistrationOperationKindV1',
+    // Orders 작업 kind 6종(셀피아 전송·후처리·자동송장·스냅샷, 쿠팡 배송 목록, 몰 송장 업로드 — KID-366 wave8b)
+    'orderActionOperationKindsV1',
     // 새 런타임(소싱 실행 kind KID-360, 광고 키워드·경쟁사 kind KID-362)
     'operationRuntime',
     'sourcingOperationKindsV1',

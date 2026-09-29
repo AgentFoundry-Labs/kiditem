@@ -43,6 +43,18 @@ import { OrderCollectionUploadController } from './adapter/in/web/order-collecti
 import { OrderMallAccountPersistenceAdapter } from './adapter/out/persistence/order-mall-account.persistence.adapter';
 import { ORDER_MALL_ACCOUNT_PORT } from './application/port/out/persistence/order-mall-account.port';
 import { OrderCollectionTodayOrdersModule } from './order-collection-today-orders.module';
+import { OrdersActionOperationsController } from './adapter/in/web/orders-action-operations.controller';
+import { SellpiaOrderTransferOperationOwner } from './adapter/in/operation/sellpia-order-transfer-operation-owner';
+import { SellpiaPostTransferOperationOwner } from './adapter/in/operation/sellpia-post-transfer-operation-owner';
+import { SellpiaAutoInvoiceOperationOwner } from './adapter/in/operation/sellpia-auto-invoice-operation-owner';
+import { SellpiaOrderSnapshotOperationOwner } from './adapter/in/operation/sellpia-order-snapshot-operation-owner';
+import { CoupangShipmentListOperationOwner } from './adapter/in/operation/coupang-shipment-list-operation-owner';
+import { MallTrackingUploadOperationOwner } from './adapter/in/operation/mall-tracking-upload-operation-owner';
+import { SellpiaActionOutcomesPersistenceAdapter } from './adapter/out/persistence/sellpia-action-outcomes.persistence.adapter';
+import { SELLPIA_ACTION_OUTCOMES_PORT } from './application/port/out/persistence/sellpia-action-outcomes.port';
+import { OrdersActionOperationService } from './application/service/orders-action-operation.service';
+import { SellpiaInvoiceTargetsService } from './application/service/sellpia-invoice-targets.service';
+import { SellpiaOrderTransferService } from './application/service/sellpia-order-transfer.service';
 
 @Module({
   imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule, OrderCollectionTodayOrdersModule],
@@ -56,6 +68,7 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
+    OrdersActionOperationsController,
   ],
   providers: [
     OrdersService,
@@ -77,6 +90,16 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
     MallOrdersOperationOwner,
     OrderMallAccountPersistenceAdapter,
     CoupangDirectshipOperationOwner,
+    SellpiaOrderTransferService,
+    SellpiaInvoiceTargetsService,
+    OrdersActionOperationService,
+    SellpiaActionOutcomesPersistenceAdapter,
+    SellpiaOrderTransferOperationOwner,
+    SellpiaPostTransferOperationOwner,
+    SellpiaAutoInvoiceOperationOwner,
+    SellpiaOrderSnapshotOperationOwner,
+    CoupangShipmentListOperationOwner,
+    MallTrackingUploadOperationOwner,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -104,6 +127,10 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
     {
       provide: ORDER_MALL_ACCOUNT_PORT,
       useExisting: OrderMallAccountPersistenceAdapter,
+    },
+    {
+      provide: SELLPIA_ACTION_OUTCOMES_PORT,
+      useExisting: SellpiaActionOutcomesPersistenceAdapter,
     },
   ],
 })

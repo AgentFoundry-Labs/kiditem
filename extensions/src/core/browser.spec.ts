@@ -149,6 +149,31 @@ describe('createBrowserResources — lockKey 이름으로 탭을 잡고 푼다',
     expect(fake.created).toEqual([{ url: 'https://wing.example.com', active: false }]);
   });
 
+  it('탭을 스스로 여는 사이트의 resource 잠금(쿠팡 배송 목록 resource:coupang-supplier:login)은 탭을 따로 열지 않고, 같은 사이트의 account 잠금은 그 origin 탭을 연다(KID-366 wave8b)', async () => {
+    const sites = { ...SITES, 'coupang-supplier': { origin: 'https://supplier.example.com/po' } };
+    const options = { accountSite: 'wing', ownTabSites: new Set(['coupang-supplier']) };
+    const resource = fakeChrome();
+    const lease = await createBrowserResources(resource.chrome, sites, options).acquire({
+      operationId: OP,
+      lockKeys: ['resource:coupang-supplier:login'],
+      site: 'coupang-supplier',
+      signal: signal(),
+    });
+    expect(lease.tabId).toBeNull();
+    expect(resource.created).toEqual([]);
+    expect(resource.queries).toEqual([]);
+
+    const account = fakeChrome();
+    const po = await createBrowserResources(account.chrome, sites, options).acquire({
+      operationId: OP,
+      lockKeys: [`account:${ACCOUNT}`],
+      site: 'coupang-supplier',
+      signal: signal(),
+    });
+    expect(po.tabId).toBe(100);
+    expect(account.created).toEqual([{ url: 'https://supplier.example.com/po', active: false }]);
+  });
+
   it('account:<id>라도 탭을 스스로 여는 사이트(몰 주문, KID-359 H3)를 선언하면 accountSite 탭을 열지 않는다', async () => {
     const fake = fakeChrome();
     const lease = await createBrowserResources(fake.chrome, SITES, { accountSite: 'wing', ownTabSites: new Set(['mall-orders']) }).acquire({

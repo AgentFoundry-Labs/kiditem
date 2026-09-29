@@ -219,11 +219,11 @@ export function OrderCollectionWorkspace() {
     setReconciling(true);
     try {
       const {
-        collectSellpiaOrderSnapshot,
         reconcileCollectedOrdersWithSellpia,
         SELLPIA_RECONCILE_PARTIAL_MESSAGE,
       } = await import('../lib/sellpia-order-reconcile');
-      const { rows, partial } = await collectSellpiaOrderSnapshot();
+      const { readSellpiaOrderSnapshot } = await import('@/lib/order-action-operations');
+      const { rows, partial } = await readSellpiaOrderSnapshot();
       const result = reconcileCollectedOrdersWithSellpia({
         history: historyRef.current,
         sellpiaRows: rows,
@@ -288,7 +288,12 @@ export function OrderCollectionWorkspace() {
       current.map((entry) => (entry.id === file.id ? file : entry)),
     );
   }, []);
+  // 서버가 이미 보낸 파일이라 거절하면(기록이 어긋남) 요청됨으로 맞춘 기록으로 재전송 확인 창을 띄운다.
+  const resendConfirmRef = useRef<(item: ConversionHistoryItem) => void>(() => undefined);
+  const handleAlreadySent = useCallback((file: ConversionHistoryItem) => resendConfirmRef.current(file), []);
   const sellpiaTransmission = useSellpiaOrderTransmission({
+    items: history,
+    onAlreadySent: handleAlreadySent,
     onTransmissionRequested: handleTransmissionRequested,
   });
 
@@ -524,9 +529,12 @@ export function OrderCollectionWorkspace() {
         return;
       }
       const convertedAt = Date.now();
+      const { operationId, ...converted } = result;
       const historyItem: ConversionHistoryItem = {
-        ...result,
+        ...converted,
         id: `${convertedAt}-${file.name}`,
+        // 셀피아 전송은 서버가 이 업로드 실행에서 파일을 다시 만든다(KID-366).
+        sourceOperationId: operationId,
         sourceName: file.name.normalize('NFC'),
         convertedAt,
         collectionDate: todayYmd(),
@@ -646,6 +654,19 @@ export function OrderCollectionWorkspace() {
       releaseAction();
     }
   };
+
+  /** 셀피아 확인 필요 행: 운영자가 셀피아에서 본 대로 전송 실행을 확인하거나 닫는다. */
+  const handleResolveSellpiaTransfer = async (item: ConversionHistoryItem, resolution: 'confirm' | 'close') => {
+    const releaseAction = acquireGeneratedFiles([item.id]);
+    if (!releaseAction) return;
+    try {
+      await (resolution === 'confirm' ? sellpiaTransmission.confirmTransfer(item) : sellpiaTransmission.closeTransfer(item));
+    } finally {
+      releaseAction();
+    }
+  };
+
+  resendConfirmRef.current = (item) => { void handleSendToSellpia(item); };
 
   const handleSendSelectedToSellpia = async (items: ConversionHistoryItem[]) => {
     const batch = [...items];
@@ -924,7 +945,6 @@ export function OrderCollectionWorkspace() {
         bulkAction={bulkAction}
         lockedFileIds={lockedFileIds}
         sellpiaSendingId={sellpiaTransmission.sendingId}
-        sellpiaSettlingId={sellpiaTransmission.settlingId}
         sellpiaPostProcessing={sellpiaPostProcessing}
         onDelete={(item) => void handleDeleteGeneratedFile(item)}
         onDeleteSelected={(items) => void handleDeleteSelected(items)}
@@ -934,6 +954,8 @@ export function OrderCollectionWorkspace() {
         onSellpiaPostProcess={() => void handleSellpiaPostProcess()}
         onSendToSellpia={(item) => void handleSendToSellpia(item)}
         onSendSelectedToSellpia={(items) => void handleSendSelectedToSellpia(items)}
+        onConfirmSellpiaTransfer={(item) => void handleResolveSellpiaTransfer(item, 'confirm')}
+        onCloseSellpiaTransfer={(item) => void handleResolveSellpiaTransfer(item, 'close')}
       />
 
       {directshipCalendar.calendar ? (

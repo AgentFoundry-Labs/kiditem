@@ -9,7 +9,6 @@
 // KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const COUPANG_SEARCH_URL = "https://www.coupang.com/np/search";
-const WING_CATALOG_MAX_PAGES = 5;
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
@@ -33,11 +32,6 @@ chrome.runtime.onInstalled.addListener(() => {
   adsEnvironmentContext.migrateLegacyStorage().catch(() => undefined);
   Promise.resolve(chrome.storage.local.remove(COUPANG_RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
 });
-
-// 동기화 완료 후 대시보드 탭 자동 새로고침
-function notifyDashboard(environmentId) {
-  return adsEnvironmentContext.publish(environmentId, "kiditem-sync");
-}
 
 // 아이콘 클릭 시 사이드 패널 열기
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -113,12 +107,6 @@ function isWingInventoryUrl(url) {
   }
 }
 
-function getStorage(keys) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(keys, (data) => resolve(data || {}));
-  });
-}
-
 function getTab(tabId) {
   return new Promise((resolve, reject) => {
     chrome.tabs.get(tabId, (tab) => {
@@ -131,24 +119,6 @@ function getTab(tabId) {
   });
 }
 
-function removeTab(tabId) {
-  return new Promise((resolve) => {
-    try {
-      chrome.tabs.remove(tabId, () =>
-        resolve({ success: !chrome.runtime.lastError }),
-      );
-    } catch {
-      resolve({ success: false });
-    }
-  });
-}
-
-function queryTabs(queryInfo) {
-  return new Promise((resolve) => {
-    chrome.tabs.query(queryInfo, (tabs) => resolve(tabs || []));
-  });
-}
-
 function createTab(createProperties) {
   return new Promise((resolve, reject) => {
     chrome.tabs.create(createProperties, (tab) => {
@@ -157,27 +127,6 @@ function createTab(createProperties) {
         return;
       }
       resolve(tab);
-    });
-  });
-}
-
-async function updateTabAndWait(tabId, url, options = {}) {
-  const before = await getTab(tabId).catch(() => null);
-  if (before?.active && options.allowActive !== true) {
-    throw new Error("active user tab is collection-protected");
-  }
-  return new Promise((resolve, reject) => {
-    chrome.tabs.update(tabId, { url, active: !!options.active }, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-      waitForTabComplete(tabId, {
-        expectedUrl: url,
-        previousUrl: before?.url || null,
-      })
-        .then(resolve)
-        .catch(reject);
     });
   });
 }

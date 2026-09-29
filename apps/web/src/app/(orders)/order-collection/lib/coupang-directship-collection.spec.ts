@@ -199,6 +199,9 @@ describe('createCoupangDirectshipCollector', () => {
       id: intentKey,
       mallKey: COUPANG_DIRECT_MALL_KEY,
       mallName: '쿠팡직배송 밀크런',
+      // 셀피아 전송 scope: 직배송 실행 id + 운송유형(한 실행이 유형마다 파일 하나, KID-366).
+      sourceOperationId: '66666666-6666-4666-8666-666666666666',
+      transport: 'MILKRUN',
     }));
     // 비어 있던 유형은 조용히 넘어가지 않고 이름을 밝혀 알린다.
     expect(mocks.toast).toHaveBeenCalledWith(
@@ -235,6 +238,8 @@ describe('createCoupangDirectshipCollector', () => {
       sourceName: expect.stringContaining('워크북 미매칭 1품목 포함'),
       rocketWorkbookExportId: null,
       transmissionIntentKey: intentKey,
+      sourceOperationId: '66666666-6666-4666-8666-666666666666',
+      transport: 'SHIPMENT',
     }));
     expect(setPreviewId).toHaveBeenCalledWith(intentKey);
   });

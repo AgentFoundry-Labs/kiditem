@@ -38,9 +38,6 @@ const collectionSessions = KidItemCollectionSession.create({
     globalThis.KidItemWebAppCollectionRuntime?.ensureSessionCanRun(started),
 });
 
-const interactiveTabs = KidItemInteractiveTabs.create({ chrome });
-const INTERACTIVE_TAB_REASONS = KidItemInteractiveTabs.reasons;
-
 // ── MV3 서비스워커 유휴 종료 방지 ─────────────────────────────────────────────
 //
 // MV3 서비스워커는 30초 무활동이면 종료된다. 수집은 몇 분씩 걸리므로, 응답 전에

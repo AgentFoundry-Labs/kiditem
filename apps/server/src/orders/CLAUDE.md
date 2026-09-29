@@ -101,6 +101,31 @@ Action, collection, transmission, and reconciliation behavior is executable in
   Channels observed identities (`lastOperationId`) and the snapshot
   (`operationId`) in the finish transaction. Supply reads a published
   collection by `rocketPoOperationId` through `ROCKET_PO_CATALOG_PORT`.
+- The old worker's Sellpia and mall actions are operation kinds
+  (`@kiditem/shared/orders-action-operations`, KID-355). Writes: Sellpia order
+  transfer, post-transfer and auto invoice (`resource:sellpia:login`) and mall
+  tracking upload (`account:<channelAccountId>`). Reads: Sellpia order
+  snapshot (`resource:sellpia:login`) and Coupang shipment list
+  (`resource:coupang-supplier:login`). Results live only in the operation
+  `result`.
+- The transfer file is never uploaded: plan regenerates it from the succeeded
+  source operation (`orders.mall_orders`, or `orders.coupang_directship` with
+  its consumed `transport`) and freezes the file's order numbers;
+  `GET …/action-operations/:id/source` regenerates it again and refuses when
+  the numbers differ from the plan. A succeeded transfer of the same source
+  (and `transport`) refuses a new one with `ORDERS_TRANSFER_ALREADY_SENT`
+  unless the scope says `resend: true` (plan `resendOf`); a closed transfer
+  does not block.
+- Auto-invoice targets are the accepted numbers of transfers that succeeded in
+  the last 24 hours minus the numbers a succeeded invoice that finished after
+  that transfer issued (numbers restart per file); a number the grid did not
+  show stays a target within those 24 hours.
+  A `reconciling` transfer is not a source until confirmed. No targets refuses
+  the start; an issued row outside the plan fails the finish.
+- Transfer, auto invoice and tracking upload may finish `reconciling`. The
+  operator closes them with `POST …/action-operations/:id/confirm {result?}` or
+  `/close {reason?}`; a closed transfer is `SELLPIA_TRANSFER_NOT_SUBMITTED`
+  (resend allowed), the others `ORDERS_ACTION_CLOSED_BY_OPERATOR`.
 
 ## Boundaries
 

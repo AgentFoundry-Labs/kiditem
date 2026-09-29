@@ -21,6 +21,7 @@ import { CoupangDirectshipService } from '../../../coupang-directship/coupang-di
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
+import { contentDispositionAttachment } from './operation-conversion';
 import {
   COUPANG_DIRECT_ORDER_COLLECTION_PORT,
   type CoupangDirectOrderCollectionPort,
@@ -127,10 +128,6 @@ export class CoupangDirectshipController {
 
 const SnapshotQuerySchema = z.object({ channelAccountId: z.string().uuid() }).strict();
 
-function contentDispositionAttachment(fileName: string): string {
-  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
-}
 
 function parseBody<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const parsed = schema.safeParse(value);

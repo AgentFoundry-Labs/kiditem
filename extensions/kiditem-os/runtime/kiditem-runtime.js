@@ -5032,7 +5032,7 @@ var KidItemRuntime = (() => {
     let lastSentAt = null;
     let queue = Promise.resolve();
     const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send16(url, { requireXsrf = false, ...init } = {}) {
+    async function send17(url, { requireXsrf = false, ...init } = {}) {
       const headers = new Headers(init.headers);
       if (options.xsrf) {
         const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
@@ -5069,7 +5069,7 @@ var KidItemRuntime = (() => {
     }
     return {
       json: (url, init) => enqueue(async () => {
-        const response = await send16(url, init);
+        const response = await send17(url, init);
         const body = await safeText(response);
         try {
           return JSON.parse(body);
@@ -5078,8 +5078,8 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure3, error);
         }
       }),
-      text: (url, init) => enqueue(async () => (await send16(url, init)).text()),
-      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send16(url, init)).arrayBuffer()))
+      text: (url, init) => enqueue(async () => (await send17(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send17(url, init)).arrayBuffer()))
     };
   }
   async function safeText(response) {
@@ -8361,8 +8361,8 @@ var KidItemRuntime = (() => {
         }
       }
     }
-    for (const [optionId, count5] of mediaCountByOption.entries()) {
-      if (count5 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+    for (const [optionId, count6] of mediaCountByOption.entries()) {
+      if (count6 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["media"],
@@ -9754,17 +9754,247 @@ var KidItemRuntime = (() => {
   }
   registerCollector(coupangRocketPoCollector);
 
+  // packages/shared/src/schemas/orders-action-operations.ts
+  var SELLPIA_ORDER_TRANSFER_KIND = "orders.sellpia_order_transfer";
+  var SELLPIA_POST_TRANSFER_KIND = "orders.sellpia_post_transfer";
+  var SELLPIA_AUTO_INVOICE_KIND = "orders.sellpia_auto_invoice";
+  var SELLPIA_ORDER_SNAPSHOT_KIND = "orders.sellpia_order_snapshot";
+  var COUPANG_SHIPMENT_LIST_KIND = "orders.coupang_shipment_list";
+  var MALL_TRACKING_UPLOAD_KIND = "orders.mall_tracking_upload";
+  var ORDERS_ACTION_OPERATION_CAPABILITY = "orderActionOperationKindsV1";
+  var COUPANG_SUPPLIER_LOGIN_LOCK_KEY = resourceLockKey("coupang-supplier", "login");
+  var isoDay7 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var orderNumber = external_exports.string().trim().min(1).max(200);
+  var SELLPIA_TRANSFER_TARGETS_MAX = 1e4;
+  var SELLPIA_INVOICE_TARGET_TTL_MS = 24 * 60 * 60 * 1e3;
+  var SELLPIA_TRANSFER_TRANSPORTS = ["SHIPMENT", "MILKRUN"];
+  var SellpiaTransferTransportSchema = external_exports.enum(SELLPIA_TRANSFER_TRANSPORTS);
+  var SellpiaOrderTransferScopeSchema = external_exports.object({
+    sourceOperationId: external_exports.string().uuid(),
+    /** 셀피아 판매처 이름(화면의 판매처 선택에 쓴다; 별칭은 site 어댑터가 푼다). */
+    shopName: external_exports.string().trim().min(1).max(200),
+    /**
+     * 직배송 원천(`orders.coupang_directship`)일 때 필수 — 한 실행이 운송유형마다 파일 하나를 낸다(소비 기록·Python 생성기).
+     * 몰 주문 원천에는 없어야 한다. owner plan이 원천 kind에 맞춰 검증한다.
+     */
+    transport: SellpiaTransferTransportSchema.optional(),
+    /**
+     * 같은 원천(+운송유형)의 성공한 전송이 이미 있으면 서버가 `ORDERS_TRANSFER_ALREADY_SENT`로 거절한다(전송 울타리 = 실행).
+     * 운영자가 재전송 확인 창을 거쳐 일부러 다시 보낼 때만 true — plan에 `resendOf`(앞선 성공 실행 id)가 남는다.
+     */
+    resend: external_exports.boolean().optional()
+  }).strict();
+  var SellpiaOrderTransferPlanSchema = external_exports.object({
+    sourceOperationId: external_exports.string().uuid(),
+    shopName: external_exports.string().trim().min(1).max(200),
+    transport: SellpiaTransferTransportSchema.nullable(),
+    /** 재전송이면 앞선 성공 전송 실행 id, 아니면 null(없으면 null로 읽는다). */
+    resendOf: external_exports.string().uuid().nullable().default(null),
+    fileName: external_exports.string().trim().min(1).max(300),
+    /** 서버가 변환 파일에서 읽은 대상 주문번호(판매처주문번호|주문번호|주문코드 머리). 0개면 plan이 거절한다. */
+    targetOrderNumbers: external_exports.array(orderNumber).min(1).max(SELLPIA_TRANSFER_TARGETS_MAX)
+  }).strict();
+  var SELLPIA_ORDER_TRANSFER_CHUNK_KIND = "transfer_evidence";
+  var SELLPIA_TRANSFER_OUTCOMES = ["submitted", "not_submitted", "unknown"];
+  var SellpiaTransferOutcomeSchema = external_exports.enum(SELLPIA_TRANSFER_OUTCOMES);
+  var SellpiaOrderTransferEvidenceSchema = external_exports.object({
+    outcome: SellpiaTransferOutcomeSchema,
+    /** 셀피아 화면에서 확인된(받아들여진) 대상 주문번호 — 자동송장 대상의 원천. */
+    acceptedOrderNumbers: external_exports.array(orderNumber).max(SELLPIA_TRANSFER_TARGETS_MAX),
+    baselineRows: external_exports.number().int().min(0),
+    afterRows: external_exports.number().int().min(0),
+    mallMessage: external_exports.string().max(500).nullable()
+  }).strict();
+  var SellpiaOrderTransferResultSchema = external_exports.object({
+    outcome: external_exports.literal("submitted"),
+    acceptedOrderNumbers: external_exports.array(orderNumber).max(SELLPIA_TRANSFER_TARGETS_MAX),
+    targetOrderCount: external_exports.number().int().min(0)
+  }).strict();
+  var SellpiaPostTransferScopeSchema = external_exports.object({}).strict();
+  var SELLPIA_POST_TRANSFER_CHUNK_KIND = "post_transfer_steps";
+  var SELLPIA_POST_TRANSFER_STEPS = ["register", "stockmatch"];
+  var SellpiaPostTransferStepSchema = external_exports.object({
+    step: external_exports.enum(SELLPIA_POST_TRANSFER_STEPS),
+    done: external_exports.boolean(),
+    mallMessage: external_exports.string().max(500).nullable(),
+    /** `stockmatch`에서 매칭되지 않은 행의 주문번호(최대 2,000). */
+    unmatchedOrderNumbers: external_exports.array(orderNumber).max(2e3).optional()
+  }).strict();
+  var SellpiaPostTransferResultSchema = external_exports.object({
+    registered: external_exports.boolean(),
+    stockMatched: external_exports.boolean(),
+    unmatchedOrderNumbers: external_exports.array(orderNumber).max(2e3),
+    invoiceTargetCount: external_exports.number().int().min(0)
+  }).strict();
+  var SellpiaAutoInvoiceScopeSchema = external_exports.object({}).strict();
+  var SellpiaAutoInvoicePlanSchema = external_exports.object({
+    /** 발급 대상 주문번호. 0개면 plan이 `ORDERS_SELLPIA_INVOICE_NO_TARGETS`로 거절한다. */
+    targetOrderNumbers: external_exports.array(orderNumber).min(1).max(SELLPIA_TRANSFER_TARGETS_MAX)
+  }).strict();
+  var SELLPIA_AUTO_INVOICE_CHUNK_KIND = "invoice_rows";
+  var SellpiaInvoiceRowSchema = external_exports.object({
+    orderNo: orderNumber,
+    trackingNumber: external_exports.string().trim().min(1).max(100),
+    courier: external_exports.string().max(100)
+  }).strict();
+  var SellpiaAutoInvoiceResultSchema = external_exports.object({
+    issued: external_exports.array(SellpiaInvoiceRowSchema).max(SELLPIA_TRANSFER_TARGETS_MAX),
+    selectedOrderNumbers: external_exports.array(orderNumber).max(SELLPIA_TRANSFER_TARGETS_MAX),
+    notFoundOrderNumbers: external_exports.array(orderNumber).max(SELLPIA_TRANSFER_TARGETS_MAX)
+  }).strict();
+  var SellpiaOrderSnapshotScopeSchema = external_exports.object({}).strict();
+  var SELLPIA_ORDER_SNAPSHOT_CHUNK_KIND = "snapshot_rows";
+  var SELLPIA_SNAPSHOT_SOURCES = ["pending", "stockmatch"];
+  var SellpiaOrderSnapshotRowSchema = external_exports.object({
+    orderNo: orderNumber,
+    receiver: external_exports.string().max(300),
+    provider: external_exports.string().max(300),
+    source: external_exports.enum(SELLPIA_SNAPSHOT_SOURCES)
+  }).strict();
+  var SELLPIA_SNAPSHOT_ROWS_MAX = 1e4;
+  var SellpiaOrderSnapshotResultSchema = external_exports.object({
+    orderCount: external_exports.number().int().min(0),
+    rows: external_exports.array(SellpiaOrderSnapshotRowSchema).max(SELLPIA_SNAPSHOT_ROWS_MAX),
+    partial: external_exports.boolean()
+  }).strict();
+  var CoupangShipmentListScopeSchema = external_exports.object({
+    date: isoDay7
+  }).strict();
+  var COUPANG_SHIPMENT_LIST_MAX_PAGES = 60;
+  var CoupangShipmentListPlanSchema = external_exports.object({
+    date: isoDay7,
+    maxPages: external_exports.number().int().min(1).max(COUPANG_SHIPMENT_LIST_MAX_PAGES)
+  }).strict();
+  var COUPANG_SHIPMENT_LIST_CHUNK_KIND = "shipment_rows";
+  var CoupangShipmentListRowSchema = external_exports.object({
+    seq: external_exports.string().trim().min(1).max(64),
+    /** 물류센터 이름 — 파일 이름·정렬에 쓴다(옛 목록 스크립트가 읽던 칸; `parseParcelPage`에 추가). */
+    center: external_exports.string().max(200),
+    outbound: isoDay7.nullable(),
+    boxes: external_exports.number().int().min(0),
+    status: external_exports.string().max(100).nullable()
+  }).strict();
+  var COUPANG_SHIPMENT_LIST_ROWS_MAX = 2e3;
+  var COUPANG_SHIPMENT_LIST_STOP_REASONS = ["past_date_block", "empty_pages", "short_page", "max_pages"];
+  var CoupangShipmentListResultSchema = external_exports.object({
+    date: isoDay7,
+    shipments: external_exports.array(CoupangShipmentListRowSchema).max(COUPANG_SHIPMENT_LIST_ROWS_MAX),
+    scannedPages: external_exports.number().int().min(1).max(COUPANG_SHIPMENT_LIST_MAX_PAGES),
+    stopReason: external_exports.enum(COUPANG_SHIPMENT_LIST_STOP_REASONS)
+  }).strict();
+  var MALL_TRACKING_UPLOAD_MALLS = ["onch", "kidkids"];
+  var MallTrackingUploadMallSchema = external_exports.enum(MALL_TRACKING_UPLOAD_MALLS);
+  var MallTrackingUploadScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: MallTrackingUploadMallSchema,
+    trackingOperationId: external_exports.string().uuid()
+  }).strict();
+  var MALL_TRACKING_UPLOAD_ROWS_MAX = 2e3;
+  var MallTrackingUploadRowSchema = external_exports.object({
+    orderNo: orderNumber,
+    trackingNumber: external_exports.string().trim().min(1).max(100),
+    /** 셀피아 택배사 이름 그대로 — 몰 택배사 코드로의 매핑은 site 어댑터가 한다. */
+    courier: external_exports.string().max(100)
+  }).strict();
+  var MallTrackingUploadPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: MallTrackingUploadMallSchema,
+    trackingOperationId: external_exports.string().uuid(),
+    /** 0개면 plan이 `ORDERS_TRACKING_UPLOAD_NO_ROWS`로 거절한다. */
+    rows: external_exports.array(MallTrackingUploadRowSchema).min(1).max(MALL_TRACKING_UPLOAD_ROWS_MAX)
+  }).strict();
+  var MALL_TRACKING_UPLOAD_CHUNK_KIND = "upload_results";
+  var MALL_TRACKING_UPLOAD_ROW_STATUSES = ["uploaded", "already_uploaded", "not_in_list", "failed"];
+  var MallTrackingUploadRowResultSchema = external_exports.object({
+    orderNo: orderNumber,
+    status: external_exports.enum(MALL_TRACKING_UPLOAD_ROW_STATUSES),
+    mallMessage: external_exports.string().max(500).nullable()
+  }).strict();
+  var MallTrackingUploadResultSchema = external_exports.object({
+    uploaded: external_exports.number().int().min(0),
+    alreadyUploaded: external_exports.number().int().min(0),
+    notInList: external_exports.number().int().min(0),
+    failed: external_exports.number().int().min(0),
+    rows: external_exports.array(MallTrackingUploadRowResultSchema).max(MALL_TRACKING_UPLOAD_ROWS_MAX)
+  }).strict();
+
+  // extensions/src/collectors/orders.coupang_shipment_list/index.ts
+  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
+  var FULL_PAGE_ROWS = 10;
+  var PAST_BLOCK_EMPTY_PAGES = 2;
+  var CHUNK_ROWS5 = 500;
+  var ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+  var coupangShipmentListCollector = {
+    kind: COUPANG_SHIPMENT_LIST_KIND,
+    site: "coupang-supplier",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed3 = CoupangShipmentListPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success || !site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uCFE0\uD321 \uBC30\uC1A1 \uBAA9\uB85D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_LIST_KIND });
+      const { date, maxPages } = parsed3.data;
+      const matched = [];
+      let scannedPages = 0;
+      let stopReason = "max_pages";
+      try {
+        const seen2 = /* @__PURE__ */ new Set();
+        let emptyStreak = 0;
+        for (let page = 1; page <= maxPages; page += 1) {
+          if (signal.aborted) return;
+          const rows = await site.parcelPage(page);
+          scannedPages = page;
+          if (rows.length === 0) {
+            stopReason = "empty_pages";
+            break;
+          }
+          let hitThisPage = 0;
+          for (const row of rows) {
+            const outbound = row.outbound.slice(0, 10);
+            if (outbound !== date || !ISO_DAY.test(outbound) || seen2.has(row.seq)) continue;
+            seen2.add(row.seq);
+            const boxes = /(\d+)/.exec(row.boxes);
+            if (matched.length < COUPANG_SHIPMENT_LIST_ROWS_MAX) {
+              matched.push({ seq: row.seq, center: row.center.slice(0, 200), outbound, boxes: boxes ? Number(boxes[1]) : 0, status: row.status?.slice(0, 100) ?? null });
+            }
+            hitThisPage += 1;
+          }
+          if (matched.length > 0) {
+            emptyStreak = hitThisPage > 0 ? 0 : emptyStreak + 1;
+            if (emptyStreak >= PAST_BLOCK_EMPTY_PAGES) {
+              stopReason = "past_date_block";
+              break;
+            }
+          }
+          if (rows.length < FULL_PAGE_ROWS) {
+            stopReason = "short_page";
+            break;
+          }
+        }
+      } finally {
+        await site.close();
+      }
+      const progress4 = { current: scannedPages, total: maxPages, shipments: matched.length };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS5, label: "\uCFE0\uD321 \uC27D\uBA3C\uD2B8 \uD55C \uC904" });
+      for (const row of matched) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: COUPANG_SHIPMENT_LIST_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: COUPANG_SHIPMENT_LIST_CHUNK_KIND, payload: rest, progress: progress4 };
+      return { result: { scannedPages, stopReason } };
+    }
+  };
+  registerCollector(coupangShipmentListCollector);
+
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema3 = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed3.data;
       try {
         const seen2 = /* @__PURE__ */ new Set();
@@ -9843,8 +10073,8 @@ var KidItemRuntime = (() => {
     selectionMode: external_exports.enum(["manual", "automatic"]).optional(),
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
-  var CHUNK_ROWS5 = 200;
-  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS6 = 200;
+  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
@@ -9852,7 +10082,7 @@ var KidItemRuntime = (() => {
       const parsed3 = PlanSchema4.safeParse(rawPlan);
       const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
       if (!parsed3.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
@@ -9868,7 +10098,7 @@ var KidItemRuntime = (() => {
         });
         if (signal.aborted) return;
         const progress4 = { mallKey: plan.mallKey, rows: rows.length };
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS5, label: "\uC8FC\uBB38 \uD55C \uAC74" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS6, label: "\uC8FC\uBB38 \uD55C \uAC74" });
         for (const row of rows) {
           const full = buffer.push(row);
           if (full) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: full, progress: progress4 };
@@ -9883,24 +10113,222 @@ var KidItemRuntime = (() => {
   };
   registerCollector(mallOrdersCollector);
 
+  // extensions/src/collectors/orders.mall_tracking_upload/index.ts
+  var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS7 = 500;
+  var mallTrackingUploadCollector = {
+    kind: MALL_TRACKING_UPLOAD_KIND,
+    site: "mall-tracking",
+    async *collect(rawPlan, site) {
+      const parsed3 = MallTrackingUploadPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC1A1\uC7A5 \uC5C5\uB85C\uB4DC \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: MALL_TRACKING_UPLOAD_KIND, mallKey: null });
+      const plan = parsed3.data;
+      const uploader = site?.uploader(plan.mallKey) ?? null;
+      if (!uploader?.uploadTracking) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID17, `\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uC1A1\uC7A5 \uC5C5\uB85C\uB4DC \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { kind: MALL_TRACKING_UPLOAD_KIND, mallKey: plan.mallKey });
+      }
+      const { rows, confirmedByMall } = await uploader.uploadTracking(plan.rows);
+      const count6 = (status) => rows.filter((row) => row.status === status).length;
+      const totals = { uploaded: count6("uploaded"), alreadyUploaded: count6("already_uploaded"), notInList: count6("not_in_list"), failed: count6("failed") };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS7, label: "\uC1A1\uC7A5 \uC5C5\uB85C\uB4DC \uACB0\uACFC \uD55C \uC904" });
+      for (const row of rows) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: MALL_TRACKING_UPLOAD_CHUNK_KIND, payload: full, progress: totals };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: MALL_TRACKING_UPLOAD_CHUNK_KIND, payload: rest, progress: totals };
+      const result = { ...totals, rows };
+      return confirmedByMall ? { result } : { outcome: "reconciling", result };
+    }
+  };
+  registerCollector(mallTrackingUploadCollector);
+
+  // extensions/src/collectors/orders.sellpia_auto_invoice/index.ts
+  var RUNTIME_PLAN_INVALID18 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS8 = 2e3;
+  var autoInvoiceCollector = {
+    kind: SELLPIA_AUTO_INVOICE_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site) {
+      const parsed3 = SellpiaAutoInvoicePlanSchema.safeParse(rawPlan);
+      if (!parsed3.success || !site) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uC140\uD53C\uC544 \uC790\uB3D9\uC1A1\uC7A5 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_AUTO_INVOICE_KIND });
+      const targets = parsed3.data.targetOrderNumbers;
+      const attempt = await site.issueInvoices(targets);
+      const selected = new Set(attempt.selectedOrderNumbers);
+      const issued = attempt.issued.filter((row, index, rows) => rows.findIndex((other) => other.orderNo === row.orderNo) === index);
+      const progress4 = { issued: issued.length };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS8, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      for (const row of issued) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: SELLPIA_AUTO_INVOICE_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: SELLPIA_AUTO_INVOICE_CHUNK_KIND, payload: rest, progress: progress4 };
+      const result = {
+        issued,
+        selectedOrderNumbers: [...selected],
+        // 눌렀는지 모르면 무엇이 그리드에 없었는지도 단정하지 않는다.
+        notFoundOrderNumbers: attempt.state === "unknown" ? [] : targets.filter((target) => !selected.has(target))
+      };
+      if (attempt.state === "not_pressed") return { result };
+      const issuedNumbers = new Set(issued.map((row) => row.orderNo));
+      const allRead = attempt.state === "pressed" && selected.size > 0 && [...selected].every((orderNo) => issuedNumbers.has(orderNo));
+      return allRead ? { result } : { outcome: "reconciling", result };
+    }
+  };
+  registerCollector(autoInvoiceCollector);
+
+  // extensions/src/collectors/orders.sellpia_order_snapshot/index.ts
+  var RUNTIME_PLAN_INVALID19 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS9 = 2e3;
+  var sellpiaOrderSnapshotCollector = {
+    kind: SELLPIA_ORDER_SNAPSHOT_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site) {
+      if (!SellpiaOrderSnapshotScopeSchema.safeParse(rawPlan ?? {}).success || !site) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID19, "\uC140\uD53C\uC544 \uC8FC\uBB38 \uC2A4\uB0C5\uC0F7 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_ORDER_SNAPSHOT_KIND });
+      }
+      const { screens } = await site.orderSnapshot();
+      const byOrderNo = /* @__PURE__ */ new Map();
+      for (const screen of screens) {
+        for (const row of screen.rows ?? []) {
+          if (byOrderNo.size >= SELLPIA_SNAPSHOT_ROWS_MAX) break;
+          if (!row.orderNo || byOrderNo.has(row.orderNo)) continue;
+          byOrderNo.set(row.orderNo, { orderNo: row.orderNo, receiver: row.receiver, provider: row.provider, source: screen.source });
+        }
+      }
+      const partial = screens.some((screen) => screen.rows === null);
+      const progress4 = { orderCount: byOrderNo.size, partial };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS9, label: "\uC140\uD53C\uC544 \uC8FC\uBB38 \uD55C \uC904" });
+      for (const row of byOrderNo.values()) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: SELLPIA_ORDER_SNAPSHOT_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: SELLPIA_ORDER_SNAPSHOT_CHUNK_KIND, payload: rest, progress: progress4 };
+      return { result: { partial } };
+    }
+  };
+  registerCollector(sellpiaOrderSnapshotCollector);
+
+  // extensions/src/collectors/orders.sellpia_order_transfer/index.ts
+  var RUNTIME_PLAN_INVALID20 = "RUNTIME_PLAN_INVALID";
+  var SELLPIA_TRANSFER_NOT_SUBMITTED = "SELLPIA_TRANSFER_NOT_SUBMITTED";
+  var VERIFY_SCREENS = 2;
+  var NOT_FOUND_MESSAGE = "\uC140\uD53C\uC544\uC5D0\uC11C \uC774 \uD30C\uC77C\uC758 \uC8FC\uBB38\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC811\uC218\uB418\uC9C0 \uC54A\uC558\uC73C\uBBC0\uB85C \uB2E4\uC2DC \uC804\uC1A1\uD574\uB3C4 \uB429\uB2C8\uB2E4.";
+  function toBase64(bytes) {
+    let binary = "";
+    for (let index = 0; index < bytes.length; index += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(index, index + 32768));
+    }
+    return btoa(binary);
+  }
+  var sellpiaOrderTransferCollector = {
+    kind: SELLPIA_ORDER_TRANSFER_KIND,
+    site: "sellpia",
+    sourcePath: (operationId) => `/api/orders/action-operations/${encodeURIComponent(operationId)}/source`,
+    async *collect(rawPlan, site, { readSource }) {
+      const parsed3 = SellpiaOrderTransferPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success || !site) throw new RuntimeError(RUNTIME_PLAN_INVALID20, "\uC140\uD53C\uC544 \uC804\uC1A1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_ORDER_TRANSFER_KIND });
+      const plan = parsed3.data;
+      const file = readSource ? await readSource() : null;
+      if (!file || file.byteLength === 0) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID20, "\uC140\uD53C\uC544\uB85C \uBCF4\uB0BC \uD30C\uC77C\uC744 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_ORDER_TRANSFER_KIND });
+      }
+      const attempt = await site.transferOrderFile({
+        shopName: plan.shopName,
+        fileName: plan.fileName,
+        fileBase64: toBase64(file),
+        targetOrderNumbers: plan.targetOrderNumbers
+      });
+      const verification3 = attempt.verification;
+      let outcome = attempt.outcome;
+      let accepted = attempt.acceptedOrderNumbers;
+      let failureMessage = attempt.mallMessage ?? "\uC140\uD53C\uC544\uAC00 \uC8FC\uBB38 \uD30C\uC77C\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
+      if (attempt.outcome === "unknown" && verification3) {
+        accepted = verification3.found;
+        if (verification3.found.length > 0 && verification3.missing.length === 0) outcome = "submitted";
+        else if (verification3.found.length === 0 && verification3.screensRead >= VERIFY_SCREENS) {
+          outcome = "not_submitted";
+          failureMessage = NOT_FOUND_MESSAGE;
+        }
+      }
+      const evidence = {
+        outcome,
+        acceptedOrderNumbers: [...new Set(accepted)],
+        baselineRows: attempt.baselineRows ?? 0,
+        afterRows: attempt.afterRows ?? 0,
+        mallMessage: attempt.mallMessage?.slice(0, 500) ?? null
+      };
+      yield { chunkKind: SELLPIA_ORDER_TRANSFER_CHUNK_KIND, payload: [evidence], progress: { outcome } };
+      if (outcome === "not_submitted") {
+        throw new RuntimeError(SELLPIA_TRANSFER_NOT_SUBMITTED, failureMessage, { kind: SELLPIA_ORDER_TRANSFER_KIND });
+      }
+      const result = {
+        outcome: "submitted",
+        acceptedOrderNumbers: evidence.acceptedOrderNumbers,
+        targetOrderCount: plan.targetOrderNumbers.length
+      };
+      return outcome === "submitted" ? { result } : { outcome: "reconciling", result };
+    }
+  };
+  registerCollector(sellpiaOrderTransferCollector);
+
+  // extensions/src/collectors/orders.sellpia_post_transfer/index.ts
+  var RUNTIME_PLAN_INVALID21 = "RUNTIME_PLAN_INVALID";
+  var messageOf = (error) => error instanceof Error && error.message ? error.message.slice(0, 500) : null;
+  var postTransferCollector = {
+    kind: SELLPIA_POST_TRANSFER_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site) {
+      if (!SellpiaPostTransferScopeSchema.safeParse(rawPlan ?? {}).success || !site) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID21, "\uC140\uD53C\uC544 \uD6C4\uCC98\uB9AC \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_POST_TRANSFER_KIND });
+      }
+      const step = (payload) => ({ chunkKind: SELLPIA_POST_TRANSFER_CHUNK_KIND, payload: [payload], progress: { step: payload.step } });
+      const session = await site.openPostTransfer();
+      try {
+        let registered;
+        try {
+          registered = await session.register();
+        } catch (error) {
+          yield step({ step: "register", done: false, mallMessage: messageOf(error) });
+          throw error;
+        }
+        yield step({ step: "register", done: true, mallMessage: registered.message });
+        let matched;
+        try {
+          matched = await session.stockmatch();
+        } catch (error) {
+          yield step({ step: "stockmatch", done: false, mallMessage: messageOf(error) });
+          throw error;
+        }
+        yield step({ step: "stockmatch", done: true, mallMessage: matched.message, unmatchedOrderNumbers: matched.unmatchedOrderNumbers });
+        return { result: { registered: true, stockMatched: true, unmatchedOrderNumbers: matched.unmatchedOrderNumbers, invoiceTargetCount: 0 } };
+      } finally {
+        await session.done();
+      }
+    }
+  };
+  registerCollector(postTransferCollector);
+
   // extensions/src/collectors/orders.sellpia_shipment_tracking/index.ts
   var PlanSchema5 = external_exports.object({
     startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
-  var CHUNK_ROWS6 = 500;
-  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS10 = 500;
+  var RUNTIME_PLAN_INVALID22 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = PlanSchema5.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID22, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID22, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed3.data.startDate, endDate: parsed3.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS6, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS10, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
       for (const row of rows) {
         const full = buffer.push(row);
         if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress: progress4 };
@@ -9917,19 +10345,19 @@ var KidItemRuntime = (() => {
     sourceOrigin: external_exports.literal("https://kiditem.sellpia.com"),
     sourceAccountKey: external_exports.literal("kiditem")
   }).passthrough();
-  var CHUNK_ROWS7 = 5e3;
-  var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS11 = 5e3;
+  var RUNTIME_PLAN_INVALID23 = "RUNTIME_PLAN_INVALID";
   var sellpiaInventoryCollector = {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = PlanSchema6.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID23, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID23, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
       const progress4 = { rows: rows.length };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS7, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS11, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uD55C \uC904" });
       for (const item of [{ source: "sellpia_product_search", version: 1, rowCount: rows.length }, ...rows]) {
         const full = buffer.push(item);
         if (full) yield { chunkKind: SELLPIA_INVENTORY_CHUNK_KIND, payload: full, progress: progress4 };
@@ -10464,7 +10892,7 @@ var KidItemRuntime = (() => {
     }
     function page(tabId, owned) {
       let closed = false;
-      async function send16(message, timeoutMs, frameId) {
+      async function send17(message, timeoutMs, frameId) {
         let timer;
         const timeout = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
@@ -10557,7 +10985,7 @@ var KidItemRuntime = (() => {
             checkPageUrl(guard, tab.url ?? "");
           };
           await checkHere();
-          const first = await send16(message, timeoutMs, frameId);
+          const first = await send17(message, timeoutMs, frameId);
           if (!inject || !(isMissing(first) || isEmpty(first))) {
             if (isMissing(first) || isTimeout(first)) await checkHere();
             return first;
@@ -10570,7 +10998,7 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          const second = await send16(message, timeoutMs, frameId);
+          const second = await send17(message, timeoutMs, frameId);
           if (isMissing(second) || isTimeout(second)) await checkHere();
           return second;
         },
@@ -11426,7 +11854,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/mall-write/form.ts
-  var RUNTIME_PLAN_INVALID18 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID24 = "RUNTIME_PLAN_INVALID";
   var isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var entries = (value) => isObject(value) ? Object.entries(value) : [];
   var list = (value) => Array.isArray(value) ? value : [];
@@ -11439,7 +11867,7 @@ var KidItemRuntime = (() => {
     return out;
   }
   function assertRegisterUrl(spec, value) {
-    const invalid3 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID18, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
+    const invalid3 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID24, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
     let url;
     try {
       url = new URL(String(value ?? "").trim());
@@ -11453,7 +11881,7 @@ var KidItemRuntime = (() => {
     return url.toString();
   }
   function normalizeForm(spec, value) {
-    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
+    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
     const url = assertRegisterUrl(spec, value.url);
     const fields = {};
     for (const [name, fieldValue] of entries(value.fields)) {
@@ -11596,7 +12024,7 @@ var KidItemRuntime = (() => {
     if (/\.(jpe?g|png|gif|webp)$/i.test(base)) return base;
     return `${base}.${mime.includes("png") ? "png" : "jpg"}`;
   }
-  function toBase64(bytes) {
+  function toBase642(bytes) {
     let binary = "";
     const CHUNK = 32768;
     for (let i = 0; i < bytes.length; i += CHUNK) binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
@@ -11611,7 +12039,7 @@ var KidItemRuntime = (() => {
         const blob = await response.blob();
         if (blob.size > MAX_IMAGE_BYTES) throw new Error("\uC774\uBBF8\uC9C0\uAC00 8MB \uB97C \uB118\uC2B5\uB2C8\uB2E4.");
         const bytes = new Uint8Array(await blob.arrayBuffer());
-        const dataUrl = `data:${blob.type || "image/jpeg"};base64,${toBase64(bytes)}`;
+        const dataUrl = `data:${blob.type || "image/jpeg"};base64,${toBase642(bytes)}`;
         const fileName = new URL(upload.url).pathname.split("/").pop() || "image";
         images.push({ name: upload.name, dataUrl, fileName });
       } catch (error) {
@@ -12016,10 +12444,10 @@ var KidItemRuntime = (() => {
     const spec = definition.form;
     const custom2 = definition.custom;
     if (!spec && !custom2) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID18, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID24, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
     }
     if (spec && !custom2 && input.executionKind !== "register") {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID18, `${definition.displayName}\uC740 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID24, `${definition.displayName}\uC740 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, {
         mallKey: definition.mallKey,
         executionKind: input.executionKind
       });
@@ -13189,7 +13617,7 @@ var KidItemRuntime = (() => {
       }
       return { items };
     }
-    async function send16(context, input) {
+    async function send17(context, input) {
       const { codes, resume } = input;
       const wanted = resume ? "11" : "21";
       const from = resume ? "21" : "11";
@@ -13311,7 +13739,7 @@ var KidItemRuntime = (() => {
       displayName: label,
       guard: availabilityGuard(esmListingsGuard(label), label),
       dialogHosts: ["item.esmplus.com"],
-      send: send16,
+      send: send17,
       read: read15
     });
   }
@@ -13657,7 +14085,7 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword2, count5]) => ({ keyword: keyword2, count: count5 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count6]) => ({ keyword: keyword2, count: count6 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
   }
 
   // extensions/src/sites/coupang-search/serp.ts
@@ -14211,6 +14639,8 @@ var KidItemRuntime = (() => {
     const iSeq = index("\uC27D\uBA3C\uD2B8 \uBC88\uD638");
     const iOut = index("\uBC1C\uC1A1\uC77C");
     const iBox = index("\uBC15\uC2A4\uC218");
+    const iCenter = index("\uC13C\uD130");
+    const iStatus = index("\uC27D\uBA3C\uD2B8 \uC0C1\uD0DC");
     if ([iSeq, iOut, iBox].some((position) => position < 0)) throw responseInvalid(path, INVALID2);
     const required = Math.max(iSeq, iOut, iBox) + 1;
     const rows = [];
@@ -14222,7 +14652,13 @@ var KidItemRuntime = (() => {
       const seq = cells[iSeq];
       const outbound = cells[iOut];
       if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw responseInvalid(path, INVALID2);
-      rows.push({ seq, outbound, boxes: cells[iBox] });
+      rows.push({
+        seq,
+        outbound,
+        boxes: cells[iBox],
+        center: iCenter >= 0 ? cells[iCenter] ?? "" : "",
+        status: iStatus >= 0 ? cells[iStatus] ?? null : null
+      });
     }
     return rows;
   }
@@ -14353,7 +14789,7 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+  registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, opensOwnTabs: true, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
 
   // extensions/src/sites/domeggook/listings.ts
   var DOMEGGOOK_LISTINGS_URL = "https://www.domeggook.com/sc/item/lstAll";
@@ -14911,7 +15347,7 @@ var KidItemRuntime = (() => {
     return value;
   }
   function planInvalid(message) {
-    return new RuntimeError(RUNTIME_PLAN_INVALID18, message, { reason: "form_values" });
+    return new RuntimeError(RUNTIME_PLAN_INVALID24, message, { reason: "form_values" });
   }
   var text7 = (entry2, max = 1e3) => (entry2 === null || entry2 === void 0 ? "" : String(entry2)).slice(0, max);
   var digits2 = (entry2) => /^\d+$/.test(String(entry2 ?? "")) ? String(entry2) : "";
@@ -15780,15 +16216,106 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/operator-tab.ts
+  var NAVIGATION_TIMEOUT_MS13 = 3e4;
+  async function openOperatorTab(tabs, input) {
+    let found = null;
+    for (const pattern of input.matches) {
+      found = await tabs.find(pattern);
+      if (found) break;
+    }
+    const page = found ?? await tabs.open("about:blank");
+    const here = found ? await page.currentUrl().catch(() => "") : "";
+    if (!found || !input.stay?.(here)) await page.navigate(input.url, { timeoutMs: input.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS13 });
+    await page.focus().catch(() => void 0);
+    return { page, opened: !found };
+  }
+
+  // extensions/src/sites/mall-tracking/couriers.ts
+  var SELLPIA_COURIER_NAMES = Object.freeze({
+    "1136": "CJ\uB300\uD55C\uD1B5\uC6B4",
+    "10": "CJ\uB300\uD55C\uD1B5\uC6B4"
+  });
+  var DEFAULT_COURIER = "CJ\uB300\uD55C\uD1B5\uC6B4";
+  function courierName(courier) {
+    const value = courier.trim();
+    if (!value) return DEFAULT_COURIER;
+    if (/^\d+$/.test(value)) return SELLPIA_COURIER_NAMES[value] ?? DEFAULT_COURIER;
+    return value;
+  }
+
+  // extensions/src/sites/mall-tracking/upload-tab.ts
+  var ANSWER_LOST = "\uBAB0 \uC751\uB2F5\uC744 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uBAB0 \uD654\uBA74\uC5D0\uC11C \uBC18\uC601 \uC5EC\uBD80\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.";
+  async function uploadInOperatorTab(tabs, signIn, target, rows) {
+    const { page, opened } = await openOperatorTab(tabs, { matches: target.matches, url: target.url, stay: target.stay });
+    let close = false;
+    try {
+      const unique = rows.filter((row, index) => rows.findIndex((other) => other.orderNo === row.orderNo) === index);
+      const args = { rows: unique.map((row) => ({ orderNo: row.orderNo, trackingNumber: row.trackingNumber, courierName: courierName(row.courier) })) };
+      const read15 = async () => {
+        const answer2 = await callPage(page, target.call, args, {
+          timeoutMs: target.timeoutMs(unique.length),
+          guard: target.guard,
+          isolated: [target.file],
+          displayName: target.displayName
+        });
+        if (answer2?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, target.loginMessage, { url: target.url });
+        if (answer2?.status !== "ok" || !Array.isArray(answer2.rows)) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, answer2?.error ?? `${target.displayName} \uC1A1\uC7A5 \uC5C5\uB85C\uB4DC \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: target.url });
+        }
+        return answer2;
+      };
+      let answer;
+      try {
+        answer = signIn ? await signIn.onPage(page, target.url, read15) : await read15();
+      } catch (error) {
+        if (!answerLost(error)) throw error;
+        return { rows: unique.map((row) => ({ orderNo: row.orderNo, status: "failed", mallMessage: ANSWER_LOST })), confirmedByMall: false };
+      }
+      const results = answer.rows ?? [];
+      const confirmedByMall = !(target.submitOnly && answer.submitted === true);
+      close = opened && confirmedByMall && results.every((row) => row.status !== "failed");
+      return { rows: results, confirmedByMall };
+    } finally {
+      if (close) await page.close();
+      else await page.leave();
+    }
+  }
+  function answerLost(error) {
+    return isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === "timeout";
+  }
+
+  // extensions/src/sites/kidkids/tracking-upload.ts
+  var KIDKIDS_TRACKING_UPLOAD_FILE = "content/orders/kidkids-tracking-upload.js";
+  var LOGIN_MESSAGE8 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  function createKidkidsTrackingUpload(tabs, target, signIn) {
+    return {
+      uploadTracking(rows) {
+        return uploadInOperatorTab(tabs, signIn, {
+          displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+          matches: ["https://partner.kidkids.net/new/pages/logis/management.htm*", "https://partner.kidkids.net/*"],
+          url: target.url,
+          stay: (current) => current.includes("/logis/management.htm"),
+          guard: target.guard,
+          file: KIDKIDS_TRACKING_UPLOAD_FILE,
+          call: "kidkids.uploadTracking",
+          loginMessage: LOGIN_MESSAGE8,
+          timeoutMs: () => 12e4,
+          submitOnly: true
+        }, rows);
+      }
+    };
+  }
+
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
   var READ_TIMEOUT_MS7 = 18e4;
-  var LOGIN_MESSAGE8 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE9 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE8
+    loginMessage: LOGIN_MESSAGE9
   };
   var KIDKIDS_LOGIN = {
     displayName: "\uD0A4\uB4DC\uD0A4\uC988",
@@ -15802,6 +16329,7 @@ var KidItemRuntime = (() => {
   function createKidkidsSite(tabs, signIn) {
     return {
       ...createKidkidsListings(tabs, signIn),
+      ...createKidkidsTrackingUpload(tabs, { url: KIDKIDS_ORDER_URL, guard: KIDKIDS_PAGE_GUARD }, signIn),
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
@@ -15811,7 +16339,7 @@ var KidItemRuntime = (() => {
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: KIDKIDS_ORDER_URL });
           if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uB4DC\uD0A4\uC988", KIDKIDS_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
@@ -16038,13 +16566,13 @@ var KidItemRuntime = (() => {
   var KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
   var KIDSNOTE_ORDERS_FILE = "content/page-call/kidsnote-orders.js";
   var READ_TIMEOUT_MS8 = 19e4;
-  var LOGIN_MESSAGE9 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
+  var LOGIN_MESSAGE10 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
   var HOSTS2 = ["shop.kidsnote.com"];
   var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /\/login/i.test(url.pathname);
   var KIDSNOTE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS2),
     isLogin: isKidsnoteLogin,
-    loginMessage: LOGIN_MESSAGE9
+    loginMessage: LOGIN_MESSAGE10
   };
   var KIDSNOTE_LOGIN = {
     displayName: "\uD0A4\uC988\uB178\uD2B8",
@@ -16085,7 +16613,7 @@ var KidItemRuntime = (() => {
             displayName: "\uD0A4\uC988\uB178\uD2B8"
           });
           if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: KIDSNOTE_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE10, { url: KIDSNOTE_ORDER_URL });
           if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uC988\uB178\uD2B8", KIDSNOTE_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
@@ -16400,10 +16928,10 @@ var KidItemRuntime = (() => {
     custom: {
       url: (input) => {
         if (input.executionKind !== "register") {
-          throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uD0A4\uC988\uB178\uD2B8\uB294 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", executionKind: input.executionKind });
+          throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uD0A4\uC988\uB178\uD2B8\uB294 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", executionKind: input.executionKind });
         }
         const raw = asRaw(input.form);
-        if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
+        if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
         return String(raw.url).trim();
       },
       fill: fillKidsnote
@@ -16430,11 +16958,11 @@ var KidItemRuntime = (() => {
   var KKOMANGSE_ORDER_URL = "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000";
   var KKOMANGSE_ORDERS_FILE = "content/page-call/kkomangse-orders.js";
   var READ_TIMEOUT_MS9 = 9e4;
-  var LOGIN_MESSAGE10 = "\uAF2C\uB9DD\uC138 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. nstore.edupre.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE11 = "\uAF2C\uB9DD\uC138 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. nstore.edupre.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KKOMANGSE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["edupre.co.kr"]),
     isLogin: (url) => hostWithin(url, ["edupre.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE10
+    loginMessage: LOGIN_MESSAGE11
   };
   var KKOMANGSE_LOGIN = {
     displayName: "\uAF2C\uB9DD\uC138",
@@ -16652,7 +17180,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS13 = 35e3;
+  var NAVIGATION_TIMEOUT_MS14 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -16692,14 +17220,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS13, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS14, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS13, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS14, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -16765,12 +17293,12 @@ var KidItemRuntime = (() => {
   var LOTTE_ON_DOWNLOAD_REASON = "\uBC30\uC1A1\uC744 \uC704\uD55C \uC8FC\uBB38\uC815\uBCF4 \uB2E4\uC6B4\uB85C\uB4DC";
   var READ_TIMEOUT_MS10 = 12e4;
   var LOGIN_FAILURE = /로그인|인증|세션/;
-  var LOGIN_MESSAGE11 = "\uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815\uC758 \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD558\uAC70\uB098 \uB86F\uB370ON \uC5D0 \uC9C1\uC811 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE12 = "\uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815\uC758 \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD558\uAC70\uB098 \uB86F\uB370ON \uC5D0 \uC9C1\uC811 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var isLotteOnLogin = (url) => hostWithin(url, ["lotteon.com"]) && /login_so|\/login(?:[/?#.]|$)/i.test(url.pathname);
   var LOTTE_ON_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["store.lotteon.com"]),
     isLogin: isLotteOnLogin,
-    loginMessage: LOGIN_MESSAGE11
+    loginMessage: LOGIN_MESSAGE12
   };
   var LOTTE_ON_LOGIN = {
     displayName: "\uB86F\uB370ON",
@@ -16791,7 +17319,7 @@ var KidItemRuntime = (() => {
             displayName: "\uB86F\uB370ON"
           });
           const loginFailure2 = answer?.success !== true && LOGIN_FAILURE.test(answer?.error ?? "");
-          return mallExcelRows(loginFailure2 ? { ...answer, pendingLogin: true, error: LOGIN_MESSAGE11 } : answer, {
+          return mallExcelRows(loginFailure2 ? { ...answer, pendingLogin: true, error: LOGIN_MESSAGE12 } : answer, {
             displayName: "\uB86F\uB370ON",
             url: LOTTE_ON_ORDER_URL,
             fileName: "\uB86F\uB370ON.xlsx"
@@ -17084,6 +17612,17 @@ var KidItemRuntime = (() => {
     })
   });
 
+  // extensions/src/sites/mall-tracking/index.ts
+  var MALL_TRACKING_SITE = "mall-tracking";
+  var isUploadMall = (mallKey) => MALL_TRACKING_UPLOAD_MALLS.includes(mallKey);
+  registerSite({
+    name: MALL_TRACKING_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      uploader: (mallKey) => isUploadMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+    })
+  });
+
   // extensions/src/sites/mall-write/index.ts
   var MALL_WRITE_SITE = "mall-write";
   registerSite({
@@ -17134,17 +17673,39 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/onch/tracking-upload.ts
+  var ONCH_TRACKING_UPLOAD_FILE = "content/orders/onch-tracking-upload.js";
+  var LOGIN_MESSAGE13 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  function createOnchTrackingUpload(tabs, target, signIn) {
+    return {
+      uploadTracking(rows) {
+        return uploadInOperatorTab(tabs, signIn, {
+          displayName: "\uC628\uCC44\uB110",
+          matches: ["https://www.onch3.co.kr/supplier/orders*", "https://www.onch3.co.kr/*"],
+          url: target.url,
+          stay: (current) => current.includes("/supplier/orders"),
+          guard: target.guard,
+          file: ONCH_TRACKING_UPLOAD_FILE,
+          call: "onch.uploadTracking",
+          loginMessage: LOGIN_MESSAGE13,
+          // 옛 제한은 120초(행 60개 보고). 행마다 POST + 250ms 간격이라 행 수만큼 늘린다.
+          timeoutMs: (count6) => Math.max(12e4, 6e4 + count6 * 1500)
+        }, rows);
+      }
+    };
+  }
+
   // extensions/src/sites/onch/index.ts
   var ONCH_ORDER_URL = "https://www.onch3.co.kr/supplier/orders.php?state=all";
   var ONCH_ORDERS_FILE = "content/page-call/onch-orders.js";
   var READ_TIMEOUT_MS11 = 12e4;
-  var LOGIN_MESSAGE12 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE14 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var HOSTS3 = ["onch3.co.kr"];
   var isOnchLogin = (url) => hostWithin(url, HOSTS3) && /\/login\//i.test(url.pathname);
   var ONCH_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS3),
     isLogin: isOnchLogin,
-    loginMessage: LOGIN_MESSAGE12
+    loginMessage: LOGIN_MESSAGE14
   };
   var ONCH_LOGIN = {
     displayName: "\uC628\uCC44\uB110",
@@ -17156,6 +17717,7 @@ var KidItemRuntime = (() => {
   function createOnchSite(tabs, signIn) {
     return {
       ...createOnchListings(tabs, signIn),
+      ...createOnchTrackingUpload(tabs, { url: ONCH_ORDER_URL, guard: ONCH_PAGE_GUARD }, signIn),
       readOrders(input) {
         return withFreshTab(tabs, ONCH_ORDER_URL, async (page) => {
           const answer = await callPage(page, "onch.orders", { dateFilter: input.collectionDate ?? "" }, {
@@ -17165,7 +17727,7 @@ var KidItemRuntime = (() => {
             displayName: "\uC628\uCC44\uB110"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE12, { url: ONCH_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE14, { url: ONCH_ORDER_URL });
           if (answer?.status === "maintenance") throw mallMaintenance("\uC628\uCC44\uB110", ONCH_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
@@ -17464,15 +18026,15 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL11 = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS14 = 45e3;
+  var NAVIGATION_TIMEOUT_MS15 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE15 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE13
+    loginMessage: LOGIN_MESSAGE15
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -17483,7 +18045,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL11, { timeoutMs: NAVIGATION_TIMEOUT_MS14 });
+        await next.navigate(PAGE_URL11, { timeoutMs: NAVIGATION_TIMEOUT_MS15 });
         return next;
       })();
       return tab;
@@ -17501,7 +18063,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL11 });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE15, { url: PAGE_URL11 });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -17542,11 +18104,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE14 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE16 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE14
+    loginMessage: LOGIN_MESSAGE16
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -17563,7 +18125,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE14, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE16, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -17709,10 +18271,10 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS15 = 45e3;
+  var NAVIGATION_TIMEOUT_MS16 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE17 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED6 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
@@ -17722,7 +18284,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS15 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS16 });
         return next;
       })();
       return tab;
@@ -17739,7 +18301,7 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE15, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE17, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
             throw new RuntimeError(MALL_CONTRACT_CHANGED6, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
           case "http_error":
@@ -17787,6 +18349,202 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/sellpia/order-page.ts
+  var SELLPIA_ORDER_UPLOAD_URL = `${SELLPIA_ORIGIN}/order_collect.html?ctype=OM_FILE`;
+  var SELLPIA_STOCKMATCH_URL = `${SELLPIA_ORIGIN}/order_stockmatch.html`;
+  var SELLPIA_INVOICE_URL = `${SELLPIA_ORIGIN}/order_delivery_link.html`;
+  var SELLPIA_TAB_MATCH = "https://*.sellpia.com/*";
+  var SELLPIA_ORDER_ACTIONS_FILE = "content/orders/sellpia-order-actions.js";
+  var SELLPIA_SCREEN_UNREADABLE = "SELLPIA_SCREEN_UNREADABLE";
+  var LOGIN_MESSAGE18 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.";
+  function orderStep(page, step, targetOrderNumbers, timeoutMs) {
+    return callPage(page, "sellpia.orderStep", { step, targetOrderNumbers }, {
+      timeoutMs,
+      guard: SELLPIA_PAGE_GUARD,
+      main: [SELLPIA_ORDER_ACTIONS_FILE],
+      displayName: "\uC140\uD53C\uC544"
+    });
+  }
+  function injectOrderFile(page, args, timeoutMs) {
+    return callPage(page, "sellpia.injectOrderFile", args, {
+      timeoutMs,
+      guard: SELLPIA_PAGE_GUARD,
+      main: [SELLPIA_ORDER_ACTIONS_FILE],
+      displayName: "\uC140\uD53C\uC544"
+    });
+  }
+  function sellpiaStepFailure(answer, url) {
+    if (answer?.loginRequired) return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE18, { url });
+    const message = answer?.error?.trim() || "\uC140\uD53C\uC544 \uD654\uBA74\uC5D0\uC11C \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
+    if (answer?.unreadable || !answer) return new RuntimeError(SELLPIA_SCREEN_UNREADABLE, message, { url });
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { status: null, reason: "mall_refused", url });
+  }
+  function answerLost2(error) {
+    return isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && (error.details?.reason === "timeout" || error.details?.reason === "page_error");
+  }
+
+  // extensions/src/sites/sellpia/invoice.ts
+  var INVOICE_TIMEOUT_MS = 16e4;
+  function createSellpiaInvoice(tabs) {
+    return {
+      async issueInvoices(targetOrderNumbers) {
+        const { page } = await openOperatorTab(tabs, {
+          matches: ["https://*.sellpia.com/order_delivery_link.html*", SELLPIA_TAB_MATCH],
+          url: SELLPIA_INVOICE_URL,
+          stay: (current) => current.includes("order_delivery_link")
+        });
+        try {
+          let answer;
+          try {
+            answer = await orderStep(page, "invoice", targetOrderNumbers, INVOICE_TIMEOUT_MS);
+          } catch (error) {
+            if (!answerLost2(error)) throw error;
+            return { state: "unknown", selectedOrderNumbers: [], issued: [], message: error.message };
+          }
+          if (!answer?.success) {
+            if (answer?.pressed) return { state: "unknown", selectedOrderNumbers: [], issued: [], message: answer.error ?? null };
+            throw sellpiaStepFailure(answer, SELLPIA_INVOICE_URL);
+          }
+          const issued = (answer.rows ?? []).flatMap((row) => {
+            const orderNo = String(row.ordNo ?? "").trim();
+            const trackingNumber = String(row.invNo ?? "").trim();
+            return orderNo && trackingNumber ? [{ orderNo, trackingNumber, courier: String(row.courier ?? "").trim() }] : [];
+          });
+          return {
+            state: answer.pressed ? "pressed" : "not_pressed",
+            selectedOrderNumbers: [...new Set(answer.selectedTargetOrderNumbers ?? [])],
+            issued,
+            message: answer.message ?? null
+          };
+        } finally {
+          await page.leave();
+        }
+      }
+    };
+  }
+
+  // extensions/src/sites/sellpia/post-transfer.ts
+  var REGISTER_TIMEOUT_MS = 7e4;
+  var STOCKMATCH_TIMEOUT_MS = 2e5;
+  var UNMATCHED_MAX = 2e3;
+  function createSellpiaPostTransfer(tabs) {
+    return {
+      async openPostTransfer() {
+        const { page } = await openOperatorTab(tabs, {
+          matches: ["https://*.sellpia.com/order_collect.html*", SELLPIA_TAB_MATCH],
+          url: SELLPIA_ORDER_UPLOAD_URL,
+          stay: (current) => current.includes("order_collect.html")
+        });
+        return {
+          async register() {
+            const answer = await orderStep(page, "register", [], REGISTER_TIMEOUT_MS);
+            if (!answer?.success) throw sellpiaStepFailure(answer, SELLPIA_ORDER_UPLOAD_URL);
+            return { registered: typeof answer.registered === "number" ? answer.registered : null, message: answer.message ?? null };
+          },
+          async stockmatch() {
+            await page.navigate(SELLPIA_STOCKMATCH_URL, { timeoutMs: 3e4 });
+            const answer = await orderStep(page, "stockmatch", [], STOCKMATCH_TIMEOUT_MS);
+            if (!answer?.success) throw sellpiaStepFailure(answer, SELLPIA_STOCKMATCH_URL);
+            const unmatched = [...new Set((answer.unmatched ?? []).map((row) => String(row.groupNo ?? "").trim()).filter(Boolean))];
+            return { matched: typeof answer.matched === "number" ? answer.matched : 0, unmatchedOrderNumbers: unmatched.slice(0, UNMATCHED_MAX), message: answer.message ?? null };
+          },
+          done: () => page.leave()
+        };
+      }
+    };
+  }
+
+  // extensions/src/sites/sellpia/snapshot.ts
+  var SNAPSHOT_TIMEOUT_MS = 12e4;
+  var LOGIN_MESSAGE19 = "\uC140\uD53C\uC544 \uC8FC\uBB38 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778 \uC0C1\uD0DC\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.";
+  function createSellpiaSnapshot(tabs) {
+    return {
+      orderSnapshot() {
+        return withFreshTab(tabs, SELLPIA_ORDER_UPLOAD_URL, async (page) => {
+          const screens = [];
+          for (const [index, { url, source }] of [
+            { url: SELLPIA_ORDER_UPLOAD_URL, source: "pending" },
+            { url: SELLPIA_STOCKMATCH_URL, source: "stockmatch" }
+          ].entries()) {
+            let rows = null;
+            try {
+              if (index > 0) await page.navigate(url, { timeoutMs: 3e4 });
+              const answer = await orderStep(page, "orderSnapshot", [], SNAPSHOT_TIMEOUT_MS);
+              if (answer?.success) rows = answer.rows ?? [];
+            } catch {
+            }
+            screens.push({ source, rows });
+          }
+          if (screens.every((screen) => screen.rows === null)) {
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE19, { url: SELLPIA_ORDER_UPLOAD_URL });
+          }
+          return { screens };
+        });
+      }
+    };
+  }
+
+  // extensions/src/sites/sellpia/transfer.ts
+  var INJECT_TIMEOUT_MS = 45e3;
+  var VERIFY_TIMEOUT_MS = 9e4;
+  var count5 = (value) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  function createSellpiaTransfer(tabs) {
+    return {
+      async transferOrderFile(input) {
+        const { page } = await openOperatorTab(tabs, {
+          matches: ["https://*.sellpia.com/order_collect.html*", SELLPIA_TAB_MATCH],
+          url: SELLPIA_ORDER_UPLOAD_URL,
+          stay: (current) => current.includes("order_collect.html")
+        });
+        try {
+          let answer;
+          try {
+            answer = await injectOrderFile(page, {
+              shopName: input.shopName,
+              fileName: input.fileName,
+              fileBase64: input.fileBase64,
+              targetOrderNumbers: [...input.targetOrderNumbers]
+            }, INJECT_TIMEOUT_MS);
+          } catch (error) {
+            if (!answerLost2(error)) throw error;
+            answer = { outcome: "unknown", error: error.message };
+          }
+          if (answer.loginRequired) throw sellpiaStepFailure(answer, SELLPIA_ORDER_UPLOAD_URL);
+          const attempt = {
+            outcome: answer.outcome === "submitted" || answer.outcome === "not_submitted" ? answer.outcome : "unknown",
+            acceptedOrderNumbers: answer.outcome === "submitted" ? [...new Set(answer.acceptedTargetOrderNumbers ?? [])] : [],
+            baselineRows: count5(answer.pendingRowsBefore),
+            afterRows: count5(answer.pendingRows),
+            mallMessage: answer.outcome === "submitted" ? null : answer.error?.slice(0, 500) ?? null,
+            verification: null
+          };
+          if (attempt.outcome === "not_submitted" && answer.unreadable) {
+            throw new RuntimeError(SELLPIA_SCREEN_UNREADABLE, answer.error ?? "\uC140\uD53C\uC544 \uC8FC\uBB38\uC811\uC218 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url: SELLPIA_ORDER_UPLOAD_URL });
+          }
+          if (attempt.outcome === "unknown") attempt.verification = await verify(page, input.targetOrderNumbers);
+          return attempt;
+        } finally {
+          await page.leave();
+        }
+      }
+    };
+  }
+  async function verify(page, targets) {
+    let screensRead = 0;
+    for (const [index, url] of [SELLPIA_ORDER_UPLOAD_URL, SELLPIA_STOCKMATCH_URL].entries()) {
+      try {
+        if (index > 0) await page.navigate(url, { timeoutMs: 3e4 });
+        const answer = await orderStep(page, "verify", targets, VERIFY_TIMEOUT_MS);
+        if (!answer?.success) continue;
+        screensRead += 1;
+        const found = [...new Set((answer.found ?? []).map((row) => row.orderNo))];
+        if (found.length > 0) return { found, missing: targets.filter((target) => !found.includes(target)), screensRead };
+      } catch {
+      }
+    }
+    return { found: [], missing: [...targets], screensRead };
+  }
+
   // extensions/src/sites/sellpia/index.ts
   function createSellpiaSite(tabs) {
     return {
@@ -17794,7 +18552,11 @@ var KidItemRuntime = (() => {
       ...createSellpiaInventory(tabs),
       ...createSellpiaSales(tabs),
       ...createSellpiaProfit(tabs),
-      ...createSellpiaManualMatch(tabs)
+      ...createSellpiaManualMatch(tabs),
+      ...createSellpiaTransfer(tabs),
+      ...createSellpiaPostTransfer(tabs),
+      ...createSellpiaInvoice(tabs),
+      ...createSellpiaSnapshot(tabs)
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
@@ -18234,11 +18996,11 @@ var KidItemRuntime = (() => {
   var TEACHER_MALL_PROVIDER_SEQ = "708";
   var TEACHER_MALL_DOWNLOAD_REASON = "\uBC30\uC1A1\uC900\uBE44\uD655\uC778";
   var READ_TIMEOUT_MS12 = 12e4;
-  var LOGIN_MESSAGE16 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE20 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var TEACHER_MALL_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
     isLogin: (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE16
+    loginMessage: LOGIN_MESSAGE20
   };
   var TEACHER_MALL_LOGIN = {
     displayName: "\uD2F0\uCCD0\uBAB0",
@@ -18722,7 +19484,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS16 = 35e3;
+  var NAVIGATION_TIMEOUT_MS17 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -18793,14 +19555,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS16, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS17, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS16, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS17, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -19097,11 +19859,11 @@ var KidItemRuntime = (() => {
     const mediaCountByOption = /* @__PURE__ */ new Map();
     for (const entry2 of media) {
       for (const owner of entry2.externalOptionIds) {
-        const count5 = (mediaCountByOption.get(owner) ?? 0) + 1;
-        if (count5 > MAX_MEDIA_PER_OWNER) {
+        const count6 = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count6 > MAX_MEDIA_PER_OWNER) {
           throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
         }
-        mediaCountByOption.set(owner, count5);
+        mediaCountByOption.set(owner, count6);
       }
     }
     if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
@@ -19495,7 +20257,7 @@ var KidItemRuntime = (() => {
     if (input.executionKind === "register") return WING_FORM_URL;
     const id3 = input.externalListingId?.trim() ?? "";
     if (!/^\d{6,}$/.test(id3)) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uC218\uC815\uD560 \uCFE0\uD321 \uC719 \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC5B4 \uC218\uC815 \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", executionKind: input.executionKind });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uC218\uC815\uD560 \uCFE0\uD321 \uC719 \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC5B4 \uC218\uC815 \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", executionKind: input.executionKind });
     }
     return `${WING_FORM_URL}?vendorInventoryId=${id3}`;
   }
@@ -19513,7 +20275,7 @@ var KidItemRuntime = (() => {
     const product = wingProductOf(input.form);
     const expected = input.expectedProviderAccountId?.trim() ?? "";
     if (!VENDOR_ID.test(expected)) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uC2B9\uC778\uB41C \uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC5B4 \uCC44\uC6B0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uC2B9\uC778\uB41C \uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC5B4 \uCC44\uC6B0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
     }
     const compat = await callPage(page, "wing.compat", {}, {
       timeoutMs: COMPAT_TIMEOUT_MS,
@@ -19830,7 +20592,7 @@ var KidItemRuntime = (() => {
   async function editUrlOf(context, input) {
     const id3 = input.externalListingId?.trim() ?? "";
     if (/^\d{6,}$/.test(id3)) return `${WING_FORM_URL2}?vendorInventoryId=${id3}`;
-    if (!input.productName.trim()) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFC0 \uCFE0\uD321 \uC719 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC774\uB984\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+    if (!input.productName.trim()) throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFC0 \uCFE0\uD321 \uC719 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC774\uB984\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
     const list2 = await openWriteTab(context, wingProductSearchUrl(input.productName), { signIn: context.signIn, dialogHosts: ["wing.coupang.com"] });
     let found = null;
     try {
@@ -19851,11 +20613,11 @@ var KidItemRuntime = (() => {
   }
   async function updateWingThumbnail(context, input) {
     if (!input.image.dataUrl.startsWith("data:image/")) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uB300\uD45C\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uB300\uD45C\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
     }
     const expected = input.expectedProviderAccountId?.trim() ?? "";
     if (expected && !VENDOR_ID2.test(expected)) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID24, "\uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
     }
     const url = await editUrlOf(context, input);
     const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: ["wing.coupang.com"], bootstrapFile: WING_COMPAT_FILE });
@@ -20744,7 +21506,11 @@ var KidItemRuntime = (() => {
         }
         signal.throwIfAborted();
         const accountSite = site !== null && site in sites2 ? site : site !== null && options.ownTabSites?.has(site) ? null : options.accountSite ?? null;
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name) => name !== null && name in sites2))];
+        const ownsTabs = (key, name) => key.startsWith("resource:") && options.ownTabSites?.has(name) === true;
+        const siteNames = [...new Set(lockKeys.flatMap((key) => {
+          const name = siteOfLockKey(key, accountSite);
+          return name !== null && name in sites2 && !ownsTabs(key, name) ? [name] : [];
+        }))];
         if (siteNames.length > 1) {
           throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
         }
@@ -20941,19 +21707,36 @@ var KidItemRuntime = (() => {
       async cancel(operationId) {
         const response = await call(api, `${base}/${encodeURIComponent(operationId)}/cancel`, { method: "POST" }, OperationCancelResponseSchema);
         return response.operation;
+      },
+      async readSource(path) {
+        if (!/^\/api\/[A-Za-z0-9._~\-/]+$/.test(path) || path.split("/").includes("..")) {
+          throw new RuntimeError(RUNTIME_API_UNREACHABLE, "\uC2E4\uD589 \uC6D0\uCC9C \uD30C\uC77C \uACBD\uB85C\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { path });
+        }
+        const response = await send16(api, path, { method: "GET", headers: {} });
+        if (!response.ok) await throwEnvelope(response, path);
+        return new Uint8Array(await response.arrayBuffer());
       }
     };
   }
   async function call(api, path, request, schema) {
     const headers = { "content-type": "application/json" };
     if (request.token !== void 0) headers[OPERATION_TOKEN_HEADER] = request.token;
-    let response;
+    const response = await send16(api, path, {
+      method: request.method,
+      headers,
+      ...request.body !== void 0 ? { body: JSON.stringify(request.body) } : {}
+    });
+    if (!response.ok) await throwEnvelope(response, path);
+    const body = await response.json().catch(() => void 0);
+    const parsed3 = schema.safeParse(body);
+    if (!parsed3.success) {
+      throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
+    }
+    return parsed3.data;
+  }
+  async function send16(api, path, init) {
     try {
-      response = await api.fetch(path, {
-        method: request.method,
-        headers,
-        ...request.body !== void 0 ? { body: JSON.stringify(request.body) } : {}
-      });
+      return await api.fetch(path, init);
     } catch (error) {
       const code2 = error?.code;
       if (typeof code2 === "string" && code2.trim()) {
@@ -20962,19 +21745,14 @@ var KidItemRuntime = (() => {
       }
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path }, error);
     }
+  }
+  async function throwEnvelope(response, path) {
     const body = await response.json().catch(() => void 0);
-    if (!response.ok) {
-      const envelope = parseErrorEnvelope(body);
-      if (!envelope) {
-        throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path, status: response.status });
-      }
-      throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
+    const envelope = parseErrorEnvelope(body);
+    if (!envelope) {
+      throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path, status: response.status });
     }
-    const parsed3 = schema.safeParse(body);
-    if (!parsed3.success) {
-      throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
-    }
-    return parsed3.data;
+    throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
   }
   async function sha256Hex(text9) {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text9));
@@ -21065,8 +21843,8 @@ var KidItemRuntime = (() => {
     if (input.signal.aborted) local.abort(input.signal.reason);
     else input.signal.addEventListener("abort", onAbort, { once: true });
     let writes = Promise.resolve();
-    const write = (send16) => {
-      const next = writes.then(send16);
+    const write = (send17) => {
+      const next = writes.then(send17);
       writes = next.catch(() => void 0);
       return next;
     };
@@ -21123,7 +21901,12 @@ var KidItemRuntime = (() => {
         );
         scheduleHeartbeat();
       };
-      const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })[Symbol.asyncIterator]();
+      const sourcePath = collector.sourcePath?.(operationId);
+      const readSource = sourcePath !== void 0 ? () => {
+        if (!deps.client.readSource) throw new RuntimeError(RUNTIME_API_UNREACHABLE, "\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589 \uC6D0\uCC9C \uD30C\uC77C\uC744 \uBC1B\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { path: sourcePath });
+        return deps.client.readSource(sourcePath);
+      } : void 0;
+      const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report, ...readSource ? { readSource } : {} })[Symbol.asyncIterator]();
       let returned = void 0;
       try {
         for (; ; ) {
@@ -21579,7 +22362,7 @@ var KidItemRuntime = (() => {
           if (envelope) throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
           throw new RuntimeError("EXTENSION_UNKNOWN_FAILURE", `\uC7AC\uACE0 \uC5D1\uC140\uC744 \uB9CC\uB4E4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${response.status}).`, { status: response.status });
         }
-        return { success: true, fileName: fileNameOf(response.headers.get("content-disposition")) ?? "wing-inventory.xls", b64: toBase642(bytes) };
+        return { success: true, fileName: fileNameOf(response.headers.get("content-disposition")) ?? "wing-inventory.xls", b64: toBase643(bytes) };
       }
     };
   }
@@ -21599,7 +22382,7 @@ var KidItemRuntime = (() => {
     }
     return /filename="([^"]+)"/i.exec(header)?.[1] ?? null;
   }
-  function toBase642(bytes) {
+  function toBase643(bytes) {
     let binary = "";
     for (let offset = 0; offset < bytes.length; offset += 32768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
     return btoa(binary);
@@ -22260,6 +23043,9 @@ var KidItemRuntime = (() => {
         // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
         // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
         [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
+        // orderActionOperationKindsV1: Orders 작업 kind 6종(셀피아 전송·후처리·자동송장·스냅샷, 쿠팡 배송 목록, 몰 송장 업로드)을
+        // 돈다(KID-366 wave8b) — 옛 워커의 셀피아·송장 업로드 capability 표시를 대신한다.
+        [ORDERS_ACTION_OPERATION_CAPABILITY]: true,
         ...mallSiteCapabilities(),
         ...mallWriteCapabilities()
       }

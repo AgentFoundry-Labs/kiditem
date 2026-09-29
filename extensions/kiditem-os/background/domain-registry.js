@@ -14,11 +14,7 @@
     if (!domain || typeof domain !== "object") {
       throw new Error("Invalid domain registration");
     }
-    for (const hookName of [
-      "cancelAdditionalCollections",
-      "retryAdditionalCollections",
-      "recoverCollections",
-    ]) {
+    for (const hookName of ["recoverCollections"]) {
       if (domain[hookName] !== undefined && typeof domain[hookName] !== "function") {
         throw new Error(`Invalid domain lifecycle hook: ${hookName}`);
       }

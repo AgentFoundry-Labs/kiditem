@@ -256,6 +256,8 @@ export async function collectMallOrderOperation({
     mallName: account.name,
     // 일일 건수·중복 판정이 쓰는 주문번호(서버가 고른 행에서 뽑은 것, 최대 2,000개).
     ...(result?.orderNumbers ? { orderNumbers: result.orderNumbers } : {}),
+    // 셀피아 전송은 서버가 이 실행에서 파일을 다시 만든다(KID-366).
+    sourceOperationId: operationId,
   });
   // 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
   if (continuation && continuation.selectedRowKeys.length > 0) addSeenOrderKeys(account.key, continuation.selectedRowKeys);

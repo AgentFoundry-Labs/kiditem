@@ -5,13 +5,17 @@ import { cookieBloat, loginRequired, responseInvalid, type PageFetch, type Suppl
 /** 쉽먼트 화면(탭을 여는 곳). 목록 API는 같은 출처라 supplier의 어느 경로에서도 읽힌다. */
 export const COUPANG_SHIPMENT_URL = 'https://supplier.coupang.com/ibs/asn/active';
 
-/** 택배 쉽먼트 한 행(옛 `scrapeCoupangShipmentDateSummary`와 같은 세 칸). */
+/** 택배 쉽먼트 한 행(옛 `scrapeCoupangShipmentDateSummary`의 세 칸 + 옛 배송 목록 스크립트의 센터·상태, KID-366 wave8b). */
 export interface ParcelRow {
   seq: string;
   /** 발송일 칸 그대로(`YYYY-MM-DD HH:mm`). */
   outbound: string;
   /** 박스수 칸 그대로(`3 박스`). */
   boxes: string;
+  /** 센터 칸 그대로(머리가 없으면 빈 글자) — 배송 목록의 파일 이름·정렬에 쓴다. */
+  center: string;
+  /** 쉽먼트 상태 칸 그대로(머리가 없으면 null). */
+  status: string | null;
 }
 
 export function parcelListPath(pageNumber: number): string {
@@ -54,6 +58,9 @@ export function parseParcelPage(fetched: PageFetch, pageNumber: number): ParcelR
   const iSeq = index('쉽먼트 번호');
   const iOut = index('발송일');
   const iBox = index('박스수');
+  // 센터·상태는 배송 목록만 쓴다(옛 목록 스크립트 머리 그대로). 없어도 형식 오류로 보지 않는다.
+  const iCenter = index('센터');
+  const iStatus = index('쉽먼트 상태');
   if ([iSeq, iOut, iBox].some((position) => position < 0)) throw responseInvalid(path, INVALID);
   const required = Math.max(iSeq, iOut, iBox) + 1;
   const rows: ParcelRow[] = [];
@@ -65,7 +72,13 @@ export function parseParcelPage(fetched: PageFetch, pageNumber: number): ParcelR
     const seq = cells[iSeq]!;
     const outbound = cells[iOut]!;
     if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw responseInvalid(path, INVALID);
-    rows.push({ seq, outbound, boxes: cells[iBox]! });
+    rows.push({
+      seq,
+      outbound,
+      boxes: cells[iBox]!,
+      center: iCenter >= 0 ? (cells[iCenter] ?? '') : '',
+      status: iStatus >= 0 ? (cells[iStatus] ?? null) : null,
+    });
   }
   return rows;
 }

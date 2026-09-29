@@ -260,6 +260,20 @@
       "text": "쿠팡 공급사 쿠키가 너무 커서 요청이 거절됐습니다. 쿠키를 정리한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "SELLPIA_TRANSFER_NOT_SUBMITTED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "셀피아가 주문 파일을 받지 않았습니다. 셀피아 화면을 확인한 뒤 다시 전송해 주세요.",
+      "retryable": true
+    },
+    "SELLPIA_SCREEN_UNREADABLE": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "셀피아 화면을 읽지 못했습니다. 열린 탭에서 로그인 상태를 확인해 주세요.",
+      "retryable": false
+    },
     "MALL_LOGIN_PAGE_UNREACHABLE": {
       "owner": "extension",
       "kind": "external",
@@ -608,6 +622,48 @@
       "kind": "precondition",
       "httpStatus": 422,
       "text": "쿠팡 발주 상세(품목)를 수집하지 못했습니다. 발주를 다시 수집한 뒤 시도해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_TRANSFER_SOURCE_UNAVAILABLE": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "전송할 주문 파일의 원천 실행을 찾지 못했습니다. 주문을 다시 수집한 뒤 전송해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_TRANSFER_NO_TARGETS": {
+      "owner": "orders",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "전송할 주문번호가 없습니다. 주문 파일에 주문 행이 있는지 확인해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_SELLPIA_INVOICE_NO_TARGETS": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "최근 하루 안에 셀피아로 전송된 주문 가운데 송장을 낼 대상이 없습니다.",
+      "retryable": false
+    },
+    "ORDERS_TRACKING_UPLOAD_NO_ROWS": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "이 몰에 올릴 송장 행이 없습니다. 셀피아 송장 조회를 먼저 실행해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_ACTION_CLOSED_BY_OPERATOR": {
+      "owner": "orders",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "운영자가 처리되지 않았다고 확인해 닫았습니다. 필요하면 다시 실행해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_TRANSFER_ALREADY_SENT": {
+      "owner": "orders",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 주문 파일은 이미 셀피아로 전송됐습니다. 다시 보내려면 재전송을 선택해 주세요.",
       "retryable": false
     },
     "PRODUCTS_NOT_FOUND": {

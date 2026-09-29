@@ -13,7 +13,7 @@ import {
 import { OperationNextSchema, type OperationNext } from '@kiditem/shared/operation';
 import type { BrowserLease, BrowserResources } from './browser';
 import { RuntimeError, isRuntimeError } from './errors';
-import { stopFor, type OperationClient } from './operation-client';
+import { RUNTIME_API_UNREACHABLE, stopFor, type OperationClient } from './operation-client';
 import { SITE_LOGIN_REQUIRED } from './site-caller';
 
 /**
@@ -119,6 +119,11 @@ export interface RunnableCollectContext {
    * 보내 임대도 연장되고, 다음 heartbeat도 이 progress를 싣는다.
    */
   report(progress: Record<string, unknown>): Promise<void>;
+  /**
+   * 이 실행의 원천 파일(owner가 plan에서 보관한 캡처)을 받는다 — 수집기가 `sourcePath`를 선언했을 때만 있다(셀피아 전송,
+   * KID-366 wave8b). 서버 통신은 runner가 하므로 수집기는 이것으로만 받는다.
+   */
+  readSource?(): Promise<Uint8Array>;
 }
 
 /**
@@ -133,6 +138,8 @@ export interface RunnableFinish {
 
 export interface RunnableCollector {
   readonly site: string | null;
+  /** 실행 id → 그 실행의 원천 파일 경로(`/api/...`). 있으면 context에 `readSource`를 준다. */
+  sourcePath?(operationId: string): string;
   /** 청크 스트림. 생성기가 `RunnableFinish`를 돌려주면 그 값이 `summarize`보다 앞선다. */
   collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk> | AsyncGenerator<RunnableChunk, RunnableFinish | void, undefined>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
@@ -316,7 +323,14 @@ async function execute(
       scheduleHeartbeat();
     };
     // `for await`는 생성기의 반환값을 버린다 — 끝 값(실행마다 다른 result)을 받으려고 직접 넘긴다.
-    const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })[Symbol.asyncIterator]();
+    const sourcePath = collector.sourcePath?.(operationId);
+    const readSource = sourcePath !== undefined
+      ? () => {
+        if (!deps.client.readSource) throw new RuntimeError(RUNTIME_API_UNREACHABLE, '이 확장이 실행 원천 파일을 받을 수 없습니다.', { path: sourcePath });
+        return deps.client.readSource(sourcePath);
+      }
+      : undefined;
+    const stream = collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report, ...(readSource ? { readSource } : {}) })[Symbol.asyncIterator]();
     let returned: RunnableFinish | void = undefined;
     try {
       for (;;) {
