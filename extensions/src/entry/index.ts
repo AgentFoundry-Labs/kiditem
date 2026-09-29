@@ -273,7 +273,7 @@ export function installEntry(): InstalledEntry | null {
       // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
       [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
       // orderActionOperationKindsV1: Orders 작업 kind 6종(셀피아 전송·후처리·자동송장·스냅샷, 쿠팡 배송 목록, 몰 송장 업로드)을
-      // 돈다(KID-366 wave8b) — 옛 워커 표시(`sellpiaScopedAutoInvoiceV1`·`orderCollectionIcecreamMall` 등)를 대신한다.
+      // 돈다(KID-366 wave8b) — 옛 워커의 셀피아·송장 업로드 capability 표시를 대신한다.
       [ORDERS_ACTION_OPERATION_CAPABILITY]: true,
       ...mallSiteCapabilities(),
       ...mallWriteCapabilities(),

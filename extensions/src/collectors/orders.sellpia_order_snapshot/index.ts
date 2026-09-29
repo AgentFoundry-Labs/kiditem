@@ -29,7 +29,7 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 const CHUNK_ROWS = 2_000;
 
 /**
- * `orders.sellpia_order_snapshot`(KID-366 wave8b, 옛 `collectSellpiaOrderSnapshot`): 백그라운드 새 탭에서 셀피아 대기목록·
+ * `orders.sellpia_order_snapshot`(KID-366 wave8b, 옛 워커의 셀피아 주문 스냅샷 액션): 백그라운드 새 탭에서 셀피아 대기목록·
  * 재고매칭 두 화면의 주문을 읽어 주문번호로 합친다(먼저 본 화면이 이긴다, 상한 1만). `snapshot_rows`로 내고 finish result에
  * 한 화면만 읽었는지(`partial`)를 싣는다. 읽기만 한다.
  */

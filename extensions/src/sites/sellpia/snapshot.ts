@@ -25,7 +25,7 @@ interface SnapshotAnswer extends SellpiaPageAnswer {
 }
 
 /**
- * 셀피아 주문 스냅샷(KID-366 wave8b, 옛 `collectSellpiaOrderSnapshot`). 읽기라 운영자 탭은 건드리지 않고 백그라운드 탭을 새로
+ * 셀피아 주문 스냅샷(KID-366 wave8b, 옛 워커의 셀피아 주문 스냅샷 액션). 읽기라 운영자 탭은 건드리지 않고 백그라운드 탭을 새로
  * 열어 대기목록(주문서수집)·재고매칭 두 화면을 읽고 닫는다(누르는 것은 재고매칭 [조회]뿐). 한 화면도 못 읽으면 대체로 미로그인이라
  * `SITE_LOGIN_REQUIRED`로 멈추고 탭을 남긴다.
  */

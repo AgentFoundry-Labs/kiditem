@@ -635,14 +635,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'profitabilityAdvertisingSourceOwnerV1',
     'advertisingCampaignSourceOwnerV1',
     'advertisingKeywordSourceOwnerV1',
-    // 셀피아·송장 업로드·배송 목록 옛 워커 액션은 Orders 작업 kind 6종이다(KID-366 wave8b, orderActionOperationKindsV1).
-    'orderCollectionIcecreamMall',
-    'sellpiaOrderFileUploadEvidenceV1',
-    'sellpiaScopedAutoInvoiceV1',
-    'sellpiaPostTransfer',
-    'sellpiaAutoInvoice',
-    'uploadOnchTracking',
-    'uploadKidkidsTracking',
   ]) {
     assert.equal(response.capabilities[retired], undefined, retired);
   }

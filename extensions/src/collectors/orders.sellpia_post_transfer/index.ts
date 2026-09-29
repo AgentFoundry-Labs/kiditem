@@ -28,12 +28,12 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 const messageOf = (error: unknown): string | null => (error instanceof Error && error.message ? error.message.slice(0, 500) : null);
 
 /**
- * `orders.sellpia_post_transfer`(KID-366 wave8b, 옛 `sellpiaPostTransfer`): 운영자 셀피아 탭에서 [등록] → 재고매칭 화면
+ * `orders.sellpia_post_transfer`(KID-366 wave8b, 옛 워커의 셀피아 후처리 액션): 운영자 셀피아 탭에서 [등록] → 재고매칭 화면
  * [조회]·자동합포·자동재고매칭(화면 전체, 옛 규칙). 단계마다 `post_transfer_steps` 청크 하나를 내고, 실패한 단계도 `done:false`로
  * 남긴 뒤 그 오류로 실패한다(다음 단계는 하지 않는다). `invoiceTargetCount`는 owner finalize가 자동송장 대상 규칙으로 센다 —
  * 확장은 0을 싣는다.
  */
-export const sellpiaPostTransferCollector: Collector<SellpiaPostTransferScope, PostTransferResult, SellpiaPostTransferSite> = {
+export const postTransferCollector: Collector<SellpiaPostTransferScope, PostTransferResult, SellpiaPostTransferSite> = {
   kind: SELLPIA_POST_TRANSFER_KIND,
   site: 'sellpia',
   async *collect(rawPlan, site): AsyncGenerator<CollectedChunk, CollectFinish<PostTransferResult>, undefined> {
@@ -66,4 +66,4 @@ export const sellpiaPostTransferCollector: Collector<SellpiaPostTransferScope, P
   },
 };
 
-registerCollector(sellpiaPostTransferCollector);
+registerCollector(postTransferCollector);

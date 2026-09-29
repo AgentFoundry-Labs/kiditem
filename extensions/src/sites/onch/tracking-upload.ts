@@ -7,7 +7,7 @@ export const ONCH_TRACKING_UPLOAD_FILE = 'content/orders/onch-tracking-upload.js
 const LOGIN_MESSAGE = '온채널 로그인이 필요합니다. onch3.co.kr 에 로그인한 뒤 다시 시도해 주세요.';
 
 /**
- * 온채널 송장 업로드(KID-366 wave8b, 옛 `uploadOnchTracking`). 운영자 온채널 탭(공급사 주문 목록)에서 처리기
+ * 온채널 송장 업로드(KID-366 wave8b, 옛 워커의 온채널 송장 업로드 액션). 운영자 온채널 탭(공급사 주문 목록)에서 처리기
  * `content/orders/onch-tracking-upload.js`가 행마다 trans_ok를 POST한다 — 몰이 행마다 코드로 답하므로 몰의 확인이다.
  * 한 쪽 목록에 없는 주문은 `not_in_list`, 이미 송장이 있는 주문은 `already_uploaded`(보내지 않는다).
  */

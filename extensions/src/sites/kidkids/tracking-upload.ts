@@ -7,7 +7,7 @@ export const KIDKIDS_TRACKING_UPLOAD_FILE = 'content/orders/kidkids-tracking-upl
 const LOGIN_MESSAGE = '키드키즈 로그인이 필요합니다. 열려 있는 키드키즈 탭에서 로그인(본인확인)한 뒤 다시 시도해 주세요.';
 
 /**
- * 키드키즈 송장 등록·출고완료(KID-366 wave8b, 옛 `uploadKidkidsTracking`). ⚠️출고완료는 되돌리기 어렵다. 운영자 키드키즈 탭
+ * 키드키즈 송장 등록·출고완료(KID-366 wave8b, 옛 워커의 키드키즈 송장 업로드 액션). ⚠️출고완료는 되돌리기 어렵다. 운영자 키드키즈 탭
  * (출고관리)에서 처리기 `content/orders/kidkids-tracking-upload.js`가 송장을 넣고 출고완료를 한 번 POST한다. 키드키즈는 성공
  * 코드를 주지 않아 제출만 확인된다(`submitOnly`) — 수집기가 확인 대기(reconciling)로 멈춘다.
  */

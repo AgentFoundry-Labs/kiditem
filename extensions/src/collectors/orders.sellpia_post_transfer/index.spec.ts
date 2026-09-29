@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../../core/errors';
 import type { CollectedChunk, CollectFinish } from '../collector';
 import { collectorFor } from '../index';
-import { sellpiaPostTransferCollector, type SellpiaPostTransferSite } from './index';
+import { postTransferCollector, type SellpiaPostTransferSite } from './index';
 
 function fakeSellpia(steps: { register?: () => Promise<{ registered: number | null; message: string | null }>; stockmatch?: () => Promise<{ matched: number; unmatchedOrderNumbers: string[]; message: string | null }> } = {}) {
   const log: string[] = [];
@@ -29,7 +29,7 @@ function fakeSellpia(steps: { register?: () => Promise<{ registered: number | nu
 
 async function run(site: SellpiaPostTransferSite) {
   const chunks: CollectedChunk[] = [];
-  const stream = sellpiaPostTransferCollector.collect({} as never, site, { signal: new AbortController().signal, tabId: null }) as AsyncGenerator<CollectedChunk, CollectFinish | void>;
+  const stream = postTransferCollector.collect({} as never, site, { signal: new AbortController().signal, tabId: null }) as AsyncGenerator<CollectedChunk, CollectFinish | void>;
   try {
     for (;;) {
       const step = await stream.next();
@@ -43,8 +43,8 @@ async function run(site: SellpiaPostTransferSite) {
 
 describe('collectors/orders.sellpia_post_transfer', () => {
   it('kind 이름으로 등록되고 sellpia 사이트를 쓴다', () => {
-    expect(collectorFor('orders.sellpia_post_transfer')).toBe(sellpiaPostTransferCollector);
-    expect(sellpiaPostTransferCollector.site).toBe('sellpia');
+    expect(collectorFor('orders.sellpia_post_transfer')).toBe(postTransferCollector);
+    expect(postTransferCollector.site).toBe('sellpia');
   });
 
   it('등록 → 재고매칭 순서로 단계마다 post_transfer_steps 청크를 내고, 미매칭 주문번호를 result에 싣는다(송장 대상 수는 owner가 센다)', async () => {

@@ -9,7 +9,7 @@
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
   const squash = (value) => String(value == null ? "" : value).replace(/\s+/g, "");
 
-  calls["onch.uploadTracking"] = async function uploadOnchTracking(args) {
+  calls["onch.uploadTracking"] = async function onchTrackingUpload(args) {
     const rows = Array.isArray(args && args.rows) ? args.rows : [];
     if (/login/i.test(location.href) || document.querySelector('input[type="password"]')) return { status: "login_required" };
 

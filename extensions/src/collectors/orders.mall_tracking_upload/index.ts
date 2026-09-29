@@ -28,7 +28,7 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 const CHUNK_ROWS = 500;
 
 /**
- * `orders.mall_tracking_upload`(KID-366 wave8b, 옛 `uploadOnchTracking`·`uploadKidkidsTracking` — kind 하나, 몰 차이는 site
+ * `orders.mall_tracking_upload`(KID-366 wave8b, 옛 워커의 온채널·키드키즈 송장 업로드 액션 — kind 하나, 몰 차이는 site
  * 어댑터). owner plan이 셀피아 송장 조회 캡처에서 고른 그 몰 행을 운영자 몰 탭에서 올린다. 행 결과는 `upload_results` 청크,
  * 상태별 합계는 result. 몰이 제출만 확인해 주면(키드키즈 출고완료 — 성공 코드 없음) `reconciling`으로 멈춘다.
  */

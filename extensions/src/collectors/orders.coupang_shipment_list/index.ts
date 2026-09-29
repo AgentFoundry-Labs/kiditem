@@ -38,7 +38,7 @@ const CHUNK_ROWS = 500;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * `orders.coupang_shipment_list`(KID-366 wave8b, 옛 `collectCoupangShipmentList`/`scrapeCoupangShipmentList`): 공급사 택배
+ * `orders.coupang_shipment_list`(KID-366 wave8b, 옛 워커의 쿠팡 배송 목록 액션과 `scrapeCoupangShipmentList`): 공급사 택배
  * 쉽먼트 목록을 필터 없이 1쪽부터 차례로 읽어(입고예정일 필터는 발송일과 1:1이 아니라 누락) 발송일이 plan 날짜인 행만 seq 한
  * 번씩 모은다. 멈춤: 빈 쪽(`empty_pages`), 대상 블록을 지난 뒤 2쪽 연속 0건(`past_date_block`), 10행보다 짧은 쪽
  * (`short_page`), 쪽 상한(`max_pages`, 60). 백그라운드 탭(사이트가 열고 닫는다), 쿠키 과다는 사이트의 `SITE_COOKIE_BLOAT`.

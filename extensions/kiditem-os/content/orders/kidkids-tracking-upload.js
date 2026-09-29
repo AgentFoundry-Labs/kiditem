@@ -10,7 +10,7 @@
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
   const norm = (s) => (s || "").replace(/\s+/g, " ").trim();
 
-  calls["kidkids.uploadTracking"] = async function uploadKidkidsTracking(args) {
+  calls["kidkids.uploadTracking"] = async function kidkidsTrackingUpload(args) {
     const rows = Array.isArray(args && args.rows) ? args.rows : [];
     if (/login|partnerlogin|partner_login/i.test(location.href) || document.querySelector('input[type="password"]')) {
       return { status: "login_required" };

@@ -1,5 +1,5 @@
 // 셀피아 주문 작업 페이지 처리기(MAIN world, KID-366 wave8b — 옛 worker.js `injectSellpiaOrderFile`과
-// sellpia-post-processing.js `driveStep` 이식). 사이트 `extensions/src/sites/sellpia`가 운영자 셀피아 탭에
+// 옛 셀피아 후처리 모듈의 `driveStep` 이식). 사이트 `extensions/src/sites/sellpia`가 운영자 셀피아 탭에
 // `page-call/runner.js`와 함께 주입하고 두 호출을 부른다. 셀피아 SlickGrid(`dataView`·`grid`)와 `$.prompt`가 페이지
 // 전역이라 MAIN world다. 셀렉터·문구·대기 시간은 옛 코드 그대로다.
 //   `sellpia.injectOrderFile` {shopName, fileName, fileBase64, targetOrderNumbers} — 주문서수집 화면에 판매처를 고르고 파일을

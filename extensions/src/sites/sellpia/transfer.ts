@@ -51,7 +51,7 @@ interface VerifyAnswer extends SellpiaPageAnswer {
 const count = (value: unknown): number | null => (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null);
 
 /**
- * 셀피아 주문 파일 전송(KID-366 wave8b, 옛 `sendOrderFileToSellpia`). 셀피아에 쓰는 단계라 운영자 셀피아 탭(주문서수집 화면이
+ * 셀피아 주문 파일 전송(KID-366 wave8b, 옛 워커의 셀피아 전송 액션). 셀피아에 쓰는 단계라 운영자 셀피아 탭(주문서수집 화면이
  * 먼저)을 쓰고 앞으로 가져온다. 판매처를 고르고 파일을 넣어 [주문접수]를 누른다(처리기 `sellpia.injectOrderFile`). 접수 결과를
  * 모르면(누른 뒤 행 증가를 못 봤거나 답이 끊김) 같은 탭에서 대기목록 → 재고매칭 화면 순으로 대상 번호를 찾고 처음 찾은
  * 화면에서 멈춘다(옛 `verifySellpiaOrderReceipt`). 탭은 끝나도 운영자에게 둔다.

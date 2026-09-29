@@ -25,7 +25,7 @@ const manifest = JSON.parse(
 
 // 확장 병합 후 의존 모듈 로드는 통합 서비스워커가, 도메인 공용 전역은
 // worker-globals.js 가 소유한다.
-test('loads the canonical session manager and focus owners before collector runtimes', () => {
+test('loads the canonical session manager before collector runtimes', () => {
   const entry = fs.readFileSync(
     path.join(extensionRoot, 'background/service-worker.js'),
     'utf8',
@@ -33,8 +33,9 @@ test('loads the canonical session manager and focus owners before collector runt
   const at = (file) => entry.indexOf(`"${file}"`);
 
   assert.ok(at('collection-session.js') >= 0);
-  assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
-  assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
+  // 운영자 탭 포커스 헬퍼(interactive-tabs.js)는 셀피아·송장 업로드가 런타임 kind로 옮겨 사라졌다(KID-366 wave8b).
+  assert.equal(at('interactive-tabs.js'), -1);
+  assert.ok(at('worker-globals.js') > at('collection-session.js'));
   assert.ok(at('coupang/worker.js') > at('worker-globals.js'));
   // KID-354: the Wing catalog runs in the TypeScript operation runtime, not as an old module.
   assert.equal(at('coupang/coupang-catalog-import.js'), -1);
@@ -152,8 +153,7 @@ test('approved ad actions run only as the runtime ad_action kind, with no ad-cen
   assert.ok(!contentScripts.some((file) => /ads-report|utils\/dom/.test(file)), 'manifest content script');
   assert.ok(manifest.host_permissions.includes('https://advertising.coupang.com/*'), 'runtime still reaches the ad center');
   assert.doesNotMatch(worker, /ExecuteAdActions|QueuedAdActions|ExecuteActions=|AD_ACTION_URL/);
-  const interactiveTabs = fs.readFileSync(path.join(extensionRoot, 'background/interactive-tabs.js'), 'utf8');
-  assert.doesNotMatch(interactiveTabs, /AD_MUTATION/);
+  assert.equal(fs.existsSync(path.join(extensionRoot, 'background/interactive-tabs.js')), false);
 });
 
 test('lists no Coupang browser session producer and still advertises the capability', () => {
@@ -184,8 +184,9 @@ test('automatic collectors contain no direct focus primitives', () => {
 });
 
 test('automatic collectors never reuse or navigate a user-active tab', () => {
-  assert.match(worker, /before\?\.active && options\.allowActive !== true/);
-  assert.match(worker, /throw new Error\(["']active user tab is collection-protected["']\)/);
+  // Coupang 수집은 모두 런타임 kind다 — 옛 워커에는 탭을 옮기는 헬퍼(updateTabAndWait)가 남지 않았다(KID-366 wave8b 정리).
+  assert.doesNotMatch(worker, /chrome\.tabs\.update\(/);
+  assert.doesNotMatch(worker, /function updateTabAndWait\(/);
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
 });
 
@@ -206,52 +207,3 @@ test('keyword and competitor collection run only as runtime operation kinds (KID
   assert.doesNotMatch(worker, /advertising\.collect_competitor_catalog/);
 });
 
-test('interactive focus helper requires a deliberate user-action reason', async () => {
-  const helperPath = path.join(extensionRoot, 'background/interactive-tabs.js');
-  const calls = { create: [], update: [], focus: [] };
-  const chrome = {
-    runtime: { lastError: null },
-    tabs: {
-      create(properties, callback) {
-        calls.create.push(properties);
-        callback({ id: 41, windowId: 7 });
-      },
-      update(tabId, properties, callback) {
-        calls.update.push({ tabId, properties });
-        callback({ id: tabId, windowId: 7 });
-      },
-    },
-    windows: {
-      update(windowId, properties, callback) {
-        calls.focus.push({ windowId, properties });
-        callback({ id: windowId });
-      },
-    },
-  };
-  const context = vm.createContext({ chrome, console });
-  vm.runInContext(fs.readFileSync(helperPath, 'utf8'), context, {
-    filename: helperPath,
-  });
-  const interactive = context.KidItemInteractiveTabs.create({ chrome });
-  const reason = context.KidItemInteractiveTabs.reasons.PRODUCT_EDIT;
-
-  await assert.rejects(
-    interactive.createTab({ url: 'https://wing.coupang.com', reason: 'batch' }),
-    /interactive reason/i,
-  );
-  const tab = await interactive.createTab({
-    url: 'https://wing.coupang.com',
-    reason,
-  });
-  await interactive.focusTab(tab.id, reason);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.create)), [
-    { url: 'https://wing.coupang.com', active: true },
-  ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.update)), [
-    { tabId: 41, properties: { active: true } },
-  ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.focus)), [
-    { windowId: 7, properties: { focused: true } },
-  ]);
-});

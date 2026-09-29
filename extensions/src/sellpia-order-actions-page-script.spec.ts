@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import source from '../kiditem-os/content/orders/sellpia-order-actions.js?raw';
 
-// 셀피아 주문 작업 페이지 스크립트(MAIN world 파일, 옛 worker.js `injectSellpiaOrderFile`과 sellpia-post-processing.js
-// `driveStep` 이식)를 실제 파일 그대로 돌린다. 가짜는 페이지 경계(window 전역·document·시계)뿐이다. 시계는 기다리는 만큼
+// 셀피아 주문 작업 페이지 스크립트(MAIN world 파일, 옛 worker.js `injectSellpiaOrderFile`과 옛 셀피아
+// 후처리 모듈의 `driveStep` 이식)를 실제 파일 그대로 돌린다. 가짜는 페이지 경계(window 전역·document·시계)뿐이다. 시계는 기다리는 만큼
 // 바로 흘러가 옛 대기 상한이 그대로 걸린다. 사례는 옛 order-collector-sellpia-* 테스트의 기록 그대로다.
 
 type Handler = (args: Record<string, unknown>) => Promise<Record<string, unknown>>;

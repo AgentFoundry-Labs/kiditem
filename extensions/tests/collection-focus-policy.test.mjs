@@ -13,11 +13,11 @@ const focusTokens = [
   'focused: true',
   'window.open(',
 ];
-// 세 확장을 kiditem-os 하나로 합치면서 도메인마다 있던 collection-session /
-// interactive-tabs 사본이 정본 하나로 합쳐졌다.
+// 세 확장을 kiditem-os 하나로 합치면서 도메인마다 있던 collection-session 사본이 정본 하나로 합쳐졌다. 운영자 탭을
+// 앞으로 가져오던 interactive-tabs.js는 셀피아·송장 업로드가 새 런타임 kind로 옮겨 가며 사라졌다(KID-366 wave8b) —
+// 새 런타임의 운영자 탭은 `sites/operator-tab.ts`가 `TabPage.focus`(tab-page.ts)로만 앞으로 가져온다.
 const expectedOwnerFiles = [
   'extensions/kiditem-os/background/collection-session.js',
-  'extensions/kiditem-os/background/interactive-tabs.js',
 ];
 const expectedLegacyFiles = [
   'extensions/kiditem-os/background/service-worker.js',

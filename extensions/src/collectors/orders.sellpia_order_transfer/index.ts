@@ -44,7 +44,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /**
- * `orders.sellpia_order_transfer`(KID-366 wave8b, 옛 `sendOrderFileToSellpia`): owner가 plan에서 원천 실행으로 다시 만든 변환
+ * `orders.sellpia_order_transfer`(KID-366 wave8b, 옛 워커의 셀피아 전송 액션): owner가 plan에서 원천 실행으로 다시 만든 변환
  * 파일(`GET /api/orders/action-operations/:id/source`, runner가 받아 준다)을 운영자 셀피아 탭의 주문서수집 화면에 넣고 [주문접수]를
  * 누른다. 판정(옛 규칙): 행이 늘면 `submitted`. 결과를 모르면 두 화면에서 대상 번호를 찾아 — 전부 찾으면 `submitted`, 두 화면을
  * 다 읽고 0건이면 `not_submitted`(`SELLPIA_TRANSFER_NOT_SUBMITTED` 실패, 재전송 허용), 그 밖(일부만·확인 못 함)은 재전송하면

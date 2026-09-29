@@ -29,13 +29,13 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 const CHUNK_ROWS = 2_000;
 
 /**
- * `orders.sellpia_auto_invoice`(KID-366 wave8b, 옛 `sellpiaAutoInvoice`). ⚠️비가역 — 셀피아가 실제 송장번호를 발급한다. owner
+ * `orders.sellpia_auto_invoice`(KID-366 wave8b, 옛 워커의 셀피아 자동송장 액션). ⚠️비가역 — 셀피아가 실제 송장번호를 발급한다. owner
  * plan의 `targetOrderNumbers`만 운영자 셀피아 탭의 송장채번 그리드에서 골라(접두어 `_:|/ -` 허용) [송장번호채번]을 누른다.
  * - 일치 행이 0이면 누르지 않고 발급 없이 성공(리더 결정 — 대기 행 전체 채번 금지).
  * - 눌렀고 고른 번호마다 발급 행을 읽으면 `invoice_rows`와 성공. 하나라도 못 읽었거나 눌렀는지 모르면 `reconciling`.
  * begin 실행은 `maxAttempts 1`이라 임대 만료 뒤 다시 claim되지 않는다(이중 채번 방지는 계약).
  */
-export const sellpiaAutoInvoiceCollector: Collector<SellpiaAutoInvoicePlan, AutoInvoiceResult, SellpiaAutoInvoiceSite> = {
+export const autoInvoiceCollector: Collector<SellpiaAutoInvoicePlan, AutoInvoiceResult, SellpiaAutoInvoiceSite> = {
   kind: SELLPIA_AUTO_INVOICE_KIND,
   site: 'sellpia',
   async *collect(rawPlan, site): AsyncGenerator<CollectedChunk, CollectFinish<AutoInvoiceResult>, undefined> {
@@ -67,4 +67,4 @@ export const sellpiaAutoInvoiceCollector: Collector<SellpiaAutoInvoicePlan, Auto
   },
 };
 
-registerCollector(sellpiaAutoInvoiceCollector);
+registerCollector(autoInvoiceCollector);

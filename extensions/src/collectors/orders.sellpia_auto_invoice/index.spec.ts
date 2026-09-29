@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isRuntimeError } from '../../core/errors';
 import type { CollectedChunk, CollectFinish } from '../collector';
 import { collectorFor } from '../index';
-import { sellpiaAutoInvoiceCollector, type SellpiaInvoiceAttempt, type SellpiaAutoInvoiceSite } from './index';
+import { autoInvoiceCollector, type SellpiaInvoiceAttempt, type SellpiaAutoInvoiceSite } from './index';
 
 const PLAN = { targetOrderNumbers: ['T-1', 'T-2', 'T-3'] };
 const row = (orderNo: string) => ({ orderNo, trackingNumber: `INV-${orderNo}`, courier: '1136' });
@@ -20,7 +20,7 @@ function fakeSellpia(attempt: SellpiaInvoiceAttempt) {
 
 async function run(site: SellpiaAutoInvoiceSite, plan: Record<string, unknown> = PLAN) {
   const chunks: CollectedChunk[] = [];
-  const stream = sellpiaAutoInvoiceCollector.collect(plan as never, site, { signal: new AbortController().signal, tabId: null }) as AsyncGenerator<CollectedChunk, CollectFinish | void>;
+  const stream = autoInvoiceCollector.collect(plan as never, site, { signal: new AbortController().signal, tabId: null }) as AsyncGenerator<CollectedChunk, CollectFinish | void>;
   for (;;) {
     const step = await stream.next();
     if (step.done) return { chunks, finish: step.value ?? null };
@@ -30,8 +30,8 @@ async function run(site: SellpiaAutoInvoiceSite, plan: Record<string, unknown> =
 
 describe('collectors/orders.sellpia_auto_invoice', () => {
   it('kind 이름으로 등록되고 sellpia 사이트를 쓴다', () => {
-    expect(collectorFor('orders.sellpia_auto_invoice')).toBe(sellpiaAutoInvoiceCollector);
-    expect(sellpiaAutoInvoiceCollector.site).toBe('sellpia');
+    expect(collectorFor('orders.sellpia_auto_invoice')).toBe(autoInvoiceCollector);
+    expect(autoInvoiceCollector.site).toBe('sellpia');
   });
 
   it('plan 대상만 채번을 부탁하고, 고른 번호 모두 발급 행이 읽히면 invoice_rows 청크와 성공 result(그리드에 없던 번호는 notFound)', async () => {
