@@ -10,15 +10,15 @@ export function parseAttemptToken(value: string | undefined): string {
 }
 
 /** Removes the attempt token, the one field a public attempt view never carries. */
-export function toPublicAttempt<Attempt extends { attemptToken?: string }>(
+export function toPublicAttempt<Attempt extends object>(
   attempt: Attempt,
 ): Omit<Attempt, 'attemptToken'> {
-  const { attemptToken: _attemptToken, ...publicAttempt } = attempt;
+  const { attemptToken: _attemptToken, ...publicAttempt } = attempt as Attempt & { attemptToken?: string };
   return publicAttempt;
 }
 
 export function toPublicStatus<
-  Attempt extends { attemptToken?: string },
+  Attempt extends object,
   Status extends { latestAttempt: Attempt | null; latestComplete: Attempt | null },
 >(status: Status) {
   return {

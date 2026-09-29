@@ -162,11 +162,18 @@ export class SourcingServerOperationRunner {
     message: string,
     result?: Record<string, unknown>,
   ): Promise<SourcingSourceAttempt> {
-    const finished = await this.operations.finish({
-      ...this.fenced(organizationId, run),
-      request: { outcome: 'failed', errorCode: code, errorMessage: message.slice(0, 2_000), ...(result ? { result } : {}) },
-    });
-    return toAttempt(fromView(finished.operation));
+    try {
+      const finished = await this.operations.finish({
+        ...this.fenced(organizationId, run),
+        request: { outcome: 'failed', errorCode: code, errorMessage: message.slice(0, 2_000), ...(result ? { result } : {}) },
+      });
+      return toAttempt(fromView(finished.operation));
+    } catch (error) {
+      // 이미 닫힌 실행(완료 시도가 먼저 failed로 닫았거나 임대가 끝남)이면 그 끝을 그대로 돌려준다.
+      const current = await this.operations.get(organizationId, run.attempt.attemptId);
+      if (current && ['succeeded', 'failed', 'cancelled'].includes(current.status)) return toAttempt(fromView(current));
+      throw error;
+    }
   }
 
   /** 원장 writer가 받는 permit: 실행 id가 원장의 `operationId`다(확장 kind와 같다). */
