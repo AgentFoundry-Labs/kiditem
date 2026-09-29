@@ -16,7 +16,7 @@ describe('uploadPublicImages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     bridge.detectOrderCollectionExtensionId.mockResolvedValue('ext');
-    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'ready' });
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'ready', extensionId: 'ext', version: '1.3.0' });
   });
 
   it('sends our storage photos in batches, saves each batch right away and reports progress', async () => {
@@ -51,6 +51,12 @@ describe('uploadPublicImages', () => {
     const result = await uploadPublicImages([local(0), local(1)], { save });
     expect(result).toMatchObject({ saved: 0, needsLogin: true });
     expect(save).not.toHaveBeenCalled();
+  });
+
+  it('finds the extension by the new runtime photo host capability', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, images: [hosted(local(0))] });
+    await uploadPublicImages([local(0)], { save: vi.fn(async () => ({ saved: 1 })) });
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1200, ['mallImageHostV1']);
   });
 
   it('refuses an extension that does not know photo uploads', async () => {

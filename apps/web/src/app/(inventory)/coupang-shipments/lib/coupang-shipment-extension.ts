@@ -4,6 +4,7 @@ import {
   detectOrderCollectionExtensionId,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { COUPANG_SHIPMENT_ACTIONS_CAPABILITY } from '@kiditem/shared/extension-actions';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { SITE_COOKIE_BLOAT_CODE, SITE_LOGIN_REQUIRED_CODE } from '@/lib/coupang-shipment-summary-operation';
 import {
@@ -102,10 +103,8 @@ export async function clickCoupangShipmentDownloadsViaExtension(params: {
   return response;
 }
 
-async function getOrderCollectorExtensionId(
-  capability = 'coupangShipmentDownloads',
-): Promise<string> {
-  const extensionId = await detectOrderCollectionExtensionId(1200, capability);
+async function getOrderCollectorExtensionId(): Promise<string> {
+  const extensionId = await detectOrderCollectionExtensionId(1200, COUPANG_SHIPMENT_ACTIONS_CAPABILITY);
   if (!extensionId) {
     if (
       window.location.hostname === 'localhost'
@@ -123,8 +122,7 @@ async function getOrderCollectorExtensionId(
  * 반환값은 정리한 쿠키 수. 파괴적이라 호출 전 사용자 확인을 받는다.
  */
 export async function clearCoupangCookiesViaExtension(): Promise<number> {
-  // 쿠키 정리 기능(0.1.81+)을 명시적으로 요구 → 구버전 확장은 재로드 안내로 거절.
-  const extensionId = await getOrderCollectorExtensionId('clearCoupangCookies');
+  const extensionId = await getOrderCollectorExtensionId();
   const response = await sendToExtension<{ success: boolean; cleared?: number; error?: string }>(
     extensionId,
     { action: 'clearCoupangCookies' },
@@ -191,7 +189,8 @@ export async function collectCoupangShipmentDraftsViaExtension(
   onProgress?: (progress: CoupangShipmentCollectProgress) => void,
 ): Promise<{ drafts: CoupangShipmentFileDraft[]; shipments: CoupangShipmentListItem[]; failed: string[] }> {
   if (!date) throw new Error('발송일을 선택해주세요.');
-  const extensionId = await getOrderCollectorExtensionId('collectCoupangShipmentFiles');
+  // 배송 목록(`collectCoupangShipmentList`)은 아직 옛 워커가 답하고 새 런타임이 넘겨준다 — wave8b가 kind로 옮긴다.
+  const extensionId = await getOrderCollectorExtensionId();
 
   onProgress?.({ phase: 'list', date });
   const list = await sendToExtension<CoupangShipmentListResult>(

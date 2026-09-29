@@ -4,6 +4,7 @@ import {
   sendToExtension,
   type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
+import { MALL_LOGIN_ACTIONS_CAPABILITY } from '@kiditem/shared/extension-actions';
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
 import type { OrderCollectionAttemptContext } from './order-collection-source-owner';
 
@@ -189,8 +190,6 @@ export function orderCollectionExtensionUnavailableMessage(
   return '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os를 Chrome에서 로드해주세요.';
 }
 
-export const MALL_LOGIN_TEST_CAPABILITY = 'mallLoginTestV1';
-
 /** 로그인 테스트가 확장에 닿지 못한 이유. 비밀번호 문제가 아니므로 자동 로그인을 막을 근거가 아니다. */
 export type MallLoginTestUnavailable = 'extension_not_found' | 'extension_outdated' | 'extension_no_answer';
 
@@ -222,7 +221,7 @@ export async function testMallLoginViaExtension(
   mallKey: string,
   credentials: IcecreamMallExtensionCredentials,
 ): Promise<MallLoginTestResponse> {
-  const runtime = await detectOrderCollectionExtensionRuntime(1500, [MALL_LOGIN_TEST_CAPABILITY]);
+  const runtime = await detectOrderCollectionExtensionRuntime(1500, [MALL_LOGIN_ACTIONS_CAPABILITY]);
   if (runtime.status !== 'ready') {
     return {
       success: false,
@@ -343,6 +342,7 @@ export async function sendOrderFileToSellpiaViaExtension(params: {
   blob: Blob;
   orderNumbers?: string[];
 }): Promise<SellpiaSendResult> {
+  // 셀피아 전송·후처리·송장은 아직 옛 주문 워커가 답한다 — wave8b가 kind로 옮기며 이 옛 표시를 지운다.
   const extensionId = await detectOrderCollectionExtensionId(
     1200,
     'sellpiaScopedAutoInvoiceV1',
@@ -459,6 +459,7 @@ export interface SellpiaPostTransferResult {
  * 비파괴 단계. 자동재고매칭이 안 된(미매칭/재고부족) 주문 목록을 함께 반환한다.
  */
 export async function runSellpiaPostTransferViaExtension(): Promise<SellpiaPostTransferResult> {
+  // 셀피아 전송·후처리·송장은 아직 옛 주문 워커가 답한다 — wave8b가 kind로 옮기며 이 옛 표시를 지운다.
   const extensionId = await detectOrderCollectionExtensionId(
     1200,
     'sellpiaScopedAutoInvoiceV1',
@@ -505,6 +506,7 @@ export interface SellpiaAutoInvoiceResult {
  * ⚠️되돌리기 어려움: 셀피아 송장 자동채번(실제 송장번호 발급). 프론트 확인 이후에만 호출.
  */
 export async function runSellpiaAutoInvoiceViaExtension(): Promise<SellpiaAutoInvoiceResult> {
+  // 셀피아 전송·후처리·송장은 아직 옛 주문 워커가 답한다 — wave8b가 kind로 옮기며 이 옛 표시를 지운다.
   const extensionId = await detectOrderCollectionExtensionId(
     1200,
     'sellpiaScopedAutoInvoiceV1',

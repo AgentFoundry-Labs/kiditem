@@ -1,5 +1,6 @@
 'use client';
 
+import { MALL_LOGIN_ACTIONS_CAPABILITY } from '@kiditem/shared/extension-actions';
 import { detectOrderCollectionExtensionRuntime, sendToExtension } from './extension-bridge';
 import { clearMallAutoLoginBlock } from './mall-login-block';
 
@@ -13,7 +14,7 @@ import { clearMallAutoLoginBlock } from './mall-login-block';
  * 없거나 화면에 닿지 못한 몰은, 사람이 몰에 들어가 봐야 하므로 로그인 필요로 답하고 이유를
  * 함께 적는다.
  */
-export const MALL_SESSION_PROBE_CAPABILITY = 'mallLoginCheckV2';
+export const MALL_SESSION_PROBE_CAPABILITY = MALL_LOGIN_ACTIONS_CAPABILITY;
 
 export type MallSessionState = 'signed_in' | 'verification_required' | 'signed_out';
 

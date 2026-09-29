@@ -14,6 +14,7 @@ import {
   detectOrderCollectionSessionExtensionStatus,
   ensureMallLoggedInViaExtension,
   sendOrderFileToSellpiaViaExtension,
+  testMallLoginViaExtension,
 } from './order-collection-extension';
 
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
@@ -47,6 +48,12 @@ describe('order collection extension session bridge', () => {
       ],
       8_000,
     );
+  });
+
+  it('finds the login test by the new runtime mall login capability', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true, verified: true, mallMessage: null, errorCode: null });
+    await testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' });
+    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1500, ['mallLoginActionsV1']);
   });
 
   it('preserves the loaded extension version and missing capability diagnosis', async () => {

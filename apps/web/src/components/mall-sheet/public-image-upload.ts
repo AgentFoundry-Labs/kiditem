@@ -1,5 +1,5 @@
+import { MALL_IMAGE_HOST_CAPABILITY } from '@kiditem/shared/extension-actions';
 import {
-  detectOrderCollectionExtensionId,
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
@@ -16,7 +16,6 @@ export const PUBLIC_IMAGE_SOURCE_ORIGINS = ['http://localhost:9000', 'http://kid
 /** 확장 `PUBLIC_IMAGE_BATCH` 와 같다. 한 번에 이만큼 보내고 진행을 보인다. */
 export const PUBLIC_IMAGE_BATCH = 20;
 export const PUBLIC_IMAGE_HOST = 'kidsnote';
-const PUBLIC_IMAGE_CAPABILITY = 'publicImageHostV1';
 const BATCH_TIMEOUT_MS = 180_000;
 
 export interface PublicImageUploadProgress {
@@ -61,9 +60,10 @@ export async function uploadPublicImages(
     .map((url) => ({ url, error: '우리 사진 저장소 주소가 아니라 올릴 수 없습니다.' }));
   if (uploadable.length === 0) return { saved: 0, failed, needsLogin: false };
 
-  const extensionId = await detectOrderCollectionExtensionId();
-  if (!extensionId) throw new Error('확장프로그램이 필요합니다. KidItem 확장을 켜고 키즈노트 관리자에 로그인한 뒤 다시 누르세요.');
-  const runtime = await detectOrderCollectionExtensionRuntime(1200, [PUBLIC_IMAGE_CAPABILITY]);
+  const runtime = await detectOrderCollectionExtensionRuntime(1200, [MALL_IMAGE_HOST_CAPABILITY]);
+  if (runtime.status === 'not_found') {
+    throw new Error('확장프로그램이 필요합니다. KidItem 확장을 켜고 키즈노트 관리자에 로그인한 뒤 다시 누르세요.');
+  }
   if (runtime.status !== 'ready') {
     throw new Error(
       `설치된 KidItem 확장${runtime.status === 'incompatible' ? `(${runtime.version})` : ''}이 사진 올리기를 모릅니다. `
@@ -79,7 +79,7 @@ export async function uploadPublicImages(
     if (options.signal?.aborted) break;
     const batch = uploadable.slice(start, start + PUBLIC_IMAGE_BATCH);
     const response = await sendToExtension<HostResponse>(
-      extensionId,
+      runtime.extensionId,
       { action: 'hostPublicImages', urls: batch },
       BATCH_TIMEOUT_MS,
     );

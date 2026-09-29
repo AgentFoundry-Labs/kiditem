@@ -20,13 +20,13 @@ describe('detectMallSessionProbe', () => {
   it('asks for the three-state login check and separates outdated from missing', async () => {
     mockDetectRuntime.mockResolvedValueOnce({ status: 'ready', extensionId: 'ext', version: '1.0.96' });
     await expect(detectMallSessionProbe()).resolves.toEqual({ status: 'ready', extensionId: 'ext' });
-    expect(mockDetectRuntime).toHaveBeenCalledWith(1500, ['mallLoginCheckV2']);
+    expect(mockDetectRuntime).toHaveBeenCalledWith(1500, ['mallLoginActionsV1']);
 
     mockDetectRuntime.mockResolvedValueOnce({
       status: 'incompatible',
       extensionId: 'ext',
       version: '1.0.95',
-      missingCapabilities: ['mallLoginCheckV2'],
+      missingCapabilities: ['mallLoginActionsV1'],
     });
     await expect(detectMallSessionProbe()).resolves.toEqual({ status: 'outdated', version: '1.0.95' });
 

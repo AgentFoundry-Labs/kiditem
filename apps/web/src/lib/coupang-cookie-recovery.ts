@@ -1,3 +1,4 @@
+import { COUPANG_SHIPMENT_ACTIONS_CAPABILITY } from '@kiditem/shared/extension-actions';
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 
 /**
@@ -26,7 +27,7 @@ interface ClearCookiesResponse {
  * 쿠키 값은 확장에서도 읽거나 반환하지 않으며, 정리한 개수만 돌려받는다.
  */
 export async function clearCoupangCookiesViaExtension(): Promise<number> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, COUPANG_SHIPMENT_ACTIONS_CAPABILITY);
   if (!extensionId) {
     throw new Error(
       '주문수집 확장프로그램이 필요합니다. Chrome에서 extensions/kiditem-os를 로드한 뒤 다시 시도해주세요.',

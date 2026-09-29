@@ -1,3 +1,4 @@
+import { MALL_CATEGORY_READ_CAPABILITY } from '@kiditem/shared/extension-actions';
 import {
   detectOrderCollectionExtensionId,
   sendToExtension,
@@ -27,7 +28,7 @@ export async function listMallCategories(
   mall: MallFormRegisterMall,
   path: readonly string[],
 ): Promise<string[]> {
-  const extensionId = await detectOrderCollectionExtensionId();
+  const extensionId = await detectOrderCollectionExtensionId(1200, MALL_CATEGORY_READ_CAPABILITY);
   if (!extensionId) {
     throw new Error('확장프로그램이 필요합니다. 몰 분류는 몰에서 직접 읽어옵니다.');
   }
