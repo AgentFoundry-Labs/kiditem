@@ -190,14 +190,19 @@ and current-source reads.
 Sourcing collection uses its source owners directly:
 
 ```text
-screen / Agent -> Sourcing owner attempt + frozen plan
+screen / Agent -> Sourcing operation kind + frozen plan
 browser source -> extension operation.start -> runtime collector chunks -> owner finalize (ledger + publication); failure stays on the operation row
-server source -> provider -> owner terminal + Alert
-COMPLETE observations + latest attempt status -> source screen / Agent
+server source -> server begin -> provider -> putChunk -> finish (owner finalize, or failed + Alert)
+current publication + latest operation -> source screen / Agent
 ```
 
-Shadow uses this same Sourcing attempt ledger for paired Google/optional LinkFox
-collection. It admits once per organization/KST day, including failure/expiry;
+Server-run kinds (`serverDriven`) are opened only by the server inside the
+request; `POST /api/operations` and claim refuse them (KID-389). Sourcing keeps
+no attempt table of its own.
+
+Shadow is the server-run kind `sourcing.market_shadow` for paired Google/optional
+LinkFox collection. It admits once per organization/KST day, including
+failure, through the begin idempotency key `market_shadow:<KST date>`;
 the original request key replays without provider IO. Successful full evaluation
 payloads are immutable observations. Failure retains the previous COMPLETE
 snapshot with stale status and actual cutoff. It has no Operation Worker or
@@ -840,7 +845,7 @@ is `SOURCING_SUPPLY_INTELLIGENCE_PORT` backed by Supply's exported
 
 ```text
 allowlisted source + optional organization enabled override
-  -> SourcingEvidenceIngestionRun
+  -> Sourcing operation kind + SourcingSourcePublication
   -> append-only SourcingEvidenceObservation
   -> immutable SupplierOfferSkuSnapshot + SupplierOfferPriceTier (Supply)
   -> exact SourcingLaunchCandidate

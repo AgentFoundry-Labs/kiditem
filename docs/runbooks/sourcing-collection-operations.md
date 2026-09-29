@@ -11,14 +11,15 @@ attempt.
 The ownership flow is exact:
 
 ```text
-sourcing screen CTA -> source owner attempt (SourcingEvidenceIngestionRun)
-browser source -> KidItem OS collector -> token-fenced owner terminal
-server source  -> Office Chrome CDP    -> token-fenced owner terminal
-owner COMPLETE snapshot -> sourcing screen
+sourcing screen CTA -> Sourcing operation kind (the response's attemptId is the operation id)
+browser source -> KidItem OS collector -> token-fenced owner finalize
+server source  -> Office Chrome CDP    -> server begin, putChunk, finish in the request
+owner current publication -> sourcing screen
 ```
 
-The source owner is the only writer of its attempts, canonical facts, and
-terminal status. A screen reads the owner's latest COMPLETE snapshot; a running
+The source owner is the only writer of its canonical facts and publications;
+the operation row holds the attempt and its terminal status. Server-run kinds
+cannot be opened or claimed over `POST /api/operations` (KID-389). A screen reads the owner's latest COMPLETE snapshot; a running
 attempt is never a substitute payload, and completing a collection publishes no
 downstream calculation.
 
@@ -96,7 +97,7 @@ And these source-status fields:
 
 | Field | Meaning |
 | --- | --- |
-| `ready` | The latest COMPLETE attempt still matches the current frozen plan. |
+| `ready` | The current publication still matches the current frozen plan. |
 | `latestAttempt` | The newest attempt in any state, including a running one. |
 | `latestComplete` | The snapshot every reader uses. A failed attempt keeps the previous one. |
 | `actualCutoffAt` | The moment that snapshot actually covers, which may be older than the request. |
@@ -111,11 +112,12 @@ fallback, and image matching stays tabless HTTP.
 
 ### Diagnose a keyword search by its unit result
 
-A keyword search opens one attempt per keyword, and every outcome, including a
-provider failure, terminalizes that attempt as COMPLETE with `errorCode` null
-and its failure Alert resolved. So a CDP outage leaves no FAILED attempt and no
-Alert to find: the bounded code lives in the unit result, in `result.units[]` of
-the start response and as `unit` in
+A keyword search opens one server-run operation
+(`sourcing.keyword_search_1688`) per keyword. A unit with a failed item, a CDP
+outage included, finishes that operation FAILED with `errorCode`
+`SOURCE_PLAN_INCOMPLETE` and publishes nothing, so the previous snapshot stays
+current. The bounded code lives in the unit result, which the operation keeps:
+in `result.units[]` of the start response and as `unit` in
 `GET /api/sourcing/wholesale/1688/keyword-search/:attemptId`. Image matching
 uses the same shape.
 
