@@ -236,10 +236,6 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | SystemSetting |
 | Organization | organization | referenced by external | System | TodoItem |
-| SourceImportRun | nextSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
-| SourceImportRun | previousSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
-| SourceImportRun | publishedSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcFormulaState |
-| SourceImportRun | sellpiaSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |

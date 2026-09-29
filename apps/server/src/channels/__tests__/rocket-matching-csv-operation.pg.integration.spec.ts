@@ -74,9 +74,9 @@ describe('Rocket matching CSV over the operation contract (PG integration)', () 
       include: { options: true },
       orderBy: { externalId: 'asc' },
     });
-    expect(listings.map((row) => [row.externalId, row.displayName, row.lastOperationId, row.lastImportRunId])).toEqual([
-      ['17616314', '돌고래 비눗방울총 블루,핑크', operation.id, null],
-      ['17616315', '공룡 물총', operation.id, null],
+    expect(listings.map((row) => [row.externalId, row.displayName, row.lastOperationId])).toEqual([
+      ['17616314', '돌고래 비눗방울총 블루,핑크', operation.id],
+      ['17616315', '공룡 물총', operation.id],
     ]);
     expect(listings.flatMap((row) => row.options.map((option) => [option.sellerSku, option.barcode, option.lastOperationId])))
       .toEqual([

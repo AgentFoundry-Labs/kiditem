@@ -10,7 +10,7 @@ import {
   dropLegacyChannelScrapeTables,
   restoreLegacyChannelScrapeTables,
 } from '../../test-helpers/legacy-channel-scrape-tables';
-import { dropLegacySourceImportRunForeignKeys, restoreLegacySourceImportRunForeignKeys } from '../../test-helpers/legacy-source-import-run-foreign-keys';
+import { dropLegacySourceImportRunReferences, restoreLegacySourceImportRunReferences } from '../../test-helpers/legacy-source-import-run-references';
 import {
   ensureSourceImportRunStatusCheck,
   SOURCE_IMPORT_RUN_STATUS_CHECK,
@@ -44,13 +44,13 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await prisma.$executeRaw`ALTER TABLE source_import_runs DROP CONSTRAINT IF EXISTS source_import_runs_status_check`;
     // Office 0.1.31 still had the channel_scrape_* tables KID-365 dropped.
     await restoreLegacyChannelScrapeTables(prisma);
-    await restoreLegacySourceImportRunForeignKeys(prisma);
+    await restoreLegacySourceImportRunReferences(prisma);
   });
 
   afterEach(async () => {
     // Later suites share this database, so restore the pushed shape.
     await resetDb(prisma);
-    await dropLegacySourceImportRunForeignKeys(prisma);
+    await dropLegacySourceImportRunReferences(prisma);
     await dropLegacyChannelScrapeTables(prisma);
     await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
   });
@@ -93,9 +93,11 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
         organizationId: ORG,
         channelAccountId: account.id,
         externalId: 'kid124-listing',
-        lastImportRunId: superseded.id,
       },
     });
+    await prisma.$executeRaw`
+      UPDATE channel_listings SET last_import_run_id = ${superseded.id}::uuid WHERE id = ${listing.id}::uuid
+    `;
     const listingDay = await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: ORG,
@@ -114,11 +116,14 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
         organizationId: ORG,
         publicationRevision: 3,
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
-        publishedSellpiaSourceImportRunId: superseded.id,
         publishedMappingGeneration: 7n,
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
       },
     });
+    await prisma.$executeRaw`
+      UPDATE master_product_abc_formula_states SET published_sellpia_source_import_run_id = ${superseded.id}::uuid
+      WHERE organization_id = ${ORG}::uuid
+    `;
     // A transport receipt is carried forward with its run.
     const receipt = await prisma.coupangDirectTransportReceipt.create({
       data: {
@@ -185,10 +190,9 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       [unknownRunOrder.id, null],
       [completedRunOrder.id, completed.id],
     ]));
-    await expect(prisma.channelListing.findUniqueOrThrow({
-      where: { id: listing.id },
-      select: { lastImportRunId: true },
-    })).resolves.toEqual({ lastImportRunId: null });
+    await expect(prisma.$queryRaw`
+      SELECT last_import_run_id FROM channel_listings WHERE id = ${listing.id}::uuid
+    `).resolves.toEqual([{ last_import_run_id: null }]);
     await expect(prisma.$queryRaw`
       SELECT raw_snapshot_id FROM channel_listing_daily_snapshots WHERE id = ${listingDay.id}::uuid
     `).resolves.toEqual([{ raw_snapshot_id: null }]);
@@ -197,14 +201,12 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       select: {
         publicationRevision: true,
         officialCutoffDate: true,
-        publishedSellpiaSourceImportRunId: true,
         publishedMappingGeneration: true,
         publishedAt: true,
       },
     })).resolves.toEqual({
       publicationRevision: 3,
       officialCutoffDate: null,
-      publishedSellpiaSourceImportRunId: null,
       publishedMappingGeneration: null,
       publishedAt: null,
     });
@@ -212,6 +214,9 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       where: { organizationId: ORG },
       select: { sourceImportRunId: true },
     })).resolves.toEqual([{ sourceImportRunId: completed.id }]);
+    await expect(prisma.$queryRaw`
+      SELECT published_sellpia_source_import_run_id FROM master_product_abc_formula_states WHERE organization_id = ${ORG}::uuid
+    `).resolves.toEqual([{ published_sellpia_source_import_run_id: null }]);
     await expect(Promise.all([
       prisma.orderCollectionArtifact.count(),
       prisma.review.count(),

@@ -17,7 +17,7 @@ import {
   dropLegacyChannelScrapeTables,
   restoreLegacyChannelScrapeTables,
 } from '../test-helpers/legacy-channel-scrape-tables';
-import { dropLegacySourceImportRunForeignKeys, restoreLegacySourceImportRunForeignKeys } from '../test-helpers/legacy-source-import-run-foreign-keys';
+import { dropLegacySourceImportRunReferences, restoreLegacySourceImportRunReferences } from '../test-helpers/legacy-source-import-run-references';
 import {
   foreignKeysInto,
   referencingColumn,
@@ -151,13 +151,13 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     await toPre373Shape(prisma);
     // 014 still meets the channel_scrape_* tables KID-365 dropped.
     await restoreLegacyChannelScrapeTables(prisma);
-    await restoreLegacySourceImportRunForeignKeys(prisma);
+    await restoreLegacySourceImportRunReferences(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
     try {
-      await dropLegacySourceImportRunForeignKeys(prisma);
+      await dropLegacySourceImportRunReferences(prisma);
       await dropLegacyChannelScrapeTables(prisma);
       await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
@@ -516,13 +516,13 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
     await toPre373Shape(prisma);
     // 014 still meets the channel_scrape_* tables KID-365 dropped.
     await restoreLegacyChannelScrapeTables(prisma);
-    await restoreLegacySourceImportRunForeignKeys(prisma);
+    await restoreLegacySourceImportRunReferences(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
     try {
-      await dropLegacySourceImportRunForeignKeys(prisma);
+      await dropLegacySourceImportRunReferences(prisma);
       await dropLegacyChannelScrapeTables(prisma);
       await fromPre373Shape(prisma);
       await fromPre030Shape(prisma);
@@ -700,7 +700,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     await seedOrganization(db, TEST_ORGANIZATION_ID, ['pencil'], 2);
     await toPre373Shape(db);
     await restoreLegacyChannelScrapeTables(db);
-    await restoreLegacySourceImportRunForeignKeys(db);
+    await restoreLegacySourceImportRunReferences(db);
     const definitions = await indexDefinitions(db, [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]);
     await db.$transaction(async (tx) => {
       await toPre030Shape(tx);

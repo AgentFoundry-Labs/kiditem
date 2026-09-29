@@ -57,7 +57,6 @@ erDiagram
     Int publicationRevision
     DateTime gradeBasisCutoffDate
     DateTime saleStartDate
-    String sellpiaSourceImportRunId FK
     String sellpiaOperationId
     BigInt sellpiaGeneration
     BigInt mappingGeneration
@@ -69,7 +68,6 @@ erDiagram
     Int formulaRevision
     Int publicationRevision
     DateTime officialCutoffDate
-    String publishedSellpiaSourceImportRunId FK
     String publishedSellpiaOperationId
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
@@ -96,8 +94,6 @@ erDiagram
     Decimal economicScore
     Decimal weightedOperatingProfit
     Decimal operatingMargin
-    String previousSellpiaSourceImportRunId FK
-    String nextSellpiaSourceImportRunId FK
     String previousSellpiaOperationId
     String nextSellpiaOperationId
     Int formulaRevision
@@ -134,11 +130,7 @@ erDiagram
 |---|---|---|---|---|
 | MasterProduct | organization | references external | Core | Organization |
 | MasterProductAbcEvaluation | organization | references external | Core | Organization |
-| MasterProductAbcEvaluation | sellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcFormulaState | organization | references external | Core | Organization |
-| MasterProductAbcFormulaState | publishedSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcFormulaVersion | organization | references external | Core | Organization |
-| MasterProductAbcGradeHistory | nextSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcGradeHistory | organization | references external | Core | Organization |
-| MasterProductAbcGradeHistory | previousSellpiaSourceImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |

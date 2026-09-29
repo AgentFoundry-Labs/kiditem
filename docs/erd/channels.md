@@ -55,7 +55,6 @@ erDiagram
     String manufacturer
     String imageUrl
     Json rawJson
-    String lastImportRunId
     String lastOperationId
     String status
     String exposureStatus
@@ -117,7 +116,6 @@ erDiagram
     String status
     Json attributesJson
     Json rawJson
-    String lastImportRunId
     String lastOperationId
     Boolean isActive
     DateTime createdAt

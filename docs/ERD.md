@@ -380,7 +380,6 @@ erDiagram
     String manufacturer
     String imageUrl
     Json rawJson
-    String lastImportRunId
     String lastOperationId
     String status
     String exposureStatus
@@ -442,7 +441,6 @@ erDiagram
     String status
     Json attributesJson
     Json rawJson
-    String lastImportRunId
     String lastOperationId
     Boolean isActive
     DateTime createdAt
@@ -885,7 +883,6 @@ erDiagram
     Int publicationRevision
     DateTime gradeBasisCutoffDate
     DateTime saleStartDate
-    String sellpiaSourceImportRunId FK
     String sellpiaOperationId
     BigInt sellpiaGeneration
     BigInt mappingGeneration
@@ -897,7 +894,6 @@ erDiagram
     Int formulaRevision
     Int publicationRevision
     DateTime officialCutoffDate
-    String publishedSellpiaSourceImportRunId FK
     String publishedSellpiaOperationId
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
@@ -924,8 +920,6 @@ erDiagram
     Decimal economicScore
     Decimal weightedOperatingProfit
     Decimal operatingMargin
-    String previousSellpiaSourceImportRunId FK
-    String nextSellpiaSourceImportRunId FK
     String previousSellpiaOperationId
     String nextSellpiaOperationId
     Int formulaRevision
@@ -2434,10 +2428,6 @@ erDiagram
   SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
-  SourceImportRun o|--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "nextSellpiaSourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousSellpiaSourceImportRun"
   SourceImportRun o|--o| OrderCollectionArtifact : "sourceImportRun"
   SourceRecord ||--o{ SourceRecordImage : "sourceRecord"
   SourceRecord o|--o{ SourcingLaunchCandidate : "sourceRecord"

@@ -136,12 +136,12 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
     const listings = await prisma.channelListing.findMany({
       where: { organizationId: ORG, channelAccountId: KIDKIDS },
       orderBy: { externalId: 'asc' },
-      select: { externalId: true, status: true, lastOperationId: true, lastImportRunId: true, options: { select: { itemName: true, sellerSku: true, lastOperationId: true } } },
+      select: { externalId: true, status: true, lastOperationId: true, options: { select: { itemName: true, sellerSku: true, lastOperationId: true } } },
     });
-    expect(listings.map((listing) => [listing.externalId, listing.status, listing.lastOperationId, listing.lastImportRunId])).toEqual([
-      ['1098464', '판매중', operation.id, null],
-      ['176227', '품절', operation.id, null],
-      ['200001', '보류', operation.id, null],
+    expect(listings.map((listing) => [listing.externalId, listing.status, listing.lastOperationId])).toEqual([
+      ['1098464', '판매중', operation.id],
+      ['176227', '품절', operation.id],
+      ['200001', '보류', operation.id],
     ]);
     expect(listings[0]!.options).toEqual([{ itemName: '3000왁스팝 말랑이', sellerSku: null, lastOperationId: operation.id }]);
     expect(listings[2]!.options[0]).toMatchObject({ sellerSku: '6402-1' });

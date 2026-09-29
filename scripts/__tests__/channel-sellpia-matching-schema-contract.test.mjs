@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 
 const repoRoot = process.cwd();
 const channels = readFileSync(join(repoRoot, 'prisma/models/channels.prisma'), 'utf8');
+const core = readFileSync(join(repoRoot, 'prisma/models/core.prisma'), 'utf8');
 
 function modelBlock(source, modelName) {
   const block = source.match(new RegExp(`model ${modelName}\\s*\\{[\\s\\S]*?\\n\\}`))?.[0];
@@ -27,7 +28,9 @@ describe('channel Sellpia final schema contract', () => {
     assert.match(listing, /^\s*salesProductId\s+String\?/m);
     assert.doesNotMatch(listing, /^\s*sourceCandidateId\s+/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
-    assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
+    // 반영 출처는 실행(`lastOperationId`)이다. 옛 수집 run 칸은 없다(KID-365).
+    assert.match(listing, /^\s*lastOperationId\s+String\?/m);
+    assert.doesNotMatch(listing, /lastImportRunId/);
     assert.match(listing, /@@index\(\[organizationId, salesProductId\]\)/);
     assert.doesNotMatch(listing, /^\s*(?:masterProductId|masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
@@ -49,6 +52,7 @@ describe('channel Sellpia final schema contract', () => {
     }
     assert.doesNotMatch(option, /^\s*(?:optionId|channelAccountId|isUnmatched|mappingStatus|currentStock)\s+/m);
     assert.doesNotMatch(option, /^\s*productVariantId\s+/m);
+    assert.doesNotMatch(option, /lastImportRunId/);
   });
 
   it('stores the inventory consumption recipe only on the channel listing option', () => {
@@ -68,5 +72,14 @@ describe('channel Sellpia final schema contract', () => {
       assert.doesNotMatch(channels, new RegExp(`model ${model}\\b`));
     }
     assert.doesNotMatch(channels, /channel_scrape_|rawSnapshotId/);
+  });
+
+  it('names the ABC Sellpia source by its operation, not by the retired import run (KID-365)', () => {
+    for (const modelName of ['MasterProductAbcFormulaState', 'MasterProductAbcEvaluation', 'MasterProductAbcGradeHistory']) {
+      const model = modelBlock(core, modelName);
+      assert.match(model, /[sS]ellpiaOperationId\s+String\?/);
+      assert.doesNotMatch(model, /SellpiaSourceImportRun/);
+    }
+    assert.doesNotMatch(modelBlock(core, 'SourceImportRun'), /MasterProductAbc/);
   });
 });

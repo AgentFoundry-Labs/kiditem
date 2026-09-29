@@ -311,10 +311,6 @@ model SourceImportRun {
   organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   manualFreshExportConfirmer              User?                                    @relation("SourceImportRunManualFreshExportConfirmer", fields: [manualFreshExportConfirmedBy], references: [id], onDelete: SetNull)
   orderCollectionArtifact                 OrderCollectionArtifact?
-  publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
-  sellpiaAbcEvaluations                   MasterProductAbcEvaluation[]             @relation("MasterProductAbcEvaluationSellpiaSourceImport")
-  previousSellpiaAbcGradeHistories        MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport")
-  nextSellpiaAbcGradeHistories            MasterProductAbcGradeHistory[]           @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport")
 
   @@unique([organizationId, sourceType, channelAccountId, fileHash], map: "source_import_runs_org_source_account_hash_key", where: raw("channel_account_id IS NOT NULL AND file_hash IS NOT NULL"))
   @@unique([organizationId, sourceType, fileHash], map: "source_import_runs_org_source_hash_null_account_key", where: raw("channel_account_id IS NULL AND file_hash IS NOT NULL"))
@@ -418,7 +414,6 @@ model MasterProductAbcFormulaState {
   formulaRevision                       Int       @default(0) @map("formula_revision")
   publicationRevision                   Int       @default(0) @map("publication_revision")
   officialCutoffDate                    DateTime? @map("official_cutoff_date") @db.Date
-  publishedSellpiaSourceImportRunId     String?   @map("published_sellpia_source_import_run_id") @db.Uuid
   /// 공식 발행이 쓴 셀피아 상품 손익 실행(`analytics.sellpia_product_profitability`). 스칼라 id(FK 없음, KID-361).
   publishedSellpiaOperationId           String?   @map("published_sellpia_operation_id") @db.Uuid
   publishedMappingGeneration            BigInt?   @map("published_mapping_generation") @db.BigInt
@@ -429,10 +424,8 @@ model MasterProductAbcFormulaState {
 
   organization                        Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   activeFormulaVersion                MasterProductAbcFormulaVersion? @relation("MasterProductAbcFormulaStateActiveFormula", fields: [activeFormulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  publishedSellpiaSourceImportRun     SourceImportRun?                @relation("MasterProductAbcFormulaStatePublishedSellpia", fields: [publishedSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([activeFormulaVersionId, organizationId], map: "master_product_abc_formula_states_active_formula_org_key")
-  @@index([publishedSellpiaSourceImportRunId, organizationId])
   @@index([publishedSellpiaOperationId, organizationId])
   @@map("master_product_abc_formula_states")
 }
@@ -463,8 +456,6 @@ model MasterProductAbcEvaluation {
   /// nullable only so pre-cutover rows remain readable; new publications must
   /// always provide it.
   saleStartDate                DateTime? @map("sale_start_date") @db.Date
-  /// 옛 셀피아 run(실행 계약 전 평가). 새 평가는 `sellpiaOperationId`를 쓰고 이 칸은 null이다(N에서 지운다).
-  sellpiaSourceImportRunId     String?   @map("sellpia_source_import_run_id") @db.Uuid
   /// 평가가 쓴 셀피아 상품 손익 실행(`analytics.sellpia_product_profitability`). 스칼라 id(FK 없음, KID-361).
   sellpiaOperationId           String?   @map("sellpia_operation_id") @db.Uuid
   sellpiaGeneration            BigInt    @map("sellpia_generation") @db.BigInt
@@ -474,13 +465,11 @@ model MasterProductAbcEvaluation {
   organization               Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   masterProduct              MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
   formulaVersion             MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sellpiaSourceImportRun     SourceImportRun?               @relation("MasterProductAbcEvaluationSellpiaSourceImport", fields: [sellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([masterProductId, organizationId])
   @@index([organizationId, formulaVersionId])
   @@index([formulaVersionId, organizationId])
   @@index([masterProductId])
-  @@index([sellpiaSourceImportRunId, organizationId])
   @@index([sellpiaOperationId, organizationId])
   @@index([organizationId, publicationRevision])
   @@map("master_product_abc_evaluations")
@@ -498,8 +487,6 @@ model MasterProductAbcGradeHistory {
   economicScore                        Decimal? @map("economic_score") @db.Decimal(12, 6)
   weightedOperatingProfit              Decimal? @map("weighted_operating_profit") @db.Decimal(20, 6)
   operatingMargin                      Decimal? @map("operating_margin") @db.Decimal(12, 6)
-  previousSellpiaSourceImportRunId     String?  @map("previous_sellpia_source_import_run_id") @db.Uuid
-  nextSellpiaSourceImportRunId         String?  @map("next_sellpia_source_import_run_id") @db.Uuid
   /// 등급이 바뀐 전·후 평가의 셀피아 상품 손익 실행(스칼라 id, FK 없음, KID-361).
   previousSellpiaOperationId           String?  @map("previous_sellpia_operation_id") @db.Uuid
   nextSellpiaOperationId               String?  @map("next_sellpia_operation_id") @db.Uuid
@@ -512,16 +499,12 @@ model MasterProductAbcGradeHistory {
   organization                       Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   masterProduct                      MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
   formulaVersion                     MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionGradeHistories", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  previousSellpiaSourceImportRun     SourceImportRun?               @relation("MasterProductAbcGradeHistoryPreviousSellpiaSourceImport", fields: [previousSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  nextSellpiaSourceImportRun         SourceImportRun?               @relation("MasterProductAbcGradeHistoryNextSellpiaSourceImport", fields: [nextSellpiaSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId, calculatedAt])
   @@index([organizationId, formulaVersionId])
   @@index([formulaVersionId, organizationId])
   @@index([masterProductId])
   @@index([masterProductId, calculatedAt])
-  @@index([previousSellpiaSourceImportRunId, organizationId])
-  @@index([nextSellpiaSourceImportRunId, organizationId])
   @@index([previousSellpiaOperationId, organizationId])
   @@index([nextSellpiaOperationId, organizationId])
   @@map("master_product_abc_grade_histories")

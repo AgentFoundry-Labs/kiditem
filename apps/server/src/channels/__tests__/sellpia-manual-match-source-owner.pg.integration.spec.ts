@@ -187,7 +187,7 @@ describe('Sellpia manual match over the operation contract (PG integration)', ()
     });
     await prisma.channelListing.createMany({
       data: [
-        { organizationId: ORG, channelAccountId: rocket.id, externalId: 'ROCKET-PO', displayName: 'Old Run Alias', lastImportRunId: rocketRun.id, isActive: true },
+        { organizationId: ORG, channelAccountId: rocket.id, externalId: 'ROCKET-PO', displayName: 'Old Run Alias', isActive: true },
         { organizationId: ORG, channelAccountId: rocket.id, externalId: 'CSV-OP', displayName: 'Operation Alias', lastOperationId: randomUUID(), isActive: true },
       ],
     });

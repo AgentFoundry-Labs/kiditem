@@ -110,7 +110,7 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     const listings = [
       { externalId: 'OPERATION', lastOperationId: '75000000-0000-4000-8000-000000000001', isActive: true },
       { externalId: 'OPERATION-INACTIVE', lastOperationId: '75000000-0000-4000-8000-000000000001', isActive: false },
-      { externalId: 'COMPLETED-LEGACY', lastImportRunId: completedLegacy.id, isActive: true },
+      { externalId: 'COMPLETED-LEGACY', isActive: true },
       { externalId: 'UNSOURCED', isActive: true },
     ];
     for (const listing of listings) {

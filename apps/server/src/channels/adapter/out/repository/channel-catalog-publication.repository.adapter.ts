@@ -309,7 +309,7 @@ async function markCatalogProductsDeleted(
       },
       isActive: true,
     },
-    data: { isActive: false, lastImportRunId: null, lastOperationId: input.operationId },
+    data: { isActive: false, lastOperationId: input.operationId },
   });
   const listings = await tx.channelListing.updateMany({
     where: {
@@ -319,7 +319,7 @@ async function markCatalogProductsDeleted(
       // `<>`는 NULL과 맞지 않는다: 상태가 비어 있는 행도 삭제로 기록해야 한다.
       OR: [{ status: null }, { status: { not: CATALOG_DELETED_STATUS } }],
     },
-    data: { status: CATALOG_DELETED_STATUS, isActive: false, lastImportRunId: null, lastOperationId: input.operationId },
+    data: { status: CATALOG_DELETED_STATUS, isActive: false, lastOperationId: input.operationId },
   });
   return { listings: listings.count, options: options.count };
 }

@@ -760,7 +760,6 @@
       "prismaType": "MasterProductAbcEvaluation",
       "relationNames": [
         "masterProductAbcEvaluations",
-        "sellpiaAbcEvaluations",
         "abcEvaluation",
         "evaluations"
       ],

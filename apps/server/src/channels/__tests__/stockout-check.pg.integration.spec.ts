@@ -101,7 +101,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
       productStatus: 'APPROVED', media: [], raw: {},
       options: [{ externalOptionId: f.option.externalOptionId, optionName: '기본', skuStatus: 'SUSPENSION', salePrice: 1000, sellerSku: null, modelNumber: null, barcode: null, attributes: [], media: [], raw: {} }],
     }]);
-    await expect(prisma.channelListingOption.findUniqueOrThrow({ where: { id: f.option.id } })).resolves.toMatchObject({ lastOperationId: listed.id, lastImportRunId: null });
+    await expect(prisma.channelListingOption.findUniqueOrThrow({ where: { id: f.option.id } })).resolves.toMatchObject({ lastOperationId: listed.id });
     const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
     expect(subject?.options[0]).toMatchObject({ status: 'SUSPENSION' });
   });
@@ -110,7 +110,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     const oldRun = await prisma.sourceImportRun.create({
       data: { organizationId: ORG, channelAccountId: f.account.id, sourceType: 'coupang_wing_catalog', status: 'completed', importedAt: new Date('2026-09-05T00:00:00Z') },
     });
-    await prisma.channelListingOption.update({ where: { id: f.option.id }, data: { status: 'SUSPENSION', lastImportRunId: oldRun.id } });
+    await prisma.channelListingOption.update({ where: { id: f.option.id }, data: { status: 'SUSPENSION' } });
     await prisma.channelListingOptionDailySnapshot.create({ data: { organizationId: ORG, listingId: f.listing.id, listingOptionId: f.option.id, channel: 'coupang', externalId: f.listing.externalId, externalOptionId: f.option.externalOptionId, businessDate: new Date('2026-09-02'), stockQty: 20, lastObservedAt: new Date('2026-09-02T00:00:00Z') } });
     const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
     expect(subject?.options[0]).toMatchObject({ status: 'active' });
@@ -125,7 +125,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
       { chunkKind: 'listing_scan', items: [{ collection: { totalRecords: 1, recordsRead: 1, pagesRead: 1, totalPages: 1, truncated: false, skippedByShop: {}, missingMallCode: 0 }, proof: { dateFrom: '20000101', dateTo: String(plan.dateTo), pageSize: 500, validatedList: true } }] },
     ]);
     const listing = await prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, channelAccountId: mall.id, externalId: 'KN-1' }, include: { options: true } });
-    expect(listing).toMatchObject({ lastOperationId: imported.id, lastImportRunId: null });
+    expect(listing).toMatchObject({ lastOperationId: imported.id });
     // 가져오기보다 먼저 본 품절 관측은 새 가져오기를 이기지 않는다.
     await prisma.channelListingOptionDailySnapshot.create({ data: { organizationId: ORG, listingId: listing.id, listingOptionId: listing.options[0]!.id, channel: 'kidsnote', externalId: 'KN-1', externalOptionId: 'KN-1', businessDate: new Date('2026-01-02'), stockQty: 0, lastObservedAt: new Date('2026-01-02T00:00:00Z') } });
     const [subject] = await persistence.readSubjects(ORG, [listing.id]);
