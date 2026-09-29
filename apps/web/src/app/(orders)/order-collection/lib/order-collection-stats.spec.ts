@@ -189,7 +189,7 @@ describe("buildOrderCollectionPipelineSummary", () => {
     );
 
     expect(summary).toEqual({
-      todayOrders: 4,
+      todayOrders: null,
       waiting: 2,
       transmissionRequested: 2,
       inventoryPending: 2,
@@ -209,7 +209,7 @@ describe("buildOrderCollectionPipelineSummary", () => {
         productRows: 0,
       }),
     ], "2026-07-27")).toEqual({
-      todayOrders: 0,
+      todayOrders: null,
       waiting: 0,
       transmissionRequested: 0,
       inventoryPending: 0,

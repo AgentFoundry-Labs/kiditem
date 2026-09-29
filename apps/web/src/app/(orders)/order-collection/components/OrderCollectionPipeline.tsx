@@ -2,7 +2,8 @@ import { ChevronRight } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 
 export interface OrderCollectionPipelineSummary {
-  todayOrders: number;
+  /** Orders 서버 리더의 오늘 주문(`total`, KID-234). 서버가 아직 답하지 않았거나 오늘 수집이 없으면 null — `—`로 보인다. */
+  todayOrders: number | null;
   waiting: number;
   transmissionRequested: number;
   inventoryPending: number;
@@ -51,10 +52,10 @@ function PipelineStage({
   tone,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   tone: 'slate' | 'amber' | 'purple' | 'sky' | 'emerald';
 }) {
-  const isEmpty = value === 0;
+  const isEmpty = value === null || value === 0;
   return (
     <div
       className={cn(
@@ -79,11 +80,13 @@ function PipelineStage({
             !isEmpty && tone === 'emerald' && 'text-emerald-700',
           )}
         >
-          {formatNumber(value)}
+          {value === null ? '—' : formatNumber(value)}
         </span>
-        <span className={cn('text-sm font-medium', isEmpty ? 'text-slate-300' : 'text-slate-400')}>
-          건
-        </span>
+        {value === null ? null : (
+          <span className={cn('text-sm font-medium', isEmpty ? 'text-slate-300' : 'text-slate-400')}>
+            건
+          </span>
+        )}
       </div>
     </div>
   );

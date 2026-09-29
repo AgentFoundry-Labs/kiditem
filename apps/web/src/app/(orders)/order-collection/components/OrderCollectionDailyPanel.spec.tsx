@@ -32,14 +32,16 @@ describe('OrderCollectionDailyPanel buildDailyStats (KID-234)', () => {
     ]);
   });
 
-  it('adds a today bar from the server even when this browser converted nothing today, and keeps the local bar until the server answers', () => {
+  it("adds a today bar from the server even when this browser converted nothing today, and shows 0 — not this browser's files — until the server answers", () => {
     const history = [file('yesterday', '2026-07-13', ['C'])];
     expect(buildDailyStats(history, { key: '2026-07-14', orderRows: 4 }).map((stat) => [stat.key, stat.orderRows])).toEqual([
       ['2026-07-14', 4],
       ['2026-07-13', 1],
     ]);
-    expect(buildDailyStats([file('today', '2026-07-14', ['A'])], null).map((stat) => [stat.key, stat.orderRows])).toEqual([
-      ['2026-07-14', 1],
+    expect(buildDailyStats([file('today', '2026-07-14', ['A']), ...history], { key: '2026-07-14', orderRows: null })
+      .map((stat) => [stat.key, stat.orderRows])).toEqual([
+      ['2026-07-14', 0],
+      ['2026-07-13', 1],
     ]);
   });
 });

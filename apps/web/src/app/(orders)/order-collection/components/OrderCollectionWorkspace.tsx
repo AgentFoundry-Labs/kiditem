@@ -252,15 +252,13 @@ export function OrderCollectionWorkspace() {
     [history],
   );
   /**
-   * 오늘 주문만 서버 기록으로 덮는다. 전송 대기 · 요청 · 완료는 이 브라우저가 어떤 파일을
-   * 셀피아로 보냈는지에 달린 값이라 서버 기록에 없다.
+   * 오늘 주문은 서버 값뿐이다(KID-234) — 서버가 아직 답하지 않았거나 오늘 수집이 없으면 `—`이고 이 브라우저 기록으로
+   * 되돌아가지 않는다. 전송 대기 · 요청 · 완료는 이 브라우저가 어떤 파일을 셀피아로 보냈는지에 달린 값이라 서버 기록에 없다.
    */
-  const todayOrdersSummary = useMemo(() => {
-    const total = todayOrdersQuery.data?.total;
-    return total === undefined || total === null
-      ? pipelineSummary
-      : { ...pipelineSummary, todayOrders: total };
-  }, [pipelineSummary, todayOrdersQuery.data?.total]);
+  const todayOrdersSummary = useMemo(
+    () => ({ ...pipelineSummary, todayOrders: todayOrdersQuery.data?.total ?? null }),
+    [pipelineSummary, todayOrdersQuery.data?.total],
+  );
 
 
   const {
@@ -842,9 +840,7 @@ export function OrderCollectionWorkspace() {
         <div className="min-w-0 xl:col-span-3">
           <OrderCollectionDailyPanel
             history={history}
-            serverToday={typeof todayOrdersQuery.data?.total === 'number'
-              ? { key: todayYmd(), orderRows: todayOrdersQuery.data.total }
-              : null}
+            serverToday={{ key: todayYmd(), orderRows: todayOrdersQuery.data?.total ?? null }}
           />
         </div>
         <OrderActivityFeed

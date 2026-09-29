@@ -156,8 +156,9 @@ export function buildOrderCollectionPipelineSummary(
   items: StoredOrderCollectionFile[],
   date = dayKey(Date.now()),
 ): OrderCollectionPipelineSummary {
+  // 오늘 주문은 Orders 서버 리더가 채운다(KID-234) — 이 브라우저 파일로 세지 않는다. 나머지 단계는 이 브라우저의 전송 기록이다.
   const summary: OrderCollectionPipelineSummary = {
-    todayOrders: 0,
+    todayOrders: null,
     waiting: 0,
     transmissionRequested: 0,
     inventoryPending: 0,
@@ -169,7 +170,6 @@ export function buildOrderCollectionPipelineSummary(
     if (!isSellpiaOrderFile(item)) continue;
     if ((item.collectionDate ?? dayKey(item.convertedAt)) !== date) continue;
     const orderCount = getHistoryOrderCount(item) ?? 0;
-    summary.todayOrders += orderCount;
     if (hasSellpiaTransmissionRequest(item)) {
       summary.transmissionRequested += orderCount;
       summary.inventoryPending += orderCount;
