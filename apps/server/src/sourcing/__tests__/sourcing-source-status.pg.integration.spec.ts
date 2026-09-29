@@ -2,9 +2,10 @@ import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-dr
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
+import { SourcingServerOperationRepositoryAdapter } from '../adapter/out/repository/sourcing-server-operation.repository.adapter';
+import { SourcingServerOperationRunner } from '../application/service/sourcing-server-operation.runner';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -38,9 +39,8 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
     }
   });
 
-  it('reads the latest attempt and current COMPLETE from one snapshot while publication commits', async () => {
-    // 서버 구동 원천(KID-360 I-b 전까지 run 표)의 상태 읽기.
-    const writer = owner(prisma);
+  it('최신 실행과 현재 발행은 한 DB 스냅숏에서 읽혀, 그 사이 발행이 커밋돼도 어긋나지 않는다(KID-389)', async () => {
+    const { runner: writer, operations } = sourcingServerOperations(prisma, unusedSalesProductDraftPort);
     const baseline = await begin(writer, 'status-baseline');
     await complete(writer, baseline);
     const refresh = await begin(writer, 'status-refresh');
@@ -49,18 +49,24 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
 
     // Delay real SQL at the client boundary to force a commit between the
     // two reads. No database responses or owner behavior are replaced.
-    const readClient = prisma.$extends({ query: { sourcingEvidenceIngestionRun: {
-      async findFirst({ args, query }) {
-        if (args.where?.isCurrentComplete === true) {
+    const readClient = prisma.$extends({ query: {
+      operation: {
+        async findFirst({ args, query }) {
+          const row = await query(args);
+          latestRead.resolve();
+          return row;
+        },
+      },
+      sourcingSourcePublication: {
+        async findFirst({ args, query }) {
           await published.promise;
           return query(args);
-        }
-        const row = await query(args);
-        latestRead.resolve();
-        return row;
+        },
       },
-    } } });
-    const reading = owner(readClient as unknown as PrismaClient).readSourceStatus(STATUS_QUERY);
+    } });
+    const reader = new SourcingServerOperationRunner(operations,
+      new SourcingServerOperationRepositoryAdapter(readClient as unknown as PrismaService));
+    const reading = reader.readSourceStatus(STATUS_QUERY);
     await latestRead.promise;
     try {
       await complete(writer, refresh);
@@ -70,39 +76,34 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
 
     await expect(reading).resolves.toMatchObject({
       ready: true,
-      latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
-      latestComplete: { attemptId: baseline.attemptId, state: 'COMPLETE' },
+      latestAttempt: { attemptId: refresh.attempt.attemptId, state: 'RUNNING' },
+      latestComplete: { attemptId: baseline.attempt.attemptId, state: 'COMPLETE' },
     });
     await expect(writer.readSourceStatus(STATUS_QUERY)).resolves.toMatchObject({
       ready: true,
-      latestAttempt: { attemptId: refresh.attemptId, state: 'COMPLETE' },
-      latestComplete: { attemptId: refresh.attemptId, state: 'COMPLETE' },
+      latestAttempt: { attemptId: refresh.attempt.attemptId, state: 'COMPLETE' },
+      latestComplete: { attemptId: refresh.attempt.attemptId, state: 'COMPLETE' },
     });
   });
 });
 
 const PLAN = { source: 'naver.keyword_analysis', inputHash: 'status' };
-const STATUS_QUERY = { organizationId: TEST_ORGANIZATION_ID, sourceKey: 'naver.keyword_analysis', scopeKey: 'default',
-  targetKey: 'status', currentPlanChecksum: 'p'.repeat(64) };
+const STATUS_QUERY = { organizationId: TEST_ORGANIZATION_ID, kinds: ['sourcing.naver_keyword_analysis'] as const,
+  sourceKey: 'naver.keyword_analysis', scopeKey: 'default', targetKey: 'status', currentPlanChecksum: 'a'.repeat(64) };
 
-function owner(prisma: PrismaClient) {
-  const db = prisma as unknown as PrismaService;
-  return new SourcingBrowserSourceAttemptRepositoryAdapter(db, new SourceFailureAlerts(db), unusedSalesProductDraftPort);
+function begin(writer: SourcingServerOperationRunner, key: string) {
+  return writer.begin({
+    organizationId: TEST_ORGANIZATION_ID, userId: null, kind: 'sourcing.naver_keyword_analysis', requestIdempotencyKey: key,
+    scope: { sourceKey: STATUS_QUERY.sourceKey, scopeKey: 'default', targetKey: 'status', requestFingerprint: key,
+      attemptPlan: PLAN, planChecksum: STATUS_QUERY.currentPlanChecksum, collectorKey: 'status-test', collectorVersion: 'v1',
+      failureAlert: { sourceType: STATUS_QUERY.sourceKey, dedupeKey: 'source:status', title: '상태 시험', href: '/' } },
+  });
 }
 
-async function begin(writer: SourcingBrowserSourceAttemptRepositoryAdapter, key: string) {
-  return (await writer.beginAttempt({
-    organizationId: TEST_ORGANIZATION_ID, sourceKey: STATUS_QUERY.sourceKey, scopeKey: 'default', targetKey: 'status',
-    idempotencyKey: key, requestFingerprint: key.padEnd(64, '0'), plan: PLAN, planChecksum: STATUS_QUERY.currentPlanChecksum,
-    requestedByUserId: null, collectorKey: 'status-test', collectorVersion: 'v1', expiresInMs: 60_000,
-    failureAlert: { sourceType: STATUS_QUERY.sourceKey, dedupeKey: 'source:status', title: 't', href: '/' },
-  })).attempt;
-}
-
-function complete(writer: SourcingBrowserSourceAttemptRepositoryAdapter, attempt: { attemptId: string; attemptToken: string; planChecksum: string }) {
-  return writer.completeAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
-    planChecksum: attempt.planChecksum, contentChecksum: 'c'.repeat(64),
-    output: { observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {} } });
+function complete(writer: SourcingServerOperationRunner, run: Awaited<ReturnType<typeof begin>>) {
+  return writer.complete(TEST_ORGANIZATION_ID, run,
+    { observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {} },
+    { contentChecksum: 'c'.repeat(64), windowStartAt: null, windowEndAt: null });
 }
 
 function deferred() {

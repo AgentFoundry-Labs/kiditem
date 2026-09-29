@@ -213,15 +213,14 @@ export class SourcingServerOperationRunner {
   }
 
   /**
-   * 원천·대상 상태: 최신 실행(실패 포함)과 현재 발행. `ready`는 현재 발행의 plan 지문이 지금 plan과 같을 때만이다.
+   * 원천·대상 상태: 최신 실행(실패 포함)과 현재 발행을 한 DB 스냅숏에서. `ready`는 현재 발행의 plan 지문이 지금 plan과 같을 때만이다.
    * 옛 run 시절 발행은 실행이 없어 `latestAttempt` 없이 `latestComplete`만 나온다.
    */
   async readSourceStatus(input: SourcingSourceTarget & { kinds: readonly SourcingServerKind[]; currentPlanChecksum: string }): Promise<SourcingSourceStatus> {
-    const target = { organizationId: input.organizationId, sourceKey: input.sourceKey, scopeKey: input.scopeKey, targetKey: input.targetKey };
-    const [latest, publication] = await Promise.all([
-      this.reads.latestForTarget({ ...target, kinds: input.kinds }),
-      this.reads.currentPublication(target),
-    ]);
+    const { latest, publication } = await this.reads.readTarget({
+      organizationId: input.organizationId, kinds: input.kinds, sourceKey: input.sourceKey, scopeKey: input.scopeKey,
+      targetKey: input.targetKey,
+    });
     const latestAttempt = latest ? toAttempt(latest) : null;
     const latestComplete = publication ? publicationAttempt(publication) : null;
     return {

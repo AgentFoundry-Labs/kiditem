@@ -45,5 +45,9 @@ export interface SourcingServerOperationRepositoryPort {
   latestForTarget(input: Omit<SourcingSourceTarget, 'targetKey'> & { targetKey?: string; kinds: readonly string[] }): Promise<SourcingServerOperationRecord | null>;
   /** 같은 요청 멱등 키로 이미 연 실행(재전송이면 같은 실행을 돌려준다). */
   findByRequestKey(input: { organizationId: string; kind: string; sourceKey: string; requestIdempotencyKey: string }): Promise<SourcingServerOperationRecord | null>;
-  currentPublication(input: SourcingSourceTarget): Promise<SourcingCurrentSourcePublication | null>;
+  /** 최신 실행과 현재 발행을 한 DB 스냅숏(Repeatable Read)에서 읽는다 — 그 사이 발행이 커밋돼도 둘이 어긋나지 않는다. */
+  readTarget(input: SourcingSourceTarget & { kinds: readonly string[] }): Promise<{
+    latest: SourcingServerOperationRecord | null;
+    publication: SourcingCurrentSourcePublication | null;
+  }>;
 }
