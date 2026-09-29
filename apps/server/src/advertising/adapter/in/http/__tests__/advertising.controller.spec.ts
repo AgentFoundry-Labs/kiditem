@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AdvertisingActionsController } from '../advertising-actions.controller';
-import { AdActionCommandDto } from '../dto';
+import { AdActionCommandDto, AdActionQueryDto } from '../dto';
 import { AdvertisingCampaignsController } from '../advertising-campaigns.controller';
 import { AdvertisingConfigController } from '../advertising-config.controller';
 import { AdvertisingDiagnosticsController } from '../advertising-diagnostics.controller';
@@ -294,6 +294,27 @@ describe('AdvertisingController — POST /actions body validation (KID-211)', ()
 
     expect(await statusOf({ action: 'approve', ids: ids(200) })).toBe(201);
     expect(await statusOf({ action: 'approve', ids: ids(201) })).toBe(400);
+  });
+});
+
+describe('AdvertisingController — GET /actions executeStatus filter (KID-386)', () => {
+  const queryPipe = new ValidationPipe({ whitelist: true, transform: true });
+  const statusOf = async (query: Record<string, unknown>) => {
+    try {
+      await queryPipe.transform(query, { type: 'query', metatype: AdActionQueryDto });
+      return 200;
+    } catch (error) {
+      return (error as BadRequestException).getStatus();
+    }
+  };
+
+  it('accepts the execution words read from the ad action run and all, and refuses any other word', async () => {
+    for (const executeStatus of ['not_prepared', 'queued', 'running', 'done', 'uncertain', 'failed', 'cancelled', 'all']) {
+      expect(await statusOf({ executeStatus }), executeStatus).toBe(200);
+    }
+    for (const executeStatus of ['paused', 'QUEUED', '']) {
+      expect(await statusOf({ executeStatus }), executeStatus).toBe(400);
+    }
   });
 });
 

@@ -2,6 +2,7 @@ import { ArrayMaxSize, IsArray, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, 
 import { Type } from 'class-transformer';
 import {
   AD_ACTION_COMMAND_MAX_IDS,
+  AD_ACTION_EXECUTE_STATUSES,
   AdActionExpectedApprovalStatusSchema,
   type AdActionExpectedApprovalStatus,
 } from '@kiditem/shared/advertising';
@@ -12,8 +13,9 @@ export class AdActionQueryDto {
   @IsString()
   approvalStatus?: string;
 
+  /** An execution word read from the action's run (KID-386), or `all`. */
   @IsOptional()
-  @IsString()
+  @IsIn([...AD_ACTION_EXECUTE_STATUSES, 'all'])
   executeStatus?: string;
 
   @IsOptional()
