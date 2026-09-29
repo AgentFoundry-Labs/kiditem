@@ -109,12 +109,16 @@ import '../sites/wing/traffic';
 import { ADVERTISING_AD_ACTION_OPERATION_CAPABILITY, ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
 import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
+import { collectorFor } from '../collectors';
 import { createBrowserResources } from '../core/browser';
+import { createOperationClient } from '../core/operation-client';
+import { createRunner, type OperationRunner } from '../core/runner';
 import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
+import { installPreparedOperations } from './prepared-operations';
 import { installProductCollect } from './sourcing-product-collect';
 import { mallSiteCapabilities, mallWriteCapabilities } from './mall-site-capabilities';
 
@@ -181,6 +185,21 @@ export function installEntry(): boolean {
       ...mallWriteCapabilities(),
     },
   });
+  // 팝업 "승인된 광고 액션 실행" — 서버가 준비한 실행을 claim해 돌린다(KID-386). 환경마다 runner 하나.
+  const preparedRunners = new Map<string, OperationRunner>();
+  if (chrome.runtime?.onMessage) {
+    installPreparedOperations(chrome, {
+      runnerFor(environmentId) {
+        let runner = preparedRunners.get(environmentId);
+        if (!runner) {
+          runner = createRunner({ client: createOperationClient(legacyApiPort(environmentId)), browser, siteFor: channelSites }, collectorFor);
+          preparedRunners.set(environmentId, runner);
+        }
+        return runner;
+      },
+      keepAlive: legacyKeepAlive,
+    });
+  }
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;
 }

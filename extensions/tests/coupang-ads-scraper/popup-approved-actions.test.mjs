@@ -13,7 +13,7 @@ const popupHtml = await readFile(
   'utf8',
 );
 
-const ACTIONS_PATH = '/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50';
+const PREPARED_PATH = '/api/operations?kinds=advertising.ad_action&status=prepared&limit=200';
 
 const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
 async function flush() {
@@ -28,13 +28,15 @@ function response(body, { success = true, ok = true, status = 200 } = {}) {
 
 function createPopupHarness({
   connected = ['local', 'office'],
-  runApprovedResponse = { success: true, executed: 0, skipped: 0 },
+  runPreparedResponse = { ok: true, ran: 0, created: 0, uncertain: 0, failed: 0, messages: [] },
 } = {}) {
   const dom = new JSDOM(popupHtml, {
     url: 'chrome-extension://kiditem/popup.html',
   });
   const requests = [];
   const waiters = [];
+  const runtimeMessages = [];
+  const tabMessages = [];
 
   function publishApiRequest(message, callback) {
     const request = { message, callback, responded: false, claimed: false };
@@ -63,6 +65,11 @@ function createPopupHarness({
           callback({ success: true });
           return;
         }
+        runtimeMessages.push(message);
+        if (message.type === 'runPreparedOperations') {
+          callback(runPreparedResponse);
+          return;
+        }
         callback({ success: true });
       },
     },
@@ -71,8 +78,9 @@ function createPopupHarness({
         if (query?.active) return [{ id: 11, url: 'https://wing.coupang.com/tenants/seller-price-management' }];
         return [];
       },
-      sendMessage(_tabId, _message, callback) {
-        callback(runApprovedResponse);
+      sendMessage(tabId, message, callback) {
+        tabMessages.push({ tabId, message });
+        callback({ success: true });
       },
       create() {},
     },
@@ -125,6 +133,8 @@ function createPopupHarness({
     dom,
     document: dom.window.document,
     requests,
+    runtimeMessages,
+    tabMessages,
     nextApiRequest,
     reply,
     async flush() {
@@ -141,84 +151,85 @@ async function selectEnvironment(harness, environmentId) {
   await harness.flush();
 }
 
-async function completeStatusLoad(harness, environmentId, { actions = { items: [] } } = {}) {
+async function completeStatusLoad(harness, environmentId, { operations = [] } = {}) {
   const extension = await harness.nextApiRequest('/api/ads/extension/status', environmentId);
   await harness.reply(extension, response({ status: 'ok' }));
-  const actionsRequest = await harness.nextApiRequest(ACTIONS_PATH, environmentId);
-  await harness.reply(actionsRequest, response(actions));
+  const prepared = await harness.nextApiRequest(PREPARED_PATH, environmentId);
+  await harness.reply(prepared, response({ operations }));
   await harness.flush();
 }
 
 // 광고 수집은 새 런타임의 advertising.ad_report 실행 kind라 팝업은 수집 원천 상태를 읽지 않는다(KID-373).
-test('the popup reads only the server connection and the approved-action queue', async () => {
+// 승인된 광고 액션은 서버가 준비해 둔 실행(advertising.ad_action, prepared)이다(KID-386).
+test('the popup reads the server connection and the count of prepared ad-action operations', async () => {
   const harness = createPopupHarness({ connected: ['local'] });
-  await completeStatusLoad(harness, 'local', { actions: { items: [{ id: 'action-1' }] } });
+  await completeStatusLoad(harness, 'local', { operations: [{ id: 'op-1' }, { id: 'op-2' }] });
 
   assert.deepEqual(
     harness.requests.map((request) => request.message.path),
-    ['/api/ads/extension/status', ACTIONS_PATH],
+    ['/api/ads/extension/status', PREPARED_PATH],
   );
   assert.match(harness.document.getElementById('serverStatus').textContent, /연결됨/);
-  assert.match(harness.document.getElementById('approvedActions').textContent, /1개 대기/);
+  assert.match(harness.document.getElementById('approvedActions').textContent, /2개 대기/);
 });
 
-test('a Run whose done report was lost warns to check the ad center instead of showing plain success', async () => {
-  const warning = '승인 액션 1개는 광고센터에 이미 반영됐을 수 있지만 실행 기록을 남기지 못했습니다. 다시 승인하기 전에 광고센터에서 확인해 주세요.';
+test('Run asks the runtime to claim prepared ad actions for the selected environment, never a page tab', async () => {
   const harness = createPopupHarness({
-    connected: ['local'],
-    runApprovedResponse: { success: true, executed: 0, executedUnrecorded: 1, skipped: 0, warning },
+    connected: ['local', 'office'],
+    runPreparedResponse: { ok: true, ran: 2, created: 2, uncertain: 0, failed: 0, messages: [] },
   });
-  await completeStatusLoad(harness, 'local');
+  await selectEnvironment(harness, 'office');
+  await completeStatusLoad(harness, 'office', { operations: [{ id: 'op-1' }, { id: 'op-2' }] });
 
   harness.document.getElementById('btnRunApproved').click();
-  const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
-  await harness.reply(queued, response({ items: [{ id: 'action-1' }] }));
+  await harness.flush();
+
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.runtimeMessages)), [
+    { type: 'runPreparedOperations', environmentId: 'office', kinds: ['advertising.ad_action'] },
+  ]);
+  assert.deepEqual(harness.tabMessages, []);
+  const result = harness.document.getElementById('syncResult');
+  assert.equal(result.textContent, '✅ 광고 액션 2개를 광고센터에 등록했습니다.');
+  assert.equal(result.className, 'sync-result success');
+  // 돌고 나면 대기 수를 다시 읽는다.
+  const refreshed = await harness.nextApiRequest(PREPARED_PATH, 'office');
+  assert.ok(refreshed);
+});
+
+test('a Run with an unconfirmed registration or a failure shows the counts and the reasons', async () => {
+  const harness = createPopupHarness({
+    connected: ['local'],
+    runPreparedResponse: {
+      ok: true, ran: 3, created: 1, uncertain: 1, failed: 1,
+      messages: ['완료를 누른 뒤 광고센터 화면을 읽지 못했습니다.', '쿠팡 광고센터 캠페인 등록 화면이 바뀌어 채우지 못했습니다.'],
+    },
+  });
+  await completeStatusLoad(harness, 'local', { operations: [{ id: 'op-1' }] });
+
+  harness.document.getElementById('btnRunApproved').click();
   await harness.flush();
 
   const result = harness.document.getElementById('syncResult');
-  assert.equal(result.textContent, `⚠️ 0개 실행, 1개는 실행됐지만 기록되지 않음, 0개 보류. ${warning}`);
-  // Executed but not recorded is never shown as a failure.
-  assert.equal(result.className, 'sync-result success');
+  assert.equal(
+    result.textContent,
+    '⚠️ 1개 등록, 1개는 광고센터에서 등록 여부 확인 필요, 1개 실패. 완료를 누른 뒤 광고센터 화면을 읽지 못했습니다. / 쿠팡 광고센터 캠페인 등록 화면이 바뀌어 채우지 못했습니다.',
+  );
+  assert.equal(result.className, 'sync-result error');
 });
 
-test('a Run with an action refused at its claim or stopped at a confirmation shows the warning instead of a plain 보류 count', async () => {
-  const runs = [
-    {
-      runApprovedResponse: {
-        success: true,
-        executed: 1,
-        skipped: 1,
-        warning: '실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.',
-      },
-      shown: '⚠️ 1개 실행, 1개 보류. 실행 보고가 거절된 승인 액션 1개는 광고센터에 쓰지 않고 건너뛰었습니다. 다른 실행이 맡았거나 이미 닫힌 실행 시도입니다.',
-    },
-    {
-      // Stopped at a confirmation click, after which Coupang may already have changed.
-      runApprovedResponse: {
-        success: true,
-        executed: 0,
-        skipped: 1,
-        warning: '승인 액션 1개는 확인 단계에서 실행 기한(10분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.',
-      },
-      shown: '⚠️ 0개 실행, 1개 보류. 승인 액션 1개는 확인 단계에서 실행 기한(10분)이 지나 멈췄습니다. 광고센터에 반영됐을 수 있으니 다시 승인하기 전에 광고센터에서 확인해 주세요.',
-    },
-  ];
-  for (const { runApprovedResponse, shown } of runs) {
-    const harness = createPopupHarness({ connected: ['local'], runApprovedResponse });
-    await completeStatusLoad(harness, 'local');
+test('a Run with nothing prepared or a refused claim says so', async () => {
+  const empty = createPopupHarness({ connected: ['local'] });
+  await completeStatusLoad(empty, 'local');
+  empty.document.getElementById('btnRunApproved').click();
+  await empty.flush();
+  assert.equal(empty.document.getElementById('syncResult').textContent, '❌ 실행할 승인 광고 액션이 없습니다.');
 
-    harness.document.getElementById('btnRunApproved').click();
-    const queued = await harness.nextApiRequest('/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=20', 'local');
-    await harness.reply(queued, response({
-      items: [
-        { id: 'action-1', executionTaskId: 'task-1' },
-        { id: 'action-2', executionTaskId: 'task-2' },
-      ],
-    }));
-    await harness.flush();
-
-    const result = harness.document.getElementById('syncResult');
-    assert.equal(result.textContent, shown);
-    assert.equal(result.className, 'sync-result success');
-  }
+  const refused = createPopupHarness({
+    connected: ['local'],
+    runPreparedResponse: { ok: false, error: 'KidItem 서버에 연결하지 못했습니다.', ran: 0 },
+  });
+  await completeStatusLoad(refused, 'local');
+  refused.document.getElementById('btnRunApproved').click();
+  await refused.flush();
+  assert.equal(refused.document.getElementById('syncResult').textContent, '❌ KidItem 서버에 연결하지 못했습니다.');
 });

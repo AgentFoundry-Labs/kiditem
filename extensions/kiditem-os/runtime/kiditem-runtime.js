@@ -20359,33 +20359,6 @@ var KidItemRuntime = (() => {
     return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED4 || error.details?.reason === "unexpected_url");
   }
 
-  // extensions/src/entry/site-handles.ts
-  function entrySites() {
-    return Object.fromEntries(registeredSites().flatMap((site) => site.origin ? [[site.name, { origin: site.origin }]] : []));
-  }
-  function ownTabSites() {
-    return new Set(registeredSites().filter((site) => site.opensOwnTabs === true).map((site) => site.name));
-  }
-  var ACCOUNT_SITE = "wing";
-  function createSiteHandles(deps) {
-    return (kind, lease) => siteFactoryFor(collectorFor(kind)?.site ?? "")?.create(deps, lease) ?? null;
-  }
-
-  // extensions/src/entry/legacy-bridge.ts
-  function legacyGlobalsPresent() {
-    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
-  }
-  function legacyKeepAlive(work) {
-    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
-    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
-  }
-  function legacyApiPort(environmentId) {
-    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
-  }
-  function registerWithLegacyDomains(domain) {
-    KidItemDomains.register(domain);
-  }
-
   // extensions/src/core/operation-client.ts
   function stopFor(code2, details) {
     if (code2 === "OPERATION_IN_PROGRESS") {
@@ -20722,6 +20695,33 @@ var KidItemRuntime = (() => {
     return parsed3.success ? parsed3.data : null;
   }
 
+  // extensions/src/entry/site-handles.ts
+  function entrySites() {
+    return Object.fromEntries(registeredSites().flatMap((site) => site.origin ? [[site.name, { origin: site.origin }]] : []));
+  }
+  function ownTabSites() {
+    return new Set(registeredSites().filter((site) => site.opensOwnTabs === true).map((site) => site.name));
+  }
+  var ACCOUNT_SITE = "wing";
+  function createSiteHandles(deps) {
+    return (kind, lease) => siteFactoryFor(collectorFor(kind)?.site ?? "")?.create(deps, lease) ?? null;
+  }
+
+  // extensions/src/entry/legacy-bridge.ts
+  function legacyGlobalsPresent() {
+    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
+  }
+  function legacyKeepAlive(work) {
+    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
+    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
+  }
+  function legacyApiPort(environmentId) {
+    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
+  }
+  function registerWithLegacyDomains(domain) {
+    KidItemDomains.register(domain);
+  }
+
   // extensions/src/entry/actions.ts
   var OPERATION_START_ACTION = "operation.start";
   var OPERATION_CANCEL_ACTION = "operation.cancel";
@@ -20855,6 +20855,76 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/entry/prepared-operations.ts
+  var RUN_PREPARED_OPERATIONS = "runPreparedOperations";
+  var PREPARED_OPERATION_KINDS = [AD_ACTION_KIND];
+  var MAX_PREPARED_RUNS = 20;
+  var WORKER_ID = "kiditem-extension-popup";
+  async function runPreparedOperations(runner, input) {
+    const counts = { ran: 0, created: 0, uncertain: 0, failed: 0 };
+    const messages = [];
+    const maxRuns = input.maxRuns ?? MAX_PREPARED_RUNS;
+    while (counts.ran < maxRuns && !input.signal.aborted) {
+      const outcome = await runner.runClaimed({ kinds: input.kinds, workerId: input.workerId, signal: input.signal });
+      if (!outcome) break;
+      if (outcome.kind === "failed" && outcome.operationId === null) {
+        return { ok: false, errorCode: outcome.errorCode, error: outcome.errorMessage, ran: counts.ran };
+      }
+      counts.ran += 1;
+      const { bucket, message } = classify(outcome);
+      counts[bucket] += 1;
+      if (message) messages.push(message);
+    }
+    return { ok: true, ...counts, messages };
+  }
+  function classify(outcome) {
+    if (outcome.kind === "finished") {
+      const { status, result, errorMessage } = outcome.operation;
+      if (status === "succeeded") {
+        const uncertain = result?.providerOutcome === "uncertain";
+        const message = typeof result?.message === "string" ? result.message : null;
+        return uncertain ? { bucket: "uncertain", message } : { bucket: "created", message: null };
+      }
+      return { bucket: "failed", message: errorMessage };
+    }
+    if (outcome.kind === "failed") return { bucket: "failed", message: outcome.errorMessage };
+    if (outcome.kind === "fence_lost") return { bucket: "failed", message: "\uC2E4\uD589 \uC784\uB300\uAC00 \uB05D\uB098 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4." };
+    return { bucket: "failed", message: outcome.message ?? null };
+  }
+  function installPreparedOperations(chromeApi, deps) {
+    let running = null;
+    chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      const record4 = message && typeof message === "object" ? message : null;
+      if (record4?.type !== RUN_PREPARED_OPERATIONS) return;
+      const from = sender && typeof sender === "object" ? sender : null;
+      if (from?.id !== chromeApi.runtime.id || from.tab) {
+        sendResponse({ ok: false, error: "\uD655\uC7A5 \uD31D\uC5C5\uC5D0\uC11C\uB9CC \uC2E4\uD589\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.", ran: 0 });
+        return;
+      }
+      const environmentId = record4.environmentId;
+      const kinds = Array.isArray(record4.kinds) ? record4.kinds : [];
+      if (typeof environmentId !== "string" || !environmentId || kinds.length === 0 || !kinds.every((kind) => typeof kind === "string" && PREPARED_OPERATION_KINDS.includes(kind))) {
+        sendResponse({ ok: false, error: "\uC2E4\uD589\uD560 \uD658\uACBD\uACFC \uC885\uB958\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694.", ran: 0 });
+        return;
+      }
+      if (running) {
+        sendResponse({ ok: false, error: "\uC2B9\uC778\uB41C \uAD11\uACE0 \uC561\uC158\uC744 \uC774\uBBF8 \uC2E4\uD589\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", ran: 0 });
+        return;
+      }
+      const work = runPreparedOperations(deps.runnerFor(environmentId), {
+        kinds,
+        workerId: WORKER_ID,
+        signal: new AbortController().signal
+      }).catch((error) => ({ ok: false, error: error instanceof Error ? error.message : String(error), ran: 0 }));
+      running = work.finally(() => {
+        running = null;
+      });
+      deps.keepAlive?.(running);
+      running.then(sendResponse);
+      return true;
+    });
+  }
+
   // extensions/src/entry/sourcing-product-collect.ts
   var COLLECT_CURRENT = "COLLECT_CURRENT";
   var HOST_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
@@ -20975,6 +21045,20 @@ var KidItemRuntime = (() => {
         ...mallWriteCapabilities()
       }
     });
+    const preparedRunners = /* @__PURE__ */ new Map();
+    if (chrome.runtime?.onMessage) {
+      installPreparedOperations(chrome, {
+        runnerFor(environmentId) {
+          let runner = preparedRunners.get(environmentId);
+          if (!runner) {
+            runner = createRunner({ client: createOperationClient(legacyApiPort(environmentId)), browser, siteFor: channelSites }, collectorFor);
+            preparedRunners.set(environmentId, runner);
+          }
+          return runner;
+        },
+        keepAlive: legacyKeepAlive
+      });
+    }
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
   }
