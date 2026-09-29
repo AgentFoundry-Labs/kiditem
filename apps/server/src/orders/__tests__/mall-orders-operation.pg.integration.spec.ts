@@ -161,7 +161,8 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const finished = await harness.finish(run).expect(200);
     // 주문 수 = 변환 출력 줄 − 상품 줄(주문마다 택배비 한 줄) — 사장님 2026-09-21·22 규칙. 주문번호는 변환 파일(셀피아 양식)의 번호다
     // — 키드키즈 변환기는 주문일+파일 안 순번을 새로 매기므로 캡처의 om(K-1)과 다르다(KID-234: 전송 대상과 같은 기준이 파일 번호).
-    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2, orderNumbers: ['202609260001', '202609260002'] } });
+    // 캡처가 몰의 주문번호를 줬으면 그것도 capturedOrderNumbers로 싣는다 — 웹의 중복 판정은 몰이 준 주문 신원으로 한다.
+    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2, orderNumbers: ['202609260001', '202609260002'], capturedOrderNumbers: ['K-1', 'K-2'] } });
 
     const artifacts = await prisma.orderCollectionArtifact.findMany({ where: { organizationId: ORG } });
     expect(artifacts).toHaveLength(1);
@@ -267,7 +268,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const finished = await harness.finish(run).expect(200);
     // 아트공구 CSV는 주문마다 택배비 줄이 없어 출력 줄 = 상품 줄 — 주문 수는 서로 다른 주문번호 수다(KID-380 D6,
     // mallOrdersOrderCount). 캡처는 있으므로(captured 2) 변환 파일은 나온다.
-    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'art09', captured: 2, orderNumbers: ['20260926-0000001'] });
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'art09', captured: 2, orderNumbers: ['20260926-0000001'], capturedOrderNumbers: ['20260926-0000001'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ rows });
     const converted = await convert('art09/convert', run.operation.id).expect(201);
@@ -296,7 +297,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(run.operation.plan).toMatchObject({ mallKey: 'kidsnote', mallName: '키즈노트' });
     await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: orders }]);
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'kidsnote', captured: 2, orderNumbers: ['20260926-00002', '20260926-00001'] });
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'kidsnote', captured: 2, orderNumbers: ['20260926-00002', '20260926-00001'], capturedOrderNumbers: ['20260926-00002', '20260926-00001'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders });
     const converted = await convert('kidsnote/convert', run.operation.id).expect(201);
@@ -323,7 +324,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(run.operation.plan).toMatchObject({ mallKey: 'onch', mallName: '온채널' });
     await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: orders }]);
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'onch', captured: 2, orderNumbers: ['OC-2', 'OC-1'] });
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'onch', captured: 2, orderNumbers: ['OC-2', 'OC-1'], capturedOrderNumbers: ['OC-2', 'OC-1'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders });
     // 상품 두 줄 + 택배비 한 줄 = 3줄, 주문 2건.
@@ -352,7 +353,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     // 해법몰은 택배비가 같은 행의 칸이라 출력 줄 = 상품 줄 — 주문 수는 서로 다른 주문번호 수다(KID-380 D6: 주문수집 화면 1
     // 대 오늘 주문 0이던 것). 오늘 주문 capability가 이 rowCount를 센다. 캡처가 있으므로 변환 파일은 나온다.
     expect(finished.body.operation.result).toEqual({
-      rowCount: 2, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
+      rowCount: 2, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], capturedOrderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
     });
     const today = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', ORG).expect(200);
     expect(today.body.byMall['haebub-mall']).toEqual({ orderCount: 2, newCount: 2 });
@@ -368,7 +369,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
 
     const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: haebubAccount, mallKey: 'haebub-mall' }));
     expect((await harness.finish(empty).expect(200)).body.operation.result)
-      .toEqual({ rowCount: 0, mallKey: 'haebub-mall', captured: 0, orderNumbers: [], coverage: { startDate: TODAY, endDate: TODAY } });
+      .toEqual({ rowCount: 0, mallKey: 'haebub-mall', captured: 0, orderNumbers: [], capturedOrderNumbers: [], coverage: { startDate: TODAY, endDate: TODAY } });
     await convert('haebeop/convert', empty.operation.id).expect(204);
   });
 
@@ -412,7 +413,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       { chunkKind: 'continuation', payload: [{ headers, masked: true }] },
     ]);
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'icecream-mall', captured: 1, masked: true, orderNumbers: ['20260926M0002'] });
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'icecream-mall', captured: 1, masked: true, orderNumbers: ['20260926M0002'], capturedOrderNumbers: ['20260926M0002'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({
       headers,
@@ -448,7 +449,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [seen] },
       { chunkKind: 'continuation', payload: [{ headers }] },
     ]);
-    expect((await harness.finish(nothingNew).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'icecream-mall', captured: 0, masked: false, orderNumbers: [] });
+    expect((await harness.finish(nothingNew).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'icecream-mall', captured: 0, masked: false, orderNumbers: [], capturedOrderNumbers: [] });
   });
 
   it('continuation은 성공한 아이스크림몰 실행만 — 다른 몰은 VALIDATION_FAILED, 끝나지 않은·다른 조직 실행은 OPERATION_NOT_FOUND', async () => {

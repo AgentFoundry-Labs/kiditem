@@ -292,6 +292,12 @@ export const MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
    * 성공 전송의 `acceptedOrderNumbers`)가 같은 기준으로 빠진다. 주문이 없던 수집은 빈 목록. 웹의 생성 파일 항목도 쓴다.
    */
   orderNumbers: z.array(z.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional(),
+  /**
+   * 캡처가 몰의 주문번호를 줬으면(JSON 목록 몰) 그 번호 그대로, 최대 2,000개. 중복 판정은 몰이 준 주문 신원으로,
+   * 신규 셈은 전송 기준 번호(`orderNumbers`)로 한다 — 변환기가 번호를 새로 매기는 몰(키드키즈)도 다른 주문 파일을 같은
+   * 파일로 보지 않는다(KID-234).
+   */
+  capturedOrderNumbers: z.array(z.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional(),
   /** 변환 파일의 주문번호가 2,000개를 넘어 `orderNumbers`가 잘렸다(그때만 `true`) — 오늘 주문 수가 모자랄 수 있다. */
   orderNumbersTruncated: z.literal(true).optional(),
 });
