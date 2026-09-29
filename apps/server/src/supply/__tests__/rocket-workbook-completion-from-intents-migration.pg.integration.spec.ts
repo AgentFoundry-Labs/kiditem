@@ -9,6 +9,11 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
+import {
+  dropLegacySellpiaTransmissionIntentTables,
+  insertLegacySellpiaTransmissionIntent,
+  restoreLegacySellpiaTransmissionIntentTables,
+} from '../../test-helpers/legacy-sellpia-transmission-intents-tables';
 import { stampRocketWorkbookCompletedFromTransmissionIntentsMigration as migration } from '../../../../../scripts/data-migrations/v0.1.31/035_stamp_rocket_workbook_completed_from_transmission_intents';
 
 /**
@@ -25,10 +30,16 @@ describe('v0.1.31:035 stamp Rocket workbook completion from transmission intents
     await prisma.$connect();
   });
   beforeEach(async () => {
+    await dropLegacySellpiaTransmissionIntentTables(prisma);
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    // 옛 intent 표는 스키마에서 사라졌다(KID-365) — 035가 읽는 Office 모양을 raw DDL로 되살린다.
+    await restoreLegacySellpiaTransmissionIntentTables(prisma);
   });
-  afterAll(async () => prisma?.$disconnect());
+  afterAll(async () => {
+    await dropLegacySellpiaTransmissionIntentTables(prisma);
+    await prisma?.$disconnect();
+  });
 
   async function workbook(input: {
     organizationId?: string;
@@ -74,14 +85,12 @@ describe('v0.1.31:035 stamp Rocket workbook completion from transmission intents
         data: { organizationId, confirmationId: created.id, directshipOperationId, transport: transmission.transport, intentKey },
       });
       if (transmission.intent && transmission.intent.status !== 'never_prepared' && intentKey) {
-        await prisma.sellpiaOrderTransmissionIntent.create({
-          data: {
-            organizationId,
-            intentKey,
-            status: transmission.intent.status,
-            createdBy: USER,
-            finalizedAt: transmission.intent.finalizedAt ?? null,
-          },
+        await insertLegacySellpiaTransmissionIntent(prisma, {
+          organizationId,
+          intentKey,
+          status: transmission.intent.status,
+          createdBy: USER,
+          finalizedAt: transmission.intent.finalizedAt ?? null,
         });
       }
     }

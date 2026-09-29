@@ -59,8 +59,6 @@ model Organization {
   stockTransfers                                StockTransfer[]
   coupangShipmentDateSummaries                  CoupangShipmentDateSummary[]
   sellpiaInventoryState                         SellpiaInventoryState?
-  sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
-  sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
 
   // Record-only returns
   returnTransfers ReturnTransfer[]
@@ -186,8 +184,6 @@ model User {
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
-  createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
-  reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
   confirmedSourceImportRuns                  SourceImportRun[]                              @relation("SourceImportRunManualFreshExportConfirmer")
   reconciledPurchaseOrderSubmissionAttempts  PurchaseOrderSubmissionAttempt[]               @relation("PurchaseOrderSubmissionAttemptReconciler")
   confirmedRocketPurchaseConfirmations       RocketPurchaseConfirmation[]                   @relation("RocketPurchaseConfirmationConfirmer")

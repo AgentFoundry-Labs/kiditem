@@ -83,8 +83,6 @@
     "SellpiaInventoryState": "products",
     "SellpiaManualMatchAlias": "channels",
     "SellpiaManualMatchSnapshot": "channels",
-    "SellpiaOrderTransmissionIntent": "orders",
-    "SellpiaOrderTransmissionIntentReconciliation": "orders",
     "SellpiaProductMonthlySales": "analytics",
     "SellpiaSalesDailySnapshot": "analytics",
     "Settlement": "orders",

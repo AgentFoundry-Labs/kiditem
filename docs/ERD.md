@@ -34,7 +34,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
 | [Operation](erd/operation.md) | 3 |
-| [Orders](erd/orders.md) | 12 |
+| [Orders](erd/orders.md) | 10 |
 | [Products](erd/products.md) | 6 |
 | [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
@@ -112,8 +112,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Review | Orders | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
 | RocketPoCatalogLine | Orders | `rocket_po_catalog_lines` | RocketPoCatalogLine canonical state owned by orders. |
 | RocketPoCatalogSnapshot | Orders | `rocket_po_catalog_snapshots` | RocketPoCatalogSnapshot canonical state owned by orders. |
-| SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
-| SellpiaOrderTransmissionIntentReconciliation | Orders | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 | MasterProduct | Products | `master_products` | Organization-owned canonical inventory product and sole official product ABC identity. |
 | MasterProductAbcEvaluation | Products | `master_product_abc_evaluations` | Current Products-owned normal absolute ABC evaluation for one MasterProduct. |
@@ -1597,27 +1595,6 @@ erDiagram
     String snapshotHash
     DateTime capturedAt
   }
-  SellpiaOrderTransmissionIntent {
-    String id PK
-    String organizationId FK
-    String intentKey
-    String status
-    String createdBy FK
-    DateTime preparedAt
-    DateTime finalizedAt
-    DateTime abortedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  SellpiaOrderTransmissionIntentReconciliation {
-    String id PK
-    String organizationId FK
-    String intentId FK
-    String reconciledBy FK
-    DateTime reconciledAt
-    String note
-    String outcome
-  }
   SellpiaProductMonthlySales {
     String id PK
     String organizationId FK
@@ -2509,8 +2486,6 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ SellpiaInventoryState : "organization"
-  Organization ||--o{ SellpiaOrderTransmissionIntent : "organization"
-  Organization ||--o{ SellpiaOrderTransmissionIntentReconciliation : "organization"
   Organization ||--o{ SellpiaProductMonthlySales : "organization"
   Organization ||--o{ SellpiaSalesDailySnapshot : "organization"
   Organization ||--o{ Settlement : "organization"
@@ -2573,7 +2548,6 @@ erDiagram
   SalesProductOption ||--o{ RegistrationTargetOption : "option"
   SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
-  SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   SourceImportRun o|--o{ CoupangDirectTransportConsumption : "sourceImportRun"
   SourceImportRun o|--o{ CoupangDirectTransportReceipt : "effectSourceImportRun"
   SourceImportRun o|--o{ CoupangKeywordRankDailySnapshot : "sourceImportRun"
@@ -2649,8 +2623,6 @@ erDiagram
   User o|--o{ ProcurementTestIntent : "reviewedByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
   User ||--o{ RocketPurchaseConfirmation : "confirmer"
-  User ||--o{ SellpiaOrderTransmissionIntent : "creator"
-  User ||--o{ SellpiaOrderTransmissionIntentReconciliation : "reconciler"
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
   User o|--o{ SourceRecord : "triggeredByUser"
   User ||--o{ SourcingDecisionBatch : "requestedByUser"

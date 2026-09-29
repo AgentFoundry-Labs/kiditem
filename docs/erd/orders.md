@@ -18,8 +18,6 @@
 | Review | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | RocketPoCatalogLine canonical state owned by orders. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | RocketPoCatalogSnapshot canonical state owned by orders. |
-| SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
-| SellpiaOrderTransmissionIntentReconciliation | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 
 ## Mermaid ER Diagram
@@ -198,27 +196,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SellpiaOrderTransmissionIntent {
-    String id PK
-    String organizationId FK
-    String intentKey
-    String status
-    String createdBy FK
-    DateTime preparedAt
-    DateTime finalizedAt
-    DateTime abortedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  SellpiaOrderTransmissionIntentReconciliation {
-    String id PK
-    String organizationId FK
-    String intentId FK
-    String reconciledBy FK
-    DateTime reconciledAt
-    String note
-    String outcome
-  }
   Settlement {
     String id PK
     String organizationId FK
@@ -240,7 +217,6 @@ erDiagram
   CoupangDirectTransportReceipt ||--o{ CoupangDirectTransportConsumption : "receipt"
   Order ||--o{ OrderLineItem : "order"
   RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
-  SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
 ```
 
 ## External References
@@ -262,8 +238,4 @@ erDiagram
 | Review | organization | references external | Core | Organization |
 | Review | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
-| SellpiaOrderTransmissionIntent | creator | references external | Core | User |
-| SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntentReconciliation | reconciler | references external | Core | User |
 | Settlement | organization | references external | Core | Organization |

@@ -177,8 +177,6 @@ erDiagram
 | Organization | organization | referenced by external | Orders | OrderCollectionArtifact |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
 | Organization | organization | referenced by external | Orders | Review |
-| Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
-| Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Orders | Settlement |
 | Organization | organization | referenced by external | Products | MasterProduct |
 | Organization | organization | referenced by external | Products | MasterProductAbcEvaluation |
@@ -264,9 +262,7 @@ erDiagram
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
-| User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |
-| User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
