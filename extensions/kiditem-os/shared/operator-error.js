@@ -610,6 +610,34 @@
       "text": "쿠팡 발주 상세(품목)를 수집하지 못했습니다. 발주를 다시 수집한 뒤 시도해 주세요.",
       "retryable": false
     },
+    "ORDERS_TRANSFER_SOURCE_UNAVAILABLE": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "전송할 주문 파일의 원천 실행을 찾지 못했습니다. 주문을 다시 수집한 뒤 전송해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_TRANSFER_NO_TARGETS": {
+      "owner": "orders",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "전송할 주문번호가 없습니다. 주문 파일에 주문 행이 있는지 확인해 주세요.",
+      "retryable": false
+    },
+    "ORDERS_SELLPIA_INVOICE_NO_TARGETS": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "최근 하루 안에 셀피아로 전송된 주문 가운데 송장을 낼 대상이 없습니다.",
+      "retryable": false
+    },
+    "ORDERS_TRACKING_UPLOAD_NO_ROWS": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "이 몰에 올릴 송장 행이 없습니다. 셀피아 송장 조회를 먼저 실행해 주세요.",
+      "retryable": false
+    },
     "PRODUCTS_NOT_FOUND": {
       "owner": "products",
       "kind": "not_found",

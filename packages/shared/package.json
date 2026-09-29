@@ -320,6 +320,11 @@
       "types": "./dist/extension-actions.d.ts",
       "import": "./dist/extension-actions.js",
       "require": "./dist/extension-actions.cjs"
+    },
+    "./orders-action-operations": {
+      "types": "./dist/orders-action-operations.d.ts",
+      "import": "./dist/orders-action-operations.js",
+      "require": "./dist/orders-action-operations.cjs"
     }
   },
   "types": "./dist/index.d.ts",
@@ -510,6 +515,9 @@
       ],
       "extension-actions": [
         "dist/extension-actions.d.ts"
+      ],
+      "orders-action-operations": [
+        "dist/orders-action-operations.d.ts"
       ]
     }
   },
