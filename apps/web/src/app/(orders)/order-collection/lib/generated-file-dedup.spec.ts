@@ -32,6 +32,16 @@ describe('isDuplicateGeneratedFile', () => {
     expect(isDuplicateGeneratedFile([existing], incoming)).toBe(true);
   });
 
+  it('keeps both files when the same number of different orders is collected twice — the mall-given order identity wins over renumbered file numbers (KID-234)', () => {
+    // 키드키즈 변환기는 파일마다 주문일+순번(…0001)을 새로 매긴다. A·B·C 출고 뒤 B·C·D를 걷으면 파일 번호는 같지만 다른 주문이다.
+    const fileNumbers = ['202607140001', '202607140002', '202607140003'];
+    const existing = generatedFile('existing', { mallKey: 'kidkids', orderNumbers: fileNumbers, capturedOrderNumbers: ['A', 'B', 'C'] });
+    const incoming = generatedFile('incoming', { mallKey: 'kidkids', orderNumbers: fileNumbers, capturedOrderNumbers: ['B', 'C', 'D'] });
+
+    expect(isDuplicateGeneratedFile([existing], incoming)).toBe(false);
+    expect(isDuplicateGeneratedFile([existing], generatedFile('again', { mallKey: 'kidkids', orderNumbers: fileNumbers, capturedOrderNumbers: ['C', 'B', 'A'] }))).toBe(true);
+  });
+
   it('does not collapse the same order numbers across different malls', () => {
     const existing = generatedFile('existing', { mallKey: 'icecream-mall' });
     const incoming = generatedFile('incoming', { mallKey: 'kidkids' });

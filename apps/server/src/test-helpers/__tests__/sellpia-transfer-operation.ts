@@ -16,6 +16,8 @@ export async function seedSellpiaTransferOperation(
     transport: 'SHIPMENT' | 'MILKRUN' | null;
     status: 'executing' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled';
     startedAt: Date;
+    /** 성공 result의 접수 번호(기본 `['1001']`). */
+    acceptedOrderNumbers?: string[];
   },
 ): Promise<string> {
   const terminal = opts.status !== 'executing';
@@ -39,7 +41,7 @@ export async function seedSellpiaTransferOperation(
         targetOrderNumbers: ['1001'],
       },
       result: opts.status === 'succeeded'
-        ? { outcome: 'submitted', acceptedOrderNumbers: ['1001'], targetOrderCount: 1 }
+        ? { outcome: 'submitted', acceptedOrderNumbers: opts.acceptedOrderNumbers ?? ['1001'], targetOrderCount: (opts.acceptedOrderNumbers ?? ['1001']).length }
         : undefined,
     },
     select: { id: true },
