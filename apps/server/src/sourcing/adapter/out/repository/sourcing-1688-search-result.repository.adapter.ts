@@ -20,7 +20,6 @@ import {
 import {
   read1688OfferSnapshotsForOperations,
   readCurrentPublications,
-  readExactSourcingRun,
   readLatestWingCatalogPublicationFacts,
   readPublicationsByOperationIds,
 } from './source-evidence.reader';
@@ -33,29 +32,6 @@ const MAX_LATEST_IDENTITIES = 30;
 export class Sourcing1688SearchResultRepositoryAdapter
 implements Sourcing1688SearchResultRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
-
-  async findUnitResult(input: { organizationId: string; attemptId: string; sourceKey: '1688.hot_product' | '1688.image_search' }) {
-    const image = input.sourceKey === '1688.image_search';
-    const maxResults = image ? 18 : 6;
-    const run = await readExactSourcingRun(this.prisma, {
-      id: input.attemptId,
-      organizationId: input.organizationId,
-      sourceKey: input.sourceKey,
-      scopeKey: 'default',
-      statuses: ['COMPLETE', 'FAILED'],
-    });
-    const parsed = Sourcing1688BatchUnitResultSchema.safeParse(isRecord(run?.qualityReport) ? run.qualityReport.unitResult : null);
-    if (!parsed.success || !isRecord(run?.attemptPlan) || !isRecord(run?.qualityReport)
-      || run.collectorKey !== (image ? SOURCING_1688_IMAGE_COLLECTOR_KEY : SOURCING_1688_KEYWORD_COLLECTOR_KEY)
-      || run.collectorVersion !== SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION
-      || run.qualityReport.resultSchemaVersion !== SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION
-      || run.attemptPlan.maxResults !== maxResults) return null;
-    const unit = parsed.data;
-    if (unit.keyword !== run.attemptPlan.keyword || unit.targetId !== (image ? run.attemptPlan.targetId : null)
-      || unit.discovered > maxResults || unit.accepted > unit.discovered || unit.failed > maxResults
-      || unit.duplicate > maxResults * 2) return null;
-    return unit;
-  }
 
   async resolveImageTargets(input: {
     organizationId: string;

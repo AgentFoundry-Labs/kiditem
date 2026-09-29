@@ -215,6 +215,8 @@ export const SourcingServerOperationResultSchema = z.object({
   duplicateCount: z.number().int().nonnegative(),
   rejectedCount: z.number().int().nonnegative(),
   contentChecksum: z.string(),
+  /** 발행 행의 `completedAt`(성공만). 화면의 완료 시각과 원천 기준 시각이 같은 값을 읽게 한다. */
+  completedAt: z.string().datetime({ offset: true }).optional(),
   warnings: z.array(z.string()).optional(),
   /** 1688 키워드·이미지 검색: 대상 하나의 결과(`Sourcing1688BatchUnitResult`). */
   unitResult: z.record(z.unknown()).optional(),

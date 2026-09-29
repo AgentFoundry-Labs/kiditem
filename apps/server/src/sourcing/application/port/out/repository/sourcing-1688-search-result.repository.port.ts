@@ -1,4 +1,4 @@
-import type { Sourcing1688BatchUnitResult, Sourcing1688SearchItem } from '@kiditem/shared/sourcing';
+import type { Sourcing1688SearchItem } from '@kiditem/shared/sourcing';
 
 export const SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT = Symbol(
   'Sourcing1688SearchResultRepositoryPort',
@@ -30,7 +30,6 @@ export interface Sourcing1688StoredSearchSnapshot {
 }
 
 export interface Sourcing1688SearchResultRepositoryPort {
-  findUnitResult(input: { organizationId: string; attemptId: string; sourceKey: '1688.hot_product' | '1688.image_search' }): Promise<Sourcing1688BatchUnitResult | null>;
   resolveImageTargets(input: {
     organizationId: string;
     targetIds: string[];

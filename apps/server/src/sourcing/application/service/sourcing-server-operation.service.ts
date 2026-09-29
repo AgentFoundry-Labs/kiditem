@@ -136,6 +136,7 @@ export class SourcingServerOperationService implements SourcingServerOperationPo
       duplicateCount: persisted.duplicateCount,
       rejectedCount: 0,
       contentChecksum: head.contentChecksum,
+      completedAt: now.toISOString(),
       ...(head.warnings ? { warnings: head.warnings } : {}),
       ...(isRecord(unitResult) ? { unitResult } : {}),
       ...(scrapeUrlResult ? { scrapeUrlResult } : {}),

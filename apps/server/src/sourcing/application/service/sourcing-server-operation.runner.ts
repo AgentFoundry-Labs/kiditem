@@ -120,18 +120,7 @@ export class SourcingServerOperationRunner {
   ): Promise<SourcingSourceAttempt> {
     const fenced = this.fenced(organizationId, run);
     if (output.rejectedCount > 0) {
-      const unitResult = output.qualityReport.unitResult;
-      return this.fail(organizationId, run, PLAN_INCOMPLETE_CODE, PLAN_INCOMPLETE_MESSAGE, {
-        sourceKey: run.attempt.sourceKey,
-        scopeKey: run.attempt.scopeKey,
-        targetKey: run.attempt.targetKey,
-        discoveredCount: output.discoveredCount,
-        acceptedCount: 0,
-        duplicateCount: 0,
-        rejectedCount: output.rejectedCount,
-        contentChecksum: head.contentChecksum,
-        ...(isRecord(unitResult) ? { unitResult } : {}),
-      });
+      return this.fail(organizationId, run, PLAN_INCOMPLETE_CODE, PLAN_INCOMPLETE_MESSAGE, failedResult(run, output, head));
     }
     try {
       for (const [index, payload] of encodeSourceOutput(output, head).entries()) {
@@ -147,7 +136,7 @@ export class SourcingServerOperationRunner {
     } catch (error) {
       const failed = await this.operations.finish({
         ...fenced,
-        request: { outcome: 'failed', errorCode: errorCodeOf(error), errorMessage: errorText(error) },
+        request: { outcome: 'failed', errorCode: errorCodeOf(error), errorMessage: errorText(error), result: failedResult(run, output, head) },
       }).catch(() => null);
       // 이미 수집한 원본(409로 기존 초안을 알린다)과 뜻밖의 오류는 호출자에게 그대로 던진다.
       if (!failed || error instanceof SourceRecordDuplicateError || !(error instanceof KiditemError)) throw error;
@@ -225,6 +214,22 @@ export class SourcingServerOperationRunner {
   }
 }
 
+/** 발행하지 못하고 닫는 실행의 result: 건수와 (1688 검색이면) 대상 하나의 결과를 남긴다. */
+function failedResult(run: SourcingServerRun, output: AuthorizedCollectionOutput, head: SourceOutputHead): Record<string, unknown> {
+  const unitResult = output.qualityReport.unitResult;
+  return {
+    sourceKey: run.attempt.sourceKey,
+    scopeKey: run.attempt.scopeKey,
+    targetKey: run.attempt.targetKey,
+    discoveredCount: output.discoveredCount,
+    acceptedCount: 0,
+    duplicateCount: 0,
+    rejectedCount: output.rejectedCount,
+    contentChecksum: head.contentChecksum,
+    ...(isRecord(unitResult) ? { unitResult } : {}),
+  };
+}
+
 function fromView(view: OperationView): SourcingServerOperationRecord {
   return {
     id: view.id,
@@ -265,7 +270,9 @@ export function toAttempt(record: SourcingServerOperationRecord): SourcingSource
     ...(warnings ? { warnings } : {}),
     errorCode: expired ? 'ATTEMPT_EXPIRED' : record.errorCode,
     errorMessage: expired ? EXPIRED_TEXT : record.errorMessage,
-    completedAt: state === 'RUNNING' ? null : record.finishedAt,
+    // 성공은 발행 행과 같은 완료 시각(finalize가 result에 싣는다), 실패는 실행이 닫힌 시각.
+    completedAt: state === 'RUNNING' ? null
+      : state === 'COMPLETE' && typeof result.completedAt === 'string' ? new Date(result.completedAt) : record.finishedAt,
     ...(state === 'COMPLETE' && scrapeUrlResult ? { scrapeUrlResult } : {}),
     ...(isRecord(result.unitResult) ? { unitResult: result.unitResult } : {}),
   };

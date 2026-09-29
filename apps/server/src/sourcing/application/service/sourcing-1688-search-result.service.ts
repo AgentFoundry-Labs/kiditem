@@ -9,17 +9,16 @@ import {
   SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
   type Sourcing1688SearchResultRepositoryPort,
 } from '../port/out/repository/sourcing-1688-search-result.repository.port';
-import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
-  type SourcingBrowserSourceAttemptRepositoryPort } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { hashCollectionRequest, normalizeCollectionTarget } from './sourcing-collection-mappers';
+import { SourcingServerOperationRunner } from './sourcing-server-operation.runner';
 
 @Injectable()
 export class Sourcing1688SearchResultService {
   constructor(
     @Inject(SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT)
     private readonly repository: Sourcing1688SearchResultRepositoryPort,
-    @Inject(SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT)
-    private readonly attempts: SourcingBrowserSourceAttemptRepositoryPort,
+    private readonly runs: SourcingServerOperationRunner,
   ) {}
 
   async latest(input: {
@@ -47,8 +46,9 @@ export class Sourcing1688SearchResultService {
       }),
     ];
     const statuses = await Promise.all(plans.map(async ({ keyword, targetId, targetKey, plan }) => ({
-      keyword, targetId, source: await this.attempts.readSourceStatus({
+      keyword, targetId, source: await this.runs.readSourceStatus({
         organizationId: input.organizationId, sourceKey: plan.source, scopeKey: 'default', targetKey,
+        kinds: [plan.source === '1688.image_search' ? SOURCING_OPERATION_KINDS.imageSearch1688 : SOURCING_OPERATION_KINDS.keywordSearch1688],
         currentPlanChecksum: hashCollectionRequest(plan),
       }),
     })));
