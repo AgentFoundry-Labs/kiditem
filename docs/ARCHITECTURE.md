@@ -1101,8 +1101,9 @@ commit. It never submits to a marketplace provider or writes
 `MasterProduct.currentStock`.
 
 Coupang PA collection belongs to Orders. The selected Rocket account and
-transport are validated, and `SourceImportRun`, `Order`, and `OrderLineItem`
-are persisted with deterministic identities. In the same Prisma transaction,
+transport are validated, and `Order` and `OrderLineItem` are persisted with
+deterministic identities keyed by the succeeded operation (`Order.operationId`).
+In the same Prisma transaction,
 Orders calls Supply's reconciliation port; Supply resolves exactly one active
 confirmation line by account/PO/product without mutating Products current stock
 or physical stock. A barcode mismatch, ambiguous confirmation, or persistence

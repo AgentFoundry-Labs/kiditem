@@ -31,7 +31,7 @@ const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 type Transaction = Prisma.TransactionClient;
 type ActiveSku = { id: string; code: string };
-type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing' | 'sourceImportRun'>;
+type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing'>;
 
 /**
  * 셀피아 수동상품매칭 kind(KID-363)의 Channels 원장. 스냅샷은 조직마다 하나(`SellpiaManualMatchSnapshot`, 실행 열

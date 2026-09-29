@@ -7,7 +7,7 @@ import type { CollectionFreshnessRepositoryPort } from '../../../../application/
 
 /**
  * 원천마다 마지막 수집 완료 시각: Orders 수집 kind의 마지막 성공 실행(KID-359), 웹이 읽는 옛 원천 이름으로. 옛
- * `source_import_runs` 완료 행은 읽지 않는다(KID-365, ADR-0010).
+ * 가져오기 run의 완료 행은 읽지 않는다(KID-365, ADR-0010).
  */
 @Injectable()
 export class CollectionFreshnessRepositoryAdapter

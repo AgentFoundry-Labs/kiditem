@@ -86,6 +86,10 @@ Action, collection, transmission, and reconciliation behavior is executable in
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
   operation's `rowCount`; legacy attempt runs are not counted. The order
   screen and the dashboard both read it.
+- Order facts are orders an operation converted (`Order.operationId`), observed
+  at that operation's finish; a window's coverage is the succeeded
+  `orders.mall_orders` operations' `result.coverage`. Orders and coverage only
+  an old import run carries are not facts (KID-365).
 - Coupang shipment date summary is the operation kind
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
   old scan-proof validation and writes date rows with `operationId`; the
