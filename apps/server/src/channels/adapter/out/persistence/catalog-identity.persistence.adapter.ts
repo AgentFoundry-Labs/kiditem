@@ -10,10 +10,6 @@ export class CatalogIdentityPersistenceAdapter implements ChannelCatalogIdentity
     const tx = ownerTransactionClient(transaction);
     const account = await tx.channelAccount.findFirst({ where: { id: input.channelAccountId, organizationId: input.organizationId, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } }, select: { id: true } });
     if (!account) throw new ConflictException('Active catalog account is required.');
-    if (input.lastImportRunId) {
-      const source = await tx.sourceImportRun.findFirst({ where: { id: input.lastImportRunId, organizationId: input.organizationId, channelAccountId: input.channelAccountId, sourceType: input.rawSource, status: { in: ['running', 'completed'] } }, select: { id: true } });
-      if (!source) throw new ConflictException('Catalog source identity does not match its publication.');
-    }
     return upsertChannelCatalogIdentities(tx, input);
   }
 }

@@ -69,7 +69,6 @@ export class SabangnetMallListingsRepositoryAdapter implements SabangnetMallList
         const upserted = await upsertChannelCatalogIdentities(tx, {
           organizationId: input.organizationId,
           channelAccountId: mall.channelAccountId,
-          lastImportRunId: null,
           lastOperationId: input.operationId,
           rawSource: SOURCE_TYPE,
           // 사방넷 송신 기록은 판매가·모델명(=판매자코드)·바코드를 싣지만 모델번호 칸은 없다.

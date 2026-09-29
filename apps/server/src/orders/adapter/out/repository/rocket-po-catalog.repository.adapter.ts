@@ -77,7 +77,6 @@ export class RocketPoCatalogRepositoryAdapter implements RocketPoCatalogReposito
       await this.identities.publishObservedIdentities(transaction, {
         organizationId: input.organizationId,
         channelAccountId: plan.channelAccountId,
-        lastImportRunId: null,
         lastOperationId: input.operationId,
         rawSource: ROCKET_PO_CATALOG_RAW_SOURCE,
         // 발주서에는 판매가·모델번호 칸이 없다. 다른 수집이 본 값을 지우지 않는다.

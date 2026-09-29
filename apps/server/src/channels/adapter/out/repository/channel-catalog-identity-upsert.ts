@@ -128,7 +128,7 @@ export async function upsertChannelCatalogBasics(
         record->>'productStatus',
         record->>'imageUrl',
         record->'rawJson',
-        ${input.lastImportRunId}::uuid,
+        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -267,7 +267,7 @@ export async function upsertChannelCatalogBasics(
         record->>'status',
         record->'attributesJson',
         record->'rawJson',
-        ${input.lastImportRunId}::uuid,
+        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -352,8 +352,7 @@ export async function updateChannelCatalogDetails(
     organizationId: string;
     channelAccountId: string;
     products: ChannelCatalogDetailIdentityProduct[];
-    lastImportRunId: string | null;
-    /** 상세를 반영한 실행(KID-354). 주면 `lastImportRunId`는 `null`이다. */
+    /** 상세를 반영한 실행(KID-354). 옛 `last_import_run_id`는 늘 비운다(KID-365). */
     lastOperationId?: string | null;
     rawSource: string;
   },
@@ -544,7 +543,7 @@ export async function updateChannelCatalogDetails(
     const updated = await tx.$executeRaw`
       UPDATE channel_listings AS listing
       SET raw_json = COALESCE(listing.raw_json, '{}'::jsonb) || incoming."rawJson",
-          last_import_run_id = ${input.lastImportRunId}::uuid,
+          last_import_run_id = NULL::uuid,
           last_operation_id = ${input.lastOperationId ?? null}::uuid,
           updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
@@ -566,7 +565,7 @@ export async function updateChannelCatalogDetails(
           barcode = CASE WHEN incoming."hasBarcode" THEN incoming.barcode ELSE option_row.barcode END,
           seller_sku = CASE WHEN incoming."hasSellerSku" THEN incoming."sellerSku" ELSE option_row.seller_sku END,
           raw_json = COALESCE(option_row.raw_json, '{}'::jsonb) || incoming."rawJson",
-          last_import_run_id = ${input.lastImportRunId}::uuid,
+          last_import_run_id = NULL::uuid,
           last_operation_id = ${input.lastOperationId ?? null}::uuid,
           updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch.map((row) => ({
@@ -1340,7 +1339,7 @@ export async function upsertChannelCatalogIdentities(
         record->>'productStatus',
         record->>'imageUrl',
         record->'raw',
-        ${input.lastImportRunId}::uuid,
+        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -1430,7 +1429,7 @@ export async function upsertChannelCatalogIdentities(
         record->>'skuStatus',
         record->'attributesJson',
         record->'rawJson',
-        ${input.lastImportRunId}::uuid,
+        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
