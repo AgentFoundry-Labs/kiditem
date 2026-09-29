@@ -54,6 +54,23 @@ export function mallSessionStates(
   return states;
 }
 
+/**
+ * 몰마다 확인 결과의 이유 코드. 확인 중이거나 이유가 없는 몰은 싣지 않는다 — 타일 툴팁이 이 코드의
+ * 등록 문장을 쓴다(KID-329).
+ */
+export function mallSessionReasons(
+  mallKeys: readonly string[],
+  results: Readonly<Record<string, MallSessionProbeResult>>,
+  checking: ReadonlySet<string>,
+): Record<string, string> {
+  const reasons: Record<string, string> = {};
+  for (const key of mallKeys) {
+    const reason = checking.has(key) ? null : results[key]?.reason;
+    if (reason) reasons[key] = reason;
+  }
+  return reasons;
+}
+
 export function countMallSessions(states: Readonly<Record<string, TileLoginState>>): MallSessionCounts {
   const counts: MallSessionCounts = { signedIn: 0, verification: 0, signedOut: 0, checking: 0 };
   for (const state of Object.values(states)) {

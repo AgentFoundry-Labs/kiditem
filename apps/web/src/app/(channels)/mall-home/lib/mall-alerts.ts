@@ -1,4 +1,5 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
+import { describeOperatorError } from '@kiditem/shared/errors';
 import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { AD_REPORT_KIND, WING_ITEMWINNER_KIND, WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
@@ -279,6 +280,8 @@ export function mallStatusTiles(
   alerts: readonly AlertItem[],
   derived: readonly DerivedMallAlert[],
   sessions: Readonly<Record<string, TileLoginState>> = {},
+  /** 몰별 로그인 확인의 이유 코드(`mallSessionReasons`). 등록 코드면 지금 상태 타일의 툴팁이 된다. */
+  loginReasons: Readonly<Record<string, string>> = {},
 ): MallStatusTile[] {
   const byMall = new Map<string, AlertItem[]>();
   const accountMalls = accountMallsOf(channels);
@@ -317,7 +320,9 @@ export function mallStatusTiles(
         return { ...base, ...latest };
       }
       const tileLabel = current.find((alert) => alert.tileLabel !== null)?.tileLabel;
-      if (tileLabel) return { ...base, tone: 'attention', label: tileLabel, at: null };
+      if (tileLabel) {
+        return { ...base, tone: 'attention', label: tileLabel, detail: registeredReasonText(loginReasons[channel.mallKey]), at: null };
+      }
       if (latest) return { ...base, ...latest };
       return { ...base, tone: 'idle', label: '현재 기록 없음', at: null };
     })
@@ -327,6 +332,16 @@ export function mallStatusTiles(
         b.attentionCount - a.attentionCount ||
         a.mallName.localeCompare(b.mallName, 'ko'),
     );
+}
+
+/**
+ * 이유 코드만 있는 관찰 기록의 툴팁 — 오류 registry에 등록된 코드면 그 한국어 문장, 아니면 `null`(KID-329).
+ * 모르는 코드에 일반 실패 문장을 지어 붙이지 않는다.
+ */
+function registeredReasonText(reason: string | undefined): string | null {
+  if (!reason) return null;
+  const described = describeOperatorError({ code: reason });
+  return described.code ? described.text : null;
 }
 
 export interface MallAlertCounts {
