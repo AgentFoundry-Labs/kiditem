@@ -80,7 +80,7 @@ visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDi
 `resource:ad-action:<actionId>` 하나뿐이다 — 광고센터 계정 키를 쥐지 않으므로 보고서 수집과 같은 광고센터를 동시에 쓸 수 있고,
 한 번에 하나씩 도는 것은 팝업 루프만 지킨다. 브라우저 자원이 탭을 주지 않으므로 `sites/ad-center`가 제 탭(`/marketing`)을 열어
 업체코드를 읽고(보고서 수집과 같은 대조), 수집기가 캠페인 목록에서 같은 이름을 찾은 뒤(있으면 만들지 않는다) `createCampaign`이
-`/marketing/campaign/type` → [다음] → `/registration`에서 이름·광고그룹·상품 검색/선택·운영 방식·일 예산·목표 광고수익률을 채우고
+`/marketing/campaign/type` → [다음] → `/registration`에서 이름·광고그룹·상품 검색/선택(계획의 id는 리스팅 옵션 id — `vendor_item` 행의 속성·글자로 맞춘다)·운영 방식·일 예산·목표 광고수익률을 채우고
 [완료] → 확인 대화상자를 누른다(페이지 처리기 `content/page-call/ad-center-campaign-register.js`, ISOLATED). 규칙: 누르기 전 실패는
 던진다(실패 finish, `not_attempted`; 칸이 없으면 `ADVERTISING_AD_CENTER_FORM_CHANGED`), 눌렀거나 누르는 호출의 답이 끊겼으면
 던지지 않고 증거 청크(`ad_action_evidence`)를 낸다 — 캠페인 번호를 읽었거나 목록에서 이름으로 찾으면 `created`, 아니면 성공 finish의

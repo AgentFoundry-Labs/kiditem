@@ -11,7 +11,7 @@ const PLAN = {
   channelAccountId: '5f0c2f7e-7a9e-4f3f-9d61-0a4b2b8f1c11',
   vendorId: 'A00057379',
   actionType: 'create_campaign',
-  createCampaign: { name: '봄 신상 캠페인', adGroupName: '봄 그룹', productIds: ['70011'], dailyBudget: 50000, targetRoas: 350 },
+  createCampaign: { name: '봄 신상 캠페인', adGroupName: '봄 그룹', productIds: ['91000011'], dailyBudget: 50000, targetRoas: 350 },
   startedAt: '2026-09-29T00:00:00.000Z',
 };
 
@@ -70,7 +70,7 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
 
     const { chunks, finish } = await drain(PLAN, site);
 
-    expect(log).toEqual(['vendor', 'roster 0', 'create 봄 신상 캠페인 70011 50000 350', 'release ok']);
+    expect(log).toEqual(['vendor', 'roster 0', 'create 봄 신상 캠페인 91000011 50000 350', 'release ok']);
     expect(chunks).toHaveLength(1);
     expect(chunks[0].chunkKind).toBe(AD_ACTION_EVIDENCE_CHUNK_KIND);
     expect(AdActionEvidenceSchema.parse(chunks[0].payload[0])).toMatchObject({ campaignId: '88123', campaignName: '봄 신상 캠페인', message: '등록되었습니다' });

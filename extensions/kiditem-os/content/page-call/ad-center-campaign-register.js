@@ -97,7 +97,20 @@
   }
 
   /**
-   * 상품 하나를 검색해 고른다. 검색 결과 중 그 번호가 적힌 줄, 없으면 결과가 한 줄일 때만 그 줄 — 단 그 줄에 다른 계획 상품
+   * 이 `vendor_item` 행이 그 옵션 id의 행인가. 계획의 id는 리스팅 옵션 id(Wing 옵션 id = 광고센터 `vendor_item` 행의 id)다 —
+   * 행이나 그 안 요소의 속성 값이 그 id이거나, 행 글자에 그 id가 적혀 있으면 그 행이다(속성 이름은 실측 전이라 가리지 않는다).
+   */
+  function rowHasId(row, id) {
+    for (const element of [row, ...row.querySelectorAll("*")]) {
+      for (const attribute of Array.from(element.attributes || [])) {
+        if (String(attribute.value).trim() === id) return true;
+      }
+    }
+    return normalizeText(row.textContent).includes(id);
+  }
+
+  /**
+   * 옵션 하나를 검색해 고른다. 검색 결과 중 그 옵션 id의 줄, 없으면 결과가 한 줄일 때만 그 줄 — 단 그 줄에 다른 계획 상품
    * (이미 고른 상품 포함)의 번호가 적혀 있으면 앞 상품의 남은 줄이므로 고르지 않는다.
    */
   async function selectProduct(productId, otherIds) {
@@ -113,11 +126,11 @@
     const rows = await waitFor(() => {
       const list = Array.from(document.querySelectorAll('li[data-bigfoot-component="vendor_item"]'));
       const fresh = list.some((item) => !before.has(item));
-      return list.length > 0 && (fresh || list.some((item) => normalizeText(item.textContent).includes(productId))) ? list : null;
+      return list.length > 0 && (fresh || list.some((item) => rowHasId(item, productId))) ? list : null;
     }, WAIT.search);
     if (!rows) return { selected: false };
-    const exact = rows.find((item) => normalizeText(item.textContent).includes(productId));
-    const single = rows.length === 1 && !otherIds.some((id) => normalizeText(rows[0].textContent).includes(id)) ? rows[0] : null;
+    const exact = rows.find((item) => rowHasId(item, productId));
+    const single = rows.length === 1 && !otherIds.some((id) => rowHasId(rows[0], id)) ? rows[0] : null;
     const row = exact || single;
     if (!row) return { selected: false };
     const selectButton = findClickableByText(["상품 선택"], row);

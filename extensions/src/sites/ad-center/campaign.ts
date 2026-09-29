@@ -30,6 +30,7 @@ const GUARD: PageGuard = {
 export interface AdCenterCampaignInput {
   name: string;
   adGroupName?: string;
+  /** 리스팅 옵션 id(Wing 옵션 id = 광고센터 `vendor_item` 행의 id). */
   productIds: string[];
   dailyBudget: number;
   targetRoas: number | null;
@@ -61,7 +62,7 @@ export async function submitCampaign(page: TabPage, input: AdCenterCampaignInput
   const filled = await call<FillAnswer>('adCenter.campaignFill', input, FILL_TIMEOUT_MS);
   if (filled?.state === 'product_not_found') {
     const missing = Array.isArray(filled.productIds) ? filled.productIds.map(String) : [];
-    throw new RuntimeError(SITE_REQUEST_FAILED, `쿠팡 광고센터에서 광고할 상품을 찾지 못했습니다: ${missing.join(', ')}`, {
+    throw new RuntimeError(SITE_REQUEST_FAILED, `쿠팡 광고센터에서 광고할 상품 옵션을 찾지 못했습니다: ${missing.join(', ')}`, {
       reason: 'product_not_found',
       productIds: missing,
     });

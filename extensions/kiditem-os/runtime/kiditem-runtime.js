@@ -12352,7 +12352,7 @@ var KidItemRuntime = (() => {
     const filled = await call2("adCenter.campaignFill", input, FILL_TIMEOUT_MS2);
     if (filled?.state === "product_not_found") {
       const missing = Array.isArray(filled.productIds) ? filled.productIds.map(String) : [];
-      throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130\uC5D0\uC11C \uAD11\uACE0\uD560 \uC0C1\uD488\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${missing.join(", ")}`, {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130\uC5D0\uC11C \uAD11\uACE0\uD560 \uC0C1\uD488 \uC635\uC158\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${missing.join(", ")}`, {
         reason: "product_not_found",
         productIds: missing
       });

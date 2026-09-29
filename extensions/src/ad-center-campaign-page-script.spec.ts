@@ -10,14 +10,17 @@ import { dom, loadWritePage, withFakeClock } from './sites/mall-write/write-page
 
 type Calls = Record<string, (args?: unknown) => Promise<Record<string, any>>>;
 
-const PLAN = { name: '봄 신상 캠페인', adGroupName: '봄 그룹', productIds: ['70011', '70022'], dailyBudget: 50000, targetRoas: 350 };
+const PLAN = { name: '봄 신상 캠페인', adGroupName: '봄 그룹', productIds: ['91000011', '91000022'], dailyBudget: 50000, targetRoas: 350 };
 
-function load(options: { path?: string; results?: Record<string, string[]>; afterConfirmPath?: string | null; removeSelector?: string } = {}) {
+/** 검색 결과 한 줄: 글자만, 또는 광고센터 `vendor_item` 행의 옵션 id 속성과 글자. */
+type ResultRow = string | { text: string; vendorItemId: string };
+
+function load(options: { path?: string; results?: Record<string, ResultRow[]>; afterConfirmPath?: string | null; removeSelector?: string } = {}) {
   const page = loadWritePage(fixture, [], { path: options.path ?? '/marketing/campaign/type' });
   const { window, document } = dom;
   delete window.__kiditemIsolatedPageCalls;
   const clicks: string[] = [];
-  const results = options.results ?? { '70011': ['70011 봄 원피스'], '70022': ['70022 봄 모자'] };
+  const results = options.results ?? { '91000011': ['91000011 봄 원피스'], '91000022': ['91000022 봄 모자'] };
   if (options.path === '/marketing/campaign/registration') {
     document.querySelector('#type-step').hidden = true;
     document.querySelector('#registration-step').hidden = false;
@@ -36,9 +39,11 @@ function load(options: { path?: string; results?: Record<string, string[]>; afte
     setTimeout(() => {
       const list = document.querySelector('#product-results');
       list.innerHTML = '';
-      for (const label of results[query] ?? []) {
+      for (const entry of results[query] ?? []) {
+        const label = typeof entry === 'string' ? entry : entry.text;
         const li = document.createElement('li');
         li.setAttribute('data-bigfoot-component', 'vendor_item');
+        if (typeof entry !== 'string') li.setAttribute('data-vendor-item-id', entry.vendorItemId);
         li.innerHTML = `<span>${label}</span><button type="button">상품 선택</button>`;
         li.querySelector('button').addEventListener('click', () => {
           clicks.push(`상품 선택 ${label}`);
@@ -73,8 +78,8 @@ describe('광고센터 캠페인 등록 처리기(KID-386)', () => {
 
     const filled = await run(calls, 'adCenter.campaignFill', PLAN);
 
-    expect(filled).toEqual({ state: 'filled', selected: ['70011', '70022'] });
-    expect(clicks).toEqual(['다음', '상품 선택 70011 봄 원피스', '상품 선택 70022 봄 모자']);
+    expect(filled).toEqual({ state: 'filled', selected: ['91000011', '91000022'] });
+    expect(clicks).toEqual(['다음', '상품 선택 91000011 봄 원피스', '상품 선택 91000022 봄 모자']);
     expect(document.querySelector('#campaign-name').value).toBe('봄 신상 캠페인');
     expect(document.querySelector('#reg_ad_group_name').value).toBe('봄 그룹');
     expect(document.querySelector('[value=AUTO]').checked).toBe(true);
@@ -86,7 +91,7 @@ describe('광고센터 캠페인 등록 처리기(KID-386)', () => {
   it('목표 광고수익률이 없으면 매출 스타트(예산)를 고르고, 그룹 이름이 없으면 캠페인 이름을 쓴다', async () => {
     const { calls, document } = load({ path: '/marketing/campaign/registration' });
 
-    await run(calls, 'adCenter.campaignFill', { ...PLAN, adGroupName: undefined, targetRoas: null, productIds: ['70011'] });
+    await run(calls, 'adCenter.campaignFill', { ...PLAN, adGroupName: undefined, targetRoas: null, productIds: ['91000011'] });
 
     expect(document.querySelector('[value=PRODUCT_TARGET_BUDGET]').checked).toBe(true);
     expect(document.querySelector('#reg_ad_group_name').value).toBe('봄 신상 캠페인');
@@ -94,29 +99,54 @@ describe('광고센터 캠페인 등록 처리기(KID-386)', () => {
   });
 
   it('상품 번호가 적힌 줄이 없고 결과가 여럿이면 고르지 않고 product_not_found로 답한다(다른 상품을 광고하지 않는다)', async () => {
-    const { calls, clicks } = load({ results: { '70011': ['70011 봄 원피스'], '70022': ['99901 다른 상품', '99902 또 다른 상품'] } });
+    const { calls, clicks } = load({ results: { '91000011': ['91000011 봄 원피스'], '91000022': ['99901 다른 상품', '99902 또 다른 상품'] } });
 
     const filled = await run(calls, 'adCenter.campaignFill', PLAN);
 
-    expect(filled).toEqual({ state: 'product_not_found', productIds: ['70022'], selected: ['70011'] });
+    expect(filled).toEqual({ state: 'product_not_found', productIds: ['91000022'], selected: ['91000011'] });
     expect(clicks).not.toContain('완료');
   });
 
   it('결과가 한 줄이어도 다른 계획 상품·이미 고른 상품의 번호가 적힌 줄이면 고르지 않는다(앞 상품의 남은 줄)', async () => {
-    const { calls, clicks } = load({ results: { '70011': ['70011 봄 원피스'], '70022': ['70011 봄 원피스'] } });
+    const { calls, clicks } = load({ results: { '91000011': ['91000011 봄 원피스'], '91000022': ['91000011 봄 원피스'] } });
 
     const filled = await run(calls, 'adCenter.campaignFill', PLAN);
 
-    expect(filled).toEqual({ state: 'product_not_found', productIds: ['70022'], selected: ['70011'] });
+    expect(filled).toEqual({ state: 'product_not_found', productIds: ['91000022'], selected: ['91000011'] });
     expect(clicks.filter((click) => click.startsWith('상품 선택'))).toHaveLength(1);
   });
 
-  it('번호가 안 적힌 한 줄 결과는 고른다(검색이 그 상품 하나를 찾았다)', async () => {
-    const { calls } = load({ results: { '70011': ['봄 원피스'], '70022': ['봄 모자'] } });
+  it('계획 id는 리스팅 옵션 id다 — 글자에 없어도 vendor_item 행의 옵션 id 속성이 같은 줄을 고른다', async () => {
+    const { calls, clicks } = load({
+      results: {
+        '91000011': [{ text: '봄 원피스 90 사이즈', vendorItemId: '91000099' }, { text: '봄 원피스 100 사이즈', vendorItemId: '91000011' }],
+        '91000022': [{ text: '봄 모자', vendorItemId: '91000022' }],
+      },
+    });
 
     const filled = await run(calls, 'adCenter.campaignFill', PLAN);
 
-    expect(filled).toEqual({ state: 'filled', selected: ['70011', '70022'] });
+    expect(filled).toEqual({ state: 'filled', selected: ['91000011', '91000022'] });
+    expect(clicks).toContain('상품 선택 봄 원피스 100 사이즈');
+    expect(clicks).not.toContain('상품 선택 봄 원피스 90 사이즈');
+  });
+
+  it('한 줄 결과라도 그 행의 옵션 id가 다른 계획 상품이면 고르지 않는다', async () => {
+    const { calls } = load({
+      results: { '91000011': [{ text: '봄 원피스', vendorItemId: '91000011' }], '91000022': [{ text: '봄 원피스', vendorItemId: '91000011' }] },
+    });
+
+    const filled = await run(calls, 'adCenter.campaignFill', PLAN);
+
+    expect(filled).toMatchObject({ state: 'product_not_found', productIds: ['91000022'] });
+  });
+
+  it('번호가 안 적힌 한 줄 결과는 고른다(검색이 그 상품 하나를 찾았다)', async () => {
+    const { calls } = load({ results: { '91000011': ['봄 원피스'], '91000022': ['봄 모자'] } });
+
+    const filled = await run(calls, 'adCenter.campaignFill', PLAN);
+
+    expect(filled).toEqual({ state: 'filled', selected: ['91000011', '91000022'] });
   });
 
   it('등록 폼 칸이 없으면 그 칸 이름으로 form_changed를 답한다', async () => {
@@ -130,7 +160,7 @@ describe('광고센터 캠페인 등록 처리기(KID-386)', () => {
 
   it('[완료] → 확인 대화상자의 [등록]을 누르고, 결과 화면 주소에서 캠페인 번호를 읽는다', async () => {
     const { calls, clicks } = load({ path: '/marketing/campaign/registration' });
-    await run(calls, 'adCenter.campaignFill', { ...PLAN, productIds: ['70011'] });
+    await run(calls, 'adCenter.campaignFill', { ...PLAN, productIds: ['91000011'] });
 
     const submitted = await run(calls, 'adCenter.campaignSubmit');
     const result = await run(calls, 'adCenter.campaignResult');
@@ -142,7 +172,7 @@ describe('광고센터 캠페인 등록 처리기(KID-386)', () => {
 
   it('누른 뒤 등록 화면에 남으면 캠페인 번호 없이 검증 문구를 알린다', async () => {
     const { calls, document } = load({ path: '/marketing/campaign/registration', afterConfirmPath: null });
-    await run(calls, 'adCenter.campaignFill', { ...PLAN, productIds: ['70011'] });
+    await run(calls, 'adCenter.campaignFill', { ...PLAN, productIds: ['91000011'] });
     await run(calls, 'adCenter.campaignSubmit');
     document.querySelector('#registration-step').insertAdjacentHTML('beforeend', '<p>상품을 선택해주세요</p>');
 
