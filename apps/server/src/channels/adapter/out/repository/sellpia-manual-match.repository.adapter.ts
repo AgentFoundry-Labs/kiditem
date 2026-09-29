@@ -12,10 +12,9 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import {
-  readCompletedCatalogRunIds,
+  PUBLISHED_CATALOG_LISTING_WHERE,
   publishedCatalogOptionWhere,
-  publishedCatalogListingBranches,
-} from './completed-catalog-run';
+} from './published-catalog-listing';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionContext,
@@ -172,13 +171,12 @@ async function listCurrentChannelAliasCandidates(
   client: ChannelListingClient,
   organizationId: string,
 ): Promise<string[]> {
-  const completedRunIds = await readCompletedCatalogRunIds(client, { organizationId });
   const listings = await client.channelListing.findMany({
     where: {
       organizationId,
       isActive: true,
       OR: [
-        ...publishedCatalogListingBranches(completedRunIds),
+        PUBLISHED_CATALOG_LISTING_WHERE,
         {
           options: {
             some: publishedCatalogOptionWhere(organizationId),

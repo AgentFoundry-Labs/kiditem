@@ -34,7 +34,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
   let repository: ChannelProductMatchingRepositoryAdapter;
   let service: ChannelProductMatchingService;
-  let completedRunId: string;
+  let catalogOperationId: string;
   let inventoryCompletedRunId: string;
 
   beforeAll(async () => {
@@ -112,16 +112,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         },
       ],
     });
-    completedRunId = (await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: ACCOUNT_ID,
-        fileName: 'matching.xlsx',
-        fileHash: randomUUID(),
-        status: 'completed',
-      },
-    })).id;
+    catalogOperationId = randomUUID();
   });
 
   it('lists channel products separately from direct option inventory recipes', async () => {
@@ -973,7 +964,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     })).toBe(0);
   });
 
-  it('uses completed catalog imports for availability and excludes inactive listings', async () => {
+  it('uses operation-published catalog listings for availability and excludes inactive listings', async () => {
     const active = await createListing({ displayName: 'Active' });
     const activeOption = await createOption(active.id, { sellerSku: 'ACTIVE-SKU' });
     const inactive = await createListing({ displayName: 'Inactive', isActive: false });
@@ -1091,7 +1082,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         channelName: input.channelName,
         displayName: input.displayName,
         rawJson: input.rawJson,
-        lastImportRunId: completedRunId,
+        lastOperationId: catalogOperationId,
         status: '승인완료',
         isActive: input.isActive ?? true,
       },
@@ -1123,46 +1114,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     }).then((state) => state?.mappingGeneration ?? 0n);
   }
 
-  it('includes active Rocket PO listings published by the canonical completed spelling', async () => {
-      const rocketAccount = await prisma.channelAccount.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channel: 'rocket',
-          name: 'Rocket',
-        },
-      });
-      const rocketRun = await prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: rocketAccount.id,
-          sourceType: 'coupang_rocket_po_catalog',
-          parserVersion: 'rocket-po-v1',
-          status: 'completed',
-          importedAt: new Date(),
-        },
-      });
-      const listing = await prisma.channelListing.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: rocketAccount.id,
-          externalId: 'ROCKET-PO-ELIGIBLE',
-          displayName: 'Rocket PO eligible',
-          lastImportRunId: rocketRun.id,
-          isActive: true,
-        },
-      });
-      const option = await createOption(listing.id, {
-        sellerSku: 'ROCKET-PO-SKU',
-      });
-
-      const rows = await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {
-        channelAccountId: rocketAccount.id,
-      });
-
-      expect(rows.map((row) => row.option.id)).toEqual([option.id]);
-    });
-
-  it('admits only completed catalog runs on the availability read', async () => {
+  it('admits only listings an operation published on the availability read — an old completed import run no longer certifies one', async () => {
     const rocketAccount = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1170,50 +1122,42 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         name: 'Rocket eligibility',
       },
     });
+    const completedRun = (run: { sourceType: string; parserVersion: string | null }) => prisma.sourceImportRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: rocketAccount.id,
+        importedAt: new Date(),
+        status: 'completed',
+        ...run,
+      },
+    });
     const cases = [
+      { name: 'Rocket PO operation', provenance: { lastOperationId: randomUUID() }, eligible: true },
       {
-        name: 'completed Rocket matching CSV',
-        run: { sourceType: 'coupang_rocket_matching_csv', status: 'completed', parserVersion: null },
-        eligible: true,
-      },
-      {
-        name: 'completed Rocket PO catalog',
-        run: { sourceType: 'coupang_rocket_po_catalog', status: 'completed', parserVersion: 'rocket-po-v1' },
-        eligible: true,
-      },
-      {
-        name: 'running Rocket matching CSV',
-        run: { sourceType: 'coupang_rocket_matching_csv', status: 'running', parserVersion: null },
+        name: 'completed Rocket PO catalog run',
+        provenance: { lastImportRunId: (await completedRun({ sourceType: 'coupang_rocket_po_catalog', parserVersion: 'rocket-po-v1' })).id },
         eligible: false,
       },
       {
-        name: 'uncertified legacy Rocket PO catalog',
-        run: { sourceType: 'coupang_rocket_po_catalog', status: 'completed', parserVersion: null },
+        name: 'completed Rocket matching CSV run',
+        provenance: { lastImportRunId: (await completedRun({ sourceType: 'coupang_rocket_matching_csv', parserVersion: null })).id },
         eligible: false,
       },
     ];
-    const seeded: Array<{ name: string; listingId: string; optionId: string }> = [];
+    const seeded: Array<{ name: string; optionId: string }> = [];
     for (const [index, entry] of cases.entries()) {
-      const run = await prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: rocketAccount.id,
-          importedAt: new Date(),
-          ...entry.run,
-        },
-      });
       const listing = await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: rocketAccount.id,
           externalId: `ROCKET-ELIGIBILITY-${index}`,
           displayName: entry.name,
-          lastImportRunId: run.id,
+          ...entry.provenance,
           isActive: true,
         },
       });
       const option = await createOption(listing.id, { sellerSku: `ROCKET-ELIGIBILITY-${index}` });
-      seeded.push({ name: entry.name, listingId: listing.id, optionId: option.id });
+      seeded.push({ name: entry.name, optionId: option.id });
     }
 
     const available = new Set(
@@ -1232,17 +1176,8 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   });
 
   it('admits a browser-published catalog option on the availability read', async () => {
-    // The listing's last run is not a completed catalog run, so only the
-    // published option marker can make it catalog identity.
-    const runningBasics = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: ACCOUNT_ID,
-        sourceType: 'coupang_wing_catalog_basics',
-        parserVersion: 'coupang-catalog-owner-v1',
-        status: 'running',
-      },
-    });
+    // No operation published the listing, so only the published option
+    // marker can make it catalog identity.
     const cases = [
       { name: 'browser catalog publication', source: 'coupang_catalog_browser', eligible: true },
       { name: 'catalog basics publication', source: 'coupang_catalog_basics', eligible: true },
@@ -1256,7 +1191,6 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
           channelAccountId: ACCOUNT_ID,
           externalId: `OPTION-SOURCE-${index}`,
           displayName: entry.name,
-          lastImportRunId: runningBasics.id,
           isActive: true,
         },
       });

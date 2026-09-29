@@ -4,7 +4,7 @@ import {
 } from '@kiditem/shared/coupang-catalog-snapshot';
 
 // Source-import identity of Channels' catalog publications. The catalog
-// adapters write these values and `read/completed-catalog-run` selects by them.
+// adapters write these values.
 
 /** The catalog workbook import. (The removed legacy full browser stage shared this source type.) */
 export const CATALOG_SOURCE = 'coupang_wing_catalog';

@@ -53,11 +53,8 @@ describe('Sellpia manual match over the operation contract (PG integration)', ()
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await prisma.channelAccount.create({ data: { id: ACCOUNT_ID, organizationId: ORG, channel: 'coupang', name: 'Wing' } });
-    const catalogRun = await prisma.sourceImportRun.create({
-      data: { organizationId: ORG, channelAccountId: ACCOUNT_ID, sourceType: 'coupang_wing_catalog', status: 'completed', fileName: 'catalog.xlsx', fileHash: randomUUID() },
-    });
     await prisma.channelListing.create({
-      data: { organizationId: ORG, channelAccountId: ACCOUNT_ID, externalId: `LISTING-${randomUUID()}`, displayName: 'Match Alias', lastImportRunId: catalogRun.id, isActive: true },
+      data: { organizationId: ORG, channelAccountId: ACCOUNT_ID, externalId: `LISTING-${randomUUID()}`, displayName: 'Match Alias', lastOperationId: randomUUID(), isActive: true },
     });
     firstSkuId = (await prisma.masterProduct.create({
       data: { organizationId: ORG, code: '6402-1', sourceAccountKey: 'kiditem', sourceProductCode: '6402-1', sourceOptionCode: '', name: 'First SKU', currentStock: 10 },
@@ -182,31 +179,25 @@ describe('Sellpia manual match over the operation contract (PG integration)', ()
     expect(await prisma.sellpiaManualMatchSnapshot.count()).toBe(0);
   });
 
-  it('accepts aliases from listings published by an operation (lastOperationId) and a completed Rocket PO run, not an uncertified legacy one', async () => {
+  it('accepts aliases only from listings an operation published (lastOperationId), not from an old completed import run', async () => {
     await prisma.channelListing.updateMany({ where: { organizationId: ORG }, data: { isActive: false } });
     const rocket = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'rocket', name: 'Rocket' } });
     const rocketRun = await prisma.sourceImportRun.create({
       data: { organizationId: ORG, channelAccountId: rocket.id, sourceType: 'coupang_rocket_po_catalog', parserVersion: 'rocket-po-v1', status: 'completed', importedAt: new Date() },
     });
-    const legacyRun = await prisma.sourceImportRun.create({
-      data: { organizationId: ORG, channelAccountId: rocket.id, sourceType: 'coupang_rocket_po_catalog', parserVersion: null, status: 'completed', importedAt: new Date() },
-    });
     await prisma.channelListing.createMany({
       data: [
-        { organizationId: ORG, channelAccountId: rocket.id, externalId: 'ROCKET-PO', displayName: 'Rocket Alias', lastImportRunId: rocketRun.id, isActive: true },
-        { organizationId: ORG, channelAccountId: rocket.id, externalId: 'LEGACY', displayName: 'Legacy Rocket Alias', lastImportRunId: legacyRun.id, isActive: true },
+        { organizationId: ORG, channelAccountId: rocket.id, externalId: 'ROCKET-PO', displayName: 'Old Run Alias', lastImportRunId: rocketRun.id, isActive: true },
         { organizationId: ORG, channelAccountId: rocket.id, externalId: 'CSV-OP', displayName: 'Operation Alias', lastOperationId: randomUUID(), isActive: true },
       ],
     });
 
     await finish(await begin(), [
-      { productCode: '6402-1', aliasTitle: 'Rocket Alias', itemCount: 1, matchedType: 'M', evidenceCount: 1 },
-      { productCode: '6402-2', aliasTitle: 'Legacy Rocket Alias', itemCount: 1, matchedType: 'M', evidenceCount: 1 },
+      { productCode: '6402-1', aliasTitle: 'Old Run Alias', itemCount: 1, matchedType: 'M', evidenceCount: 1 },
       { productCode: '6402-2', aliasTitle: 'Operation Alias', itemCount: 1, matchedType: 'P', evidenceCount: 1 },
     ]);
     expect((await aliases()).map(({ aliasTitle, masterProductId }) => [aliasTitle, masterProductId])).toEqual([
       ['Operation Alias', secondSkuId],
-      ['Rocket Alias', firstSkuId],
     ]);
   });
 

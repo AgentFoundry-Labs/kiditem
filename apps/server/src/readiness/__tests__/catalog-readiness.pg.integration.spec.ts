@@ -17,7 +17,6 @@ import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapte
 import { ChannelCatalogFreshnessAdapter } from '../../channels/adapter/out/operation/channel-catalog-freshness.adapter';
 import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 
-const CATALOG_OWNER_PARSER = 'coupang-catalog-owner-v1';
 
 describe('Coupang catalog readiness count over PostgreSQL', () => {
   let prisma: PrismaClient;
@@ -98,73 +97,25 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     expect(latest?.basis).toMatchObject({ observedAt: second.finishedAt });
   });
 
-  function catalogRun(data: {
-    sourceType: string;
-    status: string;
-    parserVersion?: string;
-    rootAttemptId?: string;
-  }) {
-    const { rootAttemptId, ...run } = data;
-    return prisma.sourceImportRun.create({
+  it('counts only active listings an operation published — an old completed catalog run no longer counts', async () => {
+    const completedLegacy = await prisma.sourceImportRun.create({
       data: {
         organizationId: ORG,
         channelAccountId: accountId,
-        importedAt: run.status === 'completed' ? new Date('2026-09-12T01:00:00.000Z') : null,
-        ...(rootAttemptId
-          ? { plan: { stage: 'details', rootAttemptId, basicAttemptId: rootAttemptId } }
-          : {}),
-        ...run,
+        sourceType: 'coupang_wing_catalog',
+        status: 'completed',
+        importedAt: new Date('2026-09-12T01:00:00.000Z'),
       },
     });
-  }
-
-  it('counts listings of completed catalog runs only', async () => {
-    const completedBasics = await catalogRun({
-      sourceType: 'coupang_wing_catalog_basics',
-      status: 'completed',
-      parserVersion: CATALOG_OWNER_PARSER,
-    });
-    const failedBasics = await catalogRun({
-      sourceType: 'coupang_wing_catalog_basics',
-      status: 'failed',
-      parserVersion: CATALOG_OWNER_PARSER,
-    });
-    const detailsOf = (rootAttemptId: string, status: string) => catalogRun({
-      sourceType: 'coupang_wing_catalog_details',
-      status,
-      parserVersion: CATALOG_OWNER_PARSER,
-      rootAttemptId,
-    });
-    const counted = [
-      ['COMPLETED-LEGACY', await catalogRun({ sourceType: 'coupang_wing_catalog', status: 'completed' })],
-      ['COMPLETED-BASICS', completedBasics],
-      ['COMPLETED-DETAILS', await detailsOf(completedBasics.id, 'completed')],
-    ] as const;
-    const notCounted = [
-      ['RUNNING-LEGACY', await catalogRun({ sourceType: 'coupang_wing_catalog', status: 'running' })],
-      ['FAILED-LEGACY', await catalogRun({ sourceType: 'coupang_wing_catalog', status: 'failed' })],
-      ['RUNNING-BASICS', await catalogRun({
-        sourceType: 'coupang_wing_catalog_basics',
-        status: 'running',
-        parserVersion: CATALOG_OWNER_PARSER,
-      })],
-      ['FAILED-BASICS', failedBasics],
-      ['RUNNING-DETAILS-OF-FAILED-BASICS', await detailsOf(failedBasics.id, 'running')],
-      // KID-348: 상세는 종료 트랜잭션에서만 리스팅에 쓴다. 끝나지 않은 상세 시도를 가리키는 리스팅은
-      // 이 PR 이전에 청크 시점 반영이 남긴 행뿐이고, 다음 목록 단계가 완료 시도로 옮긴다.
-      ['RUNNING-DETAILS-OF-COMPLETED-BASICS', await detailsOf(completedBasics.id, 'running')],
-      ['FAILED-DETAILS-OF-COMPLETED-BASICS', await detailsOf(completedBasics.id, 'failed')],
-    ] as const;
-    for (const [externalId, run] of [...counted, ...notCounted]) {
+    const listings = [
+      { externalId: 'OPERATION', lastOperationId: '75000000-0000-4000-8000-000000000001', isActive: true },
+      { externalId: 'OPERATION-INACTIVE', lastOperationId: '75000000-0000-4000-8000-000000000001', isActive: false },
+      { externalId: 'COMPLETED-LEGACY', lastImportRunId: completedLegacy.id, isActive: true },
+      { externalId: 'UNSOURCED', isActive: true },
+    ];
+    for (const listing of listings) {
       await prisma.channelListing.create({
-        data: {
-          organizationId: ORG,
-          channelAccountId: accountId,
-          externalId,
-          displayName: externalId,
-          lastImportRunId: run.id,
-          isActive: true,
-        },
+        data: { organizationId: ORG, channelAccountId: accountId, displayName: listing.externalId, ...listing },
       });
     }
 
@@ -172,6 +123,6 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     const products = status.checks.find((check) => check.key === 'coupang_products');
 
     // 신선도는 옛 run이 아니라 상세 kind 실행이 정한다(KID-354) — 여기서는 셈만 본다.
-    expect(products).toMatchObject({ count: counted.length });
+    expect(products).toMatchObject({ count: 1 });
   });
 });
