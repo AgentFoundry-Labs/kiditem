@@ -94,7 +94,6 @@ function fakeLoginDriver(opened) {
     waitReady: async () => undefined,
     ensureActive: async () => undefined,
     cancelledResult: async () => ({ success: false, errorCode: "COLLECTION_CANCELLED" }),
-    hasPermission: async () => true,
     openTab: async (url) => {
       opened.push(url);
       return { tab: { id: 1 } };

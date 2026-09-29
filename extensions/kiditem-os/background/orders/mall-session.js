@@ -12,29 +12,14 @@
   // 재시도 간격 · 실패한 몰 차단은 여기 없다. 그건 웹의 정책이고 웹에 남아 있다.
 
   /**
-   * 두 문이 함께 쓰는 이유 코드 한 벌. 서버의 관찰 기록(`mall-operation-outcomes.ts`)이
-   * `^[a-z][a-z0-9_]{0,63}$` 만 받으므로 그 모양을 지킨다 — 어긋나면 기록이 통째로 거절된다.
-   * `login_check` 와 `login_test` 가 같은 벌에서 답해야 두 줄을 나란히 읽을 수 있다.
+   * 저장 자격 로그인의 이유 코드. 서버의 관찰 기록(`mall-operation-outcomes.ts`)이 `^[a-z][a-z0-9_]{0,63}$` 만
+   * 받으므로 그 모양을 지킨다. 로그인 확인의 이유 코드는 새 런타임(`sites/mall-session/check-specs.ts`)에 있다.
    */
   const REASONS = Object.freeze({
-    // 로그인돼 있다는 근거
-    ADMIN_PAGE: "admin_page",
-    ADMIN_API: "admin_api",
     ALREADY_SIGNED_IN: "already_signed_in",
     FORM_SUBMITTED: "form_submitted",
-    // 로그인이 필요하다는 근거
-    LOGIN_PAGE: "login_page",
-    LOGIN_REQUIRED_RESPONSE: "login_required_response",
-    REDIRECTED_AWAY: "redirected_away",
-    HTTP_UNAUTHORIZED: "http_unauthorized",
     LOGIN_FORM_REMAINS: "login_form_remains",
     VERIFICATION_REQUIRED: "verification_required",
-    // 가리지 못했다는 근거 — 몰에 대한 관찰이 아니라 우리 쪽 사정인 것도 있다
-    UNRECOGNIZED_PAGE: "unrecognized_page",
-    NETWORK_ERROR: "network_error",
-    TIMEOUT: "timeout",
-    NO_PASSIVE_CHECK: "no_passive_check",
-    NO_LOGIN_ADDRESS: "no_login_address",
     LOGIN_PAGE_NOT_REACHABLE: "login_page_not_reachable",
     UNSUPPORTED_MALL: "unsupported_mall",
     NO_LOGIN_FORM: "no_login_form",

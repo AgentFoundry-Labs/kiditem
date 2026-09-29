@@ -240,13 +240,9 @@ test('order-collection route actions are handled by the extension worker', () =>
   for (const match of entryContract.matchAll(/_ACTION = ['"]([^'"]+)['"] as const/g)) {
     handledActions.add(match[1]);
   }
-  // 호출부가 없는 죽은 액션(KID-366)은 확장에서 지웠다 — 웹에 남은 죽은 호출 코드는 웹 트랙이 지운다.
-  const retiredActions = new Set(['clickCoupangShipmentDownloads', 'uploadDomeggookTracking']);
-  for (const action of retiredActions) assert.equal(handledActions.has(action), false, `${action} must stay retired`);
   const missingActions = [...requestedActions].filter(
     (action) =>
       !handledActions.has(action) &&
-      !retiredActions.has(action) &&
       !new Set(['restartCollectionSession', 'finalizeCollectionSession']).has(action),
   );
 

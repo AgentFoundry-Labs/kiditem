@@ -524,8 +524,6 @@ function createMallSessionDriver() {
     waitReady: (tabId) => waitForTabReady(tabId),
     ensureActive: (collection) => assertOrderCollectionActive(collection),
     cancelledResult: (error) => orderCollectionCancelledResult(error),
-    hasPermission: (origin) =>
-      chrome.permissions.contains({ origins: [`${origin}/*`] }).catch(() => false),
 
     async openTab(url, collection) {
       if (collection) await assertOrderCollectionActive(collection);
