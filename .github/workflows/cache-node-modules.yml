@@ -1,0 +1,42 @@
+name: Cache node_modules
+# Warms the node_modules cache from develop so a PR's first run can hit it (KID-400).
+# PR runs only save caches in their own merge-ref scope; caches saved here are readable by every PR into develop.
+on:
+  push:
+    branches:
+      - develop
+    paths:
+      - package-lock.json
+      - .github/workflows/cache-node-modules.yml
+  workflow_dispatch:
+concurrency:
+  group: cache-node-modules
+  cancel-in-progress: true
+jobs:
+  warm:
+    name: Warm node_modules cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - name: Use Node 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Restore node_modules
+        id: node-modules
+        # Same key as pr-checks.yml; keep the two in sync.
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
+      - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
+        run: npm ci --ignore-scripts

@@ -533,7 +533,27 @@ function unwrapExpression(node) {
   return current;
 }
 
+// One program/checker per distinct source text: the ledger loop calls the
+// detectors once per ledger for the same file. The caller releases the caches
+// after each file so only one Program is alive at a time (KID-400).
+const sourceAnalysisCache = new Map();
+const commentFreeCodeCache = new Map();
+const rawSqlCache = new Map();
+function releaseSourceCaches() {
+  sourceAnalysisCache.clear();
+  commentFreeCodeCache.clear();
+  rawSqlCache.clear();
+}
+
 function createSourceAnalysis(source) {
+  const cached = sourceAnalysisCache.get(source);
+  if (cached) return cached;
+  const analysis = createSourceAnalysisUncached(source);
+  sourceAnalysisCache.set(source, analysis);
+  return analysis;
+}
+
+function createSourceAnalysisUncached(source) {
   const fileName = 'ledger-reader.tsx';
   const options = {
     jsx: ts.JsxEmit.Preserve,
@@ -966,6 +986,30 @@ function collectPrismaRawSql(source) {
   return queries;
 }
 
+// Comment-stripped source, computed once per source text instead of once per
+// ledger (the printer pass was most of the scanner's run time, KID-400).
+function commentFreeCode(file, source) {
+  const cached = commentFreeCodeCache.get(source);
+  if (cached !== undefined) return cached;
+  const code = path.extname(file) === '.sql'
+    ? source
+    : ts.createPrinter({ removeComments: true }).printFile(
+      ts.createSourceFile(
+        file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+      ),
+    );
+  commentFreeCodeCache.set(source, code);
+  return code;
+}
+
+function collectPrismaRawSqlCached(source) {
+  const cached = rawSqlCache.get(source);
+  if (cached) return cached;
+  const queries = collectPrismaRawSql(source);
+  rawSqlCache.set(source, queries);
+  return queries;
+}
+
 function detectLedgerAccess(source, ledger, file) {
   const reads = [];
   const delegateAccess = detectPrismaDelegateAccess(
@@ -990,14 +1034,8 @@ function detectLedgerAccess(source, ledger, file) {
     `\\b(?:insert\\s+into|update|delete\\s+from)\\s+${tableTarget}\\b`,
     'im',
   );
-  const code = path.extname(file) === '.sql'
-    ? source
-    : ts.createPrinter({ removeComments: true }).printFile(
-      ts.createSourceFile(
-        file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
-      ),
-    );
-  const rawSql = [code, ...collectPrismaRawSql(source)];
+  const code = commentFreeCode(file, source);
+  const rawSql = [code, ...collectPrismaRawSqlCached(source)];
   const hasRawSqlMutation = rawSql.some((sql) =>
     rawSqlMutationPattern.test(sql),
   );
@@ -1098,19 +1136,23 @@ export function inspectLedgerReaders({
     (file) => !isTestOrSeed(file),
   );
 
-  for (const ledger of manifest.ledgers) {
-    const ownerReadRoots = [
-      path.posix.join(ledger.owner.root, 'adapter/out/persistence'),
-    ];
-    const readAllowed = new Set([
+  // File-outer, ledger-inner (KID-400): each file is parsed and printed once
+  // and its analysis is dropped before the next file, so peak memory stays at
+  // one file instead of one Program per file for the whole run. Violations are
+  // stable-sorted back into the historical (ledger, file) order.
+  const ledgerRules = manifest.ledgers.map((ledger, ledgerIndex) => ({
+    ledger,
+    ledgerIndex,
+    ownerReadRoots: [path.posix.join(ledger.owner.root, 'adapter/out/persistence')],
+    readAllowed: new Set([
       ...ledger.ownerPublications.map((publication) => publication.path),
       ...ledger.legacyReaders.map((legacy) => legacy.path),
-    ]);
-    const mutationAllowed = new Set(
-      ledger.ownerPublications.map((publication) => publication.path),
-    );
-    for (const file of files) {
-      const source = readFileSync(path.join(root, file), 'utf8');
+    ]),
+    mutationAllowed: new Set(ledger.ownerPublications.map((publication) => publication.path)),
+  }));
+  for (const file of files) {
+    const source = readFileSync(path.join(root, file), 'utf8');
+    for (const { ledger, ledgerIndex, ownerReadRoots, readAllowed, mutationAllowed } of ledgerRules) {
       for (const kind of detectLedgerAccess(source, ledger, file)) {
         const allowed = LEDGER_MUTATION_ACCESS_KINDS.has(kind)
           ? mutationAllowed.has(file)
@@ -1125,10 +1167,16 @@ export function inspectLedgerReaders({
           kind,
           ledger: ledger.name,
           owner: ledger.owner.name,
+          ledgerIndex,
         });
       }
     }
-    if (requireNoLegacy) {
+    releaseSourceCaches();
+  }
+  violations.sort((a, b) => a.ledgerIndex - b.ledgerIndex);
+  for (const violation of violations) delete violation.ledgerIndex;
+  if (requireNoLegacy) {
+    for (const ledger of manifest.ledgers) {
       for (const legacy of ledger.legacyReaders) {
         legacyViolations.push({ ...legacy, ledger: ledger.name });
       }

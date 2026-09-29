@@ -21,6 +21,8 @@ jobs:
     outputs:
       # Gateway build/unit only runs when its inputs changed (KID-399).
       gateway: ${{ steps.changes.outputs.gateway }}
+      # Unit and script-contract jobs only run when something other than docs changed (KID-400).
+      code: ${{ steps.changes.outputs.code }}
     steps:
       - name: Checkout pull request head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -28,6 +30,26 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
 
+      - name: Detect Gateway and code changes
+        # First step so the outputs exist even when a later hygiene check fails (KID-400).
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git diff --name-only "${BASE_SHA}...HEAD" > changed-files.txt
+          if grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\.json$|package\.json$|package-lock\.json$|\.github/workflows/pr-checks\.yml$)' changed-files.txt; then
+            echo "gateway=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "gateway=false" >> "$GITHUB_OUTPUT"
+          fi
+          # Docs-only PRs (Markdown, docs/, templates, LICENSE) skip the unit job. The script-contract job always runs
+          # because its tests and scanners pin docs such as docs/TESTING.md, docs/ARCHITECTURE.md and scripts/README.md.
+          if grep -Evq '^(docs/|\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE\.md)|LICENSE$)|\.md$' changed-files.txt; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f changed-files.txt
       - name: Check diff formatting
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -35,22 +57,11 @@ jobs:
 
       - name: Check agent instruction hygiene
         run: node scripts/check-agents-hygiene.mjs
-      - name: Detect Gateway changes
-        id: changes
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if git diff --name-only "${BASE_SHA}...HEAD" | grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\.json$|package\.json$|package-lock\.json$|\.github/workflows/pr-checks\.yml$)'; then
-            echo "gateway=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "gateway=false" >> "$GITHUB_OUTPUT"
-          fi
-
   gateway_fast_checks:
     name: Gateway fast checks
     # Skipped unless Gateway sources, the Shared entry points it consumes, the lockfile, or this workflow changed.
     needs: pr-hygiene
-    if: needs.pr-hygiene.outputs.gateway == 'true'
+    if: ${{ !cancelled() && needs.pr-hygiene.outputs.gateway == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -67,7 +78,18 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore node_modules
+        id: node-modules
+        # Keyed on the lockfile; a hit skips npm ci (about a minute per job, KID-400).
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
       - name: Build and unit-test the Gateway
@@ -78,6 +100,9 @@ jobs:
 
   unit_tests:
     name: Shared and server unit tests
+    needs: pr-hygiene
+    # Runs even when hygiene fails (whitespace is the most common first-run failure), skips docs-only PRs.
+    if: ${{ !cancelled() && needs.pr-hygiene.outputs.code == 'true' }}
     # PostgreSQL integration specs stay out: they need Testcontainers (develop-validation.yml).
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -95,7 +120,18 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore node_modules
+        id: node-modules
+        # Keyed on the lockfile; a hit skips npm ci (about a minute per job, KID-400).
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
       - name: Build the SQLite native binding
@@ -161,7 +197,18 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore node_modules
+        id: node-modules
+        # Keyed on the lockfile; a hit skips npm ci (about a minute per job, KID-400).
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
       - name: Generate Prisma client

@@ -28,6 +28,7 @@
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "hooks:install": "git config core.hooksPath .githooks",
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
+    "gate:pr": "node scripts/gate-pr.mjs",
     "check:agent-os-hexagonal": "node scripts/check-agent-os-hexagonal.mjs",
     "check:agent-os-contraction": "node scripts/check-agent-os-contraction.mjs",
     "check:operation-automation-cutover": "node scripts/check-operation-automation-cutover.mjs",

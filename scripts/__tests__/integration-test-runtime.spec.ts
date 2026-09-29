@@ -24,6 +24,25 @@ function readWorkflowJobSource(workflowSource: string, jobName: string): string 
   return lines.slice(jobStart, jobEnd).join('\n');
 }
 
+const NODE_MODULES_CACHE_KEY =
+  "key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}";
+const CACHE_HIT_SKIP = "if: steps.node-modules.outputs.cache-hit != 'true'";
+
+// KID-400: a job carries exactly the listed conditions (the docs-only gate
+// from pr-hygiene where it applies, plus the node_modules cache-hit skip) and
+// never continue-on-error. The gate uses !cancelled() so a hygiene failure —
+// the most common first-run failure — does not hide the other jobs' signal.
+function expectOnlyGateConditions(jobSource: string, conditions: string[]): void {
+  const found = jobSource
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('if:'));
+  expect(found).toEqual(conditions);
+  expect(jobSource).toContain(NODE_MODULES_CACHE_KEY);
+  expect(jobSource).not.toContain('scripts/node_modules');
+  expect(jobSource).not.toMatch(/^\s*(?:-\s*)?continue-on-error:/m);
+}
+
 function readWorkflowJobNames(workflowSource: string): string[] {
   const jobsSource = workflowSource.split('\njobs:\n')[1] ?? '';
 
@@ -70,12 +89,28 @@ describe('integration test runtime contract', () => {
     // only runs when its inputs changed and no longer repeats the Office
     // deployment contract tests that test:scripts already covers.
     expect(prJobSource).toContain('gateway: ${{ steps.changes.outputs.gateway }}');
+    // KID-400: docs-only PRs skip the unit and script-contract jobs.
+    expect(prJobSource).toContain('code: ${{ steps.changes.outputs.code }}');
+    expect(prJobSource).toContain('echo "code=true" >> "$GITHUB_OUTPUT"');
+    expect(prJobSource).toContain(
+      "grep -Evq '^(docs/|\\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE\\.md)|LICENSE$)|\\.md$' changed-files.txt",
+    );
+    // Detection runs before the hygiene checks so the outputs exist when they fail.
+    expect(prJobSource.indexOf('- name: Detect Gateway and code changes')).toBeLessThan(
+      prJobSource.indexOf('- name: Check diff formatting'),
+    );
+    // The develop-side warm-up shares the cache key with the PR jobs.
+    const warmWorkflow = readRepoFile('.github/workflows/cache-node-modules.yml');
+    expect(readWorkflowJobNames(warmWorkflow)).toEqual(['warm']);
+    expect(warmWorkflow).toContain(NODE_MODULES_CACHE_KEY);
+    expect(warmWorkflow).toContain('      - develop');
+    expect(warmWorkflow).not.toContain('pull_request:');
     expect(prJobSource).toContain('echo "gateway=true" >> "$GITHUB_OUTPUT"');
     expect(prJobSource).toContain(
-      "grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\\.json$|package\\.json$|package-lock\\.json$|\\.github/workflows/pr-checks\\.yml$)'",
+      "grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\\.json$|package\\.json$|package-lock\\.json$|\\.github/workflows/pr-checks\\.yml$)' changed-files.txt",
     );
     expect(gatewayFastJob).toContain('needs: pr-hygiene');
-    expect(gatewayFastJob).toContain("if: needs.pr-hygiene.outputs.gateway == 'true'");
+    expect(gatewayFastJob).toContain("if: ${{ !cancelled() && needs.pr-hygiene.outputs.gateway == 'true' }}");
     expect(gatewayFastJob).not.toContain('office-deployment-contract.test.mjs');
     expect(gatewayFastJob).toContain('runs-on: ubuntu-latest');
     expect(gatewayFastJob).toContain('node-version: 22');
@@ -200,7 +235,10 @@ describe('integration test runtime contract', () => {
       'run: npm run check:conventions',
     ]);
     expect(jobLines).toContain('NODE_OPTIONS: --max-old-space-size=4096');
-    expect(scriptJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
+    // The script-contract job always runs: its tests and scanners pin docs
+    // (docs/TESTING.md, docs/ARCHITECTURE.md, scripts/README.md, ...).
+    expect(scriptJob).not.toContain('needs: pr-hygiene');
+    expectOnlyGateConditions(scriptJob, [CACHE_HIT_SKIP]);
     expect(scriptJob.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
     expect(generateStep).toBeGreaterThan(-1);
     expect(databaseUrlLine).toBeGreaterThan(generateStep);
@@ -233,7 +271,11 @@ describe('integration test runtime contract', () => {
       'run: node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     ]);
     expect(unitJob).not.toContain('test:integration');
-    expect(unitJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
+    expect(unitJob).toContain('needs: pr-hygiene');
+    expectOnlyGateConditions(unitJob, [
+      "if: ${{ !cancelled() && needs.pr-hygiene.outputs.code == 'true' }}",
+      CACHE_HIT_SKIP,
+    ]);
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {

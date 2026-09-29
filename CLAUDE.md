@@ -141,8 +141,8 @@ contract.
   duplicated messages, or unrelated diff.
 - Use [the PR template](.github/PULL_REQUEST_TEMPLATE.md), including DB and
   backfill decisions, and read the live body back after editing.
-- Before waiting for checks, run the reconstruction and release-contract guards
-  against the intended base.
+- Before a PR, run `npm run gate:pr`, `check:pr-reconstruction` and
+  `check:pr-release-contract` on the base.
 - Before merging, verify the live head, required checks, conflict status, and
   required reviews and approvals. An independent review must come from someone
   other than the implementer.
