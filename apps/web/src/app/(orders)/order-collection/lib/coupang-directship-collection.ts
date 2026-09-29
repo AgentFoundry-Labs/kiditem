@@ -124,9 +124,6 @@ export function createCoupangDirectshipCollector({
         emptyTransports.push(label);
         continue;
       }
-      if (!conversion.transmissionIntentKey) {
-        throw new Error('쿠팡 로켓 수집 식별 정보가 없어 파일을 저장하지 않았습니다.');
-      }
       const result = conversion.file;
       // 수집한 발주는 전부 파일에 담긴다 — 표시 건수는 발주 기준(sourceRows)으로 맞춘다.
       const itemRows = result.outputRows ?? 0;
@@ -138,7 +135,8 @@ export function createCoupangDirectshipCollector({
         : '';
       const historyItem = {
         ...result,
-        id: conversion.transmissionIntentKey,
+        // 파일 id = 직배송 실행 + 운송유형 — 셀피아 전송의 원천과 같은 짝이다(KID-388).
+        id: `${conversion.importRunId}:${transport}`,
         sourceName: `쿠팡직배송 ${label} (${formatNumber(poCount)}건 · ${formatNumber(itemRows)}품목${unmatchedLabel})`,
         convertedAt: Date.now(),
         collectionDate,
@@ -150,7 +148,6 @@ export function createCoupangDirectshipCollector({
         mallName: `쿠팡직배송 ${label}`,
         orderNumbers,
         rocketWorkbookExportId: conversion.rocketWorkbookExportId,
-        transmissionIntentKey: conversion.transmissionIntentKey,
         // 셀피아 전송 scope: 직배송 실행 id + 운송유형 — 한 실행이 운송유형마다 파일 하나를 낸다(KID-366).
         sourceOperationId: conversion.importRunId,
         transport,

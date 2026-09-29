@@ -14,7 +14,6 @@ function receipt(overrides: Record<string, unknown> = {}) {
     payloadChecksum: 'a'.repeat(64),
     effectOperationId: OPERATION_ID,
     exportId: '55555555-5555-4555-8555-555555555555',
-    transmissionIntentKey: `rocket-final-order:${OPERATION_ID}:shipment`,
     matchedLineCount: 1,
     reconciledRows: 1,
     collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }, { poNumber: 'PO-1', productNo: 'P-2' }],
@@ -64,7 +63,6 @@ describe('CoupangDirectshipController — 성공한 실행 ID로 변환, 최근 
     for (const [name, value] of [
       ['X-Order-Collection-Operation-Id', OPERATION_ID],
       ['X-Rocket-Workbook-Export-Id', '55555555-5555-4555-8555-555555555555'],
-      ['X-Sellpia-Transmission-Intent-Key', `rocket-final-order:${OPERATION_ID}:shipment`],
       ['X-Order-Collection-Source-Rows', '1'],
       ['X-Order-Collection-Product-Rows', '2'],
       ['X-Order-Collection-Output-Rows', '2'],
@@ -72,6 +70,8 @@ describe('CoupangDirectshipController — 성공한 실행 ID로 변환, 최근 
       ['X-Rocket-Workbook-Matched-Rows', '1'],
       ['X-Rocket-Workbook-Unmatched-Rows', '1'],
     ]) expect(s.response.setHeader).toHaveBeenCalledWith(name, value);
+    // 셀피아 전송 원천은 실행 ID + 운송유형이다(KID-388) — 옛 intent 키 머리는 없다.
+    expect(s.response.setHeader.mock.calls.map(([name]) => name)).not.toContain('X-Sellpia-Transmission-Intent-Key');
   });
 
   it('모든 줄이 워크북과 맞지 않아도 양식을 만든다', async () => {
@@ -82,7 +82,7 @@ describe('CoupangDirectshipController — 성공한 실행 ID로 변환, 최근 
   });
 
   it('고른 운송유형에 수집 줄이 없을 때만 204', async () => {
-    const s = setup({ pos: [], receipt: { exportId: null, transmissionIntentKey: null, collectedLines: [], matchedLines: [], unmatchedLines: [] } });
+    const s = setup({ pos: [], receipt: { exportId: null, collectedLines: [], matchedLines: [], unmatchedLines: [] } });
     await expect(convert(s, { ...convertBody(), pos: [] })).resolves.toBeUndefined();
     expect(s.response.status).toHaveBeenCalledWith(204);
     expect(s.workbook.generate).not.toHaveBeenCalled();

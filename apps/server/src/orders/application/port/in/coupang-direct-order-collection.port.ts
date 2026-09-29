@@ -28,7 +28,6 @@ export type CoupangDirectTransportReceipt = {
   /** 이 영수증의 효과를 처음 만든 directship 실행. 옛 run이 만든 영수증은 null. */
   effectOperationId: string | null;
   exportId: string | null;
-  transmissionIntentKey: string | null;
   matchedLineCount: number;
   reconciledRows: number;
   collectedLines: CoupangDirectCollectionLineRef[];
