@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD } from '@kiditem/shared/product-abc';
 import { ProductTransactionalReadRepositoryAdapter } from './product-transactional-read.repository.adapter';
@@ -76,6 +77,7 @@ describe('MasterProductAbcRepositoryAdapter', () => {
     const repository = new MasterProductAbcRepositoryAdapter(
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prisma as never).listings,
     );
 
     await expect(repository.publish(publication())).resolves.toEqual({ outcome: 'INPUT_CHANGED' });

@@ -83,6 +83,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       new MasterProductAbcRepositoryAdapter(
         prismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+        channelFactTestPorts(prismaService as never).listings,
       ),
       evidence,
     );
@@ -115,6 +116,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
         channelAccounts, advertisingLedgerTestReader(prismaService),
+        channelFactTestPorts(prismaService as never).listings,
       ),
       inventory,
       { findByMasterProductIds: async () => new Map() } as never,
@@ -124,6 +126,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         evidence,
         new ProductTransactionalReadRepositoryAdapter(),
         channelAccounts,
+        channelFactTestPorts(prismaService as never).listings,
       ),
       { readContribution: async () => null } as never,
       new SellpiaMasterProductProfitFactReader(prismaService),
@@ -322,6 +325,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       new MasterProductAbcRepositoryAdapter(
         prisma as never,
         new ProductTransactionalReadRepositoryAdapter(),
+        channelFactTestPorts(prisma as never).listings,
       ), evidence,
     ).recalculate({ organizationId: TEST_ORGANIZATION_ID }))
       .resolves.toMatchObject({ outcome: 'PUBLISHED', classifiedProductCount: 1 });

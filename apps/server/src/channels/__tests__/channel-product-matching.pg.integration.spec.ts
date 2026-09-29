@@ -189,12 +189,12 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
     const statusByListing = new Map(queue.products.map((row) => [
       row.listing.id,
-      row.listing.saleStatus,
+      row.listing.saleState,
     ]));
     expect(statusByListing).toEqual(new Map([
-      [listing.id, null],
-      [activeFallback.id, 'active'],
-      [supplierStopped.id, null],
+      [listing.id, 'off_sale'],
+      [activeFallback.id, 'on_sale'],
+      [supplierStopped.id, 'off_sale'],
     ]));
   });
 

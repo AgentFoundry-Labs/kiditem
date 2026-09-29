@@ -71,7 +71,7 @@ const product = {
     channelAccountName: '쿠팡 본계정',
     externalId: '13712531060',
     displayName: '동물 친구들 블록',
-    saleStatus: '판매중',
+    saleState: 'on_sale',
     options: [{
       id: channelOptionId,
       externalOptionId: 'option-1',

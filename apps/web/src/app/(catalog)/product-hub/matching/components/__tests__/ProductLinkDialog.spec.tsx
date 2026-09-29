@@ -204,7 +204,7 @@ describe('<ProductLinkDialog>', () => {
 function productRow(linked = false) {
   return {
     channelAccount: { id: '55555555-5555-4555-8555-555555555555', channel: 'coupang', name: 'Wing' },
-    listing: { id: '11111111-1111-4111-8111-111111111111', externalId: 'listing-1', displayName: '채널 우산', status: 'active', saleStatus: '판매중', masterProductId: linked ? '33333333-3333-4333-8333-333333333333' : null, channelImageUrl: null, updatedAt: '2026-08-03T00:00:00.000Z' },
+    listing: { id: '11111111-1111-4111-8111-111111111111', externalId: 'listing-1', displayName: '채널 우산', status: 'active', saleState: 'on_sale', masterProductId: linked ? '33333333-3333-4333-8333-333333333333' : null, channelImageUrl: null, updatedAt: '2026-08-03T00:00:00.000Z' },
     linkedProduct: linked ? { id: '33333333-3333-4333-8333-333333333333', code: 'CP-333', name: '우산', displayImageUrl: null } : null,
     optionCount: 1,
     configuredOptionCount: 0,

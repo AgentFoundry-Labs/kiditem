@@ -81,7 +81,7 @@ describe('direct channel product and inventory matching contracts', () => {
           externalId: '13712531060',
           displayName: '채널 상품',
           status: 'active',
-          saleStatus: '판매중',
+          saleState: 'on_sale',
           masterProductId: productId,
           channelImageUrl: '/uploads/channel.jpg',
           updatedAt: '2026-08-03T00:00:00.000Z',

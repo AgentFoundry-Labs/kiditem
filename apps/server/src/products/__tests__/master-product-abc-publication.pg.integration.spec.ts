@@ -175,6 +175,7 @@ function abcService(prisma: PrismaClient): RecalculateProductAbcUseCase {
     new MasterProductAbcRepositoryAdapter(
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prisma as never).listings,
     ),
     profitabilityEvidence(prisma),
   );
@@ -185,6 +186,7 @@ function readAbc(prisma: PrismaClient, masterProductIds: readonly string[]) {
     new MasterProductAbcRepositoryAdapter(
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prisma as never).listings,
     ),
     profitabilityEvidence(prisma),
   ).readAbc({ organizationId: TEST_ORGANIZATION_ID, masterProductIds });
@@ -197,6 +199,7 @@ function productOperationsDataStatus(prisma: PrismaClient): ProductDataStatusUse
       profitabilityEvidence(prisma),
       new ProductTransactionalReadRepositoryAdapter(),
       channelFactTestPorts(prisma as never).accounts,
+      channelFactTestPorts(prisma as never).listings,
     ),
   );
 }

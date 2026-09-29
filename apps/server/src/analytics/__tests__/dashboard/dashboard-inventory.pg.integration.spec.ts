@@ -288,6 +288,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       externalId: 'EXT-T-LINKED',
       optionId: optionLinked.id,
       externalOptionId: 'VI-T-LINKED',
+      status: '승인완료',
     });
     const inventoryOnly = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ONLY', name: 'Inventory Only Master',
@@ -305,6 +306,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       externalId: 'EXT-T-INACTIVE',
       optionId: inactiveOption.id,
       externalOptionId: 'VI-T-INACTIVE',
+      status: '승인완료',
     });
     const otherMaster = await setupMaster(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-LINKED', name: 'Other Linked Master',
@@ -356,6 +358,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       externalId: 'EXT-T-CONFIG-LINK',
       optionId: inventory.id,
       externalOptionId: 'VI-T-CONFIG-LINK',
+      status: '승인완료',
     });
     // The recipe is the CONFIG linkage. Inventory evidence and current stock
     // affect availability metrics, but do not remove a valid product link.
@@ -386,7 +389,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
   });
 
-  it('uses source-evidenced sale status for channel-linked products without a traffic gate', async () => {
+  it('매칭 카드는 판매중 정본 판정을 따른다 — 원본 판매중지·모르는 상태는 세지 않는다(KID-333 ②)', async () => {
     const master = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       code: 'M-T-SALE-STATUS',
@@ -404,17 +407,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       externalId: 'EXT-T-SALE-STATUS',
       optionId: inventory.id,
       externalOptionId: 'VI-T-SALE-STATUS',
-    });
-    const status = await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.listingId,
-        channel: 'coupang',
-        externalId: 'EXT-T-SALE-STATUS',
-        businessDate: new Date('2026-09-01T00:00:00.000Z'),
-        saleStatus: '판매중지',
-        trafficObservedAt: null,
-      },
+      status: '승인완료',
+      rawJson: { saleStatus: '판매중지' },
     });
 
     await expect(readSummary(
@@ -422,83 +416,24 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       TEST_ORGANIZATION_ID,
     )).resolves.toMatchObject({ channelLinkedProducts: 0 });
 
-    await prisma.channelListingDailySnapshot.update({
-      where: { id: status.id },
-      data: { saleStatus: '판매중' },
+    await prisma.channelListing.update({
+      where: { id: listing.listingId },
+      data: { rawJson: { saleStatus: '판매중' } },
     });
     await expect(readSummary(
       buildDashboardContext(),
       TEST_ORGANIZATION_ID,
     )).resolves.toMatchObject({ channelLinkedProducts: 1 });
+
+    await prisma.channelListing.update({
+      where: { id: listing.listingId },
+      data: { status: 'observed', rawJson: {} },
+    });
+    await expect(readSummary(
+      buildDashboardContext(),
+      TEST_ORGANIZATION_ID,
+    )).resolves.toMatchObject({ channelLinkedProducts: 0 });
   });
-
-  it('keeps mapping configuration and latest sale status on one repeatable-read snapshot', async () => {
-    const publisher = makeTestPrisma();
-    const observer = makeTestPrisma();
-    await Promise.all([publisher.$connect(), observer.$connect()]);
-    const master = await setupMaster(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      code: 'M-T-CONCURRENT-STATUS',
-      name: 'Concurrent Status Master',
-    });
-    const inventory = await setupProductOption(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterId: master.id,
-      sku: 'SKU-T-CONCURRENT-STATUS',
-    });
-    const listing = await setupChannelListing(prisma, {
-      organizationId: TEST_ORGANIZATION_ID,
-      masterId: master.id,
-      channel: 'coupang',
-      externalId: 'EXT-T-CONCURRENT-STATUS',
-      optionId: inventory.id,
-      externalOptionId: 'VI-T-CONCURRENT-STATUS',
-    });
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.listingId,
-        channel: 'coupang',
-        externalId: 'EXT-T-CONCURRENT-STATUS',
-        businessDate: new Date('2026-09-01T00:00:00.000Z'),
-        saleStatus: '판매중',
-      },
-    });
-
-    const publicationLocked = deferred<void>();
-    const publish = deferred<void>();
-    const publication = publisher.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        'LOCK TABLE channel_listing_daily_snapshots IN ACCESS EXCLUSIVE MODE',
-      );
-      publicationLocked.resolve();
-      await publish.promise;
-      await tx.channelListingDailySnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.listingId,
-          channel: 'coupang',
-          externalId: 'EXT-T-CONCURRENT-STATUS',
-          businessDate: new Date('2026-09-02T00:00:00.000Z'),
-          saleStatus: '판매중지',
-        },
-      });
-    }, { timeout: 15_000 });
-
-    try {
-      await publicationLocked.promise;
-      const reading = repository.readInventoryAvailabilityFacts(TEST_ORGANIZATION_ID);
-      await waitForBlockedListingStateRead(observer);
-      publish.resolve();
-      await publication;
-
-      await expect(reading).resolves.toMatchObject({ linkedMasterProductCount: 1 });
-    } finally {
-      publish.resolve();
-      await publication.catch(() => undefined);
-      await Promise.all([publisher.$disconnect(), observer.$disconnect()]);
-    }
-  }, 20_000);
 
   it('T2: OTHER sees only OTHER — TEST does not leak', async () => {
     await seedBaseStructure();
@@ -1164,30 +1099,3 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     });
   });
 });
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-async function waitForBlockedListingStateRead(prisma: PrismaClient): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
-      SELECT EXISTS (
-        SELECT 1
-        FROM pg_stat_activity
-        WHERE datname = current_database()
-          AND pid <> pg_backend_pid()
-          AND state = 'active'
-          AND wait_event_type = 'Lock'
-          AND query ILIKE '%channel_listing_daily_snapshots%'
-      ) AS waiting
-    `;
-    if (activity?.waiting) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error('Timed out waiting for the dashboard listing-state read to block.');
-}

@@ -2,7 +2,7 @@ import { readUnresolvedCompositionOptionIds } from "./registration-operation-fac
 import { Inject, Injectable } from '@nestjs/common';
 import { KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
-import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
+import { listingSaleState } from '../../../domain/listing/listing-sale-state';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
@@ -92,6 +92,7 @@ function listingSelect(organizationId: string) {
         salePrice: true,
         safetyStock: true,
         status: true,
+        isActive: true,
         updatedAt: true,
         inventoryComponents: {
           where: { organizationId },
@@ -726,7 +727,7 @@ function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow 
       externalId: listing.externalId,
       displayName: listing.displayName,
       status: listing.status,
-      saleStatus: saleStatusFromListing(listing),
+      saleState: listingSaleState(listing),
       masterProductId: listing.masterProductId,
       channelImageUrl: null,
       updatedAt: listing.updatedAt,
@@ -777,21 +778,6 @@ function optionRecipeIdentity(option: OptionRow) {
       quantity: component.quantity,
     })),
   };
-}
-
-function saleStatusFromListing(listing: ListingRow): string | null {
-  const raw = asRecord(listing.rawJson);
-  return resolveChannelListingSaleStatus({
-    rawStatus: firstString(raw, [
-      'saleStatus',
-      'salesStatus',
-      'sale_status',
-      '판매상태',
-    ]),
-    optionStatuses: listing.options.map((option) => option.status),
-    listingStatus: listing.status,
-    isActive: listing.isActive,
-  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

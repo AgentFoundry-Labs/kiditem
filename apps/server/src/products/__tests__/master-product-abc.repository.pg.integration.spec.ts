@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
@@ -35,6 +36,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     repository = new MasterProductAbcRepositoryAdapter(
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
+      channelFactTestPorts(prisma as never).listings,
     );
   });
 
@@ -46,60 +48,6 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
   });
-
-  it('keeps selling configuration and latest sale status on one repeatable-read snapshot', async () => {
-    const publisher = makeTestPrisma();
-    const observer = makeTestPrisma();
-    await Promise.all([publisher.$connect(), observer.$connect()]);
-    const { productId, listingId } = await seedSellingProduct(prisma);
-    const listing = await prisma.channelListing.findFirstOrThrow({
-      where: { id: listingId, organizationId: TEST_ORGANIZATION_ID },
-    });
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        channel: 'rocket',
-        externalId: listing.externalId,
-        businessDate: new Date('2026-09-01T00:00:00.000Z'),
-        saleStatus: '판매중',
-      },
-    });
-
-    const publicationLocked = deferred<void>();
-    const publish = deferred<void>();
-    const publication = publisher.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        'LOCK TABLE channel_listing_daily_snapshots IN ACCESS EXCLUSIVE MODE',
-      );
-      publicationLocked.resolve();
-      await publish.promise;
-      await tx.channelListingDailySnapshot.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: listing.id,
-          channel: 'rocket',
-          externalId: listing.externalId,
-          businessDate: new Date('2026-09-02T00:00:00.000Z'),
-          saleStatus: '판매중지',
-        },
-      });
-    }, { timeout: 15_000 });
-
-    try {
-      await publicationLocked.promise;
-      const reading = repository.listCurrentAbcTargetIds(TEST_ORGANIZATION_ID);
-      await waitForBlockedListingStateRead(observer);
-      publish.resolve();
-      await publication;
-
-      await expect(reading).resolves.toEqual([productId]);
-    } finally {
-      publish.resolve();
-      await publication.catch(() => undefined);
-      await Promise.all([publisher.$disconnect(), observer.$disconnect()]);
-    }
-  }, 20_000);
 
   it('publishes the baseline atomically without creating history', async () => {
     const { productId, formulaVersionId, sources } = await fixture(prisma);
@@ -227,7 +175,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
     await expect(prisma.$transaction(async (tx) => {
       const inTransaction = new MasterProductAbcRepositoryAdapter({
         $transaction: (run: (client: Prisma.TransactionClient) => Promise<unknown>) => run(tx),
-      } as never, new ProductTransactionalReadRepositoryAdapter());
+      } as never, new ProductTransactionalReadRepositoryAdapter(), channelFactTestPorts(prisma as never).listings);
 
       await expect(inTransaction.publish(publication({
         formulaVersionId,
@@ -747,31 +695,4 @@ function latestClosedKstDate(now = new Date()): string {
     kst.getUTCDate() - 1,
   ));
   return yesterday.toISOString().slice(0, 10);
-}
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((done) => {
-    resolve = done;
-  });
-  return { promise, resolve };
-}
-
-async function waitForBlockedListingStateRead(prisma: PrismaClient): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
-    const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
-      SELECT EXISTS (
-        SELECT 1
-        FROM pg_stat_activity
-        WHERE datname = current_database()
-          AND pid <> pg_backend_pid()
-          AND state = 'active'
-          AND wait_event_type = 'Lock'
-          AND query ILIKE '%channel_listing_daily_snapshots%'
-      ) AS waiting
-    `;
-    if (activity?.waiting) return;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  throw new Error('Timed out waiting for the ABC selling-state read to block.');
 }

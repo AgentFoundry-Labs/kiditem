@@ -10,7 +10,6 @@ import {
 } from './components/ProductInventoryMatchingTable';
 import { ChannelCatalogImportDialog } from './components/ChannelCatalogImportDialog';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
-import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
 import { CollectionStopOnlyControl } from '@/components/collection/CollectionStopOnlyControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
@@ -132,7 +131,7 @@ export default function MatchingPage() {
   const selectedOptions = useMemo(() => (data?.options ?? []).filter((row) =>
     selectedAccountIdSet.has(row.channelAccount.id)), [data?.options, selectedAccountIdSet]);
   const onSaleListingIdSet = useMemo(() => new Set((data?.products ?? [])
-    .filter((row) => isChannelListingOnSale(row.listing.saleStatus))
+    .filter((row) => row.listing.saleState === 'on_sale')
     .map((row) => row.listing.id)), [data?.products]);
   const matchingSummary = useMemo(() => {
     const products = selectedProducts.filter((row) =>

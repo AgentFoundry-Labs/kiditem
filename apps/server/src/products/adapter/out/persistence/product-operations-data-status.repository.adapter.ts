@@ -21,7 +21,8 @@ import {
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { readProductAbcPublication } from './read/product-abc-publication.reader';
-import { listSellingMasterProductIds } from './selling-master-product.query';
+import { listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
+import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type {
   ProductOperationsDataStatusFacts,
   ProductOperationsDataStatusRepositoryPort,
@@ -42,6 +43,8 @@ implements ProductOperationsDataStatusRepositoryPort {
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(CHANNEL_ACCOUNT_PORT)
     private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: SellingListingReader,
   ) {}
 
   async read(
@@ -73,6 +76,7 @@ implements ProductOperationsDataStatusRepositoryPort {
           organizationId,
           undefined,
           this.inventoryTransactionalRead,
+          this.channelListings,
         ),
       ]),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },

@@ -72,6 +72,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       new MasterProductProfitabilityReadService(sellpia, prismaService, transactionalRead),
       transactionalRead,
       channelAccounts,
+      channelFactTestPorts(prismaService as never).listings,
     );
     dataStatus = new ProductDataStatusUseCase(dataStatusRepository);
     const inventory = new ProductAvailabilityUseCase(
@@ -85,6 +86,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
         channelAccounts, advertisingLedgerTestReader(prismaService),
+        channelFactTestPorts(prismaService as never).listings,
       ),
       inventory,
       {
@@ -206,6 +208,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId,
         externalId: '13712531060',
+        status: '승인완료',
       },
     });
     const product = await seedProduct(TEST_ORGANIZATION_ID, {
@@ -514,6 +517,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       originalEvidence,
       new ProductTransactionalReadRepositoryAdapter(),
       channelAccounts,
+      channelFactTestPorts(extendedPrisma as never).listings,
     );
 
     const result = await adapter.read(TEST_ORGANIZATION_ID, 30);
@@ -1793,7 +1797,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const selectedStatus = new ProductDataStatusUseCase(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
         load: async (input) => ({ ...await profitability.load(input), actualCutoff: cutoff }),
-      }, new ProductTransactionalReadRepositoryAdapter(), channelAccounts),
+      }, new ProductTransactionalReadRepositoryAdapter(), channelAccounts, channelFactTestPorts(prisma as never).listings),
     );
     const result = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
 
@@ -1903,7 +1907,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('filters selling products from sale-status evidence even when traffic is unobserved', async () => {
+  it('판매중 필터는 Channels 정본 판정을 따른다 — 원본 판매상태가 판매중지로 바뀌면 빠진다', async () => {
     const product = await seedProduct(TEST_ORGANIZATION_ID, {
       code: 'KI-SALE-STATUS',
       name: 'Sale status',
@@ -1921,6 +1925,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: account.id,
         externalId: 'SALE-STATUS-1',
+        status: '승인완료',
+        rawJson: { saleStatus: '판매중' },
       },
     });
     const option = await prisma.channelListingOption.create({
@@ -1939,17 +1945,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         quantity: 1,
       },
     });
-    const status = await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        channel: 'coupang',
-        externalId: listing.externalId,
-        businessDate: new Date('2026-09-01T00:00:00.000Z'),
-        saleStatus: '판매중',
-        trafficObservedAt: null,
-      },
-    });
 
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -1961,9 +1956,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       total: 1,
     });
 
-    await prisma.channelListingDailySnapshot.update({
-      where: { id: status.id },
-      data: { saleStatus: '판매중지' },
+    await prisma.channelListing.update({
+      where: { id: listing.id },
+      data: { rawJson: { saleStatus: '판매중지' } },
     });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,

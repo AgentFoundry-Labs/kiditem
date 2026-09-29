@@ -8,10 +8,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  isChannelListingOnSale,
-  resolveChannelListingSaleStatus,
-} from '@kiditem/shared/channel-listing';
 import { buildPeriodBasis, periodBasisStatus, WING_TRAFFIC_SOURCE } from '@kiditem/shared/dashboard';
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
@@ -40,7 +36,8 @@ import {
   type ProductSourceReadPort,
 } from '../../../application/port/in/product-source-read.port';
 import { lockProductSource } from './transaction/product-source-lock';
-import { listSellingMasterProductIds } from './selling-master-product.query';
+import { listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
+import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type { ProductSourceChange } from '../../../domain/product-source-change';
 import type {
   MasterProductOperationsListQuery,
@@ -146,6 +143,8 @@ implements ProductOperationsRepositoryPort {
     private readonly channelAccounts: ChannelAccountPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT)
     private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readListingAdWindowFacts' | 'readAdEvidenceCutoff'>,
+    @Inject(CHANNEL_LISTING_QUERY_PORT)
+    private readonly channelListings: SellingListingReader,
   ) {}
 
   async listDisplayMediaTargets(
@@ -195,6 +194,7 @@ implements ProductOperationsRepositoryPort {
           organizationId,
           undefined,
           this.inventoryTransactionalRead,
+          this.channelListings,
         );
         const sellingChannelProducts = await this.listSellingChannelProducts(tx, organizationId);
         const rows = await attachChannelListings(tx, organizationId, await tx.masterProduct.findMany({
@@ -296,46 +296,19 @@ implements ProductOperationsRepositoryPort {
     };
   }
 
+  /** 몰별 판매중 등록상품 수 — Channels 정본 판정(KID-333 ②), 전 채널·쓸 수 있는 계정. */
   private async listSellingChannelProducts(
     tx: Prisma.TransactionClient,
     organizationId: string,
   ) {
-    const rows = await tx.channelListing.findMany({
-      where: {
-        organizationId,
-        channelAccount: {
-          is: {
-            organizationId,
-            status: 'active',
-            channel: { in: ['coupang', 'rocket'] },
-          },
-        },
-      },
-      select: {
-        id: true,
-        isActive: true,
-        status: true,
-        rawJson: true,
-        channelAccount: {
-          select: { id: true, channel: true, name: true },
-        },
-        options: {
-          where: { organizationId },
-          select: { status: true },
-        },
-      },
+    const listings = await this.channelListings.readSellingListings(ownerTransaction(tx), {
+      organizationId,
+      usableAccountsOnly: true,
     });
-    return rows.flatMap((row) => isChannelListingOnSale(
-      resolveChannelListingSaleStatus({
-        rawStatus: rawSaleStatus(row.rawJson),
-        optionStatuses: row.options.map((option) => option.status),
-        listingStatus: row.status,
-        isActive: row.isActive,
-      }),
-    ) ? [{
-      channelAccountId: row.channelAccount.id,
-      channel: row.channelAccount.channel,
-      channelAccountName: row.channelAccount.name,
+    return listings.flatMap((listing) => listing.saleState === 'on_sale' ? [{
+      channelAccountId: listing.channelAccountId,
+      channel: listing.channel,
+      channelAccountName: listing.channelAccountName,
     }] : []);
   }
 
@@ -433,16 +406,6 @@ function compareDisplayMediaTargets(
     || Number(right.isPrimaryAccount) - Number(left.isPrimaryAccount)
     || left.listingExternalId.localeCompare(right.listingExternalId)
     || left.channelListingId.localeCompare(right.channelListingId);
-}
-
-function rawSaleStatus(value: Prisma.JsonValue | null): string | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
-    const candidate = record[key];
-    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
-  }
-  return null;
 }
 
 function productListWhere(
