@@ -37,7 +37,7 @@ describe('syncExtensionAuth', () => {
   it('stores the current KidItem session token in every authenticated extension', async () => {
     vi.mocked(detectExtensionId).mockResolvedValue('coupang-ext');
     vi.mocked(detectSourcingExtensionId).mockResolvedValue('sourcing-ext');
-    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true, environmentId: 'local' });
 
     const token = 'a'.repeat(43);
     const result = await syncExtensionAuth();
@@ -49,11 +49,11 @@ describe('syncExtensionAuth', () => {
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'setAuthToken',
       token,
-    });
+    }, 15_000);
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'setAuthToken',
       token,
-    });
+    }, 15_000);
     expect(result).toEqual({
       coupang: { status: 'synced' },
       sourcing: { status: 'synced' },
@@ -63,16 +63,16 @@ describe('syncExtensionAuth', () => {
   it('clears every installed extension token on sign-out', async () => {
     vi.mocked(detectExtensionId).mockResolvedValue('coupang-ext');
     vi.mocked(detectSourcingExtensionId).mockResolvedValue('sourcing-ext');
-    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true, environmentId: 'local' });
 
     const result = await clearExtensionAuth();
 
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'clearAuthToken',
-    });
+    }, 15_000);
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'clearAuthToken',
-    });
+    }, 15_000);
     expect(result).toEqual({
       coupang: { status: 'cleared' },
       sourcing: { status: 'cleared' },
@@ -93,7 +93,7 @@ describe('syncExtensionAuth', () => {
   it('isolates one extension failure from the other extension', async () => {
     vi.mocked(detectExtensionId).mockRejectedValue(new Error('coupang unavailable'));
     vi.mocked(detectSourcingExtensionId).mockResolvedValue('sourcing-ext');
-    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true, environmentId: 'local' });
 
     const token = 'a'.repeat(43);
     const result = await syncExtensionAuth();
@@ -102,7 +102,7 @@ describe('syncExtensionAuth', () => {
     expect(sendToExtension).toHaveBeenCalledWith('sourcing-ext', {
       action: 'setAuthToken',
       token,
-    });
+    }, 15_000);
     expect(result).toEqual({
       coupang: { status: 'failed' },
       sourcing: { status: 'synced' },
@@ -110,7 +110,7 @@ describe('syncExtensionAuth', () => {
   });
 
   it('hands auth to one already selected extension immediately before work', async () => {
-    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true, environmentId: 'local' });
 
     await expect(transferExtensionAuthTo('coupang-ext')).resolves.toBeUndefined();
 
@@ -120,7 +120,7 @@ describe('syncExtensionAuth', () => {
     expect(sendToExtension).toHaveBeenCalledWith('coupang-ext', {
       action: 'setAuthToken',
       token: 'a'.repeat(43),
-    });
+    }, 15_000);
   });
 
   it('fails with a Korean reason and sends nothing when the handoff token request passes its deadline', async () => {
@@ -134,8 +134,17 @@ describe('syncExtensionAuth', () => {
     expect(sendToExtension).not.toHaveBeenCalled();
   });
 
+  it('counts an answer outside the shared token contract as not synced', async () => {
+    vi.mocked(detectExtensionId).mockResolvedValue('coupang-ext');
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true });
+
+    await expect(syncExtensionAuth()).resolves.toMatchObject({ coupang: { status: 'failed' } });
+    await expect(clearExtensionAuth()).resolves.toMatchObject({ coupang: { status: 'failed' } });
+    await expect(transferExtensionAuthTo('coupang-ext')).rejects.toThrow();
+  });
+
   it('fails with a Korean reason when the extension does not take the token', async () => {
-    vi.mocked(sendToExtension).mockResolvedValueOnce({ success: false, error: 'Invalid auth token' });
+    vi.mocked(sendToExtension).mockResolvedValueOnce({ success: false, errorCode: 'AUTH_TOKEN_INVALID', error: '토큰이 맞지 않습니다.' });
     await expect(transferExtensionAuthTo('coupang-ext')).rejects.toThrow(
       '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.',
     );

@@ -1,8 +1,11 @@
-import { MALL_IMAGE_HOST_CAPABILITY } from '@kiditem/shared/extension-actions';
 import {
-  detectOrderCollectionExtensionRuntime,
-  sendToExtension,
-} from '@/lib/extension-bridge';
+  HOST_PUBLIC_IMAGES_ACTION,
+  HostPublicImagesMessageSchema,
+  HostPublicImagesResponseSchema,
+  MALL_IMAGE_HOST_CAPABILITY,
+} from '@kiditem/shared/extension-actions';
+import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
+import { sendExtensionEntryAction } from '@/lib/extension-entry-action';
 import type { SalesProductPublicImageSaveRequest } from '@kiditem/shared/sales-product';
 
 /**
@@ -31,12 +34,9 @@ export interface PublicImageUploadResult {
   needsLogin: boolean;
 }
 
-interface HostResponse {
-  success?: boolean;
-  needsLogin?: boolean;
-  error?: string;
-  images?: { sourceUrl: string; publicUrl?: string; error?: string }[];
-}
+const HOST_IMAGES = { message: HostPublicImagesMessageSchema, response: HostPublicImagesResponseSchema };
+/** 키즈노트 관리자에서 로그아웃이면 확장이 이 registry 코드의 실패 봉투로 답한다. */
+const LOGIN_REQUIRED_CODE = 'SITE_LOGIN_REQUIRED';
 
 export function isUploadableImageSource(url: string): boolean {
   try {
@@ -78,16 +78,18 @@ export async function uploadPublicImages(
   for (let start = 0; start < uploadable.length; start += PUBLIC_IMAGE_BATCH) {
     if (options.signal?.aborted) break;
     const batch = uploadable.slice(start, start + PUBLIC_IMAGE_BATCH);
-    const response = await sendToExtension<HostResponse>(
+    const response = await sendExtensionEntryAction(
       runtime.extensionId,
-      { action: 'hostPublicImages', urls: batch },
+      HOST_IMAGES,
+      { action: HOST_PUBLIC_IMAGES_ACTION, urls: batch },
       BATCH_TIMEOUT_MS,
     );
-    const images = response?.images ?? [];
-    if (images.length === 0 && response?.success !== true) {
-      throw new Error(response?.error ?? '사진을 올리지 못했습니다.');
+    if (!response.success) {
+      if (response.errorCode === LOGIN_REQUIRED_CODE) return { saved, failed, needsLogin: true };
+      throw new Error(response.error);
     }
-    const hosted = images.filter((image): image is { sourceUrl: string; publicUrl: string } => Boolean(image.publicUrl));
+    const images = response.images;
+    const hosted = images.filter((image): image is { sourceUrl: string; publicUrl: string } => image.publicUrl !== null);
     if (hosted.length > 0) {
       // 올린 만큼은 곧바로 남긴다 — 중간에 멈춰도 다음에 다시 올리지 않게.
       const result = await options.save({
@@ -100,7 +102,6 @@ export async function uploadPublicImages(
     }
     done += images.length;
     report();
-    if (response?.needsLogin) return { saved, failed, needsLogin: true };
   }
   return { saved, failed, needsLogin: false };
 }

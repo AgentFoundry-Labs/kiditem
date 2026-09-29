@@ -20,18 +20,6 @@ export type MallLoginTestOutcome =
   | 'failed'
   | 'no_credentials';
 
-/** 확장이 로그인 버튼을 누른 방법. 뒤로 갈수록 취약해 몰 화면이 바뀌면 먼저 깨진다. */
-const LOGIN_METHOD_LABEL: Record<string, string> = {
-  'onclick-handler': 'onclick 핸들러',
-  'exact-text': '로그인 버튼',
-  'form-submit-control': 'submit 버튼',
-  'form-request-submit': '폼 제출',
-  'form-submit': '폼 제출',
-  'loose-text': '느슨한 텍스트 일치 ⚠',
-  'attribute-match': 'id/class 일치 ⚠',
-  'password-enter': 'Enter 키 ⚠ 최후수단',
-};
-
 const UNVERIFIED_DETAIL: Record<string, string> = {
   unsupported_mall: '이 몰은 폼 자동 로그인을 지원하지 않아 비밀번호를 확인하지 못했습니다.',
   no_login_form: '이 몰은 확장이 채울 로그인 폼이 없어 확인하지 못했습니다.',
@@ -107,8 +95,7 @@ export function useMallLoginTest() {
         return;
       }
       if (result.success && result.submitted) {
-        const method = result.method ? LOGIN_METHOD_LABEL[result.method] ?? result.method : null;
-        record(mallKey, { outcome: 'verified', detail: method, at: Date.now() });
+        record(mallKey, { outcome: 'verified', detail: null, at: Date.now() });
         // 사람이 직접 눌러 로그인이 됐다 — 막아 뒀던 자동 로그인을 다시 연다.
         clearMallAutoLoginBlock(mallKey);
         clearMallAutoLoginAttempt(mallKey);
@@ -119,7 +106,7 @@ export function useMallLoginTest() {
         return;
       }
       if (result.success) {
-        const detail = UNVERIFIED_DETAIL[result.reason ?? '']
+        const detail = UNVERIFIED_DETAIL[result.errorCode ?? '']
           ?? '로그인 폼을 만나지 못해 비밀번호를 확인하지 못했습니다.';
         record(mallKey, { outcome: 'unverified', detail, at: Date.now() });
         toast.warning(`${mallName} 확인 못 함`, { description: detail });

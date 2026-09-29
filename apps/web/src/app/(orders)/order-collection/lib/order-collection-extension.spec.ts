@@ -56,6 +56,42 @@ describe('order collection extension session bridge', () => {
     expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1500, ['mallLoginActionsV1']);
   });
 
+  it('sends the login test in the shared shape — site address beside the credentials, not inside', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true, verified: false, mallMessage: '비밀번호가 틀렸습니다.', errorCode: null });
+    await expect(testMallLoginViaExtension('art09', {
+      loginId: 'seller',
+      password: 'x',
+      siteUrl: 'https://zzogzzog1.cafe24.com/admin/php/main.php',
+    })).resolves.toEqual({ success: true, submitted: true, verified: false, mallMessage: '비밀번호가 틀렸습니다.' });
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('order-extension', {
+      action: 'testMallLogin',
+      mallKey: 'art09',
+      credentials: { loginId: 'seller', password: 'x' },
+      siteUrl: 'https://zzogzzog1.cafe24.com/admin/php/main.php',
+    }, 60_000);
+  });
+
+  it('reads a verification failure from the shared failure envelope as waiting for a person', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: false, errorCode: 'SITE_VERIFICATION_REQUIRED', error: '본인 인증이 필요합니다.' });
+    await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' })).resolves.toEqual({
+      success: false,
+      errorCode: 'SITE_VERIFICATION_REQUIRED',
+      error: '본인 인증이 필요합니다.',
+      pendingLogin: true,
+    });
+  });
+
+  it('never calls an off-contract answer or a bad site address a wrong password', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: true });
+    await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' }))
+      .resolves.toMatchObject({ success: false, unavailable: 'extension_outdated' });
+
+    bridge.sendToExtension.mockClear();
+    await expect(testMallLoginViaExtension('art09', { loginId: 'seller', password: 'x', siteUrl: 'cafe24 admin' }))
+      .resolves.toMatchObject({ success: false, unavailable: 'site_url_invalid' });
+    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  });
+
   it('preserves the loaded extension version and missing capability diagnosis', async () => {
     bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
       status: 'incompatible',

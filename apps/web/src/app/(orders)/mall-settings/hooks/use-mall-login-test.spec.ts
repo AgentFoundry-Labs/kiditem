@@ -53,7 +53,6 @@ describe('useMallLoginTest', () => {
       success: true,
       submitted: true,
       verified: false,
-      verifyReason: 'login_form_remains',
     });
 
     const result = await runTest();
@@ -71,7 +70,7 @@ describe('useMallLoginTest', () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
       success: true,
       submitted: false,
-      reason: 'no_login_form',
+      errorCode: 'no_login_form',
     });
 
     const result = await runTest();
@@ -107,7 +106,7 @@ describe('useMallLoginTest', () => {
 
   it('clears the block after a login whose form went away', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
-      success: true, submitted: true, verified: true, method: 'exact-text',
+      success: true, submitted: true, verified: true,
     });
 
     const result = await runTest();

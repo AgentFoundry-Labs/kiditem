@@ -4,7 +4,17 @@ import {
   sendToExtension,
   type ExtensionRuntimeStatus,
 } from '@/lib/extension-bridge';
-import { MALL_LOGIN_ACTIONS_CAPABILITY } from '@kiditem/shared/extension-actions';
+import {
+  MALL_LOGIN_ACTIONS_CAPABILITY,
+  TEST_MALL_LOGIN_ACTION,
+  TestMallLoginMessageSchema,
+  TestMallLoginResponseSchema,
+} from '@kiditem/shared/extension-actions';
+import {
+  ExtensionContractError,
+  ExtensionMessageInvalidError,
+  sendExtensionEntryAction,
+} from '@/lib/extension-entry-action';
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
 import type { OrderCollectionAttemptContext } from './order-collection-source-owner';
 
@@ -190,32 +200,41 @@ export function orderCollectionExtensionUnavailableMessage(
   return '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os를 Chrome에서 로드해주세요.';
 }
 
-/** 로그인 테스트가 확장에 닿지 못한 이유. 비밀번호 문제가 아니므로 자동 로그인을 막을 근거가 아니다. */
-export type MallLoginTestUnavailable = 'extension_not_found' | 'extension_outdated' | 'extension_no_answer';
+/**
+ * 로그인 테스트를 하지 못한 이유. 비밀번호 문제가 아니므로 자동 로그인을 막을 근거가 아니다.
+ * `site_url_invalid`는 계정에 저장된 사이트 주소가 주소 모양이 아니라 확장에 보내지 않은 경우다.
+ */
+export type MallLoginTestUnavailable =
+  | 'extension_not_found'
+  | 'extension_outdated'
+  | 'extension_no_answer'
+  | 'site_url_invalid';
 
+/** 로그인 테스트 결과(shared `TestMallLoginResponseSchema`·실패 봉투를 화면이 읽는 모양으로). */
 export interface MallLoginTestResponse {
   success: boolean;
   /** 아이디 · 비밀번호를 넣고 로그인 버튼을 눌렀는가. */
   submitted?: boolean;
   /** 누른 뒤 로그인 화면이 사라졌는가. `false` 면 확인하지 못한 것이다. */
   verified?: boolean;
-  verifyReason?: string;
   /** 로그인 뒤 몰이 알림 창으로 남긴 답. */
   mallMessage?: string;
-  reason?: MallLoginEnsureResult['reason'];
-  method?: string | null;
-  pendingLogin?: boolean;
-  /** 확장이 돌려준 이유 코드(`login_rejected` 등). */
+  /** 성공 답이면 확인하지 못한 이유 코드, 실패 봉투면 registry 코드. */
   errorCode?: string;
   error?: string;
+  /** 본인확인 · OTP · 캡차를 사람이 해야 한다(`SITE_VERIFICATION_REQUIRED`). */
+  pendingLogin?: boolean;
   /** 확장에 닿지 못했을 때만 있다. */
   unavailable?: MallLoginTestUnavailable;
 }
 
+const TEST_MALL_LOGIN = { message: TestMallLoginMessageSchema, response: TestMallLoginResponseSchema };
+const NO_ANSWER = '확장이 로그인 테스트에 답하지 않았습니다.';
+
 /**
  * 쇼핑몰 계정 화면의 로그인 테스트. 확장이 백그라운드 탭에서 저장된 계정으로 로그인만 해 보고
  * 닫는다. 수집이 아니므로 수집 시도 없이 도는 `testMallLogin` 을 부른다 — 수집 시도 안에서만
- * 도는 `ensureMallLoggedIn` 으로 보내면 확장이 늘 거절한다.
+ * 도는 `ensureMallLoggedIn` 으로 보내면 확장이 늘 거절한다. 자격은 이 메시지에만 싣는다.
  */
 export async function testMallLoginViaExtension(
   mallKey: string,
@@ -229,22 +248,49 @@ export async function testMallLoginViaExtension(
       error: orderCollectionExtensionUnavailableMessage(runtime),
     };
   }
+  const { siteUrl, loginId, password, supplierLoginId } = credentials;
   try {
-    const response = await sendToExtension<MallLoginTestResponse>(
+    const response = await sendExtensionEntryAction(
       runtime.extensionId,
-      { action: 'testMallLogin', mallKey, credentials },
+      TEST_MALL_LOGIN,
+      {
+        action: TEST_MALL_LOGIN_ACTION,
+        mallKey,
+        credentials: { loginId, password, ...(supplierLoginId ? { supplierLoginId } : {}) },
+        ...(siteUrl ? { siteUrl } : {}),
+      },
       60_000,
     );
-    return response ?? {
-      success: false,
-      unavailable: 'extension_no_answer',
-      error: '확장이 로그인 테스트에 답하지 않았습니다.',
+    if (!response.success) {
+      return {
+        success: false,
+        errorCode: response.errorCode,
+        error: response.error,
+        pendingLogin: response.errorCode === 'SITE_VERIFICATION_REQUIRED',
+      };
+    }
+    return {
+      success: true,
+      submitted: response.submitted,
+      verified: response.verified,
+      ...(response.mallMessage ? { mallMessage: response.mallMessage } : {}),
+      ...(response.errorCode ? { errorCode: response.errorCode } : {}),
     };
   } catch (error) {
+    if (error instanceof ExtensionMessageInvalidError) {
+      return {
+        success: false,
+        unavailable: 'site_url_invalid',
+        error: '계정에 저장된 사이트 주소가 주소 모양이 아닙니다. 주소를 고친 뒤 다시 테스트해 주세요.',
+      };
+    }
+    if (error instanceof ExtensionContractError && error.answered) {
+      return { success: false, unavailable: 'extension_outdated', error: error.message };
+    }
     return {
       success: false,
       unavailable: 'extension_no_answer',
-      error: error instanceof Error ? error.message : '확장이 로그인 테스트에 답하지 않았습니다.',
+      error: error instanceof Error && !(error instanceof ExtensionContractError) ? error.message : NO_ANSWER,
     };
   }
 }

@@ -19,4 +19,10 @@ describe('clearCoupangCookiesViaExtension (Rocket and shipment screens)', () => 
     await expect(clearCoupangCookiesViaExtension()).resolves.toBe(4);
     expect(bridge.detectOrderCollectionExtensionId).toHaveBeenCalledWith(1200, 'coupangShipmentActionsV1');
   });
+
+  it('sends the shared clear message and rejects an answer outside the contract', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, cleared: 4 });
+    await expect(clearCoupangCookiesViaExtension()).rejects.toThrow('확장 답이 약속한 모양과 다릅니다');
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('ext', { action: 'clearCoupangCookies' }, 30000);
+  });
 });

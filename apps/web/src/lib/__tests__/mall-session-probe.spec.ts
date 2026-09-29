@@ -50,13 +50,13 @@ describe('probeMallSession', () => {
   });
 
   it('sends no address when none is saved', async () => {
-    mockSend.mockResolvedValueOnce({ success: true, state: 'signed_in', reason: 'admin_page' });
+    mockSend.mockResolvedValueOnce({ success: true, mallKey: 'onch', state: 'signed_in', reason: 'admin_page' });
     await probeMallSession('ext', 'onch');
     expect(mockSend).toHaveBeenCalledWith('ext', { action: 'checkMallLogin', mallKey: 'onch' }, 45_000);
   });
 
   it('keeps a verification answer as its own state', async () => {
-    mockSend.mockResolvedValueOnce({ success: true, state: 'verification_required', reason: 'verification_required' });
+    mockSend.mockResolvedValueOnce({ success: true, mallKey: 'kidkids', state: 'verification_required', reason: 'verification_required' });
     await expect(probeMallSession('ext', 'kidkids')).resolves.toMatchObject({
       state: 'verification_required',
       reason: 'verification_required',
@@ -81,6 +81,22 @@ describe('probeMallSession', () => {
       reason: 'extension_no_answer',
     });
   });
+
+  it('reads the shared failure envelope as sign-in needed with its registry code', async () => {
+    mockSend.mockResolvedValueOnce({ success: false, errorCode: 'SITE_REQUEST_FAILED', error: '사이트 요청이 실패했습니다.' });
+    await expect(probeMallSession('ext', 'onch')).resolves.toMatchObject({
+      state: 'signed_out',
+      reason: 'SITE_REQUEST_FAILED',
+    });
+  });
+
+  it('does not send a saved site address that is not an address', async () => {
+    await expect(probeMallSession('ext', 'art09', 'zzogzzog1 admin')).resolves.toMatchObject({
+      state: 'signed_out',
+      reason: null,
+    });
+    expect(mockSend).not.toHaveBeenCalled();
+  });
 });
 
 describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
@@ -99,7 +115,7 @@ describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
       kidkids: 'verification_required',
     };
     mockSend.mockImplementation((_id: string, message: { mallKey: string }) =>
-      Promise.resolve({ success: true, mallKey: message.mallKey, state: states[message.mallKey] }),
+      Promise.resolve({ success: true, mallKey: message.mallKey, state: states[message.mallKey], reason: null }),
     );
 
     const sweep = await sweepMallSessions(['onch', 'art09', 'kidsnote', 'kidkids'], {
@@ -118,7 +134,7 @@ describe('sweepMallSessions — 이번 바퀴에 건너뛸 몰', () => {
   it('keeps successful current probing local without calling a history API', async () => {
     mockDetectRuntime.mockResolvedValueOnce({ status: 'ready', extensionId: 'ext', version: '1.0.96' });
     mockSend.mockImplementation((_id: string, message: { mallKey: string }) =>
-      Promise.resolve({ success: true, mallKey: message.mallKey, state: 'signed_out' }),
+      Promise.resolve({ success: true, mallKey: message.mallKey, state: 'signed_out', reason: 'login_page' }),
     );
 
     const sweep = await sweepMallSessions(['coupang-direct', 'rocket']);

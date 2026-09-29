@@ -1,7 +1,18 @@
 'use client';
 
-import { MALL_LOGIN_ACTIONS_CAPABILITY } from '@kiditem/shared/extension-actions';
-import { detectOrderCollectionExtensionRuntime, sendToExtension } from './extension-bridge';
+import {
+  CHECK_MALL_LOGIN_ACTION,
+  CheckMallLoginMessageSchema,
+  CheckMallLoginResponseSchema,
+  MALL_LOGIN_ACTIONS_CAPABILITY,
+  type MALL_LOGIN_STATES,
+} from '@kiditem/shared/extension-actions';
+import { detectOrderCollectionExtensionRuntime } from './extension-bridge';
+import {
+  ExtensionContractError,
+  ExtensionMessageInvalidError,
+  sendExtensionEntryAction,
+} from './extension-entry-action';
 import { clearMallAutoLoginBlock } from './mall-login-block';
 
 /**
@@ -16,7 +27,7 @@ import { clearMallAutoLoginBlock } from './mall-login-block';
  */
 export const MALL_SESSION_PROBE_CAPABILITY = MALL_LOGIN_ACTIONS_CAPABILITY;
 
-export type MallSessionState = 'signed_in' | 'verification_required' | 'signed_out';
+export type MallSessionState = (typeof MALL_LOGIN_STATES)[number];
 
 export interface MallSessionProbeResult {
   mallKey: string;
@@ -30,7 +41,9 @@ export type MallSessionProbeRuntime =
   | { status: 'outdated'; version: string }
   | { status: 'not_found' };
 
-const REASON = /^[a-z][a-z0-9_]{0,63}$/;
+/** 확장 관찰 이유 코드(소문자) 또는 registry 코드(대문자). 그 밖(주소·문장)은 버린다. */
+const REASON = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+const CHECK_MALL_LOGIN = { message: CheckMallLoginMessageSchema, response: CheckMallLoginResponseSchema };
 
 /** 확장이 있고 로그인 확인을 아는 버전인가. 옛 버전은 없는 것과 따로 알린다. */
 export async function detectMallSessionProbe(): Promise<MallSessionProbeRuntime> {
@@ -103,21 +116,27 @@ export async function probeMallSession(
   siteUrl: string | null = null,
 ): Promise<MallSessionProbeResult> {
   try {
-    const response = await sendToExtension<{ success?: boolean; state?: unknown; reason?: unknown }>(
+    const response = await sendExtensionEntryAction(
       extensionId,
-      { action: 'checkMallLogin', mallKey, ...(siteUrl ? { siteUrl } : {}) },
+      CHECK_MALL_LOGIN,
+      { action: CHECK_MALL_LOGIN_ACTION, mallKey, ...(siteUrl ? { siteUrl } : {}) },
       // 조용히 읽어 모르면 화면을 열어 본다 — 화면 로드와 두 번 보기까지 기다린다.
       45_000,
     );
-    const state: MallSessionState =
-      response?.state === 'signed_in' || response?.state === 'verification_required'
-        ? response.state
-        : 'signed_out';
-    const reason = typeof response?.reason === 'string' && REASON.test(response.reason)
-      ? response.reason
-      : response ? null : 'extension_no_answer';
-    return { mallKey, state, reason, checkedAt: Date.now() };
-  } catch {
-    return { mallKey, state: 'signed_out', reason: 'extension_no_answer', checkedAt: Date.now() };
+    if (!response.success) {
+      return { mallKey, state: 'signed_out', reason: readReason(response.errorCode), checkedAt: Date.now() };
+    }
+    return { mallKey, state: response.state, reason: readReason(response.reason), checkedAt: Date.now() };
+  } catch (error) {
+    // 저장된 사이트 주소가 주소 모양이 아니면 보내지 않았다 — 사람이 계정의 주소를 고쳐야 한다.
+    // 계약 밖의 답은 이유를 알 수 없다. 그 밖(답 없음·전송 실패·시간 초과)은 확장이 답하지 않은 것이다.
+    const unexplained = error instanceof ExtensionMessageInvalidError
+      || (error instanceof ExtensionContractError && error.answered);
+    const reason = unexplained ? null : 'extension_no_answer';
+    return { mallKey, state: 'signed_out', reason, checkedAt: Date.now() };
   }
+}
+
+function readReason(reason: string | null): string | null {
+  return reason !== null && REASON.test(reason) ? reason : null;
 }
