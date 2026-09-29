@@ -60,7 +60,7 @@ beforeEach(() => {
   operations = [];
   extensionReplies = {
     ping: () => ({ success: true, capabilities: { operationRuntime: true, wingDailyOperationKindsV1: true } }),
-    setAuthToken: () => ({ success: true }),
+    setAuthToken: () => ({ success: true, environmentId: 'local' }),
   };
   vi.mocked(detectExtensionId).mockResolvedValue(EXTENSION_ID);
   vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([EXTENSION_ID]);

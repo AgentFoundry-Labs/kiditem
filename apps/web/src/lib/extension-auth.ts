@@ -1,21 +1,37 @@
 import { ExtensionAuthHandoffSchema } from '@kiditem/shared/auth';
-import { apiClient } from './api-client';
 import {
-  detectExtensionId,
-  detectSourcingExtensionId,
-  sendToExtension,
-} from './extension-bridge';
+  AuthTokenResponseSchema,
+  CLEAR_AUTH_TOKEN_ACTION,
+  ClearAuthTokenMessageSchema,
+  SET_AUTH_TOKEN_ACTION,
+  SetAuthTokenMessageSchema,
+} from '@kiditem/shared/extension-actions';
+import { apiClient } from './api-client';
+import { detectExtensionId, detectSourcingExtensionId } from './extension-bridge';
+import { sendExtensionEntryAction } from './extension-entry-action';
 import { operatorReason } from './operator-error';
 
 export const EXTENSION_AUTH_REQUIRED_EVENT = 'kiditem:extension-auth-required';
 
 // The handoff runs right before a collection starts. Past this deadline the
 // start releases with a reason instead of waiting on the token request; the
-// extension message keeps sendToExtension's own 15-second default.
+// extension message keeps its own 15-second limit.
 const HANDOFF_TOKEN_TIMEOUT_MS = 15_000;
 const HANDOFF_FAILED = '확장 프로그램에 로그인 정보를 넘기지 못했습니다. 잠시 후 다시 시도해 주세요.';
 
-type ExtensionResponse = { success?: boolean; error?: string };
+const EXTENSION_AUTH_MESSAGE_TIMEOUT_MS = 15_000;
+const SET_AUTH_TOKEN = { message: SetAuthTokenMessageSchema, response: AuthTokenResponseSchema };
+const CLEAR_AUTH_TOKEN = { message: ClearAuthTokenMessageSchema, response: AuthTokenResponseSchema };
+
+/** 확장이 토큰을 받았는가. 계약 밖의 답·실패 봉투는 받지 않은 것이다. */
+function setAuthToken(extensionId: string, token: string) {
+  return sendExtensionEntryAction(
+    extensionId,
+    SET_AUTH_TOKEN,
+    { action: SET_AUTH_TOKEN_ACTION, token },
+    EXTENSION_AUTH_MESSAGE_TIMEOUT_MS,
+  );
+}
 type ExtensionAuthSyncStatus =
   | { status: 'synced' }
   | { status: 'cleared' }
@@ -71,16 +87,13 @@ export async function transferExtensionAuthTo(
   } catch {
     throw new Error(HANDOFF_FAILED);
   }
-  let response: ExtensionResponse | undefined;
+  let response: Awaited<ReturnType<typeof setAuthToken>>;
   try {
-    response = await sendToExtension<ExtensionResponse>(extensionId, {
-      action: 'setAuthToken',
-      token,
-    });
+    response = await setAuthToken(extensionId, token);
   } catch (error) {
     throw handoffFailure(error instanceof Error ? error.message : null);
   }
-  if (response?.success === false) throw handoffFailure(response.error);
+  if (!response.success) throw handoffFailure(response.errorCode);
 }
 
 async function sendAuth(
@@ -91,11 +104,8 @@ async function sendAuth(
   if (detection.status === 'not_installed') return { status: 'not_installed' };
   if (token === null) return { status: 'failed' };
   try {
-    const response = await sendToExtension<ExtensionResponse>(
-      detection.extensionId,
-      { action: 'setAuthToken', token },
-    );
-    return response?.success === false ? { status: 'failed' } : { status: 'synced' };
+    const response = await setAuthToken(detection.extensionId, token);
+    return response.success ? { status: 'synced' } : { status: 'failed' };
   } catch {
     return { status: 'failed' };
   }
@@ -107,11 +117,13 @@ async function clearAuth(
   if (detection.status === 'failed') return { status: 'failed' };
   if (detection.status === 'not_installed') return { status: 'not_installed' };
   try {
-    const response = await sendToExtension<ExtensionResponse>(
+    const response = await sendExtensionEntryAction(
       detection.extensionId,
-      { action: 'clearAuthToken' },
+      CLEAR_AUTH_TOKEN,
+      { action: CLEAR_AUTH_TOKEN_ACTION },
+      EXTENSION_AUTH_MESSAGE_TIMEOUT_MS,
     );
-    return response?.success === false ? { status: 'failed' } : { status: 'cleared' };
+    return response.success ? { status: 'cleared' } : { status: 'failed' };
   } catch {
     return { status: 'failed' };
   }

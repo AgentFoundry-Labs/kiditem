@@ -4,6 +4,20 @@ import {
   detectOrderCollectionExtensionId,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import {
+  CLEAR_COUPANG_COOKIES_ACTION,
+  COUPANG_SHIPMENT_ACTIONS_CAPABILITY,
+  ClearCoupangCookiesMessageSchema,
+  ClearCoupangCookiesResponseSchema,
+  FETCH_COUPANG_SHIPMENT_PDF_BATCH_ACTION,
+  FetchCoupangShipmentPdfBatchMessageSchema,
+  FetchCoupangShipmentPdfBatchResponseSchema,
+  OPEN_COUPANG_SHIPMENT_PAGE_ACTION,
+  OpenCoupangShipmentPageMessageSchema,
+  OpenCoupangShipmentPageResponseSchema,
+  type ExtensionActionFailure,
+} from '@kiditem/shared/extension-actions';
+import { sendExtensionEntryAction } from '@/lib/extension-entry-action';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import { SITE_COOKIE_BLOAT_CODE, SITE_LOGIN_REQUIRED_CODE } from '@/lib/coupang-shipment-summary-operation';
 import {
@@ -11,24 +25,6 @@ import {
   type CoupangShipmentFileDraft,
   type CoupangShipmentFileKind,
 } from './coupang-shipment-files';
-
-export interface CoupangShipmentDownloadRow {
-  shipmentId: string;
-  outboundAt: string;
-  inboundDate: string;
-  center: string;
-  labelClicked: boolean;
-  statementClicked: boolean;
-}
-
-export interface CoupangShipmentDownloadResult {
-  success: boolean;
-  url?: string;
-  rows?: CoupangShipmentDownloadRow[];
-  labelCount?: number;
-  statementCount?: number;
-  error?: string;
-}
 
 /**
  * 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 요청 헤더 과다로 400 을
@@ -61,51 +57,30 @@ export interface CoupangShipmentDateSummaryItem {
 const ORDER_COLLECTOR_REQUIRED_MESSAGE =
   '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에서 로드한 뒤 다시 시도해주세요.';
 
+const OPEN_SHIPMENT_PAGE = { message: OpenCoupangShipmentPageMessageSchema, response: OpenCoupangShipmentPageResponseSchema };
+const FETCH_PDF_BATCH = { message: FetchCoupangShipmentPdfBatchMessageSchema, response: FetchCoupangShipmentPdfBatchResponseSchema };
+const CLEAR_COOKIES = { message: ClearCoupangCookiesMessageSchema, response: ClearCoupangCookiesResponseSchema };
+
 /** 확장 응답의 errorCode 를 살펴 쿠키 과다면 타입드 에러, 아니면 일반 에러를 던진다. */
-function throwExtensionError(response: { error?: string; errorCode?: string } | null, fallback: string): never {
+function throwExtensionError(response: { error?: string; errorCode?: string } | ExtensionActionFailure | null, fallback: string): never {
   const message = response?.error ?? fallback;
   throw new CoupangShipmentExtensionError(message, response?.errorCode);
 }
 
 export async function openCoupangShipmentPageViaExtension(): Promise<string> {
   const extensionId = await getOrderCollectorExtensionId();
-  const response = await sendToExtension<CoupangShipmentDownloadResult>(
+  const response = await sendExtensionEntryAction(
     extensionId,
-    { action: 'openCoupangShipmentPage', url: COUPANG_SHIPMENT_PAGE_URL },
+    OPEN_SHIPMENT_PAGE,
+    { action: OPEN_COUPANG_SHIPMENT_PAGE_ACTION, url: COUPANG_SHIPMENT_PAGE_URL },
     20000,
   );
-  if (!response?.success) {
-    throw new Error(response?.error ?? '쿠팡 쉽먼트 화면을 열지 못했습니다.');
-  }
-  return response.url ?? COUPANG_SHIPMENT_PAGE_URL;
+  if (!response.success) throwExtensionError(response, '쿠팡 쉽먼트 화면을 열지 못했습니다.');
+  return response.url;
 }
 
-export async function clickCoupangShipmentDownloadsViaExtension(params: {
-  date?: string;
-  labels: boolean;
-  statements: boolean;
-}): Promise<CoupangShipmentDownloadResult> {
-  const extensionId = await getOrderCollectorExtensionId();
-  const response = await sendToExtension<CoupangShipmentDownloadResult>(
-    extensionId,
-    {
-      action: 'clickCoupangShipmentDownloads',
-      date: params.date,
-      labels: params.labels,
-      statements: params.statements,
-    },
-    120000,
-  );
-  if (!response?.success) {
-    throw new Error(response?.error ?? '쿠팡 쉽먼트 다운로드 실행에 실패했습니다.');
-  }
-  return response;
-}
-
-async function getOrderCollectorExtensionId(
-  capability = 'coupangShipmentDownloads',
-): Promise<string> {
-  const extensionId = await detectOrderCollectionExtensionId(1200, capability);
+async function getOrderCollectorExtensionId(): Promise<string> {
+  const extensionId = await detectOrderCollectionExtensionId(1200, COUPANG_SHIPMENT_ACTIONS_CAPABILITY);
   if (!extensionId) {
     if (
       window.location.hostname === 'localhost'
@@ -123,15 +98,15 @@ async function getOrderCollectorExtensionId(
  * 반환값은 정리한 쿠키 수. 파괴적이라 호출 전 사용자 확인을 받는다.
  */
 export async function clearCoupangCookiesViaExtension(): Promise<number> {
-  // 쿠키 정리 기능(0.1.81+)을 명시적으로 요구 → 구버전 확장은 재로드 안내로 거절.
-  const extensionId = await getOrderCollectorExtensionId('clearCoupangCookies');
-  const response = await sendToExtension<{ success: boolean; cleared?: number; error?: string }>(
+  const extensionId = await getOrderCollectorExtensionId();
+  const response = await sendExtensionEntryAction(
     extensionId,
-    { action: 'clearCoupangCookies' },
+    CLEAR_COOKIES,
+    { action: CLEAR_COUPANG_COOKIES_ACTION },
     20000,
   );
-  if (!response?.success) throw new Error(response?.error ?? '쿠팡 쿠키 정리에 실패했습니다.');
-  return response.cleared ?? 0;
+  if (!response.success) throw new Error(response.error);
+  return response.cleared;
 }
 
 // ── 원클릭 자동 수집·병합 (직접 엔드포인트) ──
@@ -160,22 +135,6 @@ interface CoupangShipmentListResult {
   shipments?: CoupangShipmentListItem[];
 }
 
-interface CoupangShipmentPdfFile {
-  seq: string;
-  kind: 'label' | 'manifest';
-  ok: boolean;
-  error?: string;
-  bytes?: number;
-  b64?: string;
-}
-
-interface CoupangShipmentPdfBatchResult {
-  success: boolean;
-  error?: string;
-  errorCode?: string;
-  files?: CoupangShipmentPdfFile[];
-}
-
 export interface CoupangShipmentCollectProgress {
   phase: 'list' | 'download' | 'build';
   date: string;
@@ -191,7 +150,8 @@ export async function collectCoupangShipmentDraftsViaExtension(
   onProgress?: (progress: CoupangShipmentCollectProgress) => void,
 ): Promise<{ drafts: CoupangShipmentFileDraft[]; shipments: CoupangShipmentListItem[]; failed: string[] }> {
   if (!date) throw new Error('발송일을 선택해주세요.');
-  const extensionId = await getOrderCollectorExtensionId('collectCoupangShipmentFiles');
+  // 배송 목록(`collectCoupangShipmentList`)은 아직 옛 워커가 답하고 새 런타임이 넘겨준다 — wave8b가 kind로 옮긴다.
+  const extensionId = await getOrderCollectorExtensionId();
 
   onProgress?.({ phase: 'list', date });
   const list = await sendToExtension<CoupangShipmentListResult>(
@@ -212,17 +172,18 @@ export async function collectCoupangShipmentDraftsViaExtension(
     items.push({ seq: shipment.seq, kind: 'manifest' });
   }
 
-  const bySeqKind = new Map<string, CoupangShipmentPdfFile>();
+  const bySeqKind = new Map<string, string>();
   for (let offset = 0; offset < items.length; offset += PDF_FETCH_BATCH) {
     const slice = items.slice(offset, offset + PDF_FETCH_BATCH);
-    const response = await sendToExtension<CoupangShipmentPdfBatchResult>(
+    const response = await sendExtensionEntryAction(
       extensionId,
-      { action: 'fetchCoupangShipmentPdfBatch', items: slice },
+      FETCH_PDF_BATCH,
+      { action: FETCH_COUPANG_SHIPMENT_PDF_BATCH_ACTION, items: slice },
       120000,
     );
-    if (!response?.success) throwExtensionError(response, '쿠팡 쉽먼트 PDF 수집에 실패했습니다.');
-    for (const file of response.files ?? []) {
-      if (file.ok && file.b64) bySeqKind.set(`${file.seq}:${file.kind}`, file);
+    if (!response.success) throwExtensionError(response, '쿠팡 쉽먼트 PDF 수집에 실패했습니다.');
+    for (const file of response.files) {
+      if (file.ok && file.b64) bySeqKind.set(`${file.seq}:${file.kind}`, file.b64);
     }
     onProgress?.({
       phase: 'download',
@@ -238,8 +199,8 @@ export async function collectCoupangShipmentDraftsViaExtension(
   const failed: string[] = [];
   for (const shipment of shipments) {
     for (const kind of ['label', 'manifest'] as const) {
-      const file = bySeqKind.get(`${shipment.seq}:${kind}`);
-      if (!file?.b64) {
+      const b64 = bySeqKind.get(`${shipment.seq}:${kind}`);
+      if (!b64) {
         failed.push(`${shipment.seq}(${kind === 'label' ? 'Label' : '내역서'})`);
         continue;
       }
@@ -249,7 +210,7 @@ export async function collectCoupangShipmentDraftsViaExtension(
       const name = `쿠팡쉽먼트_${date}_${center}_${shipment.seq}_${kindLabel}.pdf`;
       drafts.push({
         id: `${Date.now()}-${createSecureRandomUuid()}`,
-        file: new File([base64ToArrayBuffer(file.b64)], name, { type: 'application/pdf' }),
+        file: new File([base64ToArrayBuffer(b64)], name, { type: 'application/pdf' }),
         name,
         kind: draftKind,
         shipmentDate: date,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EXTENSION_RUNTIME_CAPABILITY } from '@kiditem/shared/extension-actions';
 import { safeStorageGet, safeStorageSet } from './browser-storage';
 
 export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
@@ -136,8 +137,9 @@ type DetectExtensionOptions = {
   accepts: (response: ExtensionPingResponse) => boolean;
 };
 
-function supportsEnvironmentProfiles(response: ExtensionPingResponse): boolean {
-  return response.capabilities?.kiditemEnvironmentProfilesV1 === true;
+/** 새 런타임이 있는 확장인가. 보내는 창의 origin으로 환경(`local`·`office`)을 가르는 것도 이 런타임이다(KID-366). */
+function supportsOperationRuntime(response: ExtensionPingResponse): boolean {
+  return response.capabilities?.[EXTENSION_RUNTIME_CAPABILITY] === true;
 }
 
 function requestExtensionIdFromHandshake(
@@ -247,7 +249,7 @@ export async function detectExtensionId(timeoutMs = 1200): Promise<string | null
     requestType: 'kiditem:request-ext-id',
     responseType: 'kiditem:ext-id',
     timeoutMs,
-    accepts: supportsEnvironmentProfiles,
+    accepts: supportsOperationRuntime,
   });
 }
 
@@ -258,7 +260,7 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
     responseType: 'kiditem:sourcing-ext-id',
     timeoutMs,
     accepts: (response) =>
-      supportsEnvironmentProfiles(response) &&
+      supportsOperationRuntime(response) &&
       // 소싱 수집은 새 런타임의 실행 kind다(KID-360). 소싱 kind가 없는 런타임 빌드는 소싱 확장이 아니다.
       response.capabilities?.sourcingOperationKindsV1 === true,
   });
@@ -266,7 +268,7 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
 
 export async function detectOrderCollectionExtensionId(
   timeoutMs = 1200,
-  requiredCapability: string | null = 'orderCollectionIcecreamMall',
+  requiredCapability: string | null = EXTENSION_RUNTIME_CAPABILITY,
 ): Promise<string | null> {
   return detectExtensionIdWithHandshake({
     storageKey: KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
@@ -274,7 +276,7 @@ export async function detectOrderCollectionExtensionId(
     responseType: 'kiditem:order-ext-id',
     timeoutMs,
     accepts: (response) =>
-      supportsEnvironmentProfiles(response) &&
+      supportsOperationRuntime(response) &&
       (requiredCapability === null ||
         response.capabilities?.[requiredCapability] === true),
   });
@@ -282,7 +284,7 @@ export async function detectOrderCollectionExtensionId(
 
 export async function detectOrderCollectionExtensionRuntime(
   timeoutMs = 1200,
-  requiredCapabilities: string[] = ['orderCollectionIcecreamMall'],
+  requiredCapabilities: string[] = [EXTENSION_RUNTIME_CAPABILITY],
   /**
    * How long the extension this browser already knows gets to answer. A worker
    * busy with other malls answers a ping late; late is not missing. Discovery
@@ -292,7 +294,7 @@ export async function detectOrderCollectionExtensionRuntime(
 ): Promise<ExtensionRuntimeStatus> {
   if (typeof window === 'undefined') return { status: 'not_found' };
   const capabilities = [...new Set([
-    'kiditemEnvironmentProfilesV1',
+    EXTENSION_RUNTIME_CAPABILITY,
     ...requiredCapabilities,
   ])];
   const probe = async (
