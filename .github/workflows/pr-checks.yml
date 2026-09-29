@@ -21,6 +21,8 @@ jobs:
     outputs:
       # Gateway build/unit only runs when its inputs changed (KID-399).
       gateway: ${{ steps.changes.outputs.gateway }}
+      # Unit and script-contract jobs only run when something other than docs changed (KID-400).
+      code: ${{ steps.changes.outputs.code }}
     steps:
       - name: Checkout pull request head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -35,16 +37,24 @@ jobs:
 
       - name: Check agent instruction hygiene
         run: node scripts/check-agents-hygiene.mjs
-      - name: Detect Gateway changes
+      - name: Detect Gateway and code changes
         id: changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git diff --name-only "${BASE_SHA}...HEAD" | grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\.json$|package\.json$|package-lock\.json$|\.github/workflows/pr-checks\.yml$)'; then
+          git diff --name-only "${BASE_SHA}...HEAD" > changed-files.txt
+          if grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\.json$|package\.json$|package-lock\.json$|\.github/workflows/pr-checks\.yml$)' changed-files.txt; then
             echo "gateway=true" >> "$GITHUB_OUTPUT"
           else
             echo "gateway=false" >> "$GITHUB_OUTPUT"
           fi
+          # Docs-only PRs (Markdown, docs/, templates, LICENSE) skip the unit and script-contract jobs; hygiene still checks them.
+          if grep -Evq '^(docs/|\.github/(ISSUE_TEMPLATE|PULL_REQUEST_TEMPLATE\.md)|LICENSE$)|\.md$' changed-files.txt; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
+          rm -f changed-files.txt
 
   gateway_fast_checks:
     name: Gateway fast checks
@@ -67,7 +77,19 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore node_modules
+        id: node-modules
+        # Keyed on the lockfile; a hit skips npm ci (about a minute per job, KID-400).
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            scripts/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
       - name: Build and unit-test the Gateway
@@ -78,6 +100,8 @@ jobs:
 
   unit_tests:
     name: Shared and server unit tests
+    needs: pr-hygiene
+    if: needs.pr-hygiene.outputs.code == 'true'
     # PostgreSQL integration specs stay out: they need Testcontainers (develop-validation.yml).
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -95,7 +119,19 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore node_modules
+        id: node-modules
+        # Keyed on the lockfile; a hit skips npm ci (about a minute per job, KID-400).
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            scripts/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
       - name: Build the SQLite native binding
@@ -142,6 +178,8 @@ jobs:
 
   script_contract_checks:
     name: Script contract tests
+    needs: pr-hygiene
+    if: needs.pr-hygiene.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -161,7 +199,19 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Restore node_modules
+        id: node-modules
+        # Keyed on the lockfile; a hit skips npm ci (about a minute per job, KID-400).
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            node_modules
+            apps/*/node_modules
+            packages/*/node_modules
+            scripts/node_modules
+          key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}
       - name: Install dependencies without repository lifecycle scripts
+        if: steps.node-modules.outputs.cache-hit != 'true'
         run: npm ci --ignore-scripts
 
       - name: Generate Prisma client

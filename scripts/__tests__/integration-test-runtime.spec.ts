@@ -24,6 +24,23 @@ function readWorkflowJobSource(workflowSource: string, jobName: string): string 
   return lines.slice(jobStart, jobEnd).join('\n');
 }
 
+// KID-400: the unit and script-contract jobs carry exactly two conditions —
+// the docs-only gate from pr-hygiene and the node_modules cache-hit skip —
+// and never continue-on-error.
+function expectOnlyGateConditions(jobSource: string): void {
+  const conditions = jobSource
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('if:'));
+  expect(conditions).toEqual([
+    "if: needs.pr-hygiene.outputs.code == 'true'",
+    "if: steps.node-modules.outputs.cache-hit != 'true'",
+  ]);
+  expect(jobSource).toContain('needs: pr-hygiene');
+  expect(jobSource).toContain("key: node-modules-${{ runner.os }}-node22-${{ hashFiles('package-lock.json') }}");
+  expect(jobSource).not.toMatch(/^\s*(?:-\s*)?continue-on-error:/m);
+}
+
 function readWorkflowJobNames(workflowSource: string): string[] {
   const jobsSource = workflowSource.split('\njobs:\n')[1] ?? '';
 
@@ -70,9 +87,12 @@ describe('integration test runtime contract', () => {
     // only runs when its inputs changed and no longer repeats the Office
     // deployment contract tests that test:scripts already covers.
     expect(prJobSource).toContain('gateway: ${{ steps.changes.outputs.gateway }}');
+    // KID-400: docs-only PRs skip the unit and script-contract jobs.
+    expect(prJobSource).toContain('code: ${{ steps.changes.outputs.code }}');
+    expect(prJobSource).toContain('echo "code=true" >> "$GITHUB_OUTPUT"');
     expect(prJobSource).toContain('echo "gateway=true" >> "$GITHUB_OUTPUT"');
     expect(prJobSource).toContain(
-      "grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\\.json$|package\\.json$|package-lock\\.json$|\\.github/workflows/pr-checks\\.yml$)'",
+      "grep -Eq '^(apps/agent-gateway/|packages/shared/src/(agent-runtime|identifiers)/|packages/shared/package\\.json$|package\\.json$|package-lock\\.json$|\\.github/workflows/pr-checks\\.yml$)' changed-files.txt",
     );
     expect(gatewayFastJob).toContain('needs: pr-hygiene');
     expect(gatewayFastJob).toContain("if: needs.pr-hygiene.outputs.gateway == 'true'");
@@ -200,7 +220,7 @@ describe('integration test runtime contract', () => {
       'run: npm run check:conventions',
     ]);
     expect(jobLines).toContain('NODE_OPTIONS: --max-old-space-size=4096');
-    expect(scriptJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
+    expectOnlyGateConditions(scriptJob);
     expect(scriptJob.match(/^\s*DATABASE_URL:/gm)).toHaveLength(1);
     expect(generateStep).toBeGreaterThan(-1);
     expect(databaseUrlLine).toBeGreaterThan(generateStep);
@@ -233,7 +253,7 @@ describe('integration test runtime contract', () => {
       'run: node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     ]);
     expect(unitJob).not.toContain('test:integration');
-    expect(unitJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
+    expectOnlyGateConditions(unitJob);
   });
 
   it('removes the legacy fixed-port database lifecycle files', () => {

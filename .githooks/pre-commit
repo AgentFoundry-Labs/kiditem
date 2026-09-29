@@ -9,6 +9,12 @@ STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 
 VIOLATIONS=0
 
+# Whitespace errors were the most common first-run PR Checks failure (KID-400).
+if ! git diff --cached --check; then
+  echo "ERROR: whitespace errors in staged changes (see above)."
+  VIOLATIONS=1
+fi
+
 # Block binary files
 BINARIES=$(echo "$STAGED" | grep -iE '\.(exe|dll|so|dylib|o|obj|a|lib|wasm|pyc)$' || true)
 if [ -n "$BINARIES" ]; then

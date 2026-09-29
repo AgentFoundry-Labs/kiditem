@@ -533,7 +533,18 @@ function unwrapExpression(node) {
   return current;
 }
 
+// One program/checker per distinct source text: the ledger loop calls the
+// detectors once per ledger for the same file (KID-400).
+const sourceAnalysisCache = new Map();
 function createSourceAnalysis(source) {
+  const cached = sourceAnalysisCache.get(source);
+  if (cached) return cached;
+  const analysis = createSourceAnalysisUncached(source);
+  sourceAnalysisCache.set(source, analysis);
+  return analysis;
+}
+
+function createSourceAnalysisUncached(source) {
   const fileName = 'ledger-reader.tsx';
   const options = {
     jsx: ts.JsxEmit.Preserve,
@@ -966,6 +977,32 @@ function collectPrismaRawSql(source) {
   return queries;
 }
 
+// Comment-stripped source per file, computed once instead of once per ledger
+// (the printer pass was most of the scanner's run time, KID-400).
+const commentFreeCodeCache = new Map();
+function commentFreeCode(file, source) {
+  const cached = commentFreeCodeCache.get(file);
+  if (cached !== undefined) return cached;
+  const code = path.extname(file) === '.sql'
+    ? source
+    : ts.createPrinter({ removeComments: true }).printFile(
+      ts.createSourceFile(
+        file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
+      ),
+    );
+  commentFreeCodeCache.set(file, code);
+  return code;
+}
+
+const rawSqlCache = new Map();
+function collectPrismaRawSqlCached(source) {
+  const cached = rawSqlCache.get(source);
+  if (cached) return cached;
+  const queries = collectPrismaRawSql(source);
+  rawSqlCache.set(source, queries);
+  return queries;
+}
+
 function detectLedgerAccess(source, ledger, file) {
   const reads = [];
   const delegateAccess = detectPrismaDelegateAccess(
@@ -990,14 +1027,8 @@ function detectLedgerAccess(source, ledger, file) {
     `\\b(?:insert\\s+into|update|delete\\s+from)\\s+${tableTarget}\\b`,
     'im',
   );
-  const code = path.extname(file) === '.sql'
-    ? source
-    : ts.createPrinter({ removeComments: true }).printFile(
-      ts.createSourceFile(
-        file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX,
-      ),
-    );
-  const rawSql = [code, ...collectPrismaRawSql(source)];
+  const code = commentFreeCode(file, source);
+  const rawSql = [code, ...collectPrismaRawSqlCached(source)];
   const hasRawSqlMutation = rawSql.some((sql) =>
     rawSqlMutationPattern.test(sql),
   );
@@ -1098,6 +1129,10 @@ export function inspectLedgerReaders({
     (file) => !isTestOrSeed(file),
   );
 
+  // Read every source once; the ledger loop below used to re-read the whole
+  // tree per ledger, which was most of the scanner's run time (KID-400).
+  const sources = new Map(files.map((file) => [file, readFileSync(path.join(root, file), 'utf8')]));
+
   for (const ledger of manifest.ledgers) {
     const ownerReadRoots = [
       path.posix.join(ledger.owner.root, 'adapter/out/persistence'),
@@ -1110,7 +1145,7 @@ export function inspectLedgerReaders({
       ledger.ownerPublications.map((publication) => publication.path),
     );
     for (const file of files) {
-      const source = readFileSync(path.join(root, file), 'utf8');
+      const source = sources.get(file);
       for (const kind of detectLedgerAccess(source, ledger, file)) {
         const allowed = LEDGER_MUTATION_ACCESS_KINDS.has(kind)
           ? mutationAllowed.has(file)
