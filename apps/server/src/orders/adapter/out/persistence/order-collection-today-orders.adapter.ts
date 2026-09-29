@@ -59,9 +59,13 @@ export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOr
         at: current && current.at > startedAt ? current.at : startedAt,
       });
     }
-    const byMall: Record<string, number> = Object.fromEntries([...operationTotals].map(([mallKey, entry]) => [mallKey, entry.count]));
+    // 과도기(PR B 골격): 새 응답 모양 `{orderCount, newCount}` — 신규 셈(주문번호 − 전송 접수 번호)은 KID-234 트랙이 채운다.
+    const byMall: Record<string, { orderCount: number; newCount: number }> = Object.fromEntries(
+      [...operationTotals].map(([mallKey, entry]) => [mallKey, { orderCount: entry.count, newCount: 0 }]),
+    );
 
     const counts = Object.values(byMall);
-    return { total: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0), byMall };
+    const total = counts.length === 0 ? null : counts.reduce((sum, entry) => sum + entry.orderCount, 0);
+    return { total, newTotal: counts.length === 0 ? null : 0, byMall };
   }
 }

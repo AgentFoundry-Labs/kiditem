@@ -198,11 +198,11 @@ export function OrderCollectionWorkspace() {
     const merged = new Map(orderCollectionSummary.mallStatsByKey);
     // 카드의 "당일"도 서버 기록을 읽는다 — 이 브라우저가 변환하지 않은 몰(다른 PC 에서 걷은 몰)은
     // 로컬 기록만 보면 0 으로 보이고, 카드 합이 머리의 오늘 주문과 어긋난다(사장님 2026-09-22).
-    for (const [mallKey, orders] of Object.entries(todayOrdersQuery.data?.byMall ?? {})) {
+    for (const [mallKey, today] of Object.entries(todayOrdersQuery.data?.byMall ?? {})) {
       const stat = merged.get(mallKey);
       merged.set(mallKey, stat
-        ? { ...stat, orderRows: orders }
-        : { key: mallKey, name: mallKey, files: 0, orderRows: orders, newRows: 0, productRows: 0, latestAt: 0 });
+        ? { ...stat, orderRows: today.orderCount }
+        : { key: mallKey, name: mallKey, files: 0, orderRows: today.orderCount, newRows: 0, productRows: 0, latestAt: 0 });
     }
     // 대조를 돌렸으면 "신규"(=아직 셀피아에 안 올라간 주문)를 로컬 전송기록 대신 실측으로 바꾼다.
     for (const [mallKey, missing] of sellpiaReconcile?.missingCountByMallKey ?? []) {
