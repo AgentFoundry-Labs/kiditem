@@ -1,3 +1,4 @@
+import '../collectors/advertising.ad_action';
 import '../collectors/advertising.ad_report';
 import '../collectors/advertising.competitor_catalog';
 import '../collectors/advertising.competitor_seller_identity';
@@ -105,7 +106,7 @@ import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import '../sites/wing/traffic';
-import { ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
+import { ADVERTISING_AD_ACTION_OPERATION_CAPABILITY, ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
 import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
@@ -171,6 +172,8 @@ export function installEntry(): boolean {
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,
       [ADVERTISING_AD_REPORT_OPERATION_CAPABILITY]: true,
+      // advertisingAdActionOperationKindV1: 서버가 준비한 광고 액션 kind `advertising.ad_action`(claim)을 돈다(KID-386).
+      [ADVERTISING_AD_ACTION_OPERATION_CAPABILITY]: true,
       // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
       // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
       [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,

@@ -569,6 +569,29 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(plain.finishes[0]).toMatchObject({ result: { login: { reason: 'no_credentials' } } });
   });
 
+  it('수집기가 실패 result(failureResult)를 주면 실패 finish의 result에 싣는다 — 광고 액션의 not_attempted(KID-386)', async () => {
+    const h = harness();
+    const seen: unknown[] = [];
+    const c = collector(() => (async function* () {
+      throw new RuntimeError('ADVERTISING_AD_CENTER_FORM_CHANGED', '폼이 바뀜', { missing: '완료 버튼' });
+    })(), {
+      failureResult: (plan, error) => {
+        seen.push({ plan, code: error.code });
+        return { providerOutcome: 'not_attempted', message: error.message };
+      },
+    });
+
+    await runWith(h, c);
+
+    expect(seen).toEqual([{ plan: { echo: true }, code: 'ADVERTISING_AD_CENTER_FORM_CHANGED' }]);
+    expect(h.finishes).toEqual([{
+      outcome: 'failed',
+      errorCode: 'ADVERTISING_AD_CENTER_FORM_CHANGED',
+      errorMessage: '폼이 바뀜',
+      result: { providerOutcome: 'not_attempted', message: '폼이 바뀜' },
+    }]);
+  });
+
   it('로그인 까닭이 없는 실패는 result 없이 finish(failed)한다', async () => {
     const h = harness();
     const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {

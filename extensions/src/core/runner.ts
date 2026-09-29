@@ -136,6 +136,11 @@ export interface RunnableCollector {
   /** 청크 스트림. 생성기가 `RunnableFinish`를 돌려주면 그 값이 `summarize`보다 앞선다. */
   collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk> | AsyncGenerator<RunnableChunk, RunnableFinish | void, undefined>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
+  /**
+   * 실패 finish에 실을 result(있으면). 수집기가 오류를 보고 정한다 — 광고 액션의 `not_attempted`처럼 owner가 실패에도 결과
+   * 모양을 받는 kind(KID-386). fence_lost·취소는 finish를 보내지 않으므로 부르지 않는다.
+   */
+  failureResult?(plan: Record<string, unknown>, error: { code: string; message: string }): Record<string, unknown> | null;
 }
 
 const encoder = new TextEncoder();
@@ -373,6 +378,13 @@ async function execute(
     if (stop.kind === 'fence_lost') return { kind: 'fence_lost', operationId, reason: stop.reason };
     await writes;
     const login = loginFailureOf(error, input.loginBlocked === true);
+    let failureResult: Record<string, unknown> | null = null;
+    try {
+      failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }) ?? null;
+    } catch {
+      failureResult = null;
+    }
+    const result = failureResult || login ? { ...(failureResult ?? {}), ...(login ? { login } : {}) } : null;
     await deps.client
       .finish({
         operationId,
@@ -381,7 +393,7 @@ async function execute(
           outcome: 'failed',
           errorCode: error.code.slice(0, 64),
           errorMessage: error.message.slice(0, 2_000),
-          ...(login ? { result: { login } } : {}),
+          ...(result ? { result } : {}),
         },
       })
       .catch(() => undefined);

@@ -4830,6 +4830,8 @@ var KidItemRuntime = (() => {
     accountAdjustmentRows: adCount,
     warnings: external_exports.array(AdReportReconciliationWarningSchema)
   }).strict();
+  var AD_ACTION_KIND = "advertising.ad_action";
+  var ADVERTISING_AD_ACTION_OPERATION_CAPABILITY = "advertisingAdActionOperationKindV1";
   var AD_ACTION_LEASE_MS = 10 * 60 * 1e3;
   var AD_ACTION_EXECUTABLE_TYPES = ["create_campaign"];
   var AdActionExecutableTypeSchema = external_exports.enum(AD_ACTION_EXECUTABLE_TYPES);
@@ -4855,6 +4857,7 @@ var KidItemRuntime = (() => {
     createCampaign: AdActionCreateCampaignSchema,
     startedAt: external_exports.string().datetime({ offset: true })
   }).strict();
+  var AD_ACTION_EVIDENCE_CHUNK_KIND = "ad_action_evidence";
   var AdActionEvidenceSchema = external_exports.object({
     campaignId: external_exports.string().min(1).nullable(),
     campaignName: external_exports.string().min(1).nullable(),
@@ -4900,6 +4903,97 @@ var KidItemRuntime = (() => {
   function isRuntimeError(value) {
     return value instanceof RuntimeError;
   }
+
+  // extensions/src/collectors/advertising.ad_action/index.ts
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
+  var CAMPAIGN_PAGE_SIZE = 500;
+  var MAX_CAMPAIGN_PAGES = 20;
+  var EXISTING_MESSAGE = "\uAC19\uC740 \uC774\uB984\uC758 \uCEA0\uD398\uC778\uC774 \uC774\uBBF8 \uC788\uC5B4 \uC0C8\uB85C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
+  var adActionCollector = {
+    kind: AD_ACTION_KIND,
+    site: "ad-center",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed3 = AdActionPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uC561\uC158 \uC2E4\uD589 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_ACTION_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_ACTION_KIND });
+      const plan = parsed3.data;
+      const campaign = plan.createCampaign;
+      if (plan.vendorId !== null) {
+        const vendorId2 = await site.readVendorId();
+        if (vendorId2 !== plan.vendorId) {
+          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uAD11\uACE0 \uC561\uC158\uC758 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uADF8 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2E4\uD589\uD574 \uC8FC\uC138\uC694.", {
+            plannedVendorId: plan.vendorId,
+            observedVendorId: vendorId2
+          });
+        }
+      }
+      signal.throwIfAborted();
+      const existing = findByName(await readRoster(site), campaign.name);
+      let submission;
+      if (existing) {
+        submission = { campaignId: existing, message: EXISTING_MESSAGE };
+      } else {
+        signal.throwIfAborted();
+        const pressed = await site.createCampaign(campaign, { signal });
+        let campaignId = pressed.campaignId;
+        if (!campaignId) campaignId = findByName(await readRoster(site).catch(() => []), campaign.name);
+        submission = { campaignId, message: pressed.message };
+      }
+      const evidence = {
+        campaignId: submission.campaignId,
+        campaignName: campaign.name,
+        observedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        message: submission.message?.slice(0, 500) ?? null
+      };
+      yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: "submitted" } };
+      return {
+        result: {
+          actionId: plan.actionId,
+          actionType: plan.actionType,
+          providerOutcome: submission.campaignId ? "created" : "uncertain",
+          campaignId: submission.campaignId,
+          message: evidence.message
+        }
+      };
+    },
+    failureResult(rawPlan, error) {
+      const parsed3 = AdActionPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) return null;
+      return {
+        actionId: parsed3.data.actionId,
+        actionType: parsed3.data.actionType,
+        providerOutcome: "not_attempted",
+        campaignId: null,
+        message: error.message.slice(0, 500) || null
+      };
+    }
+  };
+  async function readRoster(site) {
+    const campaigns = [];
+    for (let page = 0; ; page += 1) {
+      if (page >= MAX_CAMPAIGN_PAGES) throw new RuntimeError("SITE_REQUEST_FAILED", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { reason: "campaign_page_limit", page });
+      const list2 = await site.listCampaigns(page);
+      for (const value of list2) {
+        const campaign = value && typeof value === "object" ? value : null;
+        const id3 = idOf(campaign?.id ?? campaign?.campaignId);
+        if (id3 && typeof campaign?.name === "string") campaigns.push({ id: id3, name: campaign.name });
+      }
+      if (list2.length < CAMPAIGN_PAGE_SIZE) return campaigns;
+    }
+  }
+  function findByName(campaigns, name) {
+    const wanted = normalize(name);
+    return campaigns.find((campaign) => normalize(campaign.name) === wanted)?.id ?? null;
+  }
+  function normalize(value) {
+    return value.replace(/\s+/g, " ").trim();
+  }
+  function idOf(value) {
+    const text9 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text9) ? text9 : null;
+  }
+  registerCollector(adActionCollector);
 
   // extensions/src/core/site-caller.ts
   function delayUntilNext(input) {
@@ -5019,20 +5113,20 @@ var KidItemRuntime = (() => {
   };
 
   // extensions/src/collectors/advertising.ad_report/index.ts
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
-  var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var ADVERTISING_IDENTITY_MISMATCH2 = "ADVERTISING_IDENTITY_MISMATCH";
   var AD_REPORT_POLL_INTERVAL_MS = 5e3;
   var AD_REPORT_POLL_LIMIT_MS = 5 * 60 * 1e3;
   var AD_CENTER_PAGE_SIZE = 500;
-  var MAX_CAMPAIGN_PAGES = 20;
+  var MAX_CAMPAIGN_PAGES2 = 20;
   var MAX_AD_PAGES = 40;
   var adReportCollector = {
     kind: AD_REPORT_KIND,
     site: "ad-center",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = AdReportPlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uBCF4\uACE0\uC11C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uAD11\uACE0 \uBCF4\uACE0\uC11C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
       const plan = parsed3.data;
       const range = { startDate: plan.startDate, endDate: plan.endDate };
       if (signal.aborted) return;
@@ -5041,7 +5135,7 @@ var KidItemRuntime = (() => {
       if (plan.vendorId !== null) {
         vendorId2 = await site.readVendorId();
         if (vendorId2 !== plan.vendorId) {
-          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH2, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
             plannedVendorId: plan.vendorId,
             observedVendorId: vendorId2
           });
@@ -5158,7 +5252,7 @@ var KidItemRuntime = (() => {
   async function readCampaigns(site) {
     const campaigns = [];
     for (let page = 0; ; page += 1) {
-      if (page >= MAX_CAMPAIGN_PAGES) throw failed("campaign_page_limit", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { page });
+      if (page >= MAX_CAMPAIGN_PAGES2) throw failed("campaign_page_limit", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { page });
       const list2 = await site.listCampaigns(page);
       campaigns.push(...list2.map((value, index) => campaignOf(value, page * AD_CENTER_PAGE_SIZE + index)));
       if (list2.length < AD_CENTER_PAGE_SIZE) return campaigns;
@@ -5442,7 +5536,7 @@ var KidItemRuntime = (() => {
   registerCollector(advertisingKeywordSerpCollector);
 
   // extensions/src/collectors/advertising.wing_itemwinner/index.ts
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var CHUNK_ITEMS = 500;
   var wingItemwinnerCollector = {
     kind: WING_ITEMWINNER_KIND,
@@ -5450,9 +5544,9 @@ var KidItemRuntime = (() => {
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = WingItemwinnerPlanSchema.safeParse(rawPlan);
       if (!parsed3.success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
       if (vendorId2 !== parsed3.data.vendorId) {
@@ -5594,7 +5688,7 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/advertising.wing_traffic/index.ts
   var PAGE_SIZE = 100;
   var CHUNK_ITEMS2 = 1e3;
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var WING_TRAFFIC_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
   var WING_TRAFFIC_DATA_NOT_READY = "WING_TRAFFIC_DATA_NOT_READY";
   var WING_TRAFFIC_PAGE_CONFLICT = "WING_TRAFFIC_PAGE_CONFLICT";
@@ -5603,8 +5697,8 @@ var KidItemRuntime = (() => {
     site: "wing-traffic",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = WingTrafficPlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
       const plan = parsed3.data;
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
@@ -5774,7 +5868,7 @@ var KidItemRuntime = (() => {
     coveredMonths: external_exports.array(external_exports.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).min(1)
   }).passthrough();
   var CHUNK_PRODUCTS = 500;
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var MISMATCH_MESSAGE = "\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uAD6C\uB9E4\uAE30\uAC04 \uC751\uB2F5\uC774 401\uC77C \uD310\uB9E4 \uC99D\uAC70\uC640 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.";
   function purchasePeriods(plan) {
     return plan.coveredMonths.map((yearMonth) => {
@@ -5853,8 +5947,8 @@ var KidItemRuntime = (() => {
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = PlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       const periods = purchasePeriods(parsed3.data);
       const read15 = await site.productProfit(
         { start: parsed3.data.from, end: parsed3.data.to, periods, signal },
@@ -5882,14 +5976,14 @@ var KidItemRuntime = (() => {
     range: external_exports.object({ from: isoDay4, to: isoDay4 })
   }).passthrough();
   var CHUNK_ROWS = 500;
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var sellpiaSalesCollector = {
     kind: SELLPIA_SALES_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = PlanSchema2.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
       const { rows, sellers } = await site.sales({ startDate: parsed3.data.range.from, endDate: parsed3.data.range.to });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, sellers };
@@ -7179,7 +7273,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.mall_admin_listings/index.ts
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var SOURCE_SNAPSHOT_INVALID = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS2 = 1e3;
   var mallAdminListingsCollector = {
@@ -7189,7 +7283,7 @@ var KidItemRuntime = (() => {
       const parsed3 = MallAdminListingsPlanSchema.safeParse(rawPlan);
       const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
       if (!parsed3.success || !reader?.readListings) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ADMIN_LISTINGS_KIND,
           mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
@@ -7312,7 +7406,7 @@ var KidItemRuntime = (() => {
   }).passthrough();
 
   // extensions/src/collectors/channels.registration/index.ts
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var REGISTRATION_ACCOUNT_MISMATCH = "REGISTRATION_ACCOUNT_MISMATCH";
   var MALL_WRITE_FAILED = "MALL_WRITE_FAILED";
   function observedConfirms(resume, stock, status) {
@@ -7325,7 +7419,7 @@ var KidItemRuntime = (() => {
     return lines.every((line) => line !== void 0 && observedConfirms(resume, line.stock, line.status ?? observed.status));
   }
   function invalid(message, details) {
-    return new RuntimeError(RUNTIME_PLAN_INVALID7, message, { kind: REGISTRATION_KIND, ...details });
+    return new RuntimeError(RUNTIME_PLAN_INVALID8, message, { kind: REGISTRATION_KIND, ...details });
   }
   function mallOutcomeOf(submission, providerAccountId) {
     if (!submission) return { outcome: "not_submitted", observed: "not_submitted" };
@@ -7709,7 +7803,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS3 = 500;
@@ -7739,8 +7833,8 @@ var KidItemRuntime = (() => {
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
       const plan = parsed3.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
@@ -7893,7 +7987,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sellpia_manual_match/index.ts
-  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
   var SEARCH_BATCH = 100;
@@ -7907,8 +8001,8 @@ var KidItemRuntime = (() => {
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
       const { targetCodes } = parsed3.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
@@ -9081,7 +9175,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -9092,9 +9186,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -9363,14 +9457,14 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed3.data;
       const done = [];
       for (const window of plan.windows) {
@@ -9413,7 +9507,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
@@ -9421,8 +9515,8 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed3.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -9642,14 +9736,14 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema3 = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed3 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed3.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -9729,7 +9823,7 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
   var CHUNK_ROWS5 = 200;
-  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
@@ -9737,7 +9831,7 @@ var KidItemRuntime = (() => {
       const parsed3 = PlanSchema4.safeParse(rawPlan);
       const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
       if (!parsed3.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
@@ -9774,14 +9868,14 @@ var KidItemRuntime = (() => {
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
   var CHUNK_ROWS6 = 500;
-  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = PlanSchema5.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed3.data.startDate, endDate: parsed3.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
@@ -9803,14 +9897,14 @@ var KidItemRuntime = (() => {
     sourceAccountKey: external_exports.literal("kiditem")
   }).passthrough();
   var CHUNK_ROWS7 = 5e3;
-  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
   var sellpiaInventoryCollector = {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed3 = PlanSchema6.safeParse(rawPlan);
-      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
       const progress4 = { rows: rows.length };
@@ -11301,7 +11395,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/mall-write/form.ts
-  var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID18 = "RUNTIME_PLAN_INVALID";
   var isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var entries = (value) => isObject(value) ? Object.entries(value) : [];
   var list = (value) => Array.isArray(value) ? value : [];
@@ -11314,7 +11408,7 @@ var KidItemRuntime = (() => {
     return out;
   }
   function assertRegisterUrl(spec, value) {
-    const invalid2 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID17, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
+    const invalid2 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID18, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
     let url;
     try {
       url = new URL(String(value ?? "").trim());
@@ -11328,7 +11422,7 @@ var KidItemRuntime = (() => {
     return url.toString();
   }
   function normalizeForm(spec, value) {
-    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
+    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
     const url = assertRegisterUrl(spec, value.url);
     const fields = {};
     for (const [name, fieldValue] of entries(value.fields)) {
@@ -11891,10 +11985,10 @@ var KidItemRuntime = (() => {
     const spec = definition.form;
     const custom2 = definition.custom;
     if (!spec && !custom2) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID18, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
     }
     if (spec && !custom2 && input.executionKind !== "register") {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID18, `${definition.displayName}\uC740 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, {
         mallKey: definition.mallKey,
         executionKind: input.executionKind
       });
@@ -14706,7 +14800,7 @@ var KidItemRuntime = (() => {
     return value;
   }
   function planInvalid(message) {
-    return new RuntimeError(RUNTIME_PLAN_INVALID17, message, { reason: "form_values" });
+    return new RuntimeError(RUNTIME_PLAN_INVALID18, message, { reason: "form_values" });
   }
   var text7 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
   var digits2 = (entry) => /^\d+$/.test(String(entry ?? "")) ? String(entry) : "";
@@ -16195,10 +16289,10 @@ var KidItemRuntime = (() => {
     custom: {
       url: (input) => {
         if (input.executionKind !== "register") {
-          throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8\uB294 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", executionKind: input.executionKind });
+          throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uD0A4\uC988\uB178\uD2B8\uB294 \uAE30\uC874 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74 \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", executionKind: input.executionKind });
         }
         const raw = asRaw(input.form);
-        if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
+        if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
         return String(raw.url).trim();
       },
       fill: fillKidsnote
@@ -19290,7 +19384,7 @@ var KidItemRuntime = (() => {
     if (input.executionKind === "register") return WING_FORM_URL;
     const id3 = input.externalListingId?.trim() ?? "";
     if (!/^\d{6,}$/.test(id3)) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC218\uC815\uD560 \uCFE0\uD321 \uC719 \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC5B4 \uC218\uC815 \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", executionKind: input.executionKind });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uC218\uC815\uD560 \uCFE0\uD321 \uC719 \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC5B4 \uC218\uC815 \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", executionKind: input.executionKind });
     }
     return `${WING_FORM_URL}?vendorInventoryId=${id3}`;
   }
@@ -19308,7 +19402,7 @@ var KidItemRuntime = (() => {
     const product = wingProductOf(input.form);
     const expected = input.expectedProviderAccountId?.trim() ?? "";
     if (!VENDOR_ID.test(expected)) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uC2B9\uC778\uB41C \uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC5B4 \uCC44\uC6B0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uC2B9\uC778\uB41C \uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC5B4 \uCC44\uC6B0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
     }
     const compat = await callPage(page, "wing.compat", {}, {
       timeoutMs: COMPAT_TIMEOUT_MS,
@@ -19625,7 +19719,7 @@ var KidItemRuntime = (() => {
   async function editUrlOf(context, input) {
     const id3 = input.externalListingId?.trim() ?? "";
     if (/^\d{6,}$/.test(id3)) return `${WING_FORM_URL2}?vendorInventoryId=${id3}`;
-    if (!input.productName.trim()) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFC0 \uCFE0\uD321 \uC719 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC774\uB984\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+    if (!input.productName.trim()) throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFC0 \uCFE0\uD321 \uC719 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC774\uB984\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
     const list2 = await openWriteTab(context, wingProductSearchUrl(input.productName), { signIn: context.signIn, dialogHosts: ["wing.coupang.com"] });
     let found = null;
     try {
@@ -19646,11 +19740,11 @@ var KidItemRuntime = (() => {
   }
   async function updateWingThumbnail(context, input) {
     if (!input.image.dataUrl.startsWith("data:image/")) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uB300\uD45C\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uB300\uD45C\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
     }
     const expected = input.expectedProviderAccountId?.trim() ?? "";
     if (expected && !VENDOR_ID2.test(expected)) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID18, "\uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
     }
     const url = await editUrlOf(context, input);
     const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: ["wing.coupang.com"], bootstrapFile: WING_COMPAT_FILE });
@@ -20570,6 +20664,13 @@ var KidItemRuntime = (() => {
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
       const login = loginFailureOf(error, input.loginBlocked === true);
+      let failureResult = null;
+      try {
+        failureResult = collector.failureResult?.(operation.plan ?? {}, { code: error.code, message: error.message }) ?? null;
+      } catch {
+        failureResult = null;
+      }
+      const result = failureResult || login ? { ...failureResult ?? {}, ...login ? { login } : {} } : null;
       await deps.client.finish({
         operationId,
         token,
@@ -20577,7 +20678,7 @@ var KidItemRuntime = (() => {
           outcome: "failed",
           errorCode: error.code.slice(0, 64),
           errorMessage: error.message.slice(0, 2e3),
-          ...login ? { result: { login } } : {}
+          ...result ? { result } : {}
         }
       }).catch(() => void 0);
       return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
@@ -20865,6 +20966,8 @@ var KidItemRuntime = (() => {
         wingDailyOperationKindsV1: true,
         [SELLPIA_OPERATION_CAPABILITY]: true,
         [ADVERTISING_AD_REPORT_OPERATION_CAPABILITY]: true,
+        // advertisingAdActionOperationKindV1: 서버가 준비한 광고 액션 kind `advertising.ad_action`(claim)을 돈다(KID-386).
+        [ADVERTISING_AD_ACTION_OPERATION_CAPABILITY]: true,
         // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
         // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
         [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,

@@ -47,6 +47,8 @@ export interface Collector<
    */
   collect(plan: TPlan, site: TSite, context: CollectContext): AsyncIterable<CollectedChunk> | AsyncGenerator<CollectedChunk, CollectFinish<TResult> | void, undefined>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: TResult };
+  /** 실패 finish에 실을 result(있으면) — owner가 실패에도 결과 모양을 받는 kind(광고 액션 `not_attempted`, KID-386). */
+  failureResult?(plan: Record<string, unknown>, error: { code: string; message: string }): TResult | null;
 }
 
 /** 사이트가 운영자를 기다리는 까닭(검증 화면). null이면 풀렸다. */
