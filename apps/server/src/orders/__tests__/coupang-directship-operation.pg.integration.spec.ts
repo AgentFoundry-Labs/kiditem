@@ -1,3 +1,5 @@
+import { orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import { createHash, randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
@@ -19,7 +21,6 @@ import { OperationService } from '../../common/operation/application/service/ope
 import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
 import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
-import { readObservedOrderCount } from '../adapter/out/persistence/read/order-facts.reader';
 import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.repository';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
@@ -162,7 +163,7 @@ describe('orders.coupang_directship owner over the operation contract + disposab
     const consumptions = await prisma.coupangDirectTransportConsumption.findMany();
     expect(consumptions.map((row) => [row.operationId, row.sourceImportRunId])).toEqual([[operationId, null], [operationId, null]]);
     expect(await prisma.coupangDirectTransportReceipt.count()).toBe(2);
-    await expect(prisma.$transaction((tx) => readObservedOrderCount(tx, ORG))).resolves.toBe(2);
+    await expect(prisma.$transaction((tx) => orderFactsTestReader(prisma as never).readObservedOrderCount(ownerTransaction(tx), { organizationId: ORG }))).resolves.toBe(2);
   });
 
   it('워크북과 맞는 최종주문은 그 워크북에 실행 ID·운송유형 관측을 남긴다', async () => {

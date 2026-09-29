@@ -10,10 +10,6 @@ import {
   CHANNEL_OPTION_RECIPE_PORT,
   type ChannelOptionRecipePort,
 } from '../../../channels/application/port/in/channel-option-recipe.port';
-import {
-  CHANNEL_ACCOUNT_PORT,
-  type ChannelAccountPort,
-} from '../../../channels/application/port/in/account/channel-account.port';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -23,21 +19,16 @@ import { readPublishedProductAbcGrades } from '../../../products/adapter/out/per
 import { ListReviewsQueryDto, type ReviewFilter } from '../../adapter/in/web/dto/list-reviews.dto';
 import { ListReviewItemsQueryDto } from '../../adapter/in/web/dto/list-review-items.dto';
 import {
-  readCurrentReviewContentCount,
-  readCurrentReviewItemCount,
-  readCurrentReviewItems,
-  readCurrentReviewListingAggregates,
-  readCurrentReviewRatingCounts,
-  readCurrentReviewRecentCounts,
+  REVIEW_READ_REPOSITORY_PORT,
   type CurrentReviewListingAggregate,
   type CurrentReviewItemFilter,
-} from '../../adapter/out/persistence/read/review-facts.reader';
+  type ReviewReadRepositoryPort,
+} from '../port/out/repository/review-read.repository.port';
+import { ORDER_FACT_EXCLUDED_STATUSES } from '../port/in/facts/order-facts.port';
 import {
-  ORDER_FACT_EXCLUDED_STATUSES,
-  readListingOptionOrderFacts,
-  readObservedOrderBounds,
-  readOrderWindowFacts,
-} from '../../adapter/out/persistence/read/order-facts.reader';
+  ORDER_READ_REPOSITORY_PORT,
+  type OrderReadRepositoryPort,
+} from '../port/out/repository/order-read.repository.port';
 import type {
   ReviewItem,
   ReviewItemListResponse,
@@ -71,8 +62,10 @@ export class ReviewsService {
     private readonly channelListings: ChannelListingQueryPort,
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly channelRecipes: ChannelOptionRecipePort,
-    @Inject(CHANNEL_ACCOUNT_PORT)
-    private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ORDER_READ_REPOSITORY_PORT)
+    private readonly orders: OrderReadRepositoryPort,
+    @Inject(REVIEW_READ_REPOSITORY_PORT)
+    private readonly reviews: ReviewReadRepositoryPort,
   ) {}
 
   /**
@@ -103,7 +96,7 @@ export class ReviewsService {
     const filter = query.filter ?? DEFAULT_FILTER;
 
     return this.prisma.$transaction(async (tx) => {
-      const allAggregates = await readCurrentReviewListingAggregates(tx, organizationId);
+      const allAggregates = await this.reviews.readCurrentReviewListingAggregates(ownerTransaction(tx), { organizationId });
       const listingDisplays = await this.loadListingDisplays(
         tx,
         organizationId,
@@ -112,11 +105,9 @@ export class ReviewsService {
       const aggregates = allAggregates.filter((a) => listingDisplays.has(a.listingId));
       const listingIds = aggregates.map((a) => a.listingId);
       const since = new Date(Date.now() - RECENT_WINDOW_MS);
-      const recentRows = await readCurrentReviewRecentCounts(
-        tx,
-        organizationId,
-        listingIds,
-        since,
+      const recentRows = await this.reviews.readCurrentReviewRecentCounts(
+        ownerTransaction(tx),
+        { organizationId, listingIds, since },
       );
       const orderCounts = await this.readOrderCountsByListing(tx, organizationId, listingIds);
       const recentByListing = new Map(recentRows.map((row) => [row.listingId, row.count]));
@@ -165,10 +156,11 @@ export class ReviewsService {
     const limit = query.limit ?? DEFAULT_LIMIT;
     const filter = toCurrentReviewItemFilter(query);
     return this.prisma.$transaction(async (tx) => {
-      const total = await readCurrentReviewItemCount(tx, organizationId, filter);
-      const rows = await readCurrentReviewItems(tx, organizationId, filter, page, limit);
-      const ratingGroups = await readCurrentReviewRatingCounts(tx, organizationId, filter);
-      const withContentCount = await readCurrentReviewContentCount(tx, organizationId, filter);
+      const transaction = ownerTransaction(tx);
+      const total = await this.reviews.readCurrentReviewItemCount(transaction, { organizationId, filter });
+      const rows = await this.reviews.readCurrentReviewItems(transaction, { organizationId, filter, page, limit });
+      const ratingGroups = await this.reviews.readCurrentReviewRatingCounts(transaction, { organizationId, filter });
+      const withContentCount = await this.reviews.readCurrentReviewContentCount(transaction, { organizationId, filter });
 
       const optionNames = await this.loadOptionNames(
         tx,
@@ -313,21 +305,22 @@ export class ReviewsService {
     listingIds: string[],
   ): Promise<Map<string, number> | null> {
     if (listingIds.length === 0) return new Map();
-    const bounds = await readObservedOrderBounds(tx, organizationId);
+    const transaction = ownerTransaction(tx);
+    const bounds = await this.orders.readObservedOrderBounds(transaction, { organizationId });
     if (!bounds) return null;
     const window = {
       organizationId,
       ...bounds,
       excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
     };
-    const observation = await readOrderWindowFacts(tx, window, this.channelAccounts);
+    const observation = await this.orders.readOrderWindowFacts(transaction, window);
     if (observation.orderCount === null) return null;
 
     const options = await this.channelRecipes.readConfirmedCompositions(ownerTransaction(tx), {
       organizationId,
       listingIds,
     });
-    const facts = await readListingOptionOrderFacts(tx, window);
+    const facts = await this.orders.readListingOptionOrderFacts(transaction, window);
     const listingByOption = new Map(options.map((option) => [option.optionId, option.listingId]));
     const orderIdsByListing = new Map<string, Set<string>>();
     for (const fact of facts) {

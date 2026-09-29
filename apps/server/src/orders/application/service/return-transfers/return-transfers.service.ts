@@ -4,7 +4,11 @@ import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
-import { readOrderIdentityFact } from '../../../adapter/out/persistence/read/order-facts.reader';
+import {
+  ORDER_READ_REPOSITORY_PORT,
+  type OrderReadRepositoryPort,
+} from '../../port/out/repository/order-read.repository.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { CreateReturnTransferDto, UpdateReturnTransferDto } from '../../../adapter/in/web/return-transfers/dto';
 
 @Injectable()
@@ -13,6 +17,7 @@ export class ReturnTransfersService {
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly productTransactionalRead: ProductTransactionalReadPort,
+    @Inject(ORDER_READ_REPOSITORY_PORT) private readonly orders: OrderReadRepositoryPort,
   ) {}
 
   private generateRtNumber(): string {
@@ -59,10 +64,9 @@ export class ReturnTransfersService {
         throw new NotFoundException('MasterProduct not found');
       }
       if (dto.orderId) {
-        const order = await readOrderIdentityFact(
-          tx,
-          organizationId,
-          dto.orderId,
+        const order = await this.orders.readOrderIdentity(
+          ownerTransaction(tx),
+          { organizationId, id: dto.orderId },
         );
         if (!order) throw new NotFoundException('Order not found');
       }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NotFoundException, NotImplementedException } from '@nestjs/common';
 import { OrderListResponseSchema, OrderStatsResponseSchema } from '@kiditem/shared/order';
 import { OrdersService } from '../orders.service';
+import { OrderFactsRepository } from '../../../adapter/out/persistence/order-facts.repository';
 
 function makePrisma() {
   const prisma = {
@@ -85,7 +86,7 @@ describe('OrdersService — order query and actions', () => {
 
   beforeEach(() => {
     prisma = makePrisma();
-    service = new OrdersService(prisma as any, accounts as any);
+    service = new OrdersService(prisma as any, new OrderFactsRepository(accounts as any));
     vi.clearAllMocks();
   });
 

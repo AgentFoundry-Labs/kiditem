@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { profitCatalogTestReaders, profitOrderFacts } from '../../test-helpers/channel-fact-ports';
+import { orderFactsTestReader, profitCatalogTestReaders, profitOrderFacts, reviewFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
@@ -133,7 +133,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
 
     await expect(findAutoBatchCandidates(prisma as never, ORG, 10, makeChannelListingQuery(prisma), makeChannelRecipes(prisma)))
       .resolves.toEqual([{ id: workspace.id }]);
-    await expect(new ReviewsService(prisma as never, new ProductTransactionalReadRepositoryAdapter(), makeChannelListingQuery(prisma), makeChannelRecipes(prisma), profitCatalogTestReaders(prisma as never).accounts).list(ORG, {}))
+    await expect(new ReviewsService(prisma as never, new ProductTransactionalReadRepositoryAdapter(), makeChannelListingQuery(prisma), makeChannelRecipes(prisma), orderFactsTestReader(prisma as never), reviewFactsTestReader()).list(ORG, {}))
       .resolves.toMatchObject({ items: [{ listingId: listing.id, grade: 'A' }] });
     await expect(buildPerListingProfit(
       prisma as never,

@@ -1,3 +1,4 @@
+import { orderFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { InventoryItemNotFoundError } from '../application/exception/inventory-operation.error';
 import { ReturnTransfersService } from '../../orders/application/service/return-transfers/return-transfers.service';
@@ -115,6 +116,7 @@ describe('stock transfer tenant boundary (PG integration)', () => {
     const returns = new ReturnTransfersService(
       prisma as unknown as PrismaService,
       new ProductTransactionalReadRepositoryAdapter(),
+      orderFactsTestReader(prisma as unknown as PrismaService),
     );
     await expect(returns.create(TEST_ORGANIZATION_ID, {
       masterProductId: FOREIGN_MASTER_PRODUCT_ID,

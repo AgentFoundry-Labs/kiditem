@@ -7,29 +7,19 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
-} from '../../../../../../test-helpers/real-prisma';
-import {
-  readOrderByIdFact,
-  readOrderCountsByChannelAccount,
-  readOrderListFacts as readOrderListFactsWithAccountPort,
-  readOrderStatusCount,
-  readOrderStatusCounts,
-  readObservedOrderBounds,
-  readObservedOrderCount,
-  readOrderLineWindowFacts as readOrderLineWindowFactsWithAccountPort,
-  readOrderWindowFacts as readOrderWindowFactsWithAccountPort,
-  readPublishedOrderLines,
-  type OrderListInput,
-  type OrderWindowInput,
-} from '../order-facts.reader';
+} from '../../../../../test-helpers/real-prisma';
+import { OrderFactsRepository } from '../order-facts.repository';
+import type { OrderWindowInput } from '../../../../application/port/in/facts/order-facts.port';
+import type { OrderListInput } from '../../../../application/port/out/repository/order-read.repository.port';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { PrismaService } from '../../../../../../prisma/prisma.service';
-import type { ChannelAccountPort } from '../../../../../../channels/application/port/in/account/channel-account.port';
-import { ChannelAccountService } from '../../../../../../channels/application/service/account/channel-account.service';
-import { ChannelAccountPersistenceAdapter } from '../../../../../../channels/adapter/out/persistence/channel-account.repository';
-import { ChannelCredentialsAdapter } from '../../../../../../channels/adapter/out/credentials/channel-credentials.adapter';
-import { ChannelsProductMappingGenerationAdapter } from "../../../../../../channels/adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
+import { PrismaService } from '../../../../../prisma/prisma.service';
+import type { ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { ChannelAccountService } from '../../../../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../../../../channels/adapter/out/persistence/channel-account.repository';
+import { ChannelCredentialsAdapter } from '../../../../../channels/adapter/out/credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from "../../../../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../../../../products/adapter/out/persistence/product-mapping-generation.repository";
 
 const ACCOUNT_ID = '71000000-0000-4000-8000-000000000001';
 const SECOND_ACCOUNT_ID = '71000000-0000-4000-8000-000000000002';
@@ -38,7 +28,7 @@ const LEGACY_UNKNOWN_ACCOUNT_ID = '71000000-0000-4000-8000-000000000003';
 const FROM = new Date('2026-04-30T15:00:00.000Z');
 const TO = new Date('2026-05-01T15:00:00.000Z');
 
-describe('Order facts reader over disposable PostgreSQL: orders are facts only when an operation published them', () => {
+describe('Orders fact port over disposable PostgreSQL: orders are facts only when an operation published them', () => {
   let prisma: PrismaClient;
   let accounts: ChannelAccountPort;
 
@@ -618,16 +608,53 @@ function coverageResult(mallKey: string, coverage = { startDate: '2026-05-01', e
   return { rowCount: 0, mallKey, captured: 0, coverage };
 }
 
+/*
+ * The cases read through the Orders persistence adapter behind
+ * `ORDER_FACTS_PORT`/`ORDER_READ_REPOSITORY_PORT` (KID-392), in the caller's
+ * transaction, with the real Channels account capability.
+ */
+function repository() {
+  return new OrderFactsRepository(accountsForWindowReads);
+}
+
 function readOrderWindowFacts(tx: Prisma.TransactionClient, input: OrderWindowInput) {
-  return readOrderWindowFactsWithAccountPort(tx, input, accountsForWindowReads);
+  return repository().readOrderWindowFacts(ownerTransaction(tx), input);
 }
 
 function readOrderLineWindowFacts(tx: Prisma.TransactionClient, input: OrderWindowInput) {
-  return readOrderLineWindowFactsWithAccountPort(tx, input, accountsForWindowReads);
+  return repository().readOrderLineWindowFacts(ownerTransaction(tx), input);
 }
 
 function readOrderListFacts(tx: Prisma.TransactionClient, input: OrderListInput) {
-  return readOrderListFactsWithAccountPort(tx, input, accountsForWindowReads);
+  return repository().readOrderList(ownerTransaction(tx), input);
+}
+
+function readOrderByIdFact(tx: Prisma.TransactionClient, organizationId: string, id: string) {
+  return repository().readOrderById(ownerTransaction(tx), { organizationId, id });
+}
+
+function readOrderStatusCounts(tx: Prisma.TransactionClient, organizationId: string) {
+  return repository().readOrderStatusCounts(ownerTransaction(tx), { organizationId });
+}
+
+function readOrderStatusCount(tx: Prisma.TransactionClient, organizationId: string, status: string) {
+  return repository().readOrderStatusCount(ownerTransaction(tx), { organizationId, status });
+}
+
+function readOrderCountsByChannelAccount(tx: Prisma.TransactionClient, organizationId: string) {
+  return repository().readOrderCountsByChannelAccount(ownerTransaction(tx), { organizationId });
+}
+
+function readObservedOrderCount(tx: Prisma.TransactionClient, organizationId: string) {
+  return repository().readObservedOrderCount(ownerTransaction(tx), { organizationId });
+}
+
+function readObservedOrderBounds(tx: Prisma.TransactionClient, organizationId: string) {
+  return repository().readObservedOrderBounds(ownerTransaction(tx), { organizationId });
+}
+
+function readPublishedOrderLines(tx: Prisma.TransactionClient, input: { organizationId: string; excludedStatuses?: readonly string[] }) {
+  return repository().readPublishedOrderLines(ownerTransaction(tx), input);
 }
 
 let accountsForWindowReads: ChannelAccountPort;
