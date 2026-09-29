@@ -132,7 +132,7 @@ sync, registration, matching, and capacity behavior is executable in
 - 판매중은 `readSellingListings` 하나가 정한다(KID-333): `isActive` ∧ 게시 상태 ∧ 원본 판매상태(rawJson,
   `domain/listing/listing-sale-state.ts`)가 있으면 판매중, 모르는 상태는 판매중이 아니다. 판매중을 세는 곳은 이 판정만 읽는다.
 - Persistence adapters may query Channels-owned facts without a dedicated
-  reader file. Other owners use public capabilities (ADR-0021); preserve
+  reader file. Other owners use the owner's incoming ports (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.
 - Keep cross-owner IDs as logical references validated by owner contracts.
   Keep Channels-related organization/user/source-attempt references scalar too;

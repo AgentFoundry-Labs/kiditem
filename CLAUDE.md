@@ -64,7 +64,7 @@ processing, listing, and operations.
   owner's canonical rows directly.
 - A source owner owns its collection attempts, canonical facts, coverage
   manifests, current complete snapshot, and terminal source status.
-- Consume another owner's facts through its public capability. Owner persistence
+- Consume another owner's facts through its incoming port. Owner persistence
   adapters query canonical facts and preserve organization, completeness, and
   transaction rules; verify access with `npm run check:ledger-readers`
   ([ADR-0021](docs/adr/0021-owner-capabilities-replace-dedicated-readers.md)).

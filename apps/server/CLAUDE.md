@@ -66,9 +66,10 @@ owns its identity and mutation rules.
   generation, coverage, and required lock evidence at the query boundary.
   Signal a missing, conflicting, or unselectable fact with
   `common/errors/fact-errors`; an integrity failure stays a plain `Error`.
-- `<owner>/transaction/` (not the `application/port/out/transaction/` lane)
-  exports plain lock and fence functions that run in the caller's transaction.
-  A reader takes the lock evidence and only verifies it.
+- Transitional `<owner>/transaction/` (not the `port/out/transaction/` lane)
+  holds plain lock/fence functions run in the caller's transaction; readers
+  only verify lock evidence. Cross-owner locks move to the provider's
+  incoming ports; KID-393 removes the folder.
 - Other owners inject the owner's `application/port/in` token directly, with
   no anti-corruption port; shared behavior does not move to `common` merely
   for reuse.
