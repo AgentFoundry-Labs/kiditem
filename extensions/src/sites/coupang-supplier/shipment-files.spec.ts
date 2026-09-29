@@ -43,12 +43,31 @@ describe('쉽먼트 Label·내역서 PDF(KID-366 fetchCoupangShipmentPdfBatch)',
     }
   });
 
-  it('탭이 로그인 화면으로 가 있으면 SITE_LOGIN_REQUIRED로 멈추고 탭을 운영자에게 남긴다(닫지 않는다)', async () => {
-    const fake = fakeTabPages({ landAt: () => 'https://xauth.coupang.com/auth/realms/seller/login', answer: () => ({ ok: true }) });
+  it('탭이 로그인 화면으로 가 있으면 SITE_LOGIN_REQUIRED로 멈추고 탭을 앞으로 가져와 운영자에게 넘긴다(닫지 않는다)', async () => {
+    const fake = fakeTabPages({ landAt: () => 'https://xauth.coupang.com/auth/realms/seller/login', answer: () => ({ ok: true }), logBookkeeping: true });
     const supplier = createCoupangSupplierSite({ tabs: fake.tabs, ...fastClock() });
     await expect(supplier.shipmentPdf('1', 'label')).rejects.toMatchObject({ code: 'SITE_LOGIN_REQUIRED' });
     await supplier.close();
     expect(fake.log.some((line) => line.startsWith('close'))).toBe(false);
+    expect(fake.log.slice(-2)).toEqual(['keep for https://supplier.coupang.com 7', 'focus 7']);
+  });
+
+  it('다음 호출은 운영자에게 남긴 공급사 탭을 다시 쓴다(숨은 탭이 쌓이지 않게)', async () => {
+    let signedIn = false;
+    const fake = fakeTabPages({
+      landAt: (url) => (signedIn ? url : 'https://xauth.coupang.com/auth/realms/seller/login'),
+      answer: (_message, injected) => (injected ? { ok: true, status: 200, pdf: true, bytes: 5, b64: 'JVBERi0=' } : { ok: false, error: 'content_script_missing' }),
+      logBookkeeping: true,
+    });
+    const first = createCoupangSupplierSite({ tabs: fake.tabs, ...fastClock() });
+    await expect(first.shipmentPdf('1', 'label')).rejects.toMatchObject({ code: 'SITE_LOGIN_REQUIRED' });
+    await first.close();
+    signedIn = true;
+    const second = createCoupangSupplierSite({ tabs: fake.tabs, ...fastClock() });
+    await expect(second.shipmentPdf('1', 'label')).resolves.toMatchObject({ ok: true });
+    await second.close();
+    expect(fake.log.filter((line) => line.startsWith('open'))).toEqual(['open about:blank']);
+    expect(fake.log).toContain('reclaim https://supplier.coupang.com 7');
   });
 });
 

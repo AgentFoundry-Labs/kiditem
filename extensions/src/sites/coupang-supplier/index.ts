@@ -2,7 +2,7 @@ import type { SiteDeps, SiteLease } from '../registry';
 import { registerSite } from '../registry';
 import { createSiteLoginGate, ensureLoggedIn, type LoginOutcome } from '../site-login';
 import type { TabPage } from '../tab-page';
-import { COUPANG_SUPPLIER_LOGIN, keepTabFor, supplierPage, type PageTable, type SupplierPage } from './page';
+import { COUPANG_SUPPLIER_LOGIN, COUPANG_SUPPLIER_ORIGIN, keepTabFor, supplierPage, type PageTable, type SupplierPage } from './page';
 import {
   PO_BOOTSTRAP_URL,
   enterScmContext,
@@ -76,7 +76,8 @@ export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs' | 'now' | 
   /** 여러 쪽을 함께 불러도 탭은 하나만 연다(로그인 뒤에는 같은 탭을 쉽먼트 화면으로 다시 옮긴다). */
   function shipments(): Promise<SupplierPage> {
     shipmentPage ??= (async () => {
-      const tab = shipmentTab ?? await deps.tabs.open('about:blank');
+      // 지난번 로그인 화면에서 운영자에게 남긴 공급사 탭이 있으면 다시 쓴다(숨은 탭이 쌓이지 않게, KID-366).
+      const tab = shipmentTab ?? (await deps.tabs.reclaimKept(COUPANG_SUPPLIER_ORIGIN)) ?? (await deps.tabs.open('about:blank'));
       shipmentTab = tab;
       await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS, continueOnTimeout: true });
       return supplierPage(tab);
@@ -124,11 +125,17 @@ export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs' | 'now' | 
     enterScmContext(poNumber: string): Promise<void> {
       return onPurchaseOrders(() => enterScmContext(poTab!, poNumber));
     },
-    /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
+    /**
+     * 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다 — 쉽먼트 탭은
+     * 운영자에게 남긴 탭으로 적고(다음 호출이 다시 쓴다) 앞으로 가져온다.
+     */
     async close() {
       if (!keepOpen) {
         if (shipmentTab) await shipmentTab.close();
         if (poTab) await poTab.close();
+      } else if (shipmentTab) {
+        await deps.tabs.keep(COUPANG_SUPPLIER_ORIGIN, shipmentTab);
+        await shipmentTab.focus().catch(() => undefined);
       }
       shipmentTab = null;
       shipmentPage = null;
