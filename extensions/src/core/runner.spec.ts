@@ -46,6 +46,9 @@ function harness(options: {
   let releases = 0;
   const releaseErrors: unknown[] = [];
   const client: OperationClient = {
+    async claim() {
+      return { operation: null, token: null };
+    },
     async begin(request) {
       steps.push(`begin:${request.kind}`);
       if (options.beginError) throw options.beginError;

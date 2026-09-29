@@ -915,3 +915,82 @@ export const AdReportResultSchema = z.object({
   warnings: z.array(AdReportReconciliationWarningSchema),
 }).strict();
 export type AdReportResult = z.infer<typeof AdReportResultSchema>;
+
+// ── advertising.ad_action (KID-386, H′-d) ────────────────────────────────────────────
+
+/**
+ * 승인된 광고 액션 한 건을 광고센터에 실제로 적용하는 실행. 서버가 승인 때 `prepare`로 만들어 두고(`prepared`), 확장이
+ * `POST /api/operations/claim`으로 받아(`executing`) 광고센터 캠페인 등록 페이지에 쓰고 finish로 보고한다.
+ * 지금 자동 실행되는 유형은 `create_campaign` 하나다(수동 유형 3종은 prepare하지 않는다).
+ * 잠금: `resource:ad-center:<channelAccountId>`(보고서 수집과 직렬화) + `resource:ad-action:<actionId>`(같은 액션 중복 실행 금지).
+ */
+export const AD_ACTION_KIND = 'advertising.ad_action' as const;
+/** 이 빌드가 광고 액션 kind를 돈다 — 팝업·웹은 이것으로 실행 버튼을 켠다. */
+export const ADVERTISING_AD_ACTION_OPERATION_CAPABILITY = 'advertisingAdActionOperationKindV1' as const;
+export const AD_ACTION_SITE = 'ad-action' as const;
+export function adActionLockKey(actionId: string): OperationLockKey {
+  return resourceLockKey(AD_ACTION_SITE, actionId);
+}
+/** 확장 쓰기 기한 — 옛 `ACTION_WRITE_DEADLINE_MS`(10분)를 실행 임대로 대신한다. */
+export const AD_ACTION_LEASE_MS = 10 * 60 * 1_000;
+
+export const AD_ACTION_EXECUTABLE_TYPES = ['create_campaign'] as const;
+export const AdActionExecutableTypeSchema = z.enum(AD_ACTION_EXECUTABLE_TYPES);
+
+/** `prepare` scope — 승인된 액션 하나. */
+export const AdActionScopeSchema = z.object({
+  actionId: z.string().uuid(),
+}).strict();
+export type AdActionScope = z.infer<typeof AdActionScopeSchema>;
+
+/** 광고센터 캠페인 등록 폼에 채울 값(옛 `executeCreateCampaign`의 입력). 자격증명은 싣지 않는다. */
+export const AdActionCreateCampaignSchema = z.object({
+  name: z.string().min(1).max(200),
+  /** 광고그룹 이름(없으면 캠페인 이름). */
+  adGroupName: z.string().min(1).max(200).optional(),
+  /** 등록할 상품의 광고센터 검색 키(Wing 상품번호·옵션 id). */
+  productIds: z.array(z.string().min(1)).min(1).max(50),
+  /** 일 예산(원). */
+  dailyBudget: z.number().int().positive(),
+  /** 목표 ROAS(%)가 있으면 매출 최적화 입찰. */
+  targetRoas: z.number().int().positive().nullable(),
+}).strict();
+export type AdActionCreateCampaign = z.infer<typeof AdActionCreateCampaignSchema>;
+
+/** owner plan(확장 collector가 받는 것). `vendorId`는 광고센터 세션의 업체코드와 대조한다. */
+export const AdActionPlanSchema = z.object({
+  actionId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  vendorId: z.string().min(1).nullable(),
+  actionType: AdActionExecutableTypeSchema,
+  createCampaign: AdActionCreateCampaignSchema,
+  startedAt: z.string().datetime({ offset: true }),
+}).strict();
+export type AdActionPlan = z.infer<typeof AdActionPlanSchema>;
+
+/** 증거 청크 — 광고센터가 등록 뒤 보여 준 것(캠페인 id·이름, 확인 문구). */
+export const AD_ACTION_EVIDENCE_CHUNK_KIND = 'ad_action_evidence' as const;
+export const AdActionEvidenceSchema = z.object({
+  campaignId: z.string().min(1).nullable(),
+  campaignName: z.string().min(1).nullable(),
+  observedAt: z.string().datetime({ offset: true }),
+  /** 등록 화면이 마지막에 보인 문구(있으면). */
+  message: z.string().max(500).nullable(),
+}).strict();
+export type AdActionEvidence = z.infer<typeof AdActionEvidenceSchema>;
+
+export const AD_ACTION_PROVIDER_OUTCOMES = ['created', 'uncertain', 'not_attempted'] as const;
+export const AdActionProviderOutcomeSchema = z.enum(AD_ACTION_PROVIDER_OUTCOMES);
+
+/**
+ * 실행 `result`(finalize가 쓴다). `created`는 증거에 캠페인 id가 있을 때, `uncertain`은 완료를 눌렀는데 id를 못 읽었을 때
+ * (실패 finish가 아니라 성공 finish + `uncertain` — 사람이 광고센터에서 확인), `not_attempted`는 폼까지 못 갔을 때(실패 finish).
+ */
+export const AdActionResultSchema = z.object({
+  actionId: z.string().uuid(),
+  actionType: AdActionExecutableTypeSchema,
+  providerOutcome: AdActionProviderOutcomeSchema,
+  campaignId: z.string().min(1).nullable(),
+  message: z.string().max(500).nullable(),
+}).strict();
+export type AdActionResult = z.infer<typeof AdActionResultSchema>;

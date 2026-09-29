@@ -17,6 +17,7 @@ import {
   type OperationChunkPutRequest,
   type OperationChunkPutResponse,
   type OperationClaimRequest,
+  type OperationClaimResult,
   type OperationFenceLostReason,
   type OperationFinishRequest,
   type OperationFinishResponse,
@@ -230,13 +231,23 @@ export class OperationService implements OperationPort {
   }
 
   async claim(request: OperationClaimRequest): Promise<OperationClaimed | null> {
+    return this.claimNext(request, undefined);
+  }
+
+  /** 조직 범위 claim(KID-386): 확장의 `POST /api/operations/claim`. 세션 조직의 후보만 집는다. */
+  async claimForOrganization(organizationId: string, request: OperationClaimRequest): Promise<OperationClaimResult | null> {
+    const claimed = await this.claimNext(request, organizationId);
+    return claimed ? { operation: claimed.operation, token: claimed.token } : null;
+  }
+
+  private async claimNext(request: OperationClaimRequest, organizationId: string | undefined): Promise<OperationClaimed | null> {
     return this.operations.transaction(async (tx) => {
       const now = new Date();
       // 시도가 남지 않은 채 임대가 끝난 실행은 claim 후보가 아니다. 여기서 terminal로 닫아 onFailed를 부른다.
       for (const exhausted of await tx.lockExhaustedExpired({ kinds: request.kinds, now, limit: EXPIRY_BATCH })) {
         await this.expireIfDue(tx, exhausted, now);
       }
-      const candidate = await tx.lockNextClaimable(request.kinds, now);
+      const candidate = await tx.lockNextClaimable(request.kinds, now, organizationId);
       if (!candidate) return null;
       const claimed = await tx.markClaimed(candidate.organizationId, candidate.id, {
         token: randomUUID(),

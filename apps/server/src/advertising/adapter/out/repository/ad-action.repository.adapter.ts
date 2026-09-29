@@ -141,6 +141,8 @@ const AD_ACTION_ROW_SELECT = {
   payload: true,
   approvalStatus: true,
   approvedAt: true,
+  channelAccountId: true,
+  operationId: true,
   createdAt: true,
 } as const;
 

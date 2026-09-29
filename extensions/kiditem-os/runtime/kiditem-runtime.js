@@ -4230,6 +4230,10 @@ var KidItemRuntime = (() => {
     operation: OperationViewSchema,
     token: external_exports.string().uuid()
   }).strict();
+  var OperationClaimResponseSchema = external_exports.object({
+    operation: OperationViewSchema.nullable(),
+    token: external_exports.string().uuid().nullable()
+  }).strict();
   var OperationPlanResultSchema = external_exports.object({
     plan: JsonObjectSchema,
     lockKeys: external_exports.array(OperationLockKeySchema).min(1),
@@ -4825,6 +4829,47 @@ var KidItemRuntime = (() => {
     /** 정산에만 있어 계정 조정으로 넣은 행 수. */
     accountAdjustmentRows: adCount,
     warnings: external_exports.array(AdReportReconciliationWarningSchema)
+  }).strict();
+  var AD_ACTION_LEASE_MS = 10 * 60 * 1e3;
+  var AD_ACTION_EXECUTABLE_TYPES = ["create_campaign"];
+  var AdActionExecutableTypeSchema = external_exports.enum(AD_ACTION_EXECUTABLE_TYPES);
+  var AdActionScopeSchema = external_exports.object({
+    actionId: external_exports.string().uuid()
+  }).strict();
+  var AdActionCreateCampaignSchema = external_exports.object({
+    name: external_exports.string().min(1).max(200),
+    /** 광고그룹 이름(없으면 캠페인 이름). */
+    adGroupName: external_exports.string().min(1).max(200).optional(),
+    /** 등록할 상품의 광고센터 검색 키(Wing 상품번호·옵션 id). */
+    productIds: external_exports.array(external_exports.string().min(1)).min(1).max(50),
+    /** 일 예산(원). */
+    dailyBudget: external_exports.number().int().positive(),
+    /** 목표 ROAS(%)가 있으면 매출 최적화 입찰. */
+    targetRoas: external_exports.number().int().positive().nullable()
+  }).strict();
+  var AdActionPlanSchema = external_exports.object({
+    actionId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    vendorId: external_exports.string().min(1).nullable(),
+    actionType: AdActionExecutableTypeSchema,
+    createCampaign: AdActionCreateCampaignSchema,
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var AdActionEvidenceSchema = external_exports.object({
+    campaignId: external_exports.string().min(1).nullable(),
+    campaignName: external_exports.string().min(1).nullable(),
+    observedAt: external_exports.string().datetime({ offset: true }),
+    /** 등록 화면이 마지막에 보인 문구(있으면). */
+    message: external_exports.string().max(500).nullable()
+  }).strict();
+  var AD_ACTION_PROVIDER_OUTCOMES = ["created", "uncertain", "not_attempted"];
+  var AdActionProviderOutcomeSchema = external_exports.enum(AD_ACTION_PROVIDER_OUTCOMES);
+  var AdActionResultSchema = external_exports.object({
+    actionId: external_exports.string().uuid(),
+    actionType: AdActionExecutableTypeSchema,
+    providerOutcome: AdActionProviderOutcomeSchema,
+    campaignId: external_exports.string().min(1).nullable(),
+    message: external_exports.string().max(500).nullable()
   }).strict();
 
   // extensions/src/core/errors.ts
@@ -20206,6 +20251,7 @@ var KidItemRuntime = (() => {
         );
       },
       finish: ({ operationId, token, request }) => call(api, `${base}/${encodeURIComponent(operationId)}/finish`, { method: "POST", token, body: request }, OperationFinishResponseSchema),
+      claim: (request) => call(api, `${base}/claim`, { method: "POST", body: request }, OperationClaimResponseSchema),
       async cancel(operationId) {
         const response = await call(api, `${base}/${encodeURIComponent(operationId)}/cancel`, { method: "POST" }, OperationCancelResponseSchema);
         return response.operation;

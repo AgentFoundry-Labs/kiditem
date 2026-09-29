@@ -5,6 +5,7 @@ import {
   OperationChunkKindSchema,
   OperationChunkPutRequestSchema,
   OperationChunkSequenceSchema,
+  OperationClaimRequestSchema,
   OperationFinishRequestSchema,
   OperationListQuerySchema,
 } from '@kiditem/shared/operation';
@@ -25,6 +26,19 @@ export class OperationsController {
     return this.operations.begin(organizationId, parseOperationRequest(OperationBeginRequestSchema, body, 'body'), { userId: user.id });
   }
 
+  /**
+   * 조직 범위 claim(KID-386): 확장이 서버가 준비해 둔 실행(`prepared`, 예: 승인된 광고 액션)을 받아 간다.
+   * 후보가 없으면 `{ operation: null, token: null }`. 토큰은 이 응답에만 실린다.
+   */
+  @Post('claim')
+  @HttpCode(200)
+  async claim(@CurrentOrganization() organizationId: string, @Body() body: unknown) {
+    const claimed = await this.operations.claimForOrganization(
+      organizationId,
+      parseOperationRequest(OperationClaimRequestSchema, body, 'body'),
+    );
+    return claimed ?? { operation: null, token: null };
+  }
   @Put(':id/chunks/:chunkKind/:sequence')
   putChunk(
     @CurrentOrganization() organizationId: string,

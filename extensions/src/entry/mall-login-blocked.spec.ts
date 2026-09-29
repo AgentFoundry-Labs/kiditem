@@ -36,6 +36,7 @@ describe('차단된 몰의 실행(재QA 2 B3)', () => {
         return { operation: view({ status: input.request.outcome }) };
       },
       cancel: async () => { throw new Error('runner never cancels'); },
+      claim: async () => ({ operation: null, token: null }),
     };
     const browser: BrowserResources = { acquire: async () => ({ tabId: null, release: async () => undefined }) };
     const tabs = fakeTabPages({ landAt: () => 'https://www.kidkids.net/join/partner_login.htm', answer: () => ({ ok: false, error: 'content_script_missing' }) });

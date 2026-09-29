@@ -50,6 +50,11 @@ export interface OperationPort {
   /** owner가 자기 트랜잭션(`tx`) 안에서 만들어 두는 실행. 잠금은 여기서 잡혀 terminal까지 유지된다. */
   prepare(organizationId: string, request: OperationPrepareRequest, tx?: OwnerTransaction): Promise<OperationPrepareResult>;
   claim(request: OperationClaimRequest): Promise<OperationClaimed | null>;
+  /**
+   * 조직 범위 claim(KID-386): 확장이 `POST /api/operations/claim`으로 부른다. 세션 조직의 `prepared`(예정 시각 지남)
+   * 또는 임대 만료 `executing` 가운데 가장 오래된 하나만 집는다. 다른 조직의 실행은 절대 나오지 않는다.
+   */
+  claimForOrganization(organizationId: string, request: OperationClaimRequest): Promise<OperationClaimResult | null>;
   putChunk(input: {
     organizationId: string;
     operationId: string;

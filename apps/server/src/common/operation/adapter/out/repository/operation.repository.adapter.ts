@@ -195,11 +195,14 @@ class PrismaOperationTransaction implements OperationTransaction {
     return rescheduled;
   }
 
-  async lockNextClaimable(kinds: readonly string[], now: Date) {
+  async lockNextClaimable(kinds: readonly string[], now: Date, organizationId?: string) {
     // queryraw-tenancy-exempt: 워커 claim은 조직을 가로질러 가장 오래된 후보 하나를 집는다(KID-358). 집은 행의 조직으로 이후 쓰기를 건다.
+    // 확장의 조직 범위 claim(KID-386)은 `organizationId`로 좁힌다.
+    const organizationFilter = organizationId ? Prisma.sql`AND organization_id = ${organizationId}::uuid` : Prisma.empty;
     const rows = await this.tx.$queryRaw<Array<{ id: string; organization_id: string }>>`
       SELECT id, organization_id FROM operations
       WHERE kind = ANY(${[...kinds]}::text[])
+        ${organizationFilter}
         AND attempts < max_attempts
         AND (
           (status = 'prepared' AND (scheduled_for IS NULL OR scheduled_for <= ${now}))

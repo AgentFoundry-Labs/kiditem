@@ -283,7 +283,7 @@ export const OperationListResponseSchema = z.object({
 }).strict();
 export type OperationListResponse = z.infer<typeof OperationListResponseSchema>;
 
-// ── prepare · claim (서버 내부 포트, HTTP 없음 — KID-358) ─────────────────────────────
+// ── prepare · claim (서버 내부 포트 — KID-358; claim은 KID-386부터 확장이 조직 범위 HTTP로도 부른다) ────────
 
 /**
  * owner가 자기 트랜잭션 안에서 만들어 두는 실행. begin과 달리 토큰·임대는 claim 때 생긴다.
@@ -319,6 +319,16 @@ export const OperationClaimResultSchema = z.object({
   token: z.string().uuid(),
 }).strict();
 export type OperationClaimResult = z.infer<typeof OperationClaimResultSchema>;
+
+/**
+ * `POST /api/operations/claim`(KID-386): 세션의 조직 안에서만 후보를 집는다(워커 claim과 달리 조직을 가로지르지 않는다).
+ * 후보가 없으면 `operation: null`, `token: null`. 토큰은 이 응답에만 실린다(begin과 같은 규칙).
+ */
+export const OperationClaimResponseSchema = z.object({
+  operation: OperationViewSchema.nullable(),
+  token: z.string().uuid().nullable(),
+}).strict();
+export type OperationClaimResponse = z.infer<typeof OperationClaimResponseSchema>;
 
 // ── owner 포트 결과 ───────────────────────────────────────────────────────────────
 

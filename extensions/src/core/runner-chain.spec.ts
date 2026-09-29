@@ -28,7 +28,10 @@ describe('createRunner — 연쇄', () => {
     const steps: string[] = [];
     const begunIds: string[] = [];
     const client: OperationClient = {
-      async begin(request) {
+      async claim() {
+      return { operation: null, token: null };
+    },
+    async begin(request) {
         steps.push(`begin:${request.kind}:${JSON.stringify(request.scope)}`);
         if (request.kind === 'a.second') {
           throw new RuntimeError('OPERATION_IN_PROGRESS', '돌고 있습니다', {

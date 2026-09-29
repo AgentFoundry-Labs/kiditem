@@ -194,6 +194,8 @@ erDiagram
     Json payload
     String approvalStatus
     DateTime approvedAt
+    String channelAccountId
+    String operationId
     DateTime createdAt
   }
   AiDirectJob {

@@ -3,12 +3,15 @@ import {
   OPERATION_TOKEN_HEADER,
   OperationBeginResponseSchema,
   OperationCancelResponseSchema,
+  OperationClaimResponseSchema,
   OperationChunkPutResponseSchema,
   OperationFinishResponseSchema,
   OperationInProgressDetailsSchema,
   type OperationBeginRequest,
   type OperationBeginResponse,
   type OperationChunkKind,
+  type OperationClaimRequest,
+  type OperationClaimResponse,
   type OperationChunkPutResponse,
   type OperationFinishRequest,
   type OperationFinishResponse,
@@ -19,7 +22,7 @@ import type { ApiPort } from './api';
 import { RuntimeError, parseErrorEnvelope } from './errors';
 
 /**
- * 서버 실행 계약(ADR-0025)의 유일한 창구. begin·chunk·finish·cancel 넷뿐이고,
+ * 서버 실행 계약(ADR-0025)의 유일한 창구. begin·chunk·finish·cancel 넷과 조직 범위 claim(KID-386)이고,
  * fenced 쓰기(chunk·finish)는 begin 응답의 토큰을 `x-operation-token`으로 보낸다.
  * 수집기는 이 포트를 직접 부르지 못한다(`check:extension-runtime-layers`) — runner가 대신 부른다.
  */
@@ -35,6 +38,8 @@ export interface OperationClient {
   }): Promise<OperationChunkPutResponse>;
   finish(input: { operationId: string; token: string; request: OperationFinishRequest }): Promise<OperationFinishResponse>;
   cancel(operationId: string): Promise<OperationView>;
+  /** 서버가 준비해 둔 실행을 세션 조직 안에서 받아 간다. 없으면 `operation: null`. */
+  claim(request: OperationClaimRequest): Promise<OperationClaimResponse>;
 }
 
 /** 서버가 거절했을 때 런타임이 할 일. */
@@ -86,6 +91,7 @@ export function createOperationClient(api: ApiPort): OperationClient {
     },
     finish: ({ operationId, token, request }) =>
       call(api, `${base}/${encodeURIComponent(operationId)}/finish`, { method: 'POST', token, body: request }, OperationFinishResponseSchema),
+    claim: (request) => call(api, `${base}/claim`, { method: 'POST', body: request }, OperationClaimResponseSchema),
     async cancel(operationId) {
       const response = await call(api, `${base}/${encodeURIComponent(operationId)}/cancel`, { method: 'POST' }, OperationCancelResponseSchema);
       return response.operation;
