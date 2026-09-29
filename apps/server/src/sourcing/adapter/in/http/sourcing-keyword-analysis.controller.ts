@@ -3,7 +3,6 @@ import { SourcingKeywordAnalysisInputSchema } from '@kiditem/shared/sourcing';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
 import { NaverKeywordResearchService } from '../../../application/service/naver-keyword-research.service';
 
 /** Direct source collection and exact COMPLETE evidence reads. */
@@ -16,12 +15,12 @@ export class SourcingKeywordAnalysisController {
     @CurrentUser() user: AuthUser, @Headers('idempotency-key') idempotencyKey: string) {
     const result = await this.keywordResearch.collectAnalysis({ organizationId, input,
       requestedByUserId: user.id, idempotencyKey });
-    return { ...result, attempt: toPublicAttempt(result.attempt) };
+    return result;
   }
 
   @Get('status')
   async status(@Query('input') rawInput: string | undefined, @CurrentOrganization() organizationId: string) {
-    return toPublicStatus(await this.keywordResearch.status(organizationId, parseKeywordAnalysisInput(rawInput)));
+    return this.keywordResearch.status(organizationId, parseKeywordAnalysisInput(rawInput));
   }
 
   @Get('snapshot')

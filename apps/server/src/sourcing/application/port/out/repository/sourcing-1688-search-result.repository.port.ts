@@ -41,6 +41,6 @@ export interface Sourcing1688SearchResultRepositoryPort {
     organizationId: string;
     keywords?: string[];
     targetIds?: string[];
-    completeAttemptIds?: string[];
+    completeOperationIds?: string[];
   }): Promise<Sourcing1688StoredSearchSnapshot>;
 }

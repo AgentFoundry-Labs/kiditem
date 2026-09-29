@@ -1,13 +1,12 @@
 import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { sourcingServerOperations } from '../../test-helpers/sourcing-server-operations';
 import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
 import { NaverKeywordResearchService } from '../application/service/naver-keyword-research.service';
 import type { PrismaClient } from '@prisma/client';
@@ -27,10 +26,7 @@ describe('Naver keyword analysis Alert identity (disposable PostgreSQL)', () => 
     prisma = makeTestPrisma();
     await prisma.$connect();
     const history = new TrendCollectionRepositoryAdapter(prisma as never);
-    const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(
-      prisma as never,
-      new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort
-    );
+    const attempts = sourcingServerOperations(prisma, unusedSalesProductDraftPort).runner;
     service = new NaverKeywordResearchService(
       { searchRelatedKeywords } as never,
       { compareSearchTrends } as never,

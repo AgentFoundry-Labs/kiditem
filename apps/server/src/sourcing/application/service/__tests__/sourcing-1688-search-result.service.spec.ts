@@ -33,7 +33,7 @@ describe('Sourcing1688SearchResultService', () => {
       organizationId: 'org-1',
       keywords: undefined,
       targetIds: undefined,
-      completeAttemptIds: undefined,
+      completeOperationIds: undefined,
     });
   });
 });

@@ -3,18 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { PATH_METADATA } from '@nestjs/common/constants';
 import { SourcingIntelligenceController } from '../adapter/in/http/sourcing-intelligence.controller';
 import { SourcingEvidenceLedgerRepositoryAdapter } from '../adapter/out/repository/sourcing-evidence-ledger.repository.adapter';
-import { SourcingEvidenceLedgerService } from '../application/service/sourcing-evidence-ledger.service';
 
 describe('Sourcing evidence has one source-owner mutation boundary', () => {
-  it('keeps evidence provenance lookup without a second public attempt writer', () => {
+  it('서버 구동 수집은 실행 계약이 맡아 evidence run 읽기·쓰기 라우트가 없다(KID-389)', () => {
     const routes = Object.getOwnPropertyNames(SourcingIntelligenceController.prototype)
       .map((name) => Reflect.getMetadata(PATH_METADATA,
         SourcingIntelligenceController.prototype[name as keyof SourcingIntelligenceController]));
-    expect(routes).toContain('evidence-runs/:id');
-    expect(routes).not.toContain('evidence-runs');
-    expect(routes).not.toContain('evidence-runs/:id/observations');
-    expect(routes).not.toContain('evidence-runs/:id/finalize');
-    for (const prototype of [SourcingEvidenceLedgerService.prototype, SourcingEvidenceLedgerRepositoryAdapter.prototype]) {
+    expect(routes.filter((route) => typeof route === 'string' && route.startsWith('evidence-runs'))).toEqual([]);
+    for (const prototype of [SourcingEvidenceLedgerRepositoryAdapter.prototype]) {
       expect(Object.getOwnPropertyNames(prototype)).not.toEqual(expect.arrayContaining(['startRun']));
       expect(Object.getOwnPropertyNames(prototype)).not.toEqual(expect.arrayContaining(['appendObservations']));
       expect(Object.getOwnPropertyNames(prototype)).not.toEqual(expect.arrayContaining(['finalizeRun']));

@@ -2,7 +2,6 @@ import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Param, Pa
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { toPublicStatus } from './sourcing-source-attempt-http';
 import { TrendCollectService } from '../../../application/service/trend-collect.service';
 import { TrendQueryService } from '../../../application/service/trend-query.service';
 import {
@@ -38,7 +37,7 @@ export class TrendCollectionController {
     const [naver, shorts] = await Promise.all([
       this.collectService.status(organizationId, 'naver'), this.collectService.status(organizationId, 'shorts'),
     ]);
-    return { naver: toPublicStatus(naver), shorts: toPublicStatus(shorts) };
+    return { naver, shorts };
   }
 
   @Get('seeds')

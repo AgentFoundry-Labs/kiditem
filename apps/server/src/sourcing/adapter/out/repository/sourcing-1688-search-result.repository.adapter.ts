@@ -85,17 +85,17 @@ implements Sourcing1688SearchResultRepositoryPort {
     organizationId: string;
     keywords?: string[];
     targetIds?: string[];
-    completeAttemptIds?: string[];
+    completeOperationIds?: string[];
   }): Promise<Sourcing1688StoredSearchSnapshot> {
     const sourceKeys = ['1688.hot_product', '1688.image_search'];
     const collectorKeys = [
       SOURCING_1688_KEYWORD_COLLECTOR_KEY,
       SOURCING_1688_IMAGE_COLLECTOR_KEY,
     ];
-    const publications = (input.completeAttemptIds
+    const publications = (input.completeOperationIds
       ? await readPublicationsByOperationIds(this.prisma, {
           organizationId: input.organizationId,
-          operationIds: input.completeAttemptIds,
+          operationIds: input.completeOperationIds,
           sourceKeys,
           collectorKeys,
         })

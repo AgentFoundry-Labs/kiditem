@@ -4,8 +4,8 @@ import type { Prisma } from '@prisma/client';
 /**
  * 소싱 원장 리더(KID-360). "완결"과 "현재"는 발행 이력 표(`sourcing_source_publications`)가 정한다:
  * 성공한 수집 하나가 발행 1행이고, 그 대상의 현재 스냅샷은 `isCurrent` 행이다. 원장 행은 자기 발행의
- * `operationId`로 이어진다(FK 없음). 리더는 실행 표도 run 표도 읽지 않는다 — 진행 중인 시도 읽기
- * (`readExactSourcingRun` 등)는 아직 run 표를 쓰는 서버 구동 kind의 몫이다.
+ * `operationId`로 이어진다(FK 없음). 리더는 실행 표를 읽지 않는다 — 진행 중인 수집은 실행 계약 리더
+ * (`common/operation/transaction`)의 몫이다(KID-389).
  */
 export interface PublicationFilter {
   organizationId: string;
@@ -90,63 +90,6 @@ export function readPublicationsByOperationIds(
       ...(input.collectorKeys ? { collectorKey: { in: input.collectorKeys } } : {}),
     },
     orderBy: PUBLICATION_ORDER,
-  });
-}
-
-// ── 서버 구동 kind의 시도(run 표). KID-360 I-b에서 실행 계약으로 옮겨지면 사라진다. ──
-
-export function readExactSourcingRun(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    id: string;
-    sourceKey?: string;
-    scopeKey?: string;
-    statuses?: string[];
-  },
-) {
-  return tx.sourcingEvidenceIngestionRun.findFirst({
-    where: {
-      id: input.id,
-      organizationId: input.organizationId,
-      ...(input.sourceKey ? { sourceKey: input.sourceKey } : {}),
-      ...(input.scopeKey ? { scopeKey: input.scopeKey } : {}),
-      ...(input.statuses ? { status: { in: input.statuses } } : {}),
-    },
-  });
-}
-
-export function readSourcingRunByIdempotencyKey(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    sourceKey: string;
-    scopeKey: string;
-    idempotencyKey: string;
-  },
-) {
-  return tx.sourcingEvidenceIngestionRun.findFirst({
-    where: input,
-  });
-}
-
-export function readLatestSourcingAttempt(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    sourceKey: string;
-    scopeKey?: string;
-    targetKey?: string;
-  },
-) {
-  return tx.sourcingEvidenceIngestionRun.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      sourceKey: input.sourceKey,
-      ...(input.scopeKey ? { scopeKey: input.scopeKey } : {}),
-      ...(input.targetKey ? { targetKey: input.targetKey } : {}),
-    },
-    orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
   });
 }
 

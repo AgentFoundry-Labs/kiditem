@@ -102,7 +102,6 @@ import { SourcingMarketDiscoveryService } from "./application/service/sourcing-m
 import { SourcingRisingProductService } from "./application/service/sourcing-rising-product.service";
 import { SourcingCollectionSourceControlService } from "./application/service/sourcing-collection-source-control.service";
 import { SourcingInterestTargetService } from "./application/service/sourcing-interest-target.service";
-import { SourcingEvidenceLedgerService } from "./application/service/sourcing-evidence-ledger.service";
 import { SourcingLaunchCandidateService } from "./application/service/sourcing-launch-candidate.service";
 import { SourcingDecisionBatchService } from "./application/service/sourcing-decision-batch.service";
 import { TrendCollectService } from "./application/service/trend-collect.service";
@@ -119,7 +118,6 @@ import { SourcingRecommendationSourceRepositoryAdapter } from "./adapter/out/rep
 import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository/sourcing-decision-batch.repository.adapter";
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from "./adapter/out/repository/sourcing-browser-source-attempt.repository.adapter";
 import { Sourcing1688SearchResultRepositoryAdapter } from "./adapter/out/repository/sourcing-1688-search-result.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "./adapter/out/repository/live-commerce.repository.adapter";
 import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-momentum.adapter";
@@ -148,7 +146,6 @@ import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "./application/po
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
-import { SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-browser-source-attempt.repository.port";
 import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-1688-search-result.repository.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 
@@ -254,7 +251,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingRisingProductService,
     SourcingCollectionSourceControlService,
     SourcingInterestTargetService,
-    SourcingEvidenceLedgerService,
     SourcingLaunchCandidateService,
     SourcingDecisionBatchService,
     TrendCollectService,
@@ -271,7 +267,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingEvidenceLedgerRepositoryAdapter,
     SourcingLaunchCandidateRepositoryAdapter,
     SourcingDecisionBatchRepositoryAdapter,
-    SourcingBrowserSourceAttemptRepositoryAdapter,
     Sourcing1688SearchResultRepositoryAdapter,
     LiveCommerceRepositoryAdapter,
     CoupangMomentumAdapter,
@@ -344,10 +339,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     {
       provide: SOURCING_DECISION_BATCH_REPOSITORY_PORT,
       useExisting: SourcingDecisionBatchRepositoryAdapter,
-    },
-    {
-      provide: SOURCING_BROWSER_SOURCE_ATTEMPT_REPOSITORY_PORT,
-      useExisting: SourcingBrowserSourceAttemptRepositoryAdapter,
     },
     {
       provide: SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,

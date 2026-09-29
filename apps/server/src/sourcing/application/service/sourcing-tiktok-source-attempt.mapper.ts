@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
-import type { SourcingBrowserSourceAttemptPlan } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import type { SourcingSourcePlan } from './sourcing-source-plan';
 import type { TiktokCcSnapshotUpsert } from '../port/out/repository/trend-collection.repository.port';
 
 export const SOURCE_TIKTOK_CREATIVE = 'tiktok.creative';
@@ -16,7 +16,7 @@ export interface TiktokSourceTargetSeed {
   keyword: string;
 }
 
-export interface TiktokSourcePlan extends SourcingBrowserSourceAttemptPlan {
+export interface TiktokSourcePlan extends SourcingSourcePlan {
   source: typeof SOURCE_TIKTOK_CREATIVE;
   targetSeeds: TiktokSourceTargetSeed[];
   maxItems: number;
@@ -54,7 +54,7 @@ export function buildTiktokSourcePlan(input: {
   };
 }
 
-export function parseTiktokSourcePlan(value: SourcingBrowserSourceAttemptPlan): TiktokSourcePlan {
+export function parseTiktokSourcePlan(value: SourcingSourcePlan): TiktokSourcePlan {
   const targetSeedsValue = value.targetSeeds;
   const maxItems = value.maxItems;
   const regionOverride = value.regionOverride;

@@ -58,7 +58,7 @@ export class Sourcing1688SearchResultService {
       targetIds,
       // Pin observations to the same COMPLETE identities as the status projection,
       // even if another attempt finishes between these reads.
-      completeAttemptIds: plans.length ? statuses.flatMap(({ source }) => source.latestComplete ? [source.latestComplete.attemptId] : []) : undefined,
+      completeOperationIds: plans.length ? statuses.flatMap(({ source }) => source.latestComplete ? [source.latestComplete.attemptId] : []) : undefined,
     });
     return Sourcing1688SearchSnapshotSchema.parse({
       generatedAt: snapshot.generatedAt?.toISOString() ?? null,

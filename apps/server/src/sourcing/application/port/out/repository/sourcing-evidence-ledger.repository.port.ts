@@ -1,4 +1,3 @@
-import type { SourcingBrowserSourceAttempt } from './sourcing-browser-source-attempt.repository.port';
 
 export const SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT = Symbol(
   'SourcingEvidenceLedgerRepositoryPort',
@@ -28,7 +27,7 @@ export const SOURCING_EVIDENCE_SIGNAL_ROLES = [
 export type SourcingEvidenceSignalRole =
   (typeof SOURCING_EVIDENCE_SIGNAL_ROLES)[number];
 
-export type SourcingEvidenceRunStatus = SourcingBrowserSourceAttempt['state'];
+export type SourcingEvidenceRunStatus = 'RUNNING' | 'COMPLETE' | 'FAILED';
 
 export interface SourcingEvidenceObservationRecord {
   id: string;

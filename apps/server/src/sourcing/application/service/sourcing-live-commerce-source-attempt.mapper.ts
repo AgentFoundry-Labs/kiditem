@@ -1,6 +1,6 @@
 import { ConflictException } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
-import type { SourcingBrowserSourceAttemptPlan } from '../port/out/repository/sourcing-browser-source-attempt.repository.port';
+import type { SourcingSourcePlan } from './sourcing-source-plan';
 import type {
   LiveCommerceBroadcastSnapshotUpsert,
   LiveCommerceProductSnapshotUpsert,
@@ -59,7 +59,7 @@ export function buildBrowserLiveCommercePlan(url: unknown): BrowserLiveCommerceS
 }
 
 export function parseBrowserLiveCommercePlan(
-  value: SourcingBrowserSourceAttemptPlan,
+  value: SourcingSourcePlan,
 ): BrowserLiveCommerceSourcePlan {
   if (
     !value
