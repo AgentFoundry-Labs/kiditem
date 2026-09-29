@@ -71,13 +71,19 @@ describe('order collection extension session bridge', () => {
     }, 60_000);
   });
 
-  it('reads a verification failure from the shared failure envelope as waiting for a person', async () => {
-    bridge.sendToExtension.mockResolvedValue({ success: false, errorCode: 'SITE_VERIFICATION_REQUIRED', error: '본인 인증이 필요합니다.' });
+  it('passes the verdict code through for the screen to read — answer or failure envelope', async () => {
+    bridge.sendToExtension.mockResolvedValueOnce({ success: true, submitted: true, verified: false, mallMessage: null, errorCode: 'SITE_VERIFICATION_REQUIRED' });
+    await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' })).resolves.toEqual({
+      success: true,
+      submitted: true,
+      verified: false,
+      errorCode: 'SITE_VERIFICATION_REQUIRED',
+    });
+    bridge.sendToExtension.mockResolvedValueOnce({ success: false, errorCode: 'SITE_REQUEST_FAILED', error: '사이트 요청이 실패했습니다.' });
     await expect(testMallLoginViaExtension('onch', { loginId: 'seller', password: 'x' })).resolves.toEqual({
       success: false,
-      errorCode: 'SITE_VERIFICATION_REQUIRED',
-      error: '본인 인증이 필요합니다.',
-      pendingLogin: true,
+      errorCode: 'SITE_REQUEST_FAILED',
+      error: '사이트 요청이 실패했습니다.',
     });
   });
 

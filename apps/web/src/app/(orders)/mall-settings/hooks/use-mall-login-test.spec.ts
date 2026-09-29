@@ -47,72 +47,92 @@ describe('useMallLoginTest', () => {
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
 
-  /** 몰마다 로그인 뒤 화면이 다르다. 확인하지 못한 것을 '비밀번호 틀림'으로 굳히지 않는다. */
-  it('⭐ reports an unverified login without blocking when the login form stayed', async () => {
+  /**
+   * 확인하지 못한 것을 '비밀번호 틀림'으로 굳히지 않는다. 지원 안 하는 몰 · 폼이 없거나 바뀐 몰 · 결과 미확인 ·
+   * 로그인 페이지를 못 연 경우는 registry 문장으로 이유를 말하고 자동 로그인을 막지 않는다.
+   */
+  it.each([
+    ['MALL_LOGIN_UNSUPPORTED', '이 몰은 자동 로그인을 지원하지 않습니다. 몰 화면에서 직접 로그인해 주세요.'],
+    ['MALL_CONTRACT_CHANGED', '몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'],
+    ['MALL_LOGIN_UNCONFIRMED', '로그인 결과를 확인하지 못했습니다. 몰 화면에서 확인해 주세요.'],
+    ['MALL_LOGIN_PAGE_UNREACHABLE', '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.'],
+  ])('⭐ %s is could-not-check, told in the registry sentence, never a blocked password', async (errorCode, text) => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true,
+      submitted: errorCode === 'MALL_LOGIN_UNCONFIRMED',
+      verified: false,
+      errorCode,
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('unverified');
+    expect(result?.detail).toBe(text);
+    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  it('⭐ blocks auto-login when the extension says the mall rejected the login', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
       success: true,
       submitted: true,
       verified: false,
-    });
-
-    const result = await runTest();
-
-    expect(result?.outcome).toBe('unverified');
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
-  });
-
-  /**
-   * 카카오(토큰) · 올웨이즈(브라우저 저장소 JWT)는 확장이 채울 로그인 폼이 없다. 확장이 탭도
-   * 열지 않고 `no_login_form` 으로 답하므로, 화면은 왜 확인하지 못했는지 그대로 말해야 한다 —
-   * "실패"로 굳히거나 자동 로그인을 막지 않는다.
-   */
-  it('⭐ says why a mall with no fillable login form could not be checked', async () => {
-    extension.testMallLoginViaExtension.mockResolvedValue({
-      success: true,
-      submitted: false,
-      errorCode: 'no_login_form',
-    });
-
-    const result = await runTest();
-
-    expect(result?.outcome).toBe('unverified');
-    expect(result?.detail).toBe('이 몰은 확장이 채울 로그인 폼이 없어 확인하지 못했습니다.');
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
-  });
-
-  it('⭐ blocks auto-login only when the mall itself rejected the credentials', async () => {
-    extension.testMallLoginViaExtension.mockResolvedValue({
-      success: false,
-      submitted: true,
-      error: '아이디 또는 비밀번호가 올바르지 않습니다.',
+      errorCode: 'MALL_LOGIN_REJECTED',
     });
 
     const result = await runTest();
 
     expect(result?.outcome).toBe('failed');
+    expect(result?.detail).toBe('몰이 로그인을 거절했습니다. 아이디와 비밀번호를 확인해 주세요.');
     expect(getMallLoginBlocks()).toEqual([expect.objectContaining({ mallKey: 'kidsnote', kind: 'login' })]);
   });
 
-  it('⭐ does not block when our own server refused the request (rate limit)', async () => {
+  it('⭐ waits for a person when the mall asks for verification, as a verification block', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
-      success: false,
-      error: 'ThrottlerException: Too Many Requests',
+      success: true,
+      submitted: true,
+      verified: false,
+      errorCode: 'SITE_VERIFICATION_REQUIRED',
     });
 
-    await runTest();
+    const result = await runTest();
 
+    expect(result?.outcome).toBe('failed');
+    expect(getMallLoginBlocks()).toEqual([expect.objectContaining({ mallKey: 'kidsnote', kind: 'verification' })]);
+  });
+
+  it('⭐ does not block when the extension itself failed (our side, not the password)', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: false,
+      errorCode: 'SITE_REQUEST_FAILED',
+      error: '사이트 요청이 실패했습니다.',
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('failed');
+    expect(result?.detail).toBe('사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.');
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
   });
 
   it('clears the block after a login whose form went away', async () => {
     extension.testMallLoginViaExtension.mockResolvedValue({
-      success: true, submitted: true, verified: true,
+      success: true, submitted: true, verified: true, errorCode: null,
     });
 
     const result = await runTest();
 
     expect(result?.outcome).toBe('verified');
     expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+  });
+
+  it('counts a browser already signed in as a login that works', async () => {
+    extension.testMallLoginViaExtension.mockResolvedValue({
+      success: true, submitted: false, verified: true, errorCode: null,
+    });
+
+    const result = await runTest();
+
+    expect(result?.outcome).toBe('verified');
   });
 
   /**
@@ -140,6 +160,7 @@ describe('useMallLoginTest', () => {
       submitted: true,
       verified: false,
       mallMessage: '시스템 점검 중입니다.',
+      errorCode: 'MALL_LOGIN_UNCONFIRMED',
     });
 
     const result = await runTest();

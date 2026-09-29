@@ -219,11 +219,9 @@ export interface MallLoginTestResponse {
   verified?: boolean;
   /** 로그인 뒤 몰이 알림 창으로 남긴 답. */
   mallMessage?: string;
-  /** 성공 답이면 확인하지 못한 이유 코드, 실패 봉투면 registry 코드. */
+  /** 로그인되지 않은 판정의 registry 코드(`MALL_LOGIN_REJECTED`·`SITE_VERIFICATION_REQUIRED`·…), 실패 봉투면 그 코드. */
   errorCode?: string;
   error?: string;
-  /** 본인확인 · OTP · 캡차를 사람이 해야 한다(`SITE_VERIFICATION_REQUIRED`). */
-  pendingLogin?: boolean;
   /** 확장에 닿지 못했을 때만 있다. */
   unavailable?: MallLoginTestUnavailable;
 }
@@ -266,7 +264,6 @@ export async function testMallLoginViaExtension(
         success: false,
         errorCode: response.errorCode,
         error: response.error,
-        pendingLogin: response.errorCode === 'SITE_VERIFICATION_REQUIRED',
       };
     }
     return {
