@@ -102,6 +102,23 @@ describe('광고센터 캠페인 등록 처리기(KID-386)', () => {
     expect(clicks).not.toContain('완료');
   });
 
+  it('결과가 한 줄이어도 다른 계획 상품·이미 고른 상품의 번호가 적힌 줄이면 고르지 않는다(앞 상품의 남은 줄)', async () => {
+    const { calls, clicks } = load({ results: { '70011': ['70011 봄 원피스'], '70022': ['70011 봄 원피스'] } });
+
+    const filled = await run(calls, 'adCenter.campaignFill', PLAN);
+
+    expect(filled).toEqual({ state: 'product_not_found', productIds: ['70022'], selected: ['70011'] });
+    expect(clicks.filter((click) => click.startsWith('상품 선택'))).toHaveLength(1);
+  });
+
+  it('번호가 안 적힌 한 줄 결과는 고른다(검색이 그 상품 하나를 찾았다)', async () => {
+    const { calls } = load({ results: { '70011': ['봄 원피스'], '70022': ['봄 모자'] } });
+
+    const filled = await run(calls, 'adCenter.campaignFill', PLAN);
+
+    expect(filled).toEqual({ state: 'filled', selected: ['70011', '70022'] });
+  });
+
   it('등록 폼 칸이 없으면 그 칸 이름으로 form_changed를 답한다', async () => {
     const { calls, clicks } = load({ removeSelector: '#reg_ad_group_name' });
 

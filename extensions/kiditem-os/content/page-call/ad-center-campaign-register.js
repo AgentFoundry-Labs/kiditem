@@ -96,8 +96,11 @@
     return null;
   }
 
-  /** 상품 하나를 검색해 고른다. 검색 결과 중 그 번호가 적힌 줄, 없으면 결과가 한 줄일 때만 그 줄. */
-  async function selectProduct(productId) {
+  /**
+   * 상품 하나를 검색해 고른다. 검색 결과 중 그 번호가 적힌 줄, 없으면 결과가 한 줄일 때만 그 줄 — 단 그 줄에 다른 계획 상품
+   * (이미 고른 상품 포함)의 번호가 적혀 있으면 앞 상품의 남은 줄이므로 고르지 않는다.
+   */
+  async function selectProduct(productId, otherIds) {
     const searchInput = findCampaignInput("판매 상품을 검색");
     if (!searchInput) return { missing: "광고 상품 검색칸" };
     const before = new Set(document.querySelectorAll('li[data-bigfoot-component="vendor_item"]'));
@@ -113,7 +116,9 @@
       return list.length > 0 && (fresh || list.some((item) => normalizeText(item.textContent).includes(productId))) ? list : null;
     }, WAIT.search);
     if (!rows) return { selected: false };
-    const row = rows.find((item) => normalizeText(item.textContent).includes(productId)) || (rows.length === 1 ? rows[0] : null);
+    const exact = rows.find((item) => normalizeText(item.textContent).includes(productId));
+    const single = rows.length === 1 && !otherIds.some((id) => normalizeText(rows[0].textContent).includes(id)) ? rows[0] : null;
+    const row = exact || single;
     if (!row) return { selected: false };
     const selectButton = findClickableByText(["상품 선택"], row);
     if (!selectButton) return { missing: "상품 선택 버튼" };
@@ -141,7 +146,7 @@
     const selected = [];
     const notFound = [];
     for (const productId of productIds) {
-      const outcome = await selectProduct(productId);
+      const outcome = await selectProduct(productId, productIds.filter((id) => id !== productId));
       if (outcome.missing) return changed(outcome.missing);
       (outcome.selected ? selected : notFound).push(productId);
     }
