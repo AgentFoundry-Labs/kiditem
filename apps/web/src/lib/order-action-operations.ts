@@ -26,6 +26,7 @@ import {
   SELLPIA_POST_TRANSFER_KIND,
   SellpiaAutoInvoiceResultSchema,
   SellpiaOrderSnapshotResultSchema,
+  SellpiaOrderTransferPlanSchema,
   SellpiaOrderTransferResultSchema,
   SellpiaOrderTransferScopeSchema,
   SellpiaPostTransferResultSchema,
@@ -56,6 +57,8 @@ export interface OrderActionWaitOptions {
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
   timeoutMs?: number;
+  /** 시작 직후 실행 id — 기다림이 끊기거나 탭이 닫혀도 기록이 그 실행을 다시 읽게 남긴다. */
+  onStarted?: (operationId: string) => void;
 }
 
 /** 실패·중단으로 끝난 실행. `code`는 서버 등록 코드 — 화면은 문장이 아니라 이 값으로 가른다. */
@@ -84,11 +87,71 @@ export class OrderActionStillRunning extends Error {
 
 const RESULT_UNREADABLE = '실행은 끝났지만 결과를 읽지 못했습니다. 확장 프로그램과 웹을 새로 고친 뒤 다시 확인해 주세요.';
 
-async function startOrderAction(kind: OperationKind, scope: Record<string, unknown>, extra: Record<string, unknown> = {}): Promise<string> {
+const ACTION_LABEL: Readonly<Record<string, string>> = {
+  [SELLPIA_ORDER_TRANSFER_KIND]: '셀피아 주문 전송',
+  [SELLPIA_POST_TRANSFER_KIND]: '셀피아 후처리',
+  [SELLPIA_AUTO_INVOICE_KIND]: '셀피아 송장 자동채번',
+  [SELLPIA_ORDER_SNAPSHOT_KIND]: '셀피아 주문 대조',
+  [COUPANG_SHIPMENT_LIST_KIND]: '쿠팡 배송 목록',
+  [MALL_TRACKING_UPLOAD_KIND]: '몰 송장 업로드',
+};
+
+/** 실행 하나(`GET /api/operations/:id`). */
+export async function readOrderActionOperation(operationId: string): Promise<OperationView> {
+  return OperationFinishResponseSchema.parse(await apiClient.get(`/api/operations/${encodeURIComponent(operationId)}`)).operation;
+}
+
+type StartResult = Readonly<{ started: string }> | Readonly<{ awaitingConfirmation: string }>;
+
+/**
+ * 실행을 시작한다. 같은 잠금을 쥔 실행 때문에 거절되면 그 실행을 읽는다 — `reconciling`은 만료되지 않고 잠금을 쥐므로,
+ * 이 작업과 같은 것(`matchesExisting`)이면 확인 필요로 다시 돌려주고, 다른 작업이면 그것부터 확인하라고 말한다.
+ */
+async function startOrderAction(
+  kind: OperationKind,
+  scope: Record<string, unknown>,
+  extra: Record<string, unknown> = {},
+  matchesExisting: (operation: OperationView) => boolean = () => true,
+): Promise<StartResult> {
   const outcome = await requestOperationStart(kind, scope, { capability: ORDERS_ACTION_OPERATION_CAPABILITY, ...extra });
-  if (outcome.outcome === 'refused') throw new Error(outcome.message);
+  if (outcome.outcome === 'refused') {
+    const existing = outcome.existingOperationId
+      ? await readOrderActionOperation(outcome.existingOperationId).catch(() => null)
+      : null;
+    if (existing?.status === 'reconciling') {
+      if (existing.kind === kind && matchesExisting(existing)) return { awaitingConfirmation: existing.id };
+      throw new Error(
+        `${ACTION_LABEL[existing.kind] ?? '다른'} 작업이 확인을 기다리며 잠금을 쥐고 있습니다. 먼저 그 작업을 확인하거나 닫아 주세요.`,
+      );
+    }
+    throw new Error(outcome.message);
+  }
   if (!outcome.operationId) throw new Error('확장 프로그램이 실행 번호를 알려 주지 않았습니다. 잠시 후 다시 시도해 주세요.');
-  return outcome.operationId;
+  return { started: outcome.operationId };
+}
+
+/** 시작하고 끝날 때까지 기다린다. 확인을 기다리던 같은 실행이면 기다리지 않고 확인 필요로 돌려준다. */
+async function runOrderAction<T>(
+  kind: OperationKind,
+  scope: Record<string, unknown>,
+  schema: z.ZodType<T>,
+  options: OrderActionWaitOptions,
+  hooks: {
+    extra?: Record<string, unknown>;
+    matchesExisting?: (operation: OperationView) => boolean;
+    onFinished?: (operation: OperationView) => void;
+  } = {},
+): Promise<OrderActionOutcome<T>> {
+  const start = await startOrderAction(kind, scope, hooks.extra, hooks.matchesExisting);
+  if ('awaitingConfirmation' in start) return { status: 'needs_confirmation', operationId: start.awaitingConfirmation };
+  options.onStarted?.(start.started);
+  return waitForOrderAction(kind, start.started, schema, options, hooks.onFinished);
+}
+
+/** 확인 단계가 없는 작업(읽기·후처리): 성공 result만 받는다. */
+function succeededResult<T>(outcome: OrderActionOutcome<T>): T {
+  if (outcome.status !== 'succeeded') throw new Error(RESULT_UNREADABLE);
+  return outcome.result;
 }
 
 async function waitForOrderAction<T>(
@@ -102,9 +165,7 @@ async function waitForOrderAction<T>(
   const now = options.now ?? Date.now;
   const deadline = now() + (options.timeoutMs ?? WAIT_LIMIT_MS);
   for (;;) {
-    const { operation } = OperationFinishResponseSchema.parse(
-      await apiClient.get(`/api/operations/${encodeURIComponent(operationId)}`),
-    );
+    const operation = await readOrderActionOperation(operationId);
     if (operation.kind !== kind) throw new Error('다른 종류의 실행입니다.');
     if (operation.status === 'reconciling') return { status: 'needs_confirmation', operationId };
     if (isOperationTerminal(operation.status)) {
@@ -121,49 +182,47 @@ async function waitForOrderAction<T>(
   }
 }
 
-/** 셀피아 주문 전송: 원천 실행(몰 주문·직배송·수동 업로드)의 파일을 서버가 다시 만들어 확장이 셀피아에 올린다. */
+/**
+ * 셀피아 주문 전송: 원천 실행(몰 주문·직배송·수동 업로드)의 파일을 서버가 다시 만들어 확장이 셀피아에 올린다. 확인을 기다리는
+ * 전송이 잠금을 쥐고 있으면 같은 원천·운송유형의 것일 때만 이 파일의 확인으로 돌려준다.
+ */
 export async function startSellpiaOrderTransfer(
   scope: SellpiaOrderTransferScope,
   options: OrderActionWaitOptions = {},
 ): Promise<OrderActionOutcome<SellpiaOrderTransferResult>> {
   const parsed = SellpiaOrderTransferScopeSchema.parse(scope);
-  const operationId = await startOrderAction(SELLPIA_ORDER_TRANSFER_KIND, parsed);
-  return waitForOrderAction(SELLPIA_ORDER_TRANSFER_KIND, operationId, SellpiaOrderTransferResultSchema, options);
+  return runOrderAction(SELLPIA_ORDER_TRANSFER_KIND, parsed, SellpiaOrderTransferResultSchema, options, {
+    matchesExisting: (operation) => {
+      const plan = SellpiaOrderTransferPlanSchema.safeParse(operation.plan);
+      return plan.success
+        && plan.data.sourceOperationId === parsed.sourceOperationId
+        && (plan.data.transport ?? undefined) === parsed.transport;
+    },
+  });
 }
 
-/** 셀피아 후처리(등록 → 자동합포·자동재고매칭, 화면 전체). */
-export async function runSellpiaPostTransfer(options: OrderActionWaitOptions = {}): Promise<OrderActionOutcome<SellpiaPostTransferResult>> {
-  const operationId = await startOrderAction(SELLPIA_POST_TRANSFER_KIND, {});
-  return waitForOrderAction(SELLPIA_POST_TRANSFER_KIND, operationId, SellpiaPostTransferResultSchema, options);
+/** 셀피아 후처리(등록 → 자동합포·자동재고매칭, 화면 전체). 확인 단계가 없는 작업이다. */
+export async function runSellpiaPostTransfer(options: OrderActionWaitOptions = {}): Promise<SellpiaPostTransferResult> {
+  return succeededResult(await runOrderAction(SELLPIA_POST_TRANSFER_KIND, {}, SellpiaPostTransferResultSchema, options));
 }
 
 /** ⚠️되돌리기 어려움: 셀피아 송장 자동채번. 대상은 서버가 정한다(최근 24시간 전송 − 이미 발급). 화면 확인 뒤에만 부른다. */
 export async function runSellpiaAutoInvoice(options: OrderActionWaitOptions = {}): Promise<OrderActionOutcome<SellpiaAutoInvoiceResult>> {
-  const operationId = await startOrderAction(SELLPIA_AUTO_INVOICE_KIND, {});
-  return waitForOrderAction(SELLPIA_AUTO_INVOICE_KIND, operationId, SellpiaAutoInvoiceResultSchema, options);
+  return runOrderAction(SELLPIA_AUTO_INVOICE_KIND, {}, SellpiaAutoInvoiceResultSchema, options);
 }
 
 /** 셀피아 주문 스냅샷(읽기): 대기목록·재고매칭 두 화면의 주문. 읽기 kind라 `reconciling`이 없다. */
 export async function readSellpiaOrderSnapshot(options: OrderActionWaitOptions = {}): Promise<SellpiaOrderSnapshotResult> {
-  const operationId = await startOrderAction(SELLPIA_ORDER_SNAPSHOT_KIND, {});
-  const outcome = await waitForOrderAction(SELLPIA_ORDER_SNAPSHOT_KIND, operationId, SellpiaOrderSnapshotResultSchema, options);
-  if (outcome.status !== 'succeeded') throw new Error(RESULT_UNREADABLE);
-  return outcome.result;
+  return succeededResult(await runOrderAction(SELLPIA_ORDER_SNAPSHOT_KIND, {}, SellpiaOrderSnapshotResultSchema, options));
 }
 
 /** 쿠팡 배송 목록(읽기): 발송일 하나의 쉽먼트 행. 로그인 화면이면 확장이 로켓 계정 저장 자격으로 로그인한다. */
 export async function readCoupangShipmentList(date: string, options: OrderActionWaitOptions = {}): Promise<CoupangShipmentListResult> {
-  const operationId = await startOrderAction(COUPANG_SHIPMENT_LIST_KIND, { date }, await operationLoginOptions(ROCKET_LOGIN_MALL_KEY));
-  const outcome = await waitForOrderAction(
-    COUPANG_SHIPMENT_LIST_KIND,
-    operationId,
-    CoupangShipmentListResultSchema,
-    options,
+  return succeededResult(await runOrderAction(COUPANG_SHIPMENT_LIST_KIND, { date }, CoupangShipmentListResultSchema, options, {
+    extra: await operationLoginOptions(ROCKET_LOGIN_MALL_KEY),
     // 로켓 계정 자격을 서플라이어 허브가 거절했으면 그 계정의 자동 로그인을 멈춘다(KID-377).
-    (operation) => noteOperationLoginFailureForMall(ROCKET_LOGIN_MALL_KEY, operation),
-  );
-  if (outcome.status !== 'succeeded') throw new Error(RESULT_UNREADABLE);
-  return outcome.result;
+    onFinished: (operation) => noteOperationLoginFailureForMall(ROCKET_LOGIN_MALL_KEY, operation),
+  }));
 }
 
 /** ⚠️되돌리기 어려움: 몰(온채널·키드키즈) 송장 업로드. 행은 서버가 송장 조회 실행의 캡처에서 그 몰 것만 고른다. */
@@ -172,16 +231,12 @@ export async function uploadMallTracking(
   options: OrderActionWaitOptions = {},
 ): Promise<OrderActionOutcome<MallTrackingUploadResult>> {
   const parsed = MallTrackingUploadScopeSchema.parse(scope);
-  // 몰 주문 시작과 같이 그 몰의 저장 자격을 시작 요청에만 싣는다 — 운영자 탭 세션만 믿지 않는다(차단·저장 없음이면 싣지 않는다).
-  const operationId = await startOrderAction(MALL_TRACKING_UPLOAD_KIND, parsed, await operationLoginOptions(parsed.mallKey));
-  return waitForOrderAction(
-    MALL_TRACKING_UPLOAD_KIND,
-    operationId,
-    MallTrackingUploadResultSchema,
-    options,
+  return runOrderAction(MALL_TRACKING_UPLOAD_KIND, parsed, MallTrackingUploadResultSchema, options, {
+    // 몰 주문 시작과 같이 그 몰의 저장 자격을 시작 요청에만 싣는다 — 운영자 탭 세션만 믿지 않는다(차단·저장 없음이면 싣지 않는다).
+    extra: await operationLoginOptions(parsed.mallKey),
     // 몰이 저장 자격을 거절했으면 그 몰의 자동 로그인을 멈춘다(KID-377).
-    (operation) => noteOperationLoginFailureForMall(parsed.mallKey, operation),
-  );
+    onFinished: (operation) => noteOperationLoginFailureForMall(parsed.mallKey, operation),
+  });
 }
 
 const actionPath = (operationId: string, action: 'confirm' | 'close') =>

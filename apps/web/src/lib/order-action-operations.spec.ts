@@ -5,7 +5,9 @@ import {
   MALL_TRACKING_UPLOAD_KIND,
   ORDERS_ACTION_OPERATION_CAPABILITY,
   SELLPIA_AUTO_INVOICE_KIND,
+  SELLPIA_ORDER_SNAPSHOT_KIND,
   SELLPIA_ORDER_TRANSFER_KIND,
+  SELLPIA_POST_TRANSFER_KIND,
 } from '@kiditem/shared/orders-action-operations';
 import { apiClient } from './api-client';
 import { requestOperationStart } from './operation-start';
@@ -16,7 +18,9 @@ import {
   confirmOrderActionOperation,
   OrderActionFailure,
   OrderActionStillRunning,
+  readSellpiaOrderSnapshot,
   runSellpiaAutoInvoice,
+  runSellpiaPostTransfer,
   startSellpiaOrderTransfer,
   uploadMallTracking,
 } from './order-action-operations';
@@ -166,5 +170,52 @@ describe('order action operations (KID-366 wave8b)', () => {
     expect(apiClient.post).toHaveBeenCalledWith(`/api/orders/action-operations/${ID}/confirm`, {});
     await closeOrderActionOperation(ID, '운영자가 셀피아에서 확인: 발급되지 않음');
     expect(apiClient.post).toHaveBeenCalledWith(`/api/orders/action-operations/${ID}/close`, { reason: '운영자가 셀피아에서 확인: 발급되지 않음' });
+  });
+
+  describe('확인을 기다리는 실행이 잠금을 쥔 채 남은 경우 (reconciling은 만료되지 않는다)', () => {
+    const EXISTING = '44444444-4444-4444-8444-444444444444';
+
+    it('같은 작업이 확인을 기다리면 시작 거절의 그 실행을 읽어 확인 필요로 다시 돌려준다', async () => {
+      vi.mocked(requestOperationStart).mockResolvedValueOnce({ outcome: 'refused', message: '진행 중입니다.', existingOperationId: EXISTING });
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: { ...operation(SELLPIA_AUTO_INVOICE_KIND, 'reconciling'), id: EXISTING } });
+
+      await expect(runSellpiaAutoInvoice(noSleep)).resolves.toEqual({ status: 'needs_confirmation', operationId: EXISTING });
+      expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${EXISTING}`);
+    });
+
+    it('다른 파일의 전송이 확인을 기다리면 이 파일의 확인으로 삼지 않고 그 작업을 먼저 확인하라고 말한다', async () => {
+      vi.mocked(requestOperationStart).mockResolvedValueOnce({ outcome: 'refused', message: '진행 중입니다.', existingOperationId: EXISTING });
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: {
+        ...operation(SELLPIA_ORDER_TRANSFER_KIND, 'reconciling'),
+        id: EXISTING,
+        plan: { sourceOperationId: ACCOUNT, shopName: '온채널', transport: null, fileName: 'a.xls', targetOrderNumbers: ['A1'] },
+      } });
+
+      await expect(startSellpiaOrderTransfer({ sourceOperationId: SOURCE, shopName: '온채널' }, noSleep))
+        .rejects.toThrow('셀피아 주문 전송 작업이 확인을 기다리며');
+    });
+
+    it('시작하자마자 실행 id를 알려 기다림이 끊겨도 기록이 그 실행을 다시 읽을 수 있게 한다', async () => {
+      vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(SELLPIA_ORDER_TRANSFER_KIND, 'succeeded', {
+        result: { outcome: 'submitted', acceptedOrderNumbers: [], targetOrderCount: 1 },
+      }) });
+      const onStarted = vi.fn();
+      await startSellpiaOrderTransfer({ sourceOperationId: SOURCE, shopName: '온채널' }, { ...noSleep, onStarted });
+      expect(onStarted).toHaveBeenCalledWith(ID);
+    });
+  });
+
+  it('후처리는 확인 단계가 없는 작업이라 성공 result만 돌려준다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(SELLPIA_POST_TRANSFER_KIND, 'succeeded', {
+      result: { registered: true, stockMatched: true, unmatchedOrderNumbers: [], invoiceTargetCount: 3 },
+    }) });
+    await expect(runSellpiaPostTransfer(noSleep)).resolves.toEqual({ registered: true, stockMatched: true, unmatchedOrderNumbers: [], invoiceTargetCount: 3 });
+  });
+
+  it('셀피아 주문 스냅샷은 result의 행과 일부만 읽었는지를 돌려준다', async () => {
+    const result = { orderCount: 1, rows: [{ orderNo: '66_A-1', receiver: '홍길동', provider: '키드키즈', source: 'pending' }], partial: true };
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(SELLPIA_ORDER_SNAPSHOT_KIND, 'succeeded', { result }) });
+    await expect(readSellpiaOrderSnapshot(noSleep)).resolves.toEqual(result);
+    expect(requestOperationStart).toHaveBeenCalledWith(SELLPIA_ORDER_SNAPSHOT_KIND, {}, { capability: ORDERS_ACTION_OPERATION_CAPABILITY });
   });
 });

@@ -143,7 +143,7 @@ describe('order tracking actions', () => {
       [SELLPIA_POST_TRANSFER_KIND, {}],
       [SELLPIA_AUTO_INVOICE_KIND, {}],
     ]);
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('이번 전송 주문 1건만'));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('최근 하루 안에 셀피아로 전송된 주문 중 송장 미발급 1건'));
     expect(onGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
       fileName: expect.stringMatching(/^셀피아_채번송장_\d{8}\.csv$/),
       mallKey: 'sellpia',
@@ -190,15 +190,22 @@ describe('order tracking actions', () => {
     expect(logError).toHaveBeenCalledWith('셀피아 미매칭 2건', 'A-1, A-2');
   });
 
-  it('채번을 눌렀지만 발급 행을 읽지 못한 자동송장(reconciling)은 셀피아 확인 토스트에 확인·닫기를 단다', async () => {
+  it('채번을 눌렀지만 발급 행을 읽지 못한 자동송장(reconciling)은 셀피아 확인 토스트에 확인·닫기를 달고, 확인하면 확인 결과의 발급 행으로 CSV를 만든다', async () => {
     operations({
       [POST_TRANSFER_ID]: postTransferDone(1),
       [INVOICE_ID]: finished(INVOICE_ID, SELLPIA_AUTO_INVOICE_KIND, 'reconciling', null),
     });
-    mocks.apiPost.mockResolvedValue(finished(INVOICE_ID, SELLPIA_AUTO_INVOICE_KIND, 'succeeded', null));
+    mocks.apiPost.mockImplementation(async (path: string) => (path.endsWith('/confirm')
+      ? finished(INVOICE_ID, SELLPIA_AUTO_INVOICE_KIND, 'succeeded', {
+        issued: [{ orderNo: 'ORDER-1', trackingNumber: 'TRACKING-1', courier: '1136' }],
+        selectedOrderNumbers: ['ORDER-1'],
+        notFoundOrderNumbers: [],
+      })
+      : finished(INVOICE_ID, SELLPIA_AUTO_INVOICE_KIND, 'failed', null)));
     const logError = vi.fn();
+    const onGeneratedFile = vi.fn();
 
-    await runSellpiaPostProcess({ logError });
+    await runSellpiaPostProcess({ logError, onGeneratedFile });
 
     expect(mocks.downloadBlob).not.toHaveBeenCalled();
     const warning = mocks.toast.warning.mock.calls.find(([message]) => String(message).includes('셀피아 확인 필요'));
@@ -206,10 +213,25 @@ describe('order tracking actions', () => {
     const options = warning![1] as { action: { label: string; onClick: () => void }; cancel: { label: string; onClick: () => void } };
     expect(logError).toHaveBeenCalledWith('셀피아 송장채번', expect.stringContaining('셀피아 확인 필요'));
     options.action.onClick();
-    options.cancel.onClick();
-    await vi.waitFor(() => expect(mocks.apiPost).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(onGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey: 'sellpia', orderNumbers: ['ORDER-1'] })));
+    expect(mocks.downloadBlob).toHaveBeenCalledOnce();
     expect(mocks.apiPost).toHaveBeenCalledWith(`/api/orders/action-operations/${INVOICE_ID}/confirm`, {});
-    expect(mocks.apiPost).toHaveBeenCalledWith(`/api/orders/action-operations/${INVOICE_ID}/close`, { reason: expect.any(String) });
+    options.cancel.onClick();
+    await vi.waitFor(() => expect(mocks.apiPost).toHaveBeenCalledWith(`/api/orders/action-operations/${INVOICE_ID}/close`, { reason: expect.any(String) }));
+  });
+
+  it('확인을 기다리는 자동송장이 잠금을 쥐고 있으면 새로 시작하지 않고 그 실행의 확인 토스트를 다시 띄운다', async () => {
+    operations({
+      [POST_TRANSFER_ID]: postTransferDone(1),
+      [INVOICE_ID]: finished(INVOICE_ID, SELLPIA_AUTO_INVOICE_KIND, 'reconciling', null),
+    });
+    mocks.requestOperationStart.mockImplementation(async (kind: string) => (kind === SELLPIA_POST_TRANSFER_KIND
+      ? { outcome: 'started', operationId: POST_TRANSFER_ID }
+      : { outcome: 'refused', message: '진행 중입니다.', existingOperationId: INVOICE_ID }));
+
+    await runSellpiaPostProcess({ logError: vi.fn() });
+
+    expect(mocks.toast.warning).toHaveBeenCalledWith(expect.stringContaining('셀피아 확인 필요'), expect.objectContaining({ action: expect.anything() }));
   });
 
   it('후처리 실행이 실패하면 서버 문장으로 알리고 활동 기록에 남긴다', async () => {

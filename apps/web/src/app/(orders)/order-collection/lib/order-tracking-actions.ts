@@ -5,6 +5,7 @@ import { formatNumber } from '@/lib/utils';
 import {
   closeOrderActionOperation,
   confirmOrderActionOperation,
+  readOrderActionOperation,
   runSellpiaAutoInvoice,
   runSellpiaPostTransfer,
   uploadMallTracking,
@@ -12,6 +13,7 @@ import {
 import { isSellpiaProviderMall } from '@kiditem/shared/sellpia-providers';
 import {
   MallTrackingUploadMallSchema,
+  SellpiaAutoInvoiceResultSchema,
   type MallTrackingUploadMall,
   type MallTrackingUploadResult,
   type SellpiaInvoiceRow,
@@ -31,6 +33,7 @@ import {
 } from './order-collection-page-model';
 import { resolveOrderCollectionMallKey } from './order-collection-malls';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import type { OperationView } from '@kiditem/shared/operation';
 
 interface UploadTrackingOptions {
   account: OrderCollectionMallAccount;
@@ -103,12 +106,21 @@ export function promptOrderActionConfirmation(options: {
   closeReason: string;
   /** 바꿔 쓸 진행 중 토스트. */
   toastId?: string | number;
+  /** 확인이 받아들여진 실행(result는 서버가 확인 때 채운 것). */
+  onConfirmed?: (operation: OperationView) => void;
 }): void {
   const resolve = async (resolution: 'confirm' | 'close') => {
     try {
-      if (resolution === 'confirm') await confirmOrderActionOperation(options.operationId);
-      else await closeOrderActionOperation(options.operationId, options.closeReason);
-      toast.success(resolution === 'confirm' ? '확인했습니다.' : '닫았습니다.');
+      if (resolution === 'confirm') {
+        const resolved = await confirmOrderActionOperation(options.operationId);
+        // 확인 응답에 result가 없으면 그 실행을 다시 읽는다.
+        const operation = resolved?.result ? resolved : await readOrderActionOperation(options.operationId);
+        if (options.onConfirmed) options.onConfirmed(operation);
+        else toast.success('확인했습니다.');
+        return;
+      }
+      await closeOrderActionOperation(options.operationId, options.closeReason);
+      toast.success('닫았습니다.');
     } catch (error) {
       toast.error(friendlyError(error, '확인 결과를 저장하지 못했습니다.') ?? '확인 결과를 저장하지 못했습니다.');
     }
@@ -119,6 +131,26 @@ export function promptOrderActionConfirmation(options: {
     action: { label: options.confirmLabel, onClick: () => { void resolve('confirm'); } },
     cancel: { label: options.closeLabel, onClick: () => { void resolve('close'); } },
   });
+}
+
+/** 발급된 송장 행을 CSV로 내려주고 송장 파일 항목으로 남긴다. 빈 배열이면 안내만 한다. */
+function emitIssuedInvoices(
+  issued: SellpiaInvoiceRow[],
+  onGeneratedFile: ((artifact: GeneratedTrackingArtifact) => void) | undefined,
+  toastId?: string | number,
+): void {
+  const toastOptions = { ...(toastId !== undefined ? { id: toastId } : {}), duration: 10000 };
+  if (issued.length === 0) {
+    toast.info('발급된 송장 행이 없습니다. 이제 몰별 송장 업로드를 진행하세요.', toastOptions);
+    return;
+  }
+  // 채번 직후 캡처한 송장번호를 바로 CSV로 내려준다(재출력 재조회 없이 "여기서 바로").
+  const invoiceRows = invoiceTrackingRows(issued);
+  const fileName = `셀피아_채번송장_${todayYmd().replace(/-/g, '')}.csv`;
+  const blob = buildMallTrackingCsvBlob(invoiceRows);
+  onGeneratedFile?.(generatedTrackingArtifact({ blob, fileName, mallKey: 'sellpia', mallName: '셀피아', rows: invoiceRows }));
+  downloadBlob(blob, fileName);
+  toast.success(`송장 자동채번 완료 (${formatNumber(issued.length)}건) — 채번 송장번호 CSV를 내려받았습니다.`, toastOptions);
 }
 
 const INVOICE_NEEDS_CONFIRMATION =
@@ -135,29 +167,16 @@ export async function runSellpiaPostProcess({
   onGeneratedFile,
 }: SellpiaPostProcessOptions): Promise<void> {
   const toastId = toast.loading('셀피아 후처리 중… (등록 → 자동합포 → 자동재고매칭)');
-  let outcome: Awaited<ReturnType<typeof runSellpiaPostTransfer>>;
+  let result: Awaited<ReturnType<typeof runSellpiaPostTransfer>>;
   try {
-    outcome = await runSellpiaPostTransfer();
+    result = await runSellpiaPostTransfer();
   } catch (err) {
     const message = friendlyError(err) ?? '셀피아 후처리 실패';
     logError('셀피아 후처리', message);
     toast.error(message, { id: toastId, duration: 10000 });
     return;
   }
-  if (outcome.status === 'needs_confirmation') {
-    logError('셀피아 후처리', '셀피아 확인 필요 — 후처리 결과를 확인하지 못했습니다.');
-    promptOrderActionConfirmation({
-      operationId: outcome.operationId,
-      message: '셀피아 확인 필요 — 후처리 결과를 확인하지 못했습니다. 셀피아 재고매칭 화면을 확인해 주세요.',
-      confirmLabel: '완료 확인',
-      closeLabel: '안 됨으로 닫기',
-      closeReason: '운영자가 셀피아에서 확인: 후처리되지 않음',
-      toastId,
-    });
-    return;
-  }
 
-  const result = outcome.result;
   const unmatched = result.unmatchedOrderNumbers;
   toast.success(
     `셀피아 후처리 완료 — 등록 ${result.registered ? '완료' : '확인 못 함'} · 재고매칭 ${result.stockMatched ? '완료' : '확인 못 함'}`
@@ -185,7 +204,7 @@ export async function runSellpiaPostProcess({
   const confirmed = window.confirm(
     `재고매칭 완료` +
       (unmatched.length > 0 ? `: 미매칭 ${formatNumber(unmatched.length)}건` : '') +
-      `\n\n이번 전송 주문 ${formatNumber(invoiceTargetCount)}건만 '송장 자동채번'을 진행할까요?` +
+      `\n\n최근 하루 안에 셀피아로 전송된 주문 중 송장 미발급 ${formatNumber(invoiceTargetCount)}건만 '송장 자동채번'을 진행할까요?` +
       `\n되돌리기 어려운 작업입니다(실제 송장번호가 발급됩니다).` +
       (unmatched.length > 0 ? '\n미매칭 주문은 채번되지 않습니다.' : ''),
   );
@@ -206,29 +225,16 @@ export async function runSellpiaPostProcess({
         closeLabel: '미발급으로 닫기',
         closeReason: '운영자가 셀피아에서 확인: 송장이 발급되지 않음',
         toastId: invoiceToast,
+        // 운영자가 확인하면 확인 결과의 발급 행으로 정상 경로와 같은 CSV·송장 항목을 만든다(리더 결정).
+        onConfirmed: (operation) => {
+          const confirmed = SellpiaAutoInvoiceResultSchema.safeParse(operation.result);
+          emitIssuedInvoices(confirmed.success ? confirmed.data.issued : [], onGeneratedFile);
+        },
       });
       return;
     }
     const { issued, notFoundOrderNumbers } = invoice.result;
-    // 채번 직후 캡처한 송장번호를 바로 CSV로 내려준다(재출력 재조회 없이 "여기서 바로").
-    const invoiceRows = invoiceTrackingRows(issued);
-    if (invoiceRows.length > 0) {
-      const fileName = `셀피아_채번송장_${todayYmd().replace(/-/g, '')}.csv`;
-      const blob = buildMallTrackingCsvBlob(invoiceRows);
-      onGeneratedFile?.(generatedTrackingArtifact({
-        blob,
-        fileName,
-        mallKey: 'sellpia',
-        mallName: '셀피아',
-        rows: invoiceRows,
-      }));
-      downloadBlob(blob, fileName);
-    }
-    toast.success(
-      `송장 자동채번 완료 (${formatNumber(issued.length)}건)` +
-        (invoiceRows.length > 0 ? ' — 채번 송장번호 CSV를 내려받았습니다.' : '. 이제 몰별 송장 업로드를 진행하세요.'),
-      { id: invoiceToast, duration: 10000 },
-    );
+    emitIssuedInvoices(issued, onGeneratedFile, invoiceToast);
     if (notFoundOrderNumbers.length > 0) {
       const summary = summarizeOrderNumbers(notFoundOrderNumbers);
       toast.warning(`셀피아 송장 화면에 없어 채번하지 않은 주문 ${formatNumber(notFoundOrderNumbers.length)}건: ${summary}`, { duration: 15000 });
