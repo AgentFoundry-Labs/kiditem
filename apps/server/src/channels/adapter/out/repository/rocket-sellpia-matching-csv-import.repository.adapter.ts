@@ -10,8 +10,8 @@ import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upser
 import { rocketMatchingCsvRowsToCatalogProducts } from './rocket-sellpia-matching-csv.catalog';
 
 /**
- * 로켓 매칭 CSV kind(KID-363)의 Channels 원장 쓰기. 반영 출처는 `lastOperationId`로 남기고
- * `source_import_runs`는 쓰지 않는다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
+ * 로켓 매칭 CSV kind(KID-363)의 Channels 원장 쓰기. 반영 출처는 `lastOperationId`(성공한 실행)로
+ * 남긴다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
  */
 @Injectable()
 export class RocketSellpiaMatchingCsvImportRepositoryAdapter implements RocketSellpiaMatchingCsvImportRepositoryPort {

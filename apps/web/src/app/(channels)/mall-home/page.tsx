@@ -38,7 +38,8 @@ import { buildMallAgentMissions } from './lib/mall-agent-missions';
  */
 export default function MallHomePage() {
   const home = useMallAlerts();
-  // 자동 운전 고리 — 앱이 열려 있는 동안 어느 화면에서든 돈다. 여기서는 상태만 보여 준다.
+  // 자동 운전 고리 — 운영자가 머리의 스위치로 시작해야 러너가 붙고(`MallAgentLoopProvider`), 그 뒤 이 탭이 열려 있는
+  // 동안 어느 화면에서든 돈다. 앱을 열었다고 붙지 않는다. 여기서는 상태만 보여 주고 켜고 끈다.
   const loop = useMallAgentLoop();
   const [filter, setFilter] = useState<MallAlertFilter>('all');
   const [mallKey, setMallKey] = useState<string | null>(null);

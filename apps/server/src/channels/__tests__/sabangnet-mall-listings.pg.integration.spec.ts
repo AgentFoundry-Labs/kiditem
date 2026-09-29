@@ -270,9 +270,10 @@ describe('Sabangnet mall listings over the operation contract (PG integration)',
 
   it('refuses to publish when the mall account rows changed after the plan', async () => {
     const begun = await begin();
-    await prisma.channelAccount.update({ where: { id: KIDSNOTE }, data: { isPrimary: false, createdAt: new Date('2026-09-01T00:00:00Z') } });
+    // 몰 행은 channel · externalAccountId 모두 몰 키인 한 행이다(ADR-0012) — 옛 행이 몰 행에서 빠지고 새 행이 선다.
+    await prisma.channelAccount.update({ where: { id: KIDSNOTE }, data: { externalAccountId: 'kidsnote-old' } });
     await prisma.channelAccount.create({
-      data: { id: KIDSNOTE_LATER, organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote-2', name: '키즈노트 2', status: 'configured', isPrimary: true },
+      data: { id: KIDSNOTE_LATER, organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote', name: '키즈노트 2', status: 'configured', isPrimary: true },
     });
     await expect(channels.runBegun(begun, (plan) => [
       { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, items: [row()] },

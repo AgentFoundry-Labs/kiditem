@@ -40,7 +40,6 @@ export interface OrderSourceCoverageFacts {
   sourceType: string;
   channelAccountId: string | null;
   mallKey: string | null;
-  factDates: string[];
   includedDates: string[];
   missingDates: string[];
   observedAt: Date | null;
@@ -716,8 +715,6 @@ function buildOrderCoverage(
       sourceType: MALL_COVERAGE_SOURCE_TYPE,
       channelAccountId: source.channelAccountId,
       mallKey: source.mallKey,
-      // 몰 주문 수집은 주문 행을 쓰지 않는다(셀피아 양식으로 변환) — 몰 칸의 사실 날짜는 없다.
-      factDates: [],
       includedDates: requestedDates.filter((date) => source.included.has(date)),
       missingDates: requestedDates.filter((date) => !source.included.has(date)),
       observedAt: source.observedAt,

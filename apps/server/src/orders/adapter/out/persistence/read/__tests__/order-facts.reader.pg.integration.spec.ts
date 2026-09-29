@@ -146,8 +146,8 @@ describe('Order facts reader over disposable PostgreSQL: orders are facts only w
       includedDates: ['2026-05-01'],
       missingDates: ['2026-05-02'],
       sourceCoverage: [
-        { channelAccountId: ACCOUNT_ID, mallKey: 'haebub-mall', factDates: [], includedDates: ['2026-05-01', '2026-05-02'], missingDates: [] },
-        { channelAccountId: SECOND_ACCOUNT_ID, mallKey: 'domeggook', factDates: [], includedDates: ['2026-05-01'], missingDates: ['2026-05-02'] },
+        { channelAccountId: ACCOUNT_ID, mallKey: 'haebub-mall', includedDates: ['2026-05-01', '2026-05-02'], missingDates: [] },
+        { channelAccountId: SECOND_ACCOUNT_ID, mallKey: 'domeggook', includedDates: ['2026-05-01'], missingDates: ['2026-05-02'] },
       ],
     });
   });
@@ -233,7 +233,6 @@ describe('Order facts reader over disposable PostgreSQL: orders are facts only w
         sourceType: 'order_collection_mall',
         channelAccountId: ACCOUNT_ID,
         mallKey: 'haebub-mall',
-        factDates: [],
         includedDates: ['2026-05-01'],
         missingDates: [],
         observedAt: COVERAGE_FINISHED_AT,

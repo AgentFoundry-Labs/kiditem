@@ -23,8 +23,8 @@ const RECENT_SCAN = 200;
  * 오늘 주문 capability. 수집 실행(`orders.mall_orders` — 브라우저 수집과 수동 업로드 — 과 directship)마다 finish가 그
  * 수집의 주문 수를 `result.rowCount`로 적어 두고, 여기서는 **몰마다 오늘 마지막 수집 한 번만** 센다(같은 몰을 두 번
  * 걷어도 주문이 불어나지 않는다). directship은 로켓 계정마다 마지막 한 번. 오늘 수집이 하나도 없으면 `total`은
- * null(0은 "걷었는데 없었다"). 실행 표는 실행 계약의 reader로만 읽는다. 옛 attempt 행(SourceImportRun)은 세지 않는다
- * (KID-380 T4) — 남은 옛 경로인 카카오는 변환 규격이 없어 완료되지 않는다(KID-379).
+ * null(0은 "걷었는데 없었다"). 실행 표는 실행 계약의 reader로만 읽고 성공한 실행만 센다(KID-380 T4) — 실행 kind가
+ * 아닌 카카오 수집은 변환 규격이 없어 완료되지 않으므로 세지 않는다(KID-379).
  */
 @Injectable()
 export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOrdersPort {
