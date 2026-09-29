@@ -22,14 +22,14 @@ export async function deactivateCatalogAbsence(
   input: {
     organizationId: string;
     channelAccountId: string;
-    /** 끈 행에 남길 출처: 이 목록을 발행한 실행(`lastOperationId`, 옛 `lastImportRunId`는 비운다, KID-363·365). */
+    /** 끈 행에 남길 출처: 이 목록을 발행한 실행(`lastOperationId`, KID-363). */
     provenance: { operationId: string };
     scope: ChannelCatalogAbsenceScope;
     presentExternalProductIds: readonly string[] | null;
     presentExternalOptionIds: readonly string[] | null;
   },
 ): Promise<{ listings: number; options: number }> {
-  const provenance = { lastOperationId: input.provenance.operationId, lastImportRunId: null };
+  const provenance = { lastOperationId: input.provenance.operationId };
   const fromThisSource = {
     rawJson: {
       path: ['source'],

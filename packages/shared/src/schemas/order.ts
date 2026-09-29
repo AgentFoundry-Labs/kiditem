@@ -141,7 +141,6 @@ const OrderStatsSourceCoverageSchema = z.object({
   sourceType: z.string().min(1),
   channelAccountId: z.string().uuid().nullable(),
   mallKey: z.string().min(1).nullable(),
-  factDates: z.array(OrderStatsDateSchema),
   includedDates: z.array(OrderStatsDateSchema),
   missingDates: z.array(OrderStatsDateSchema),
 });

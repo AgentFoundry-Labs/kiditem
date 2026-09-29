@@ -223,26 +223,6 @@ function bootServiceWorker({ fetch: fetchFn, storage, storageAdapter } = {}) {
   return { fake, context, close };
 }
 
-function installTabEventHarness(fake) {
-  const updatedListeners = new Set();
-  const removedListeners = new Set();
-  fake.chrome.tabs.onUpdated = {
-    addListener(listener) { updatedListeners.add(listener); },
-    removeListener(listener) { updatedListeners.delete(listener); },
-  };
-  fake.chrome.tabs.onRemoved = {
-    addListener(listener) { removedListeners.add(listener); },
-    removeListener(listener) { removedListeners.delete(listener); },
-  };
-  return {
-    updatedListeners,
-    removedListeners,
-    emitUpdated(...args) {
-      for (const listener of [...updatedListeners]) listener(...args);
-    },
-  };
-}
-
 function externalRequest(fake, message) {
   return new Promise((resolve) => {
     let responders = 0;
@@ -431,115 +411,17 @@ test('each domain worker removes only its own retired local copies on update', a
   }
 });
 
-test('Wing tab timeout keeps bounded target diagnostics and ignores unrelated tabs', async (t) => {
-  const { fake, context, close } = bootServiceWorker();
-  t.after(close);
-  const events = installTabEventHarness(fake);
-  const expectedUrl =
-    'https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify' +
-    '?vendorInventoryId=220&token=expected-secret&redirect=https%3A%2F%2Fevil.test%2F';
-  const unrelatedUrl =
-    'https://login.coupang.com/login' +
-    '?vendorInventoryId=999&page=99&token=unrelated-secret';
-  const observedUrl =
-    'https://wing.coupang.com/tenants/seller-web/vendor-inventory/modify' +
-    '?vendorInventoryId=221&page=2&token=last-secret&redirect=https%3A%2F%2Fevil.test%2Flast';
-  let getCalls = 0;
-  fake.chrome.tabs.get = (id, callback) => {
-    getCalls += 1;
-    const tab = { id, status: 'loading', url: expectedUrl };
-    callback?.(tab);
-    return Promise.resolve(tab);
-  };
-
-  const pending = context.waitForTabComplete(41, { expectedUrl, timeoutMs: 20 });
-  events.emitUpdated(99, { status: 'complete', url: unrelatedUrl }, {
-    id: 99,
-    status: 'complete',
-    url: unrelatedUrl,
-  });
-  events.emitUpdated(41, { status: 'loading', url: observedUrl }, {
-    id: 41,
-    status: 'loading',
-    url: observedUrl,
-  });
-
-  await assert.rejects(pending, (error) => {
-    assert.match(error.message, /^Wing 탭 로딩 타임아웃;/);
-    assert.match(error.message, /expectedPage=type=wing-inventory-modify,vendorInventoryId=220/);
-    assert.match(error.message, /lastObservedStatus=loading/);
-    assert.match(error.message, /lastObservedPage=type=wing-inventory-modify,vendorInventoryId=221,page=2/);
-    assert.match(error.message, /navigationObserved=true/);
-    assert.doesNotMatch(error.message, /token|redirect|expected-secret|unrelated-secret|last-secret|evil\.test/);
-    assert.doesNotMatch(error.message, /vendorInventoryId=999|page=99/);
-    assert.ok(error.message.length < 400);
-    return true;
-  });
-  assert.equal(getCalls, 1, 'timeout diagnostics must not perform a second tabs.get');
-  assert.equal(events.updatedListeners.size, 0, 'timeout cleanup removes onUpdated listener');
-  assert.equal(events.removedListeners.size, 0, 'timeout cleanup removes onRemoved listener');
+test('Coupang worker leaves no Wing tab helpers in the shared worker scope', () => {
+  // Wing tabs are opened and awaited by the runtime sites (`extensions/src/sites`); the old worker kept
+  // unused copies whose top-level names shared the one service-worker scope with every other worker.
+  const { context } = bootServiceWorker();
+  for (const name of [
+    'buildCoupangSearchUrl', 'isCoupangSearchUrl', 'isWingInventoryUrl', 'getTab', 'createTab',
+    'coupangSafeTabDiagnosticPageIdentity', 'waitForTabComplete', 'isExpectedTab', 'matchesExpectedWingPage', 'sleep',
+  ]) {
+    assert.equal(typeof context[name], 'undefined', name);
+  }
 });
-
-test('Wing timeout labels an observed login page without leaking numeric query values', async (t) => {
-  const { fake, context, close } = bootServiceWorker();
-  t.after(close);
-  const events = installTabEventHarness(fake);
-  const expectedUrl =
-    'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list';
-  const loginUrl =
-    'https://login.coupang.com/login' +
-    '?vendorInventoryId=998&page=99&token=login-secret&redirect=https%3A%2F%2Fevil.test%2Flogin';
-  let getCalls = 0;
-  fake.chrome.tabs.get = (id, callback) => {
-    getCalls += 1;
-    const tab = { id, status: 'loading', url: loginUrl };
-    callback?.(tab);
-    return Promise.resolve(tab);
-  };
-
-  const pending = context.waitForTabComplete(43, { expectedUrl, timeoutMs: 20 });
-  await assert.rejects(pending, (error) => {
-    assert.match(error.message, /^Wing 탭 로딩 타임아웃;/);
-    assert.match(error.message, /expectedPage=type=wing-inventory-list/);
-    assert.match(error.message, /lastObservedStatus=loading/);
-    assert.match(error.message, /lastObservedPage=type=coupang-login/);
-    assert.match(error.message, /navigationObserved=false/);
-    assert.doesNotMatch(error.message, /998|99|login-secret|redirect|evil\.test/);
-    assert.ok(error.message.length < 300);
-    return true;
-  });
-  assert.equal(getCalls, 1, 'login timeout diagnostics must not re-read the tab');
-  assert.equal(events.updatedListeners.size, 0, 'timeout cleanup removes onUpdated listener');
-  assert.equal(events.removedListeners.size, 0, 'timeout cleanup removes onRemoved listener');
-});
-
-test('Wing tab completion still resolves and cleans up listeners before timeout', async (t) => {
-  const { fake, context, close } = bootServiceWorker();
-  t.after(close);
-  const events = installTabEventHarness(fake);
-  const expectedUrl =
-    'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?page=2';
-  const tab = { id: 42, status: 'complete', url: expectedUrl };
-  fake.chrome.tabs.get = (id, callback) => {
-    const current = { ...tab, id };
-    callback?.(current);
-    return Promise.resolve(current);
-  };
-
-  const result = await context.waitForTabComplete(42, {
-    expectedUrl,
-    timeoutMs: 100,
-  });
-  assert.deepEqual(result, tab);
-  assert.equal(events.updatedListeners.size, 0, 'success cleanup removes onUpdated listener');
-  assert.equal(events.removedListeners.size, 0, 'success cleanup removes onRemoved listener');
-  events.emitUpdated(42, { status: 'loading', url: expectedUrl }, {
-    ...tab,
-    status: 'loading',
-  });
-  assert.equal(events.updatedListeners.size, 0);
-});
-
 
 test('통합 서비스워커가 두 도메인 워커를 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();

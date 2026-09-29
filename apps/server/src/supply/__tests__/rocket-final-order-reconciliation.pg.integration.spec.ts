@@ -61,7 +61,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     const expectedIntentKey = `rocket-final-order:${directshipOperationId}:shipment`;
     expect(first).toEqual({
       exportId,
-      transmissionIntentKey: expectedIntentKey,
+      intentKey: expectedIntentKey,
       reconciledRows: 1,
       unmatchedLines: [],
     });
@@ -104,7 +104,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId: null,
-      transmissionIntentKey: `rocket-final-order:${directshipOperationId}:shipment`,
+      intentKey: `rocket-final-order:${directshipOperationId}:shipment`,
       reconciledRows: 0,
       unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
@@ -125,7 +125,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId: null,
-      transmissionIntentKey: `rocket-final-order:${directshipOperationId}:shipment`,
+      intentKey: `rocket-final-order:${directshipOperationId}:shipment`,
       reconciledRows: 0,
       unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
@@ -163,7 +163,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId,
-      transmissionIntentKey: `rocket-final-order:${directshipOperationId}:shipment`,
+      intentKey: `rocket-final-order:${directshipOperationId}:shipment`,
       reconciledRows: 1,
       unmatchedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
     });
@@ -217,7 +217,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId,
-      transmissionIntentKey: null,
+      intentKey: null,
       reconciledRows: 0,
       unmatchedLines: [],
     });

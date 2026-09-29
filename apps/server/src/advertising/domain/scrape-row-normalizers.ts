@@ -59,8 +59,7 @@ export function toBooleanOrNull(value: unknown): boolean | null {
 /**
  * Derive listing-level observable state from a Wing item-winner row.
  * Returns `null` when the row carries no observable state, so the caller
- * can skip the daily upsert entirely (e.g., a row that is only there to
- * feed `ChannelScrapeSnapshot` raw preservation).
+ * can skip the daily upsert entirely.
  */
 export function normalizeWingListingState(
   row: Record<string, any>,

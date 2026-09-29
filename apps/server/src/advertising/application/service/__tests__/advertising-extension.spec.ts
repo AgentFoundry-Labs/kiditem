@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AdvertisingExtensionService } from '../advertising-extension.service';
-import type { ChannelScrapeRepositoryPort } from '../../port/out/repository/channel-scrape.repository.port';
+import type { AdvertisingExtensionStatusRepositoryPort } from '../../port/out/repository/advertising-extension-status.repository.port';
 
 function buildService() {
   const scrapeRepo = {
     findExtensionStatusSnapshot: vi.fn(),
-  } as unknown as ChannelScrapeRepositoryPort;
+  } as unknown as AdvertisingExtensionStatusRepositoryPort;
   return {
     service: new AdvertisingExtensionService(scrapeRepo),
     scrapeRepo,

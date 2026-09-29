@@ -480,16 +480,13 @@ describe('쇼핑몰 홈 — 로그인 상태', () => {
     expect(await screen.findByRole('button', { name: /^온채널 .*로그인 상태 인증 필요$/ })).toBeInTheDocument();
   });
 
-  it('⭐ 현재 확인 결과만 보여 주고 history API를 호출하지 않는다', async () => {
+  it('⭐ 현재 확인 결과만 보여 주고 서버에 기록하지 않는다', async () => {
     mockDetectProbe.mockResolvedValue({ status: 'ready', extensionId: 'ext' });
     answer({ onch: 'signed_out', rocket: 'signed_in' });
     render(<MallHomePage />);
 
     await waitFor(() => expect(loginStatus()).toHaveTextContent('로그인 필요 1'));
-    expect(mockApiPost).not.toHaveBeenCalledWith(
-      '/api/channels/mall-operation-outcomes',
-      expect.anything(),
-    );
+    expect(mockApiPost).not.toHaveBeenCalled();
   });
 
   it('10분 안에 다시 열면 몰에 다시 묻지 않는다', async () => {

@@ -14,3 +14,5 @@ current stock and collection status; Orders owns return-transfer records.
   IDs and quantities without inventing a connection (ADR-0016).
 - Warehouse organization/FK checks and existing record behavior remain intact.
 - Consumers use published ports. Controllers do not reach persistence adapters.
+- Rocket workbook progress reads Sellpia transmission only through Orders'
+  `SELLPIA_TRANSFER_OUTCOME_PORT`, never Orders tables.

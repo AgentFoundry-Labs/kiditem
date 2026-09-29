@@ -113,7 +113,7 @@ export async function upsertChannelCatalogBasics(
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, image_url, raw_json, last_import_run_id, last_operation_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_operation_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -128,7 +128,6 @@ export async function upsertChannelCatalogBasics(
         record->>'productStatus',
         record->>'imageUrl',
         record->'rawJson',
-        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -144,7 +143,6 @@ export async function upsertChannelCatalogBasics(
         status = COALESCE(EXCLUDED.status, channel_listings.status),
         image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = COALESCE(channel_listings.raw_json, '{}'::jsonb) || EXCLUDED.raw_json,
-        last_import_run_id = EXCLUDED.last_import_run_id,
         last_operation_id = EXCLUDED.last_operation_id,
         is_active = TRUE,
         updated_at = NOW()
@@ -251,7 +249,7 @@ export async function upsertChannelCatalogBasics(
       INSERT INTO channel_listing_options (
         id, listing_id, organization_id, external_option_id,
         item_name, sale_price, seller_sku, barcode, model_number, status,
-        attributes_json, raw_json, last_import_run_id, last_operation_id, is_active,
+        attributes_json, raw_json, last_operation_id, is_active,
         created_at, updated_at
       )
       SELECT
@@ -267,7 +265,6 @@ export async function upsertChannelCatalogBasics(
         record->>'status',
         record->'attributesJson',
         record->'rawJson',
-        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -280,7 +277,6 @@ export async function upsertChannelCatalogBasics(
         seller_sku = COALESCE(EXCLUDED.seller_sku, channel_listing_options.seller_sku),
         status = COALESCE(EXCLUDED.status, channel_listing_options.status),
         raw_json = COALESCE(channel_listing_options.raw_json, '{}'::jsonb) || EXCLUDED.raw_json,
-        last_import_run_id = EXCLUDED.last_import_run_id,
         last_operation_id = EXCLUDED.last_operation_id,
         is_active = TRUE,
         updated_at = NOW()
@@ -352,7 +348,7 @@ export async function updateChannelCatalogDetails(
     organizationId: string;
     channelAccountId: string;
     products: ChannelCatalogDetailIdentityProduct[];
-    /** 상세를 반영한 실행(KID-354). 옛 `last_import_run_id`는 늘 비운다(KID-365). */
+    /** 상세를 반영한 실행(KID-354). */
     lastOperationId?: string | null;
     rawSource: string;
   },
@@ -543,7 +539,6 @@ export async function updateChannelCatalogDetails(
     const updated = await tx.$executeRaw`
       UPDATE channel_listings AS listing
       SET raw_json = COALESCE(listing.raw_json, '{}'::jsonb) || incoming."rawJson",
-          last_import_run_id = NULL::uuid,
           last_operation_id = ${input.lastOperationId ?? null}::uuid,
           updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
@@ -565,7 +560,6 @@ export async function updateChannelCatalogDetails(
           barcode = CASE WHEN incoming."hasBarcode" THEN incoming.barcode ELSE option_row.barcode END,
           seller_sku = CASE WHEN incoming."hasSellerSku" THEN incoming."sellerSku" ELSE option_row.seller_sku END,
           raw_json = COALESCE(option_row.raw_json, '{}'::jsonb) || incoming."rawJson",
-          last_import_run_id = NULL::uuid,
           last_operation_id = ${input.lastOperationId ?? null}::uuid,
           updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch.map((row) => ({
@@ -1324,7 +1318,7 @@ export async function upsertChannelCatalogIdentities(
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, image_url, raw_json, last_import_run_id, last_operation_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_operation_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -1339,7 +1333,6 @@ export async function upsertChannelCatalogIdentities(
         record->>'productStatus',
         record->>'imageUrl',
         record->'raw',
-        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -1355,10 +1348,6 @@ export async function upsertChannelCatalogIdentities(
         status = COALESCE(EXCLUDED.status, channel_listings.status),
         image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = ${sectionWrite ? MERGE_LISTING_RAW_SQL : REPLACE_LISTING_RAW_SQL},
-        last_import_run_id = COALESCE(
-          EXCLUDED.last_import_run_id,
-          channel_listings.last_import_run_id
-        ),
         last_operation_id = COALESCE(
           EXCLUDED.last_operation_id,
           channel_listings.last_operation_id
@@ -1413,7 +1402,7 @@ export async function upsertChannelCatalogIdentities(
       INSERT INTO channel_listing_options (
         id, listing_id, organization_id, external_option_id,
         item_name, sale_price, seller_sku, barcode, model_number, status,
-        attributes_json, raw_json, last_import_run_id, last_operation_id, is_active,
+        attributes_json, raw_json, last_operation_id, is_active,
         created_at, updated_at
       )
       SELECT
@@ -1429,7 +1418,6 @@ export async function upsertChannelCatalogIdentities(
         record->>'skuStatus',
         record->'attributesJson',
         record->'rawJson',
-        NULL::uuid,
         ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
@@ -1445,10 +1433,6 @@ export async function upsertChannelCatalogIdentities(
         status = ${observedOptionColumn(input, 'skuStatus')},
         attributes_json = EXCLUDED.attributes_json,
         raw_json = ${sectionWrite ? MERGE_OPTION_RAW_SQL : REPLACE_OPTION_RAW_SQL},
-        last_import_run_id = COALESCE(
-          EXCLUDED.last_import_run_id,
-          channel_listing_options.last_import_run_id
-        ),
         last_operation_id = COALESCE(
           EXCLUDED.last_operation_id,
           channel_listing_options.last_operation_id

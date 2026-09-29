@@ -53,7 +53,8 @@ describe('product pipeline DB model contract', () => {
     assert.match(model, /salesProductId\s+String\s+@map/);
     // 원천은 판매상품이 가리킨다(KID-310).
     assert.doesNotMatch(model, /^\s*sourceCandidateId\s+/m);
-    assert.match(model, /executions\s+ProductRegistrationExecution\[\]/);
+    // 등록 실행은 실행 계약(`channels.registration`)이 갖는다. 옛 실행 표 관계는 없다(KID-365).
+    assert.doesNotMatch(model, /ProductRegistrationExecution/);
     assert.match(model, /selectedOptions\s+RegistrationTargetOption\[\]/);
     assert.match(model, /channelAccount\s+ChannelAccount\s+@relation/);
     assert.match(model, /salesProduct\s+SalesProduct\s+@relation/);

@@ -124,8 +124,7 @@
       "prismaModel": "channelListingDailySnapshot",
       "prismaType": "ChannelListingDailySnapshot",
       "relationNames": [
-        "channelListingDailySnapshots",
-        "listingDailySnapshots"
+        "channelListingDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -237,7 +236,6 @@
       "prismaModel": "review",
       "prismaType": "Review",
       "relationNames": [
-        "reviewCollectionFacts",
         "reviews"
       ],
       "ownerPublications": [
@@ -710,8 +708,7 @@
       "prismaModel": "coupangKeywordSerpDailySnapshot",
       "prismaType": "CoupangKeywordSerpDailySnapshot",
       "relationNames": [
-        "coupangKeywordSerpDailySnapshots",
-        "keywordSerpDailyProjections"
+        "coupangKeywordSerpDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -728,8 +725,7 @@
       "prismaModel": "coupangWingSalesRankDailySnapshot",
       "prismaType": "CoupangWingSalesRankDailySnapshot",
       "relationNames": [
-        "coupangWingSalesRankDailySnapshots",
-        "wingRankDailyProjections"
+        "coupangWingSalesRankDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -746,8 +742,7 @@
       "prismaModel": "coupangKeywordRankDailySnapshot",
       "prismaType": "CoupangKeywordRankDailySnapshot",
       "relationNames": [
-        "coupangKeywordRankDailySnapshots",
-        "keywordRankDailyProjections"
+        "coupangKeywordRankDailySnapshots"
       ],
       "ownerPublications": [
         {
@@ -765,7 +760,6 @@
       "prismaType": "MasterProductAbcEvaluation",
       "relationNames": [
         "masterProductAbcEvaluations",
-        "sellpiaAbcEvaluations",
         "abcEvaluation",
         "evaluations"
       ],
@@ -784,7 +778,6 @@
       "prismaModel": "rocketPoCatalogSnapshot",
       "prismaType": "RocketPoCatalogSnapshot",
       "relationNames": [
-        "rocketPoCatalogSnapshot",
         "snapshot"
       ],
       "ownerPublications": [
@@ -827,19 +820,6 @@
           "reason": "Orders publishes validated per-date shipment summaries before completing the fenced source run in the same transaction."
         }
       ],
-      "legacyReaders": []
-    },
-    {
-      "name": "Product registration execution",
-      "owner": "channels",
-      "table": "product_registration_executions",
-      "prismaModel": "productRegistrationExecution",
-      "prismaType": "ProductRegistrationExecution",
-      "relationNames": [
-        "productRegistrationExecutions",
-        "executions"
-      ],
-      "ownerPublications": [],
       "legacyReaders": []
     }
   ],

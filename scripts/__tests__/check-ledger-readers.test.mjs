@@ -202,7 +202,7 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
   exampleLedgerDailySnapshots ExampleLedgerDailySnapshot[]
 }
 
-model ChannelScrapeSnapshot {
+model ExampleRawSnapshot {
   id                     String                         @id
   adTargetDailySnapshots ExampleLedgerDailySnapshot[] @relation("AdTargetDailyRawSnapshot")
 }
@@ -218,7 +218,7 @@ model ExampleLedgerDailySnapshot {
   organizationId String
   rawSnapshotId  String?
   organization  Organization           @relation(fields: [organizationId], references: [id])
-  rawSnapshot   ChannelScrapeSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId], references: [id])
+  rawSnapshot   ExampleRawSnapshot? @relation("AdTargetDailyRawSnapshot", fields: [rawSnapshotId], references: [id])
   adActions     AdAction[]
 }
 `,
@@ -231,7 +231,7 @@ model ExampleLedgerDailySnapshot {
     write(
       root,
       'apps/server/src/advertising/write/ad-target-owner.ts',
-      "const ledger = tx.exampleLedgerDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { exampleLedgerDailySnapshots: { create: { id: 'owned' } } } });\ntx.channelScrapeSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { set: [{ id: 'owned' }] } } });\nsql`INSERT INTO example_ledger_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE example_ledger_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM example_ledger_daily_snapshots WHERE id = 'owned'`;\n",
+      "const ledger = tx.exampleLedgerDailySnapshot;\nledger.createMany({ data: [] });\ntx.organization.update({ where: { id: 'org-1' }, data: { exampleLedgerDailySnapshots: { create: { id: 'owned' } } } });\ntx.exampleRawSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { set: [{ id: 'owned' }] } } });\nsql`INSERT INTO example_ledger_daily_snapshots (id) VALUES ('owned')`;\nsql`UPDATE example_ledger_daily_snapshots SET id = 'owned'`;\nsql`DELETE FROM example_ledger_daily_snapshots WHERE id = 'owned'`;\n",
     );
     write(
       root,
@@ -341,7 +341,7 @@ model ExampleLedgerDailySnapshot {
     write(
       root,
       'apps/server/src/relation-select-consumer.ts',
-      'await tx.channelScrapeSnapshot.findMany({ select: { adTargetDailySnapshots: true } });\n',
+      'await tx.exampleRawSnapshot.findMany({ select: { adTargetDailySnapshots: true } });\n',
     );
     write(
       root,
@@ -675,7 +675,7 @@ model ExampleLedgerDailySnapshot {
       ],
       [
         'disconnect',
-        "await tx.channelScrapeSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { disconnect: [{ id: 'target-1' }] } } });\n",
+        "await tx.exampleRawSnapshot.update({ where: { id: 'snapshot-1' }, data: { adTargetDailySnapshots: { disconnect: [{ id: 'target-1' }] } } });\n",
         legacyReader,
       ],
       [

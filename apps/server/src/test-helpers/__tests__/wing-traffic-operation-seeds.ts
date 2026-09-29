@@ -9,8 +9,8 @@ type Summary = { visitors: number; views: number; cartAdds: number; orders: numb
 const ZERO: Summary = { visitors: 0, views: 0, cartAdds: 0, orders: 0, salesQty: 0, revenue: 0, providerConversionRate: null };
 
 /**
- * 성공한 `advertising.wing_traffic` 실행 하나를 실행 표에 곧바로 둔다(KID-362). 원장 읽기 테스트가 옛
- * `source_import_runs(coupang_wing_traffic)` 대신 쓰는 커버리지 근거다. 행(listing-day)은 테스트가 따로 둔다.
+ * 성공한 `advertising.wing_traffic` 실행 하나를 실행 표에 곧바로 둔다(KID-362). 원장 읽기 테스트가 쓰는
+ * 커버리지 근거다. 행(listing-day)은 테스트가 따로 둔다.
  */
 export async function seedWingTrafficOperation(
   prisma: PrismaClient,

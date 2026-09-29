@@ -336,7 +336,6 @@ model RocketPurchaseConfirmation {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                   Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun                SourceImportRun?                         @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   confirmer                      User                                     @relation("RocketPurchaseConfirmationConfirmer", fields: [confirmedBy], references: [id], onDelete: Restrict)
   lines                          RocketPurchaseConfirmationLine[]
   transmissions                  RocketPurchaseConfirmationTransmission[]
@@ -420,7 +419,6 @@ model RocketPurchaseConfirmationTransmission {
 
   organization    Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   confirmation    RocketPurchaseConfirmation @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sourceImportRun SourceImportRun?           @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([confirmationId, transport])
   @@unique([organizationId, intentKey], map: "rocket_confirmation_transmissions_org_intent_key", where: raw("intent_key IS NOT NULL"))

@@ -165,12 +165,13 @@ describe('orders.coupang_directship owner over the operation contract + disposab
     await expect(prisma.$transaction((tx) => readObservedOrderCount(tx, ORG))).resolves.toBe(2);
   });
 
-  it('워크북과 맞는 최종주문은 실행 ID로 고정된 셀피아 전송 키를 남긴다', async () => {
+  it('워크북과 맞는 최종주문은 그 워크북에 실행 ID·운송유형 관측을 남긴다', async () => {
     const exportId = await seedRequest('PO-1', 'P-1', '8801234567890', 3);
     const input = oneCapture('PO-1', 'P-1', '8801234567890', 3);
     const operationId = await capture(input);
     const receipt = await consume(operationId, input, 'SHIPMENT');
-    expect(receipt).toMatchObject({ exportId, transmissionIntentKey: `rocket-final-order:${operationId}:shipment`, matchedLineCount: 1 });
+    expect(receipt).toMatchObject({ exportId, matchedLineCount: 1 });
+    expect(receipt).not.toHaveProperty('transmissionIntentKey');
     await expect(prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow()).resolves.toMatchObject({
       confirmationId: exportId, directshipOperationId: operationId, sourceImportRunId: null, transport: 'SHIPMENT', intentKey: `rocket-final-order:${operationId}:shipment`,
     });
@@ -212,7 +213,7 @@ describe('orders.coupang_directship owner over the operation contract + disposab
     const input = oneCapture('PO-SHIPMENT-ONLY', 'P-SHIPMENT-ONLY', '8801234567890', 2);
     const operationId = await capture(input);
     const first = await consume(operationId, input, 'MILKRUN');
-    expect(first).toMatchObject({ transport: 'MILKRUN', collectedLines: [], transmissionIntentKey: null, duplicate: false });
+    expect(first).toMatchObject({ transport: 'MILKRUN', collectedLines: [], duplicate: false });
     expect(await consume(operationId, input, 'MILKRUN')).toEqual({ ...first, duplicate: true });
     expect(await prisma.order.count()).toBe(0);
   });

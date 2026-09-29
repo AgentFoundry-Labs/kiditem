@@ -22,6 +22,7 @@ import {
   TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { MallPublishingRepositoryAdapter } from '../mall-publishing.repository.adapter';
+import { readMallAccountRowIds } from '../mall-account-rows';
 import { MallListingMatrixCellSchema } from '@kiditem/shared/mall-publishing';
 import { MallPublishingService } from '../../../../application/service/registration/mall-publishing.service';
 import { realRegistrationStates } from '../../../../../test-helpers/registration-state';
@@ -157,6 +158,31 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       const accounts = await repository.listMallAccounts(TEST_ORGANIZATION_ID);
       expect(accounts.filter((account) => account.mallKey === 'coupang').map((account) => account.channelAccountId))
         .toEqual([secondary.id]);
+    });
+
+    it('⭐ reads the same mall rows as the account screen — a row whose external id is not the mall key is not the mall row (ADR-0012)', async () => {
+      await prisma.channelAccount.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channel: 'kidsnote',
+          name: '키즈노트 옛 행',
+          externalAccountId: 'vendor-77',
+          status: 'active',
+          isPrimary: true,
+        },
+      });
+      const accountRows = await new ChannelAccountPersistenceAdapter(
+        prisma as unknown as PrismaService,
+        new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
+      ).listMallAccounts(TEST_ORGANIZATION_ID);
+      const accounts = await repository.listMallAccounts(TEST_ORGANIZATION_ID);
+
+      expect(accounts.find((account) => account.mallKey === 'kidsnote')?.channelAccountId).toBe(KIDSNOTE_ACCOUNT);
+      expect(accounts.map((account) => account.channelAccountId).sort())
+        .toEqual([...new Set(accountRows.map((row) => row.id))].sort());
+      // 리스팅 발행 원천(몰 관리자 목록·사방넷)이 고르는 행도 현황의 행이다.
+      expect((await readMallAccountRowIds(prisma, TEST_ORGANIZATION_ID, ['kidsnote'])).get('kidsnote'))
+        .toBe(KIDSNOTE_ACCOUNT);
     });
 
     it('never creates an account row', async () => {

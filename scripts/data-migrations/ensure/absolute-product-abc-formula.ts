@@ -38,7 +38,6 @@ const MAPPING_ONLY_STATE = {
   formulaRevision: 0,
   publicationRevision: 0,
   officialCutoffDate: null,
-  publishedSellpiaSourceImportRunId: null,
   publishedSellpiaOperationId: null,
   publishedMappingGeneration: null,
   publishedAt: null,

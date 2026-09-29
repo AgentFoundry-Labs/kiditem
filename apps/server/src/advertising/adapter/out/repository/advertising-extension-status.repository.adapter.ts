@@ -12,9 +12,9 @@ import {
   type OperationPort,
 } from '../../../../common/operation/application/port/in/operation.port';
 import type {
-  ChannelScrapeRepositoryPort,
+  AdvertisingExtensionStatusRepositoryPort,
   ExtensionStatusSnapshot,
-} from '../../../application/port/out/repository/channel-scrape.repository.port';
+} from '../../../application/port/out/repository/advertising-extension-status.repository.port';
 
 /** 상태 카드가 보여 온 이름(옛 확장 `itemwinnerKpis`의 칸 이름). */
 const KPI_LABELS = {
@@ -24,8 +24,8 @@ const KPI_LABELS = {
 } as const;
 
 @Injectable()
-export class ChannelScrapeRepositoryAdapter
-  implements ChannelScrapeRepositoryPort
+export class AdvertisingExtensionStatusRepositoryAdapter
+  implements AdvertisingExtensionStatusRepositoryPort
 {
   constructor(
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,

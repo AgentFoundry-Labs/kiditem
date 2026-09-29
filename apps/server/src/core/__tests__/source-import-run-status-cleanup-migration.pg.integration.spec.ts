@@ -7,6 +7,11 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import {
+  dropLegacyChannelScrapeTables,
+  restoreLegacyChannelScrapeTables,
+} from '../../test-helpers/legacy-channel-scrape-tables';
+import { dropLegacySourceImportRunReferences, restoreLegacySourceImportRunReferences } from '../../test-helpers/legacy-source-import-run-references';
+import {
   ensureSourceImportRunStatusCheck,
   SOURCE_IMPORT_RUN_STATUS_CHECK,
 } from '../../../../../scripts/data-migrations/helpers/source-import-run-status-check';
@@ -37,11 +42,16 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     // The shape before the cutover: nothing stops an unknown status.
     await prisma.$executeRaw`ALTER TABLE source_import_runs DROP CONSTRAINT IF EXISTS source_import_runs_status_check`;
+    // The 0.1.31 schema before KID-365 (and Office 0.1.30) still has the channel_scrape_* tables KID-365 dropped.
+    await restoreLegacyChannelScrapeTables(prisma);
+    await restoreLegacySourceImportRunReferences(prisma);
   });
 
   afterEach(async () => {
     // Later suites share this database, so restore the pushed shape.
     await resetDb(prisma);
+    await dropLegacySourceImportRunReferences(prisma);
+    await dropLegacyChannelScrapeTables(prisma);
     await prisma.$transaction((tx) => ensureSourceImportRunStatusCheck(tx));
   });
 
@@ -72,25 +82,22 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
     await prisma.review.create({
       data: { organizationId: ORG, sourceImportRunId: superseded.id, rating: 5 },
     });
-    const rawSnapshot = await prisma.channelScrapeSnapshot.create({
-      data: {
-        organizationId: ORG,
-        sourceImportRunId: superseded.id,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'traffic',
-        rawJson: {},
-      },
-    });
+    const rawSnapshotId = '00000000-0000-4000-8000-000000001241';
+    await prisma.$executeRaw`
+      INSERT INTO channel_scrape_snapshots (id, organization_id, source_import_run_id, channel, source, page_type, raw_json)
+      VALUES (${rawSnapshotId}::uuid, ${ORG}::uuid, ${superseded.id}::uuid, 'coupang', 'wing', 'traffic', '{}'::jsonb)
+    `;
     // Carried-forward rows that point at it.
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: ORG,
         channelAccountId: account.id,
         externalId: 'kid124-listing',
-        lastImportRunId: superseded.id,
       },
     });
+    await prisma.$executeRaw`
+      UPDATE channel_listings SET last_import_run_id = ${superseded.id}::uuid WHERE id = ${listing.id}::uuid
+    `;
     const listingDay = await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: ORG,
@@ -98,20 +105,25 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
         channel: 'coupang',
         externalId: listing.externalId,
         businessDate: new Date('2026-09-01T00:00:00.000Z'),
-        rawSnapshotId: rawSnapshot.id,
       },
     });
+    await prisma.$executeRaw`
+      UPDATE channel_listing_daily_snapshots SET raw_snapshot_id = ${rawSnapshotId}::uuid WHERE id = ${listingDay.id}::uuid
+    `;
     const unknownRunOrder = await createOrder(account.id, 'kid124-unknown-run-order', superseded.id);
     await prisma.masterProductAbcFormulaState.create({
       data: {
         organizationId: ORG,
         publicationRevision: 3,
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
-        publishedSellpiaSourceImportRunId: superseded.id,
         publishedMappingGeneration: 7n,
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
       },
     });
+    await prisma.$executeRaw`
+      UPDATE master_product_abc_formula_states SET published_sellpia_source_import_run_id = ${superseded.id}::uuid
+      WHERE organization_id = ${ORG}::uuid
+    `;
     // A transport receipt is carried forward with its run.
     const receipt = await prisma.coupangDirectTransportReceipt.create({
       data: {
@@ -178,27 +190,23 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       [unknownRunOrder.id, null],
       [completedRunOrder.id, completed.id],
     ]));
-    await expect(prisma.channelListing.findUniqueOrThrow({
-      where: { id: listing.id },
-      select: { lastImportRunId: true },
-    })).resolves.toEqual({ lastImportRunId: null });
-    await expect(prisma.channelListingDailySnapshot.findUniqueOrThrow({
-      where: { id: listingDay.id },
-      select: { rawSnapshotId: true },
-    })).resolves.toEqual({ rawSnapshotId: null });
+    await expect(prisma.$queryRaw`
+      SELECT last_import_run_id FROM channel_listings WHERE id = ${listing.id}::uuid
+    `).resolves.toEqual([{ last_import_run_id: null }]);
+    await expect(prisma.$queryRaw`
+      SELECT raw_snapshot_id FROM channel_listing_daily_snapshots WHERE id = ${listingDay.id}::uuid
+    `).resolves.toEqual([{ raw_snapshot_id: null }]);
     await expect(prisma.masterProductAbcFormulaState.findUniqueOrThrow({
       where: { organizationId: ORG },
       select: {
         publicationRevision: true,
         officialCutoffDate: true,
-        publishedSellpiaSourceImportRunId: true,
         publishedMappingGeneration: true,
         publishedAt: true,
       },
     })).resolves.toEqual({
       publicationRevision: 3,
       officialCutoffDate: null,
-      publishedSellpiaSourceImportRunId: null,
       publishedMappingGeneration: null,
       publishedAt: null,
     });
@@ -206,10 +214,14 @@ describe('v0.1.31:012 constrain SourceImportRun status (PostgreSQL)', () => {
       where: { organizationId: ORG },
       select: { sourceImportRunId: true },
     })).resolves.toEqual([{ sourceImportRunId: completed.id }]);
+    await expect(prisma.$queryRaw`
+      SELECT published_sellpia_source_import_run_id FROM master_product_abc_formula_states WHERE organization_id = ${ORG}::uuid
+    `).resolves.toEqual([{ published_sellpia_source_import_run_id: null }]);
     await expect(Promise.all([
       prisma.orderCollectionArtifact.count(),
       prisma.review.count(),
-      prisma.channelScrapeSnapshot.count(),
+      prisma.$queryRaw<Array<{ count: number }>>`SELECT COUNT(*)::int AS count FROM channel_scrape_snapshots`
+        .then(([row]) => row?.count),
     ])).resolves.toEqual([0, 0, 0]);
     await expect(createRun('complete')).rejects.toThrow(SOURCE_IMPORT_RUN_STATUS_CHECK);
 

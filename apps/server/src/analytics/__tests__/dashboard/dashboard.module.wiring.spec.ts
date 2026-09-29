@@ -18,7 +18,6 @@ import { DashboardSalesRepositoryAdapter } from '../../adapter/out/repository/da
 import { DashboardTrendRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-inventory.repository.adapter';
-import { CollectionFreshnessRepositoryAdapter } from '../../adapter/out/repository/dashboard/collection-freshness.repository.adapter';
 import { DashboardFindingsRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-findings.repository.adapter';
 // application/service
 import { DashboardSalesService } from '../../application/service/dashboard/dashboard-sales.service';
@@ -34,7 +33,6 @@ import { DASHBOARD_SALES_REPOSITORY_PORT } from '../../application/port/out/repo
 import { DASHBOARD_TREND_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/dashboard-inventory.repository.port';
-import { COLLECTION_FRESHNESS_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/collection-freshness.repository.port';
 import { DASHBOARD_FINDINGS_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/dashboard-findings.repository.port';
 
 const IMPORTS_KEY = 'imports';
@@ -49,7 +47,6 @@ const EXPECTED_PORT_BINDINGS = [
   [DASHBOARD_TREND_REPOSITORY_PORT, DashboardTrendRepositoryAdapter],
   [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, WingTrafficAggregationRepositoryAdapter],
   [DASHBOARD_INVENTORY_REPOSITORY_PORT, DashboardInventoryRepositoryAdapter],
-  [COLLECTION_FRESHNESS_REPOSITORY_PORT, CollectionFreshnessRepositoryAdapter],
 ] as const;
 
 // Architecture-guard companion to dashboard.architecture.spec.ts. This spec

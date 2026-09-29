@@ -58,3 +58,14 @@ describe('mall login hosts (실기기 R3)', () => {
     for (const host of ART09_LOGIN.hosts) expect(hostPermissions, host).toContain(`https://${host}/*`);
   });
 });
+
+describe('ESM Plus hosts (KID-237)', () => {
+  it('지마켓·옥션은 쓰는 호스트(목록·등록 item, 로그인 signin, 홈 www)만 권한에 두고 *.esmplus.com 와일드카드를 두지 않는다', () => {
+    const hostPermissions = (JSON.parse(manifestSource) as { host_permissions: string[] }).host_permissions;
+    expect(hostPermissions.filter((pattern) => pattern.includes('esmplus.com')).sort()).toEqual([
+      'https://item.esmplus.com/*',
+      'https://signin.esmplus.com/*',
+      'https://www.esmplus.com/*',
+    ]);
+  });
+});

@@ -92,7 +92,7 @@ async function publishMallAdminListings(
   },
 ): Promise<MallAdminListingsPublication> {
   const { plan, rows } = input;
-  const runIds = { lastImportRunId: null, lastOperationId: input.provenance.operationId };
+  const runIds = { lastOperationId: input.provenance.operationId };
   // 사방넷이 다른 번호로 준 상품은 그 번호의 리스팅에 레시피가 붙어 있다 — 그 번호가 이 계정에 있으면 그 번호를 쓴다.
   const candidateCodes = [...new Set(rows.flatMap((row) => row.alternateCodes ?? []))];
   const existingCodes = candidateCodes.length === 0

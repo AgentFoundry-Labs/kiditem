@@ -14,7 +14,8 @@ export type RocketFinalOrderUnmatchedLine = {
 
 export type RocketFinalOrderReconciliationResult = {
   exportId: string | null;
-  transmissionIntentKey: string | null;
+  /** 비어 있지 않은 관측의 워크북 관측 키(`RocketPurchaseConfirmationTransmission.intentKey`); 빈 탐색이면 null. */
+  intentKey: string | null;
   reconciledRows: number;
   unmatchedLines: RocketFinalOrderUnmatchedLine[];
 };
@@ -25,7 +26,7 @@ export interface RocketFinalOrderReconciliationPort {
     organizationId: string;
     userId: string;
     channelAccountId: string;
-    /** 최종주문을 관측한 Orders 직배송 실행(`orders.coupang_directship`, KID-359). 전송 키가 이 ID로 고정된다. */
+    /** 최종주문을 관측한 Orders 직배송 실행(`orders.coupang_directship`, KID-359). 관측 키가 이 ID로 고정된다. */
     directshipOperationId: string;
     transport: 'SHIPMENT' | 'MILKRUN';
     lines: RocketFinalOrderReconciliationLine[];

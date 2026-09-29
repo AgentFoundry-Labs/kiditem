@@ -21,11 +21,6 @@ import { CoupangDirectOrderCollectionService } from './application/service/coupa
 import { CoupangDirectOrderCollectionTransactionAdapter } from './adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from './application/port/in/coupang-direct-order-collection.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from './application/port/out/transaction/coupang-direct-order-collection.transaction.port';
-import { SellpiaOrderTransmissionController } from './adapter/in/web/sellpia-order-transmission.controller';
-import { SellpiaOrderTransmissionService } from './application/service/sellpia-order-transmission.service';
-import { SellpiaOrderTransmissionRepositoryAdapter } from './adapter/out/repository/sellpia-order-transmission.repository.adapter';
-import { SELLPIA_ORDER_TRANSMISSION_PORT } from './application/port/in/sellpia-order-transmission.port';
-import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-order-transmission.repository.port';
 import { ORDER_COLLECTION_SOURCE_PORT } from './application/port/in/order-collection-source.port';
 import { OrderCollectionSourceController } from './adapter/in/web/order-collection-source.controller';
 import { OrderCollectionSourceRepository } from './adapter/out/repository/order-collection-source.repository';
@@ -67,7 +62,6 @@ import { SellpiaOrderTransferService } from './application/service/sellpia-order
     SellpiaShipmentTrackingController,
     ReviewsController,
     ReturnTransfersController,
-    SellpiaOrderTransmissionController,
     OrdersActionOperationsController,
   ],
   providers: [
@@ -79,8 +73,6 @@ import { SellpiaOrderTransferService } from './application/service/sellpia-order
     ReturnTransfersService,
     CoupangDirectOrderCollectionService,
     CoupangDirectOrderCollectionTransactionAdapter,
-    SellpiaOrderTransmissionService,
-    SellpiaOrderTransmissionRepositoryAdapter,
     OrderCollectionSourceRepository,
     OrderOperationCapturePersistenceAdapter,
     CoupangReviewsOperationOwner,
@@ -107,14 +99,6 @@ import { SellpiaOrderTransferService } from './application/service/sellpia-order
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
       useExisting: CoupangDirectOrderCollectionTransactionAdapter,
-    },
-    {
-      provide: SELLPIA_ORDER_TRANSMISSION_PORT,
-      useExisting: SellpiaOrderTransmissionService,
-    },
-    {
-      provide: SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT,
-      useExisting: SellpiaOrderTransmissionRepositoryAdapter,
     },
     {
       provide: ORDER_COLLECTION_SOURCE_PORT,

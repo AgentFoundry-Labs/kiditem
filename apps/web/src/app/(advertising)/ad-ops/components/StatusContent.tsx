@@ -178,7 +178,7 @@ export default function StatusContent({
         </div>
         {/* H3 — current-state observation timeline. `latestChannelStateAt` is the
             max(lastObservedAt) across daily snapshots; `latestScrapeAt` is the
-            latest ChannelScrapeRun finished/started time. `rawSnapshotCount`
+            latest item-winner operation's finished/started time. `rawSnapshotCount`
             replaces the legacy AdSnapshot count. */}
         {extensionStatus && (
           <div className="flex items-center gap-4 mb-4 text-[11px] flex-wrap" style={{ color: "var(--text-tertiary)" }}>

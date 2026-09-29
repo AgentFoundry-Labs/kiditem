@@ -46,7 +46,6 @@ model CoupangDirectTransportReceipt {
   createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization               Organization                        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  effectSourceImportRun      SourceImportRun?                    @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rocketPurchaseConfirmation RocketPurchaseConfirmation?         @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
   consumptions               CoupangDirectTransportConsumption[]
 
@@ -75,7 +74,6 @@ model CoupangDirectTransportConsumption {
   createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun?              @relation("CoupangDirectTransportConsumptionSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   receipt         CoupangDirectTransportReceipt @relation(fields: [receiptId, organizationId, transport], references: [id, organizationId, transport], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, transport], map: "coupang_direct_transport_consumptions_source_transport_key")
@@ -83,52 +81,6 @@ model CoupangDirectTransportConsumption {
   @@index([sourceImportRunId, organizationId])
   @@index([receiptId, organizationId, transport])
   @@map("coupang_direct_transport_consumptions")
-}
-
-/// @namespace Orders
-/// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
-model SellpiaOrderTransmissionIntent {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  intentKey      String    @map("intent_key") @db.VarChar(500)
-  status         String    @default("prepared")
-  createdBy      String    @map("created_by") @db.Uuid
-  preparedAt     DateTime  @default(now()) @map("prepared_at") @db.Timestamptz
-  finalizedAt    DateTime? @map("finalized_at") @db.Timestamptz
-  abortedAt      DateTime? @map("aborted_at") @db.Timestamptz
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization    Organization                                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  creator         User                                           @relation("SellpiaOrderTransmissionIntentCreator", fields: [createdBy], references: [id], onDelete: Restrict)
-  reconciliations SellpiaOrderTransmissionIntentReconciliation[]
-
-  @@unique([organizationId, intentKey], map: "sellpia_order_transmission_intents_org_key")
-  @@unique([id, organizationId])
-  @@index([organizationId, status])
-  @@index([createdBy])
-  @@map("sellpia_order_transmission_intents")
-}
-
-/// @namespace Orders
-/// @describe Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome.
-model SellpiaOrderTransmissionIntentReconciliation {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  intentId       String   @map("intent_id") @db.Uuid
-  reconciledBy   String   @map("reconciled_by") @db.Uuid
-  reconciledAt   DateTime @default(now()) @map("reconciled_at") @db.Timestamptz
-  note           String   @db.VarChar(500)
-  outcome        String   @db.VarChar(32)
-
-  organization Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  intent       SellpiaOrderTransmissionIntent @relation(fields: [intentId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  reconciler   User                           @relation("SellpiaOrderTransmissionIntentReconciler", fields: [reconciledBy], references: [id], onDelete: Restrict)
-
-  @@index([organizationId, reconciledAt])
-  @@index([intentId])
-  @@index([reconciledBy])
-  @@map("sellpia_order_transmission_intent_reconciliations")
 }
 
 /// @namespace Orders
@@ -168,7 +120,6 @@ model Order {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lineItems       OrderLineItem[]
 
   @@index([organizationId, operationId])
@@ -289,7 +240,6 @@ model Review {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation("ReviewCollectionFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   /// 실행 행은 (조직, 플랫폼, 리뷰)당 하나다 — 실행 finalize가 내용·operationId·publishedAt을 갱신한다(KID-359).
   @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_operation_key", where: raw("operation_id IS NOT NULL"))
@@ -320,7 +270,6 @@ model CoupangShipmentDateSummary {
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, shipmentDate], map: "shipment_date_summary_attempt_date_key", where: raw("source_import_run_id IS NOT NULL"))
   @@unique([organizationId, operationId, shipmentDate], map: "shipment_date_summary_operation_date_key", where: raw("operation_id IS NOT NULL"))
@@ -356,7 +305,6 @@ model RocketPoCatalogSnapshot {
 
   lines RocketPoCatalogLine[]
 
-  sourceImportRun SourceImportRun?      @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
   @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")

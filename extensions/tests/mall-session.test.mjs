@@ -23,7 +23,7 @@ function loadModule() {
 
 const MallSession = loadModule();
 
-/** 서버가 관찰 기록에서 받아 주는 이유 코드 모양(`mall-operation-outcomes.ts`). */
+/** 저장 자격 로그인 이유 코드의 모양(snake_case). */
 const REASON_CODE = /^[a-z][a-z0-9_]{0,63}$/;
 
 const CREDENTIALS = Object.freeze({ loginId: "configured-id", password: "configured-password" });

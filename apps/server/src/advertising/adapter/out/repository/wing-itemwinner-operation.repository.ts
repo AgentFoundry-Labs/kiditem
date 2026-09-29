@@ -19,7 +19,7 @@ type Tx = Prisma.TransactionClient;
 
 /**
  * Wing 아이템위너 원장 쓰기(KID-362). 옛 `wing-itemwinner-kpi-source.repository.ts`의 listing/option 일별 upsert를
- * 그대로 옮기고, 원시 스냅샷 대신 실행 id를 찍는다(`rawSnapshotId` null, `operationId`).
+ * 그대로 옮기고, 출처로 실행 id(`operationId`)를 찍는다.
  */
 @Injectable()
 export class WingItemwinnerOperationRepository implements WingItemwinnerOperationRepositoryPort {

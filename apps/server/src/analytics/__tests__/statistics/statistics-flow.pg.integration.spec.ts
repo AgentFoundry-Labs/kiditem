@@ -425,7 +425,6 @@ describe('Statistics flow (PG integration)', () => {
         externalId: 'EXT-UNLINKED-REPURCHASE',
         channelName: 'Wing import only',
         status: 'active',
-        lastImportRunId: importRun.id,
       },
       select: { id: true },
     });
@@ -434,7 +433,6 @@ describe('Statistics flow (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         externalOptionId: 'VI-UNLINKED-REPURCHASE',
-        lastImportRunId: importRun.id,
       },
       select: { id: true },
     });

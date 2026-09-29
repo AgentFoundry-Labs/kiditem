@@ -21,7 +21,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-pr-reconstruction-contract.mjs',
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
-  'check-raw-snapshot-read-models.sh',
   'check-ledger-readers.mjs',
   'check-mall-neutral.mjs',
   'check-operation-owner-boundary.mjs',

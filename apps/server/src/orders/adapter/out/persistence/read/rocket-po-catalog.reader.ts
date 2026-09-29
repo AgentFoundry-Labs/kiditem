@@ -15,7 +15,7 @@ import type { RocketPoCompleteCollection } from '../../../../application/port/in
 /**
  * Orders' transaction-aware reader for the Rocket PO ledger (KID-359). A snapshot with `operationId` exists only
  * for a succeeded `orders.coupang_rocket_po` operation (it is written inside the finish transaction), so the
- * account's current collection is its newest such snapshot. Old attempt snapshots (`sourceImportRunId`) are not
+ * account's current collection is its newest such snapshot. Snapshots without `operationId` are not
  * read (ADR-0025: old rows are not migrated).
  */
 const savedLineSelect = {

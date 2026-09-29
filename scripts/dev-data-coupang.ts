@@ -264,24 +264,13 @@ async function cleanupLegacySeedRows(prisma: PrismaClient, organizationId: strin
     WHERE organization_id = ${organizationId}::uuid
       AND meta_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
   `;
-  const snapshots = await prisma.$executeRaw`
-    DELETE FROM channel_scrape_snapshots
-    WHERE organization_id = ${organizationId}::uuid
-      AND normalized_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
-  `;
-  const runs = await prisma.$executeRaw`
-    DELETE FROM channel_scrape_runs
-    WHERE organization_id = ${organizationId}::uuid
-      AND meta_json->>'seededBy' = ${LEGACY_MARKET_DATA_SEED}
-  `;
-  return { listing, snapshots, runs };
+  return { listing };
 }
 
 async function scopedReplace(
   prisma: PrismaClient,
   organizationId: string,
   manifest: BundleManifest,
-  sources: string[],
 ) {
   const channel = manifest.scope?.channel ?? 'coupang';
   const from = parseBusinessDate(manifest.scope?.businessDateFrom, 'scope.businessDateFrom');
@@ -293,28 +282,10 @@ async function scopedReplace(
   const listingDaily = await prisma.channelListingDailySnapshot.deleteMany({
     where: { organizationId, channel, businessDate: { gte: from, lte: to } },
   });
-  const snapshots = await prisma.channelScrapeSnapshot.deleteMany({
-    where: {
-      organizationId,
-      channel,
-      source: { in: sources },
-      businessDate: { gte: from, lte: to },
-    },
-  });
-  const runs = await prisma.channelScrapeRun.deleteMany({
-    where: {
-      organizationId,
-      channel,
-      source: { in: sources },
-      businessDate: { gte: from, lte: to },
-    },
-  });
 
   return {
     optionDaily: optionDaily.count,
     listingDaily: listingDaily.count,
-    snapshots: snapshots.count,
-    runs: runs.count,
   };
 }
 
@@ -355,7 +326,7 @@ async function commandReplay(args: Args): Promise<unknown> {
       const organizationId = await resolveOrganizationId(prisma, args, manifest);
       cleanup = {
         legacySeed: await cleanupLegacySeedRows(prisma, organizationId),
-        scoped: await scopedReplace(prisma, organizationId, manifest, [...sources]),
+        scoped: await scopedReplace(prisma, organizationId, manifest),
       };
     } finally {
       await prisma.$disconnect();

@@ -4,16 +4,16 @@
 
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  CHANNEL_SCRAPE_REPOSITORY_PORT,
-  type ChannelScrapeRepositoryPort,
-} from '../port/out/repository/channel-scrape.repository.port';
+  ADVERTISING_EXTENSION_STATUS_REPOSITORY_PORT,
+  type AdvertisingExtensionStatusRepositoryPort,
+} from '../port/out/repository/advertising-extension-status.repository.port';
 import type { AdExtensionStatus } from '@kiditem/shared/advertising';
 
 @Injectable()
 export class AdvertisingExtensionService {
   constructor(
-    @Inject(CHANNEL_SCRAPE_REPOSITORY_PORT)
-    private readonly scrapeRepo: ChannelScrapeRepositoryPort,
+    @Inject(ADVERTISING_EXTENSION_STATUS_REPOSITORY_PORT)
+    private readonly scrapeRepo: AdvertisingExtensionStatusRepositoryPort,
   ) {}
 
   /**

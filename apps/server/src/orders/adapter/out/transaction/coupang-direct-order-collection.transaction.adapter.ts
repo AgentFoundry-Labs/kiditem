@@ -145,7 +145,8 @@ implements CoupangDirectOrderCollectionTransactionPort {
           rocketPurchaseConfirmationId: receipt.exportId,
           transport: receipt.transport,
           payloadChecksum: receipt.payloadChecksum,
-          transmissionIntentKey: receipt.transmissionIntentKey,
+          // 옛 칸(스키마 drop 전까지): Supply가 워크북 관측에 적는 키를 그대로 둔다.
+          transmissionIntentKey: receipt.intentKey,
           matchedLineCount: receipt.matchedLineCount,
           reconciledRows: receipt.reconciledRows,
           collectedLines: json(receipt.collectedLines),
@@ -212,7 +213,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
     input: Parameters<CoupangDirectOrderCollectionTransactionPort['consume']>[0],
     request: CoupangDirectOrderCollectionRequest,
     payloadChecksum: string,
-  ): Promise<Omit<CoupangDirectTransportReceipt, 'duplicate' | 'effectOperationId'>> {
+  ): Promise<Omit<CoupangDirectTransportReceipt, 'duplicate' | 'effectOperationId'> & { intentKey: string | null }> {
     const { transport } = request;
     const reconciliationLines: Array<{
       finalOrderLineId: string;
@@ -294,7 +295,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
       transport,
       payloadChecksum,
       exportId: reconciled.exportId,
-      transmissionIntentKey: reconciled.transmissionIntentKey,
+      intentKey: reconciled.intentKey,
       matchedLineCount: reconciled.reconciledRows,
       reconciledRows: reconciled.reconciledRows,
       collectedLines,
@@ -456,7 +457,6 @@ function receiptView(
     payloadChecksum: row.payloadChecksum,
     effectOperationId: row.effectOperationId,
     exportId: row.rocketPurchaseConfirmationId,
-    transmissionIntentKey: row.transmissionIntentKey,
     matchedLineCount: row.matchedLineCount,
     reconciledRows: row.reconciledRows,
     collectedLines,

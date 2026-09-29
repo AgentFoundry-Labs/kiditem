@@ -12,6 +12,7 @@ import {
   COUPANG_ROCKET_PO_SCAN_CHUNK_KIND,
   type CoupangRocketPoScan,
 } from '@kiditem/shared/orders-operations';
+import { SellpiaTransferOutcomePersistenceAdapter } from '../adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG, TEST_USER_ID as USER } from '../../test-helpers/real-prisma';
 import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
@@ -190,7 +191,7 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
     });
     expect((await listSaved()).map((po) => [po.firstProductName, po.rocketPoOperationId])).toEqual([['P2 item', b]]);
     const listing = await prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: 'P2' } });
-    expect(listing).toMatchObject({ lastOperationId: b, lastImportRunId: null });
+    expect(listing).toMatchObject({ lastOperationId: b });
 
     const failed = await beginRun();
     await put(failed, COUPANG_ROCKET_PO_CHUNK_KIND, 1, [{ poNumber: '1001', rows: [row('P3')] }]);
@@ -402,7 +403,7 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
       preview,
       new RocketPurchaseConfirmationTransactionAdapter(
         prisma as never,
-        new RocketWorkbookProgressService(new RocketWorkbookProgressRepositoryAdapter()),
+        new RocketWorkbookProgressService(new RocketWorkbookProgressRepositoryAdapter(new SellpiaTransferOutcomePersistenceAdapter(prisma as never))),
         new ProductTransactionalReadRepositoryAdapter(),
         new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter(), new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()))),
         catalog,

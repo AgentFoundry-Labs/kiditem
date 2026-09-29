@@ -18,8 +18,6 @@
 | Review | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | RocketPoCatalogLine canonical state owned by orders. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | RocketPoCatalogSnapshot canonical state owned by orders. |
-| SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
-| SellpiaOrderTransmissionIntentReconciliation | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
 
 ## Mermaid ER Diagram
@@ -30,7 +28,7 @@ erDiagram
     String id PK
     String organizationId FK
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
     String receiptId FK
@@ -43,7 +41,7 @@ erDiagram
     String organizationId FK
     String channelAccountId
      /**
-    String effectSourceImportRunId FK
+    String effectSourceImportRunId
      /**
     String effectOperationId
     String rocketPurchaseConfirmationId FK
@@ -61,7 +59,7 @@ erDiagram
     String id PK
     String organizationId FK
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
     String shipmentDate
@@ -75,7 +73,7 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
     String externalOrderId
@@ -131,7 +129,7 @@ erDiagram
   Review {
     String id PK
     String organizationId FK
-    String sourceImportRunId FK
+    String sourceImportRunId
     String operationId
     DateTime publishedAt
     String listingId
@@ -183,10 +181,10 @@ erDiagram
   }
   RocketPoCatalogSnapshot {
     String id PK
-    String organizationId FK
+    String organizationId
     String channelAccountId
      /**
-    String sourceImportRunId FK
+    String sourceImportRunId
      /**
     String operationId
      /**
@@ -197,27 +195,6 @@ erDiagram
     Int detailPoCount
     DateTime createdAt
     DateTime updatedAt
-  }
-  SellpiaOrderTransmissionIntent {
-    String id PK
-    String organizationId FK
-    String intentKey
-    String status
-    String createdBy FK
-    DateTime preparedAt
-    DateTime finalizedAt
-    DateTime abortedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  SellpiaOrderTransmissionIntentReconciliation {
-    String id PK
-    String organizationId FK
-    String intentId FK
-    String reconciledBy FK
-    DateTime reconciledAt
-    String note
-    String outcome
   }
   Settlement {
     String id PK
@@ -240,7 +217,6 @@ erDiagram
   CoupangDirectTransportReceipt ||--o{ CoupangDirectTransportConsumption : "receipt"
   Order ||--o{ OrderLineItem : "order"
   RocketPoCatalogSnapshot ||--o{ RocketPoCatalogLine : "snapshot"
-  SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
 ```
 
 ## External References
@@ -248,22 +224,12 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CoupangDirectTransportConsumption | organization | references external | Core | Organization |
-| CoupangDirectTransportConsumption | sourceImportRun | references external | Core | SourceImportRun |
-| CoupangDirectTransportReceipt | effectSourceImportRun | references external | Core | SourceImportRun |
 | CoupangDirectTransportReceipt | organization | references external | Core | Organization |
 | CoupangDirectTransportReceipt | rocketPurchaseConfirmation | references external | Supply | RocketPurchaseConfirmation |
 | CoupangShipmentDateSummary | organization | references external | Core | Organization |
-| CoupangShipmentDateSummary | sourceImportRun | references external | Core | SourceImportRun |
 | Order | organization | references external | Core | Organization |
-| Order | sourceImportRun | references external | Core | SourceImportRun |
 | OrderCollectionArtifact | organization | references external | Core | Organization |
 | OrderCollectionArtifact | sourceImportRun | references external | Core | SourceImportRun |
 | OrderLineItem | organization | references external | Core | Organization |
 | Review | organization | references external | Core | Organization |
-| Review | sourceImportRun | references external | Core | SourceImportRun |
-| RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
-| SellpiaOrderTransmissionIntent | creator | references external | Core | User |
-| SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |
-| SellpiaOrderTransmissionIntentReconciliation | reconciler | references external | Core | User |
 | Settlement | organization | references external | Core | Organization |

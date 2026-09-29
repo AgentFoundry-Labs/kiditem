@@ -178,7 +178,6 @@ describe("absolute product ABC baseline migrations", () => {
         formulaRevision: 1,
         publicationRevision: 0,
         officialCutoffDate: null,
-        publishedSellpiaSourceImportRunId: null,
         publishedMappingGeneration: null,
         publishedAt: null,
         mappingGeneration: 0n,

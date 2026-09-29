@@ -46,7 +46,7 @@ type CanonicalParent = Pick<
 
 /**
  * [쿠팡상품정보] 엑셀 반영(KID-349 → KID-354 `channels.wing_catalog_excel` finalize). 실행 계약의 finish
- * 트랜잭션 안에서 부르며, 출처는 `lastOperationId`로 남긴다(`source_import_runs` 행 없음). 계정 겹침은 실행
+ * 트랜잭션 안에서 부르며, 출처는 `lastOperationId`로 남긴다. 계정 겹침은 실행
  * 잠금(`account:<id>`), 같은 파일 재반영은 실행 계약의 `fileHash`가 막는다.
  */
 export async function publishWingCatalogWorkbook(

@@ -10,7 +10,7 @@
  *
  * A row whose URL, role, order, deletion flag and metadata are all unchanged
  * is not updated. The publication history keys are left out of that
- * comparison, so on an unchanged row `lastImportRunId` names the last
+ * comparison, so on an unchanged row `publicationReference` names the last
  * publication that changed it, not the latest one that observed it.
  */
 
@@ -50,15 +50,24 @@ export type CatalogAssetRepublication =
       metadata: Record<string, unknown>;
     };
 
+/** Keys a publication writes to record which publication last wrote the row. */
+const WRITTEN_PUBLICATION_HISTORY_KEYS = ['publicationReference', 'publicationScope'] as const;
+
+/**
+ * Run-named keys older publications wrote and none writes now. Stored rows still carry them, so they stay
+ * out of the comparison: otherwise their absence from a new publication would rewrite every catalog asset.
+ * A row rewritten for another reason drops them.
+ */
+const RETIRED_PUBLICATION_HISTORY_KEYS = ['sourceImportRunId', 'lastImportRunId'] as const;
+
 /** Keys that record which publication last wrote the row; they never make a row "changed". */
 export const CATALOG_PUBLICATION_HISTORY_KEYS = [
-  'publicationReference',
-  'sourceImportRunId',
-  'lastImportRunId',
-  'publicationScope',
+  ...WRITTEN_PUBLICATION_HISTORY_KEYS,
+  ...RETIRED_PUBLICATION_HISTORY_KEYS,
 ] as const;
 
-export type CatalogPublicationHistoryKey = (typeof CATALOG_PUBLICATION_HISTORY_KEYS)[number];
+/** The history keys a publication writes. */
+export type CatalogPublicationHistoryKey = (typeof WRITTEN_PUBLICATION_HISTORY_KEYS)[number];
 
 const MATERIALIZATION_KEYS = [
   'materializationStatus',
@@ -86,7 +95,8 @@ export function planCatalogAssetRepublication(
   const url = options.preservesManualSelection ? existing.url : observation.sourceUrl;
   // An operator-selected row publishes its own URL, so it always keeps its copy.
   const keepsCopy = existing.url === url;
-  const base = keepsCopy ? existing.metadata : withoutKeys(existing.metadata, MATERIALIZATION_KEYS);
+  const kept = withoutKeys(existing.metadata, RETIRED_PUBLICATION_HISTORY_KEYS);
+  const base = keepsCopy ? kept : withoutKeys(kept, MATERIALIZATION_KEYS);
   const metadata = { ...base, ...observation.publicationMetadata };
   const unchanged = keepsCopy
     && !existing.isDeleted

@@ -17,27 +17,18 @@ function productionTypeScriptFiles(directory: string): string[] {
 }
 
 describe('Orders stock boundary', () => {
-  it('owns the Sellpia transmission fence without inventory-generation behavior', () => {
+  it('옛 셀피아 전송 intent 표는 스키마·Orders 소스에서 사라졌고(wave9a, KID-365), 전송 울타리는 실행 kind가 맡는다', () => {
     const schema = readFileSync(
       path.resolve(ORDERS_ROOT, '../../../../prisma/models/orders.prisma'),
       'utf8',
     );
-    const intent = schema.match(
-      /model SellpiaOrderTransmissionIntent \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-    const reconciliation = schema.match(
-      /model SellpiaOrderTransmissionIntentReconciliation \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-
-    expect(intent).toContain('organizationId');
-    expect(intent).toContain('intentKey');
-    expect(intent).toContain('@@unique([organizationId, intentKey]');
-    expect(reconciliation).toContain('reconciledBy');
-    expect(reconciliation).toContain('outcome');
+    expect(schema).not.toMatch(/model SellpiaOrderTransmissionIntent/);
+    expect(schema).not.toContain('sellpia_order_transmission_intents');
 
     const source = productionTypeScriptFiles(ORDERS_ROOT)
       .map((file) => readFileSync(file, 'utf8'))
       .join('\n');
+    expect(source).not.toContain('sellpiaOrderTransmissionIntent');
     expect(source).not.toContain('SellpiaInventoryFreshness');
     expect(source).not.toContain('order_transmission_requested');
   });

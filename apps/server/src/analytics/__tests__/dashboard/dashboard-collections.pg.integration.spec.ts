@@ -6,7 +6,6 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../../test-helpers/real-prisma';
-import { CollectionFreshnessRepositoryAdapter } from '../../adapter/out/repository/dashboard/collection-freshness.repository.adapter';
 import { DashboardCollectionsService } from '../../application/service/dashboard/dashboard-collections.service';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -19,9 +18,8 @@ describe('Dashboard collection completion provenance (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    service = new DashboardCollectionsService(
-      new CollectionFreshnessRepositoryAdapter(orderCollectionFreshnessTestAdapter(prisma)),
-    );
+    // Analytics reads Orders' freshness capability directly; there is no Analytics-side wrapper.
+    service = new DashboardCollectionsService(orderCollectionFreshnessTestAdapter(prisma));
   });
   afterAll(async () => prisma?.$disconnect());
   beforeEach(async () => {

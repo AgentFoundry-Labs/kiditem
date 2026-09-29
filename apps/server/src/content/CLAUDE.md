@@ -24,7 +24,7 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
 - Republishing a catalog photo keeps its stored copy (`storage_key`, size,
   `materialization*` keys) while the URL is unchanged and skips a row whose
   URL, role, order, deletion flag and non-history metadata are unchanged, so its
-  `lastImportRunId` is the last run that changed it
+  `publicationReference` is the last publication that changed it
   (`domain/catalog-media/catalog-asset-republication.ts`).
 - `DetailPage` plus append-only revisions owns detail HTML; every start
   (generated, manual, uploaded, imported) is one row and the AI result is a
@@ -36,7 +36,7 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
   image gets a new row. `ThumbnailGeneration` is the job only.
 - Thumbnail, detail-page, image-edit and re-edit work runs as `content.*`
   operations (ADR-0025, KID-358); `common/operation` owns claims, leases,
-  retries and cancellation. Never read or write `ai_direct_jobs`.
+  retries and cancellation.
 - Use `contentWorkspaceId` for media workspaces. Sourcing candidate and
   candidate-image ids are provenance columns with no foreign key; AI never reads
   a Channels or Sourcing row to fill a prompt or a name. Do not reintroduce

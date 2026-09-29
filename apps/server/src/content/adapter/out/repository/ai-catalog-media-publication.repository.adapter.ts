@@ -194,8 +194,6 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
     const publicationHistory = {
       publicationReference: input.publicationReference,
       publicationScope: input.publicationScope ?? 'full',
-      sourceImportRunId: input.publicationReference.id,
-      lastImportRunId: input.publicationReference.id,
     } satisfies Record<CatalogPublicationHistoryKey, unknown>;
 
     for (const listing of input.listings) {

@@ -338,7 +338,6 @@ describe('buildPerListingMetrics (PG integration)', () => {
         externalId: 'EXT-UNLINKED-T6',
         channelName: 'Wing import only',
         status: 'active',
-        lastImportRunId: importRun.id,
       },
       select: { id: true },
     });
@@ -347,7 +346,6 @@ describe('buildPerListingMetrics (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         externalOptionId: 'VI-UNLINKED-T6',
-        lastImportRunId: importRun.id,
       },
       select: { id: true },
     });

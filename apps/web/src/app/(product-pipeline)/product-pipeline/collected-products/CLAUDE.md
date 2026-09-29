@@ -34,7 +34,7 @@ Do not reintroduce standalone sourcing or product-content routes.
   `RegistrationTarget` owns the resolved per-`ChannelAccount` registration
   setting (options/price/category frozen at prepare time); at most one active
   target exists per (`SalesProduct`, `ChannelAccount`) pair.
-- `ProductRegistrationExecution` owns the frozen request, actor, idempotency,
+- The `channels.registration` operation owns the frozen request, actor, idempotency,
   provider outcome, reconciliation state, and terminal listing result. The UI
   retries or polls the same execution ID and must never turn an uncertain
   execution into a new create request.

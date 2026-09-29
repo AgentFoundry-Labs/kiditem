@@ -110,8 +110,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
   });
 
   it('keeps every collected row even when none match an active Rocket workbook', async () => {
-    const intentKey = 'rocket-final-order:66666666-6666-4666-8666-666666666666:shipment';
-    api.fetchRaw.mockResolvedValue(fileResponse({ exportId: null, intentKey }));
+    api.fetchRaw.mockResolvedValue(fileResponse({ exportId: null }));
 
     const result = await convertCoupangDirectToSellpiaFile(
       { pos: [], centers: {} },
@@ -130,8 +129,8 @@ describe('Coupang direct-shipment collection lifecycle', () => {
       workbookUnmatchedRows: 1,
       importRunId: '66666666-6666-4666-8666-666666666666',
       rocketWorkbookExportId: null,
-      transmissionIntentKey: intentKey,
     });
+    expect(result).not.toHaveProperty('transmissionIntentKey');
   });
 
   it('represents a successful no-match probe without trying to read a workbook', async () => {
@@ -160,12 +159,11 @@ describe('Coupang direct-shipment collection lifecycle', () => {
       workbookUnmatchedRows: 0,
       importRunId: '66666666-6666-4666-8666-666666666666',
       rocketWorkbookExportId: exportId,
-      transmissionIntentKey: null,
     });
   });
 });
 
-function fileResponse(input: { exportId: string | null; intentKey: string }): Response {
+function fileResponse(input: { exportId: string | null }): Response {
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     workbook,
@@ -178,7 +176,6 @@ function fileResponse(input: { exportId: string | null; intentKey: string }): Re
       'Content-Disposition': "attachment; filename*=UTF-8''rocket.xls",
       'X-Order-Collection-Operation-Id': '66666666-6666-4666-8666-666666666666',
       ...(input.exportId ? { 'X-Rocket-Workbook-Export-Id': input.exportId } : {}),
-      'X-Sellpia-Transmission-Intent-Key': input.intentKey,
       'X-Order-Collection-Source-Rows': '1',
       'X-Order-Collection-Product-Rows': '1',
       'X-Order-Collection-Output-Rows': '1',

@@ -12,10 +12,13 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
+import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
 import { RocketPoCatalogService } from '../../orders/application/service/rocket-po-catalog.service';
 import { RocketPoCatalogRepositoryAdapter } from '../../orders/adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
+import { SellpiaTransferOutcomePersistenceAdapter } from '../../orders/adapter/out/persistence/sellpia-transfer-outcome.persistence.adapter';
+import { seedSellpiaTransferOperation } from '../../test-helpers/__tests__/sellpia-transfer-operation';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import type { RocketWorkbookDecisionRequest } from '@kiditem/shared/rocket-purchase-preview';
@@ -46,7 +49,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     adapter = new RocketPurchaseConfirmationTransactionAdapter(
       prisma as unknown as PrismaService,
       new RocketWorkbookProgressService(
-        new RocketWorkbookProgressRepositoryAdapter(),
+        new RocketWorkbookProgressRepositoryAdapter(new SellpiaTransferOutcomePersistenceAdapter(prisma as never)),
       ),
       products,
       new ChannelOptionRecipeService(
@@ -148,6 +151,25 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       },
     });
   });
+
+  /** 양수 라인이 모두 수집되고 직배송 실행이 SHIPMENT 파일을 관측한 워크북(`intentKey`가 있는 전송 관측 1개). */
+  async function collectedWorkbook(idempotencyKey: string, orderLineItemId: string) {
+    const created = await adapter.exportWorkbook(confirmationInput(idempotencyKey, 2));
+    await prisma.rocketPurchaseConfirmationLine.updateMany({
+      where: { confirmationId: created.exportId },
+      data: { collectedAt: new Date(), collectedOrderLineItemId: orderLineItemId },
+    });
+    await prisma.rocketPurchaseConfirmationTransmission.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        confirmationId: created.exportId,
+        directshipOperationId: DIRECTSHIP_OPERATION_ID,
+        transport: 'SHIPMENT',
+        intentKey: `rocket-final-order:${DIRECTSHIP_OPERATION_ID}:shipment`,
+      },
+    });
+    return created;
+  }
 
   it('replays the same request as one durable export with exact artifact bytes', async () => {
     const input = confirmationInput('21000000-0000-4000-8000-000000000009', 2);
@@ -379,113 +401,75 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     ).toEqual([]);
   });
 
-  it('completes only after every positive line is collected and its transmission is finalized', async () => {
-    const created = await adapter.exportWorkbook(
-      confirmationInput('21000000-0000-4000-8000-000000000019', 2),
-    );
-    await prisma.rocketPurchaseConfirmationLine.updateMany({
-      where: { confirmationId: created.exportId },
-      data: {
-        collectedAt: new Date(),
-        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000020',
-      },
-    });
-    const intentKey = `rocket-final-order:${DIRECTSHIP_OPERATION_ID}:shipment`;
-    await prisma.rocketPurchaseConfirmationTransmission.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        confirmationId: created.exportId,
-        directshipOperationId: DIRECTSHIP_OPERATION_ID,
-        transport: 'SHIPMENT',
-        intentKey,
-      },
-    });
-    await prisma.sellpiaOrderTransmissionIntent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        intentKey,
-        status: 'finalized',
-        createdBy: TEST_USER_ID,
-        finalizedAt: new Date(),
-      },
+  // KID-388: 진행은 Orders 전송 결과 capability(전송 실행 `orders.sellpia_order_transfer`)로 읽는다 — 옛 intent 표 없이.
+  it('stays open and fences a new export until the Sellpia transfer of the collected file succeeds, then completes', async () => {
+    const created = await collectedWorkbook('21000000-0000-4000-8000-000000000019', '21000000-0000-4000-8000-000000000020');
+
+    // 전송 실행이 없으면 orders_collected — 워크북은 열려 있고 새 export를 막는다.
+    await expect(adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({ exportId: created.exportId });
+    await expect(adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000021', 2)))
+      .rejects.toMatchObject({ code: 'SUPPLY_ROCKET_WORKFLOW_ACTIVE' });
+
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      sourceOperationId: DIRECTSHIP_OPERATION_ID,
+      transport: 'SHIPMENT',
+      status: 'succeeded',
+      startedAt: new Date(),
     });
 
-    await expect(
-      adapter.getActiveWorkflow({
-        organizationId: TEST_ORGANIZATION_ID,
-      }),
-    ).resolves.toBeNull();
-    expect(
-      await prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
-        where: { id: created.exportId },
-      }),
-    ).toMatchObject({ completedAt: expect.any(Date) });
+    await expect(adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID })).resolves.toBeNull();
+    await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({ where: { id: created.exportId } }))
+      .resolves.toMatchObject({ completedAt: expect.any(Date) });
+    await expect(adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000022', 2)))
+      .resolves.toMatchObject({ duplicate: false });
   });
 
-  it('derives a failed Sellpia transmission on every read, keeps the workflow open, and completes after reconciliation', async () => {
-    const created = await adapter.exportWorkbook(
-      confirmationInput('21000000-0000-4000-8000-000000000051', 2),
-    );
-    await prisma.rocketPurchaseConfirmationLine.updateMany({
-      where: { confirmationId: created.exportId },
-      data: {
-        collectedAt: new Date(),
-        collectedOrderLineItemId: '21000000-0000-4000-8000-000000000052',
-      },
-    });
-    const intentKey = `rocket-final-order:${DIRECTSHIP_OPERATION_ID}:shipment`;
-    await prisma.rocketPurchaseConfirmationTransmission.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        confirmationId: created.exportId,
-        directshipOperationId: DIRECTSHIP_OPERATION_ID,
-        transport: 'SHIPMENT',
-        intentKey,
-      },
-    });
-    await prisma.sellpiaOrderTransmissionIntent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        intentKey,
-        status: 'aborted',
-        createdBy: TEST_USER_ID,
-        abortedAt: new Date(),
-      },
-    });
-    const workflowRow = () =>
-      prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
-        where: { id: created.exportId },
-        select: { completedAt: true, updatedAt: true },
-      });
+  it('reads the transfer source from the observed file key, so a later empty probe of another operation does not reopen it', async () => {
+    const created = await collectedWorkbook('21000000-0000-4000-8000-000000000061', '21000000-0000-4000-8000-000000000062');
+    const laterProbeOperationId = '21000000-0000-4000-8000-000000000063';
+    // 다른 직배송 실행의 빈 SHIPMENT 탐색은 관측 행의 실행 id를 덮어쓰지만 파일 키(`intentKey`)는 그대로 둔다.
+    await prisma.$transaction((tx) => new RocketFinalOrderReconciliationTransactionAdapter().reconcile({
+      transaction: tx,
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      directshipOperationId: laterProbeOperationId,
+      transport: 'SHIPMENT',
+      lines: [],
+    }));
+    await expect(prisma.rocketPurchaseConfirmationTransmission.findFirstOrThrow({ where: { confirmationId: created.exportId } }))
+      .resolves.toMatchObject({ directshipOperationId: laterProbeOperationId, intentKey: `rocket-final-order:${DIRECTSHIP_OPERATION_ID}:shipment` });
 
-    await expect(
-      adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
-    ).resolves.toMatchObject({ exportId: created.exportId });
-    const failedRow = await workflowRow();
-    expect(failedRow.completedAt).toBeNull();
-
-    // The aborted intent keeps the workflow failed without a stored failure
-    // word: a new export is fenced and repeated reads do not rewrite the row.
-    await expect(
-      adapter.exportWorkbook(
-        confirmationInput('21000000-0000-4000-8000-000000000053', 2),
-      ),
-    ).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_WORKFLOW_ACTIVE' });
-    await expect(
-      adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
-    ).resolves.toMatchObject({ exportId: created.exportId });
-    await expect(workflowRow()).resolves.toEqual(failedRow);
-
-    await prisma.sellpiaOrderTransmissionIntent.updateMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, intentKey },
-      data: { status: 'finalized', finalizedAt: new Date(), abortedAt: null },
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, sourceOperationId: DIRECTSHIP_OPERATION_ID, transport: 'SHIPMENT', status: 'succeeded', startedAt: new Date(),
     });
-    await expect(
-      adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
-    ).resolves.toBeNull();
-    await expect(workflowRow()).resolves.toMatchObject({
-      completedAt: expect.any(Date),
+
+    await expect(adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID })).resolves.toBeNull();
+    await expect(adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000064', 2)))
+      .resolves.toMatchObject({ duplicate: false });
+  });
+
+  it('keeps the workflow open without storing anything while the transfer is reconciling or after it failed', async () => {
+    const created = await collectedWorkbook('21000000-0000-4000-8000-000000000051', '21000000-0000-4000-8000-000000000052');
+    const workflowRow = () => prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
+      where: { id: created.exportId },
+      select: { completedAt: true, updatedAt: true },
     });
+    const openRow = await workflowRow();
+    const now = Date.now();
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, sourceOperationId: DIRECTSHIP_OPERATION_ID, transport: 'SHIPMENT', status: 'failed', startedAt: new Date(now - 120_000),
+    });
+    await expect(adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({ exportId: created.exportId });
+
+    await seedSellpiaTransferOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, sourceOperationId: DIRECTSHIP_OPERATION_ID, transport: 'SHIPMENT', status: 'reconciling', startedAt: new Date(now - 60_000),
+    });
+    await expect(adapter.exportWorkbook(confirmationInput('21000000-0000-4000-8000-000000000053', 2)))
+      .rejects.toMatchObject({ code: 'SUPPLY_ROCKET_WORKFLOW_ACTIVE' });
+    await expect(adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID })).resolves.toMatchObject({ exportId: created.exportId });
+    await expect(workflowRow()).resolves.toEqual(openRow);
   });
 
   it('refuses abandonment while a workbook line is linked to a collected order, even after fresh probes', async () => {

@@ -52,9 +52,9 @@ describe("data migration registry", () => {
       "v0.1.31:011_backfill_ad_action_execution_tasks",
       "v0.1.31:012_constrain_source_import_run_status",
       "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
-      "v0.1.31:014_backfill_channel_listing_image_from_discovery",
       "v0.1.31:014_remove_rows_blocking_required_columns",
       "v0.1.31:028_remove_content_rows_blocking_required_columns",
+      "v0.1.31:036_close_generations_left_by_direct_job_cutover",
       "v0.1.31:015_close_stale_ad_approvals_at_cutover",
       "v0.1.31:019_prepare_selling_catalog_sources",
       "v0.1.31:016_master_product_inventory_cutover",
@@ -64,12 +64,12 @@ describe("data migration registry", () => {
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:016_activate_ad_free_product_abc_formula",
       "v0.1.31:027_normalize_sales_product_status",
-      "v0.1.31:029_close_generations_left_by_direct_job_cutover",
       "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
       "v0.1.31:031_publish_complete_sourcing_runs",
       "v0.1.31:032_remove_retired_source_failure_alerts",
       "v0.1.31:033_remove_retired_mall_admin_listing_alerts",
       "v0.1.31:034_move_ad_counting_abc_formula_states",
+      "v0.1.31:035_stamp_rocket_workbook_completed_from_transmission_intents",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -81,7 +81,6 @@ describe("data migration registry", () => {
       "v0.1.31:009_backfill_capability_approval_decision",
       "v0.1.31:010_backfill_thumbnail_tracking_inconclusive_mark",
       "v0.1.31:011_backfill_ad_action_execution_tasks",
-      "v0.1.31:014_backfill_channel_listing_image_from_discovery",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:027_normalize_sales_product_status",
     ]);
@@ -336,12 +335,14 @@ describe("data migration registry", () => {
       "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
       "v0.1.31:014_remove_rows_blocking_required_columns",
       "v0.1.31:028_remove_content_rows_blocking_required_columns",
+      "v0.1.31:036_close_generations_left_by_direct_job_cutover",
       "v0.1.31:015_close_stale_ad_approvals_at_cutover",
       "v0.1.31:019_prepare_selling_catalog_sources",
       "v0.1.31:016_master_product_inventory_cutover",
       "v0.1.31:017_simplify_product_references",
       "v0.1.31:020_selling_catalog_cutover",
       "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
+      "v0.1.31:035_stamp_rocket_workbook_completed_from_transmission_intents",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -383,12 +384,14 @@ describe("data migration registry", () => {
       "v0.1.31:013_remove_retired_account_kpi_and_ad_tier_rows",
       "v0.1.31:014_remove_rows_blocking_required_columns",
       "v0.1.31:028_remove_content_rows_blocking_required_columns",
+      "v0.1.31:036_close_generations_left_by_direct_job_cutover",
       "v0.1.31:015_close_stale_ad_approvals_at_cutover",
       "v0.1.31:019_prepare_selling_catalog_sources",
       "v0.1.31:016_master_product_inventory_cutover",
       "v0.1.31:017_simplify_product_references",
       "v0.1.31:020_selling_catalog_cutover",
       "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
+      "v0.1.31:035_stamp_rocket_workbook_completed_from_transmission_intents",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(
@@ -396,12 +399,10 @@ describe("data migration registry", () => {
       "0.1.31",
     ).map(({ id }) => id);
     expect(absolutePostSchema).toEqual([
-      "v0.1.31:014_backfill_channel_listing_image_from_discovery",
       "v0.1.31:002_initialize_absolute_product_abc_formula",
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:016_activate_ad_free_product_abc_formula",
       "v0.1.31:027_normalize_sales_product_status",
-      "v0.1.31:029_close_generations_left_by_direct_job_cutover",
       "v0.1.31:031_publish_complete_sourcing_runs",
       "v0.1.31:032_remove_retired_source_failure_alerts",
       "v0.1.31:033_remove_retired_mall_admin_listing_alerts",

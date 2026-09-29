@@ -1,8 +1,8 @@
-// Outgoing port for advertising-side scrape-run status reads: the snapshot the
+// Outgoing port for advertising-side collection status reads: the snapshot the
 // extension-status endpoint serves.
 
-export const CHANNEL_SCRAPE_REPOSITORY_PORT = Symbol(
-  'ChannelScrapeRepositoryPort',
+export const ADVERTISING_EXTENSION_STATUS_REPOSITORY_PORT = Symbol(
+  'AdvertisingExtensionStatusRepositoryPort',
 );
 
 export interface ExtensionStatusLatestListing {
@@ -29,7 +29,7 @@ export interface ExtensionStatusSnapshot {
   wingKpi: ExtensionStatusWingKpi | null;
 }
 
-export interface ChannelScrapeRepositoryPort {
+export interface AdvertisingExtensionStatusRepositoryPort {
   /**
    * Single-pass read of every column the extension-status endpoint needs:
    * listing count, latest per-listing winner state, raw snapshot count,

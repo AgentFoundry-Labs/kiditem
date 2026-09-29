@@ -45,8 +45,8 @@ const CHANNEL = 'coupang';
 
 /**
  * Wing 카탈로그 실행 kind 셋의 Channels 원장 쓰기(KID-354). 실행 계약의 finish 트랜잭션 안에서 부르고, 반영
- * 출처는 `lastOperationId`·`publicationReference {type: 'operation'}`로 남긴다. `source_import_runs`·
- * `channel_scrape_*`는 읽지도 쓰지도 않는다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
+ * 출처는 `lastOperationId`·`publicationReference {type: 'operation'}`로 남긴다. `source_import_runs`는
+ * 읽지도 쓰지도 않는다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
  */
 @Injectable()
 export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalogPublicationPort {
@@ -309,7 +309,7 @@ async function markCatalogProductsDeleted(
       },
       isActive: true,
     },
-    data: { isActive: false, lastImportRunId: null, lastOperationId: input.operationId },
+    data: { isActive: false, lastOperationId: input.operationId },
   });
   const listings = await tx.channelListing.updateMany({
     where: {
@@ -319,7 +319,7 @@ async function markCatalogProductsDeleted(
       // `<>`는 NULL과 맞지 않는다: 상태가 비어 있는 행도 삭제로 기록해야 한다.
       OR: [{ status: null }, { status: { not: CATALOG_DELETED_STATUS } }],
     },
-    data: { status: CATALOG_DELETED_STATUS, isActive: false, lastImportRunId: null, lastOperationId: input.operationId },
+    data: { status: CATALOG_DELETED_STATUS, isActive: false, lastOperationId: input.operationId },
   });
   return { listings: listings.count, options: options.count };
 }

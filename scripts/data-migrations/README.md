@@ -275,14 +275,25 @@ changing any row.
 
 ### AI generations left by the direct-job cutover (0.1.31)
 
-`029_close_generations_left_by_direct_job_cutover` runs post-schema. After
+`036_close_generations_left_by_direct_job_cutover` runs pre-schema. After
 KID-358 the AI worker claims only `content.*` operations and never reads
 `ai_direct_jobs`, so a thumbnail generation or re-edit (`pending`/`running`) or
 a generated detail page (`pending`/`processing`) whose old job was still
 `held`, `pending`, `running` or `projecting` would never finish. It closes those
 records `failed` with the operator sentence "실행 계약 이관으로 중단됐습니다. 다시
-생성해 주세요." for the same organization, leaves the job rows for the table
-drop (KID-365), and changes nothing on re-run.
+생성해 주세요." for the same organization, leaves the job rows to the schema
+step that drops `ai_direct_jobs` (KID-365), and changes nothing on re-run. A
+table the database does not have is skipped and listed in `skippedTables`;
+Office 0.1.30 has no `detail_pages`.
+
+It replaces the unpromoted post-schema `029_close_generations_left_by_direct_job_cutover`,
+which read `ai_direct_jobs` after the same cutover's `db push` had dropped it.
+A new id keeps a database that already recorded 029 (the local QA database)
+free of source drift; there `036` finds no open job and closes nothing. The
+unpromoted post-schema `014_backfill_channel_listing_image_from_discovery` was
+removed for the same reason (it read `channel_scrape_chunks`, dropped by
+KID-365); the next Wing catalog collection fills `channel_listings.image_url`.
+A ledger row for either id is reported as `unregistered`.
 
 ### ABC formula states still counting advertising (0.1.31)
 
@@ -296,3 +307,15 @@ not on version 3 to version 3, taking the row from
 its formula revision, and keeps its mapping generation. A published state is
 left alone and counted as `publishedStateLeftCount`. It changes nothing on
 re-run.
+
+### Rocket workbook completion proven by transmission intents (0.1.31)
+
+`035_stamp_rocket_workbook_completed_from_transmission_intents` runs pre-schema,
+while `sellpia_order_transmission_intents` still exists. KID-388 derives
+workbook progress from the Orders Sellpia transfer operations, and the schema
+step drops the intent tables, so an open workbook whose completion only the old
+intents prove would reopen. It applies the old rule — every positive line
+collected and every non-empty transmission's intent `finalized` — and stamps
+the latest `finalized_at` as `completed_at`. A stamped or released workbook is
+left alone, a re-run changes nothing, and a database without the intent table
+is skipped.

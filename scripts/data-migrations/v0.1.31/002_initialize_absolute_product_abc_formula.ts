@@ -26,7 +26,6 @@ export const initializeAbsoluteProductAbcFormula: DataMigration = {
           formulaRevision: true,
           publicationRevision: true,
           officialCutoffDate: true,
-          publishedSellpiaSourceImportRunId: true,
           publishedMappingGeneration: true,
           publishedAt: true,
         },
@@ -41,7 +40,6 @@ export const initializeAbsoluteProductAbcFormula: DataMigration = {
             formulaRevision: 1,
             publicationRevision: 0,
             officialCutoffDate: null,
-            publishedSellpiaSourceImportRunId: null,
             publishedMappingGeneration: null,
             mappingGeneration: 0n,
             publishedAt: null,
@@ -65,7 +63,6 @@ export const initializeAbsoluteProductAbcFormula: DataMigration = {
           formulaRevision: 1,
           publicationRevision: 0,
           officialCutoffDate: null,
-          publishedSellpiaSourceImportRunId: null,
           publishedMappingGeneration: null,
           publishedAt: null,
         },
@@ -116,7 +113,6 @@ function isMappingOnlyState(state: {
   formulaRevision: number;
   publicationRevision: number;
   officialCutoffDate: Date | null;
-  publishedSellpiaSourceImportRunId: string | null;
   publishedMappingGeneration: bigint | null;
   publishedAt: Date | null;
 }): boolean {
@@ -124,7 +120,6 @@ function isMappingOnlyState(state: {
     && state.formulaRevision === 0
     && state.publicationRevision === 0
     && state.officialCutoffDate === null
-    && state.publishedSellpiaSourceImportRunId === null
     && state.publishedMappingGeneration === null
     && state.publishedAt === null;
 }
@@ -137,7 +132,6 @@ function isBaselineState(
     && state.formulaRevision === 1
     && state.publicationRevision === 0
     && state.officialCutoffDate === null
-    && state.publishedSellpiaSourceImportRunId === null
     && state.publishedMappingGeneration === null
     && state.publishedAt === null;
 }
