@@ -487,11 +487,6 @@ function toListItem(
       && listing.channelAccount.status === 'active',
   );
   const trafficStatus = periodBasisStatus(trafficCoverage.basis);
-  // Wing listing projections carry option/page visitors, not account UV, so
-  // Product Hub never presents their sum as unique visitors. The uploaded
-  // listing visitors that used to fill this were retired with the traffic CSV
-  // upload lane (KID-110): no listing visitor count is measured.
-  const visitorCount = null;
   // Views and cart adds sum the covered days. A covered day measures a listing
   // only through its row; a product with none has unmeasured traffic, not zero.
   const viewCount = listedOnWing && trafficStatus !== 'empty'
@@ -532,8 +527,6 @@ function toListItem(
       : activeListings.length < row.channelListings.length
         ? 'partial'
         : 'listed',
-    traffic: visitorCount,
-    visitorCount,
     viewCount,
     cartAddCount,
     orderCount,

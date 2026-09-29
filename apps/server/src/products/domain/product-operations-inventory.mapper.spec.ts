@@ -102,8 +102,6 @@ function rawListItem(): ProductOperationsRepositoryListItem {
       channel: 'coupang',
       channelAccountName: 'Coupang Wing',
     }],
-    traffic: null,
-    visitorCount: null,
     viewCount: null,
     cartAddCount: null,
     orderCount: null,

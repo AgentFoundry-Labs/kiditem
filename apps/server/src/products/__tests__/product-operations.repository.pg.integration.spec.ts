@@ -1304,7 +1304,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
     const byId = new Map(page.items.map((item) => [item.id, item]));
     expect(byId.get(withoutFacts.id)).toMatchObject({
-      traffic: null,
       orderCount: null,
       salesAmount: null,
       adCost: null,
@@ -1313,8 +1312,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     // Wing confirmed only yesterday, so views and cart adds sum that one day.
     expect(byId.get(withFacts.id)).toMatchObject({
       channelCount: 1,
-      traffic: null,
-      visitorCount: null,
       viewCount: 20,
       cartAddCount: 2,
       orderCount: null,
@@ -1347,13 +1344,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       activeStatus: 'all',
     });
     expect(measured.items.find(({ id }) => id === withoutFacts.id)).toMatchObject({
-      visitorCount: null,
       viewCount: null,
       cartAddCount: null,
     });
     const measuredWithFacts = measured.items.find(({ id }) => id === withFacts.id);
     expect(measuredWithFacts).toMatchObject({
-      visitorCount: null,
       viewCount: 20,
       cartAddCount: 2,
       orderCount: null,
@@ -1423,7 +1418,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     const item = page.items.find(({ id }) => id === product.id);
     expect(item).toMatchObject({
-      visitorCount: null,
       viewCount: 91,
       cartAddCount: 26,
       orderCount: null,
@@ -1464,7 +1458,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     const item = page.items.find(({ id }) => id === product.id);
     expect(item).toMatchObject({
-      visitorCount: null,
       viewCount: null,
       cartAddCount: null,
     });
@@ -1499,7 +1492,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     const item = page.items.find(({ id }) => id === product.id);
     expect(item).toMatchObject({
-      visitorCount: null,
       viewCount: 42,
       cartAddCount: 12,
     });
@@ -1551,7 +1543,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     // Only the traffic owner's zero row makes an omitted listing a measured 0.
     const item = page.items.find(({ id }) => id === product.id);
     expect(item).toMatchObject({
-      visitorCount: null,
       viewCount: null,
       cartAddCount: null,
       orderCount: null,
@@ -1615,7 +1606,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
 
     const item = page.items.find(({ id }) => id === product.id);
     expect(item).toMatchObject({
-      visitorCount: null,
       viewCount: 0,
       cartAddCount: 0,
     });

@@ -266,7 +266,6 @@ function product(): MasterProductOperationsListItem {
       channelAccountName: 'Coupang Wing',
     }],
     traffic: 11,
-    visitorCount: 11,
     viewCount: 22,
     cartAddCount: 3,
     orderCount: 4,

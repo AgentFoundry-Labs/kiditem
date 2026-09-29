@@ -200,7 +200,7 @@ const ProductOperationsMetricFreshnessSchema = z.object({
  * and cart adds were summed over. Nothing derived from the basis travels
  * beside it (ADR-0006): views and cart adds are measured unless
  * `periodBasisStatus(basis)` is `empty`. Visitors have no producer since the
- * CSV upload lane was removed (KID-110), so `visitorCount` is always null.
+ * CSV upload lane was removed (KID-110), so no visitor count is published (KID-336).
  */
 const ProductOperationsTrafficFreshnessSchema = z.object({
   capturedAt: zIsoDate.nullable(),
@@ -270,8 +270,6 @@ export const MasterProductOperationsListItemSchema =
       channel: z.string().min(1),
       channelAccountName: z.string().min(1),
     }).strict()),
-    traffic: z.number().int().nonnegative().nullable(),
-    visitorCount: z.number().int().nonnegative().nullable(),
     viewCount: z.number().int().nonnegative().nullable(),
     cartAddCount: z.number().int().nonnegative().nullable(),
     orderCount: z.number().int().nonnegative().nullable(),

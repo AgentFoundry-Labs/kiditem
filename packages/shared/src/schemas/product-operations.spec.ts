@@ -151,8 +151,6 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
     channelCount: 1,
     channelStatus: 'listed',
     activeChannels: [],
-    traffic: null,
-    visitorCount: null,
     viewCount: 91,
     cartAddCount: 26,
     orderCount: null,
@@ -263,8 +261,6 @@ describe('product operations contracts', () => {
         channelCount: 0,
         channelStatus: 'unlisted',
         activeChannels: [],
-        traffic: null,
-        visitorCount: null,
         viewCount: null,
         cartAddCount: null,
         orderCount: null,
@@ -481,8 +477,6 @@ describe('product operations contracts', () => {
         channel: 'coupang',
         channelAccountName: 'Coupang Wing',
       }],
-      traffic: null,
-      visitorCount: null,
       viewCount: null,
       cartAddCount: null,
       orderCount: null,
@@ -497,7 +491,6 @@ describe('product operations contracts', () => {
       },
     });
     expect(parsed.inventoryUnits).toBe(80);
-    expect(parsed.traffic).toBeNull();
     const response = MasterProductOperationsListResponseSchema.parse({
       items: [parsed],
       total: 80,
