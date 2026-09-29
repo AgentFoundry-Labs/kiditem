@@ -219,11 +219,11 @@ export function OrderCollectionWorkspace() {
     setReconciling(true);
     try {
       const {
-        collectSellpiaOrderSnapshot,
+        readSellpiaOrders,
         reconcileCollectedOrdersWithSellpia,
         SELLPIA_RECONCILE_PARTIAL_MESSAGE,
       } = await import('../lib/sellpia-order-reconcile');
-      const { rows, partial } = await collectSellpiaOrderSnapshot();
+      const { rows, partial } = await readSellpiaOrders();
       const result = reconcileCollectedOrdersWithSellpia({
         history: historyRef.current,
         sellpiaRows: rows,

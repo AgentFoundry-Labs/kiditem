@@ -144,7 +144,7 @@ export async function runSellpiaAutoInvoice(options: OrderActionWaitOptions = {}
 }
 
 /** 셀피아 주문 스냅샷(읽기): 대기목록·재고매칭 두 화면의 주문. 읽기 kind라 `reconciling`이 없다. */
-export async function collectSellpiaOrderSnapshotOperation(options: OrderActionWaitOptions = {}): Promise<SellpiaOrderSnapshotResult> {
+export async function readSellpiaOrderSnapshot(options: OrderActionWaitOptions = {}): Promise<SellpiaOrderSnapshotResult> {
   const operationId = await startOrderAction(SELLPIA_ORDER_SNAPSHOT_KIND, {});
   const outcome = await waitForOrderAction(SELLPIA_ORDER_SNAPSHOT_KIND, operationId, SellpiaOrderSnapshotResultSchema, options);
   if (outcome.status !== 'succeeded') throw new Error(RESULT_UNREADABLE);
@@ -152,7 +152,7 @@ export async function collectSellpiaOrderSnapshotOperation(options: OrderActionW
 }
 
 /** 쿠팡 배송 목록(읽기): 발송일 하나의 쉽먼트 행. 로그인 화면이면 확장이 로켓 계정 저장 자격으로 로그인한다. */
-export async function collectCoupangShipmentList(date: string, options: OrderActionWaitOptions = {}): Promise<CoupangShipmentListResult> {
+export async function readCoupangShipmentList(date: string, options: OrderActionWaitOptions = {}): Promise<CoupangShipmentListResult> {
   const operationId = await startOrderAction(COUPANG_SHIPMENT_LIST_KIND, { date }, await operationLoginOptions(ROCKET_LOGIN_MALL_KEY));
   const outcome = await waitForOrderAction(
     COUPANG_SHIPMENT_LIST_KIND,

@@ -12,7 +12,7 @@ import { requestOperationStart } from './operation-start';
 import { operationLoginOptions } from './operation-login';
 import {
   closeOrderActionOperation,
-  collectCoupangShipmentList,
+  readCoupangShipmentList,
   confirmOrderActionOperation,
   OrderActionFailure,
   OrderActionStillRunning,
@@ -135,7 +135,7 @@ describe('order action operations (KID-366 wave8b)', () => {
       },
     }) });
 
-    const result = await collectCoupangShipmentList('2026-09-29', noSleep);
+    const result = await readCoupangShipmentList('2026-09-29', noSleep);
 
     expect(operationLoginOptions).toHaveBeenCalledWith('coupang-direct');
     expect(requestOperationStart).toHaveBeenCalledWith(

@@ -63,7 +63,7 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import {
-  collectSellpiaOrderSnapshot,
+  readSellpiaOrders,
   reconcileCollectedOrdersWithSellpia,
   SELLPIA_RECONCILE_PARTIAL_MESSAGE,
 } from '@/app/(orders)/order-collection/lib/sellpia-order-reconcile';
@@ -744,7 +744,7 @@ export function usePersistedAllMarketplaceOrderCollection({
     try {
       const [history, snapshot] = await Promise.all([
         loadGeneratedOrderFiles(),
-        collectSellpiaOrderSnapshot(),
+        readSellpiaOrders(),
       ]);
       const reconciled = reconcileCollectedOrdersWithSellpia({
         history,
