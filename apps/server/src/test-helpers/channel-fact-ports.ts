@@ -17,6 +17,10 @@ import { ADVERTISING_LEDGER_READ_PORT } from '../advertising/application/port/in
 import { AdvertisingLedgerReadService } from '../advertising/application/service/advertising-ledger-read.service';
 import { AdLedgerReadPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-read.repository';
 import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-monthly-allocation.repository';
+import { ORDER_FACTS_PORT } from '../orders/application/port/in/facts/order-facts.port';
+import { REVIEW_FACTS_PORT } from '../orders/application/port/in/facts/review-facts.port';
+import { OrderFactsRepository } from '../orders/adapter/out/persistence/order-facts.repository';
+import { ReviewFactsRepository } from '../orders/adapter/out/persistence/review-facts.repository';
 
 /** Compose real owner fact capabilities for adapter/PG tests using one database client. */
 export function channelFactTestPorts(prisma: PrismaService) {
@@ -43,7 +47,14 @@ export const channelFactTestProviders = [
   { provide: CHANNEL_OPTION_RECIPE_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => channelFactTestPorts(prisma).recipes },
   { provide: CHANNEL_ACCOUNT_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => channelFactTestPorts(prisma).accounts },
   { provide: ADVERTISING_LEDGER_READ_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => advertisingLedgerTestReader(prisma) },
+  { provide: ORDER_FACTS_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => orderFactsTestReader(prisma) },
+  { provide: REVIEW_FACTS_PORT, useFactory: () => reviewFactsTestReader() },
 ];
+
+/** Orders 주문 사실 incoming port(KID-392) — 실제 계정 capability와 실제 Orders 어댑터로 조립한다. */
+export function orderFactsTestReader(prisma: PrismaService) {
+  return new OrderFactsRepository(channelFactTestPorts(prisma).accounts);
+}
 
 /** 광고 원장 읽기 capability(KID-372) — 실제 계정 capability와 실제 원장 어댑터로 조립한다. */
 export function advertisingLedgerTestReader(prisma: PrismaService) {
@@ -62,4 +73,9 @@ export function profitCatalogTestReaders(prisma: PrismaService) {
     content: new ListingContentQueryRepositoryAdapter(prisma),
     ads: advertisingLedgerTestReader(prisma),
   };
+}
+
+/** Orders 리뷰 사실 incoming port(KID-392) — 실제 Orders 어댑터. */
+export function reviewFactsTestReader() {
+  return new ReviewFactsRepository();
 }

@@ -12,8 +12,9 @@ import { businessDateKey } from "../../../../../common/kst";
 import { readCurrentSellpiaProductMonthlyFacts } from "../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
-  readOrderLineWindowFacts,
-} from "../../../../../orders/adapter/out/persistence/read/order-facts.reader";
+  ORDER_FACTS_PORT,
+  type OrderFactsPort,
+} from "../../../../../orders/application/port/in/facts/order-facts.port";
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
@@ -112,6 +113,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(ORDER_COLLECTION_TODAY_ORDERS_PORT) private readonly todayOrders: OrderCollectionTodayOrdersPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   /**
@@ -124,12 +126,12 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
   ): Promise<TodayKpiRow> {
     const [facts, collected] = await Promise.all([
       this.prisma.$transaction(
-        (tx) => readOrderLineWindowFacts(tx, {
+        (tx) => this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), {
           organizationId,
           from: todayStart,
           to: todayEnd,
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-        }, this.channelAccounts),
+        }),
         { isolationLevel: "RepeatableRead" },
       ),
       // 오늘 걷은 주문 수. 주문일이 아니라 **걷은 날** 기준이라 주문수집 화면과 같은 수다
@@ -306,12 +308,12 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     monthStart: Date,
     monthEnd: Date,
   ): Promise<TopProduct[]> {
-    const facts = await readOrderLineWindowFacts(tx, {
+    const facts = await this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), {
       organizationId,
       from: monthStart,
       to: monthEnd,
       excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-    }, this.channelAccounts);
+    });
     if (facts.window.revenue === null) return [];
 
     const lines = facts.orders.flatMap((order) => order.lines);

@@ -1,4 +1,3 @@
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type { ListingTrafficDailyFact, ListingTrafficWindowFacts } from '../../../../../channels/domain/listing/observation-facts';
@@ -10,11 +9,11 @@ import { AD_VAT_RATE, adConversions, performanceAdSpend } from '../../../../../a
 import { addDays, parseBusinessDate } from '../../../../../common/kst';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
-  readDailyOrderFacts,
-  readOrderLineWindowFacts,
+  ORDER_FACTS_PORT,
   type DailyOrderFacts,
+  type OrderFactsPort,
   type OrderLineWindowFacts,
-} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
+} from '../../../../../orders/application/port/in/facts/order-facts.port';
 import {
   businessDateText,
   businessDatesInWindow,
@@ -61,7 +60,7 @@ export class WingTrafficAggregationRepositoryAdapter
   constructor(
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
-    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
@@ -221,7 +220,7 @@ export class WingTrafficAggregationRepositoryAdapter
         };
         const [traffic, orders] = await Promise.all([
           this.channelListings.readTrafficWindow(ownerTransaction(tx), ownerDateInput),
-          readOrderLineWindowFacts(tx, orderInput, this.channelAccounts),
+          this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), orderInput),
         ]);
         const optionIds = [...new Set(
           orders.orders.flatMap((order) =>
@@ -268,8 +267,8 @@ export class WingTrafficAggregationRepositoryAdapter
             from: range.from,
             to: shiftBusinessDateKey(range.to, 1),
           }),
-          readOrderLineWindowFacts(tx, orderInput, this.channelAccounts),
-          readDailyOrderFacts(tx, orderInput),
+          this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), orderInput),
+          this.orderFacts.readDailyOrderFacts(ownerTransaction(tx), orderInput),
           this.channelListings.readTrafficWindow(ownerTransaction(tx), ownerDateInput),
         ]);
         return composeAdRateFacts(

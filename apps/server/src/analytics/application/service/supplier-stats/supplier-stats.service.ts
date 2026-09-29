@@ -10,7 +10,7 @@ import type {
   SupplierSalesRow,
 } from '@kiditem/shared/supplier-stats';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readPublishedOrderLines } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import { ORDER_FACTS_PORT, type OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
 import {
   PRODUCT_SOURCE_READ_PORT,
   type ProductSourceReadPort,
@@ -151,6 +151,7 @@ export class SupplierStatsService {
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_SOURCE_READ_PORT)
     private readonly inventory: ProductSourceReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   /**
@@ -276,7 +277,7 @@ export class SupplierStatsService {
           },
         },
       }),
-      readPublishedOrderLines(this.prisma, {
+      this.orderFacts.readPublishedOrderLines(ownerTransaction(this.prisma), {
         organizationId,
         excludedStatuses: ORDER_STATUS_EXCLUDE,
       }),

@@ -20,7 +20,7 @@ import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence
 import { ProductAvailabilityUseCase } from '../application/service/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository';
 import { ProductSourceReadUseCase } from '../application/service/product-source-read.usecase';
-import { channelFactTestPorts, profitCatalogTestReaders, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, profitCatalogTestReaders, advertisingLedgerTestReader, reviewFactsTestReader } from '../../test-helpers/channel-fact-ports';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository';
@@ -98,7 +98,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductTransactionalReadRepositoryAdapter(),
         new ProductSourceReadUseCase(new ProductSourceReadRepositoryAdapter(prismaService)),
         channelFacts.accounts,
-        profitCatalogReaders.content, advertisingLedgerTestReader(prismaService),
+        profitCatalogReaders.content, advertisingLedgerTestReader(prismaService), reviewFactsTestReader(),
       ),
     );
     sellpiaInventory = new SellpiaProductInventoryReader(

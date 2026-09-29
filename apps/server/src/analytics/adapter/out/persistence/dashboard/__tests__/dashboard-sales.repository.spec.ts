@@ -7,7 +7,7 @@ import {
 } from "@kiditem/shared/product-abc";
 import { DashboardSalesRepositoryAdapter } from "../dashboard-sales.repository";
 import { readProductAbcPublication } from "../../../../../../products/adapter/out/persistence/read/product-abc-publication.reader";
-import { readOrderLineWindowFacts } from "../../../../../../orders/adapter/out/persistence/read/order-facts.reader";
+import type { OrderFactsPort } from "../../../../../../orders/application/port/in/facts/order-facts.port";
 import { readCurrentSellpiaProductMonthlyFacts } from "../../../../../sellpia-product-sales/read/sellpia-product-monthly-facts";
 import { businessDatesInWindow } from "../../../../../domain/dashboard/period/dashboard-period";
 
@@ -16,15 +16,6 @@ vi.mock(
   () => ({
     readProductAbcPublication: vi.fn(),
     readPublishedProductAbcGrades: vi.fn().mockResolvedValue(new Map()),
-  }),
-);
-vi.mock(
-  "../../../../../../orders/adapter/out/persistence/read/order-facts.reader",
-  async (importOriginal) => ({
-    ...(await importOriginal<
-      typeof import("../../../../../../orders/adapter/out/persistence/read/order-facts.reader")
-    >()),
-    readOrderLineWindowFacts: vi.fn(),
   }),
 );
 vi.mock(
@@ -49,11 +40,11 @@ vi.mock(
 type SalesAdapterArgs = ConstructorParameters<typeof DashboardSalesRepositoryAdapter>;
 function salesRepository(prisma: SalesAdapterArgs[3], products: SalesAdapterArgs[4], abc: SalesAdapterArgs[5]) {
   const facts = channelFactTestPorts(prisma);
-  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, newTotal: null, byMall: {} }) }, advertisingLedgerTestReader(prisma as never));
+  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, newTotal: null, byMall: {} }) }, advertisingLedgerTestReader(prisma as never), { readOrderLineWindowFacts: mockedReadOrderLineWindowFacts } as unknown as OrderFactsPort);
 }
 
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
-const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
+const mockedReadOrderLineWindowFacts = vi.fn<OrderFactsPort["readOrderLineWindowFacts"]>();
 const mockedReadSellpiaFacts = vi.mocked(readCurrentSellpiaProductMonthlyFacts);
 
 function inventoryTransactionalRead() {

@@ -38,11 +38,10 @@ import {
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
 import {
-  readListingOptionOrderFacts,
-  readOrderWindowFacts,
-  readRepurchaseOrderFacts,
+  ORDER_FACTS_PORT,
+  type OrderFactsPort,
   type OrderWindowInput,
-} from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+} from '../../../../orders/application/port/in/facts/order-facts.port';
 
 const REPEATABLE_READ = { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead };
 
@@ -86,6 +85,7 @@ export class StatisticsService {
     @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort,
   ) {}
 
   /**
@@ -313,9 +313,10 @@ export class StatisticsService {
       excludedStatuses: REPURCHASE_EXCLUDED_STATUSES,
     };
     const { orderWindow, orders, lines, optionDisplays } = await this.prisma.$transaction(async (tx) => {
-      const orderWindow = await readOrderWindowFacts(tx, input, this.channelAccounts);
-      const orders = await readRepurchaseOrderFacts(tx, input);
-      const lines = await readListingOptionOrderFacts(tx, input);
+      const transaction = ownerTransaction(tx);
+      const orderWindow = await this.orderFacts.readOrderWindowFacts(transaction, input);
+      const orders = await this.orderFacts.readRepurchaseOrderFacts(transaction, input);
+      const lines = await this.orderFacts.readListingOptionOrderFacts(transaction, input);
       const optionIds = [...new Set(lines.map((line) => line.listingOptionId))];
       const optionDisplays = optionIds.length === 0 ? [] : await this.channelListings.readOptionIdentities(ownerTransaction(tx), { organizationId, optionIds }).then(async rows => { const listings = await this.channelListings.readDisplayFacts(ownerTransaction(tx), { organizationId, listingIds: [...new Set(rows.map(row => row.listingId))] }); const byId = new Map(listings.map(row => [row.id, row])); return rows.map(row => ({ id: row.optionId, listing: byId.get(row.listingId)! })); });
       return { orderWindow, orders, lines, optionDisplays };

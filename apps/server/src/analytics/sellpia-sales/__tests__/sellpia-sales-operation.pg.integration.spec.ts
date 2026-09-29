@@ -26,7 +26,7 @@ import { SellpiaSalesController } from '../sellpia-sales.controller';
 import { SellpiaSalesPublicationRepository } from '../sellpia-sales-publication.repository';
 import { SellpiaSalesService } from '../sellpia-sales.service';
 import type { PrismaService } from '../../../prisma/prisma.service';
-import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
+import { orderFactsTestReader, profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
 import { seedAdBillings, seedAdProductDays, seedAdReportRun, seedCoupangAdAccount } from '../../../test-helpers/ad-ledger-seeds';
 import { WingTrafficAggregationRepositoryAdapter } from '../../adapter/out/persistence/dashboard/wing-traffic-aggregation.repository';
 
@@ -272,7 +272,7 @@ describe('analytics.sellpia_sales owner over the operation contract + disposable
       const service = prisma as unknown as PrismaService;
       const readers = profitCatalogTestReaders(service);
       return new SellpiaSalesService(
-        new WingTrafficAggregationRepositoryAdapter(readers.listings, service, readers.accounts, readers.ads),
+        new WingTrafficAggregationRepositoryAdapter(readers.listings, service, orderFactsTestReader(service), readers.ads),
         service,
       ).getSummary(ORG, from, to, knownThrough);
     };

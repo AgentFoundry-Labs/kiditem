@@ -1,10 +1,11 @@
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
 import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import {
   ORDER_FACT_EXCLUDED_STATUSES,
-  readOrderLineWindowFacts,
-} from '../../../../../orders/adapter/out/persistence/read/order-facts.reader';
+  ORDER_FACTS_PORT,
+  type OrderFactsPort,
+} from '../../../../../orders/application/port/in/facts/order-facts.port';
 import type {
   DashboardTrendRepositoryPort,
   TrendRevenueRow,
@@ -18,7 +19,7 @@ export class DashboardTrendRepositoryAdapter
   implements DashboardTrendRepositoryPort
 {
   constructor(private readonly prisma: PrismaService,
-    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort) {}
+    @Inject(ORDER_FACTS_PORT) private readonly orderFacts: OrderFactsPort) {}
 
   async fetchTrendRevenueRows(
     organizationId: string,
@@ -26,12 +27,12 @@ export class DashboardTrendRepositoryAdapter
     until: Date,
   ): Promise<TrendRevenueRow[]> {
     const facts = await this.prisma.$transaction(
-      (tx) => readOrderLineWindowFacts(tx, {
+      (tx) => this.orderFacts.readOrderLineWindowFacts(ownerTransaction(tx), {
         organizationId,
         from: since,
         to: until,
         excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-      }, this.channelAccounts),
+      }),
       { isolationLevel: 'RepeatableRead' },
     );
     const revenueByDate = new Map<string, number>(

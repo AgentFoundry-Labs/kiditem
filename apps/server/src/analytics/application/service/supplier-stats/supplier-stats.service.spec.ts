@@ -1,11 +1,10 @@
 import { channelFactTestPorts } from '../../../../test-helpers/channel-fact-ports';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { readPublishedOrderLines } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
+import type { OrderFactsPort } from '../../../../orders/application/port/in/facts/order-facts.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { SupplierStatsService } from './supplier-stats.service';
 
-vi.mock('../../../../orders/adapter/out/persistence/read/order-facts.reader', () => ({
-  readPublishedOrderLines: vi.fn(),
-}));
+const readPublishedOrderLines = vi.fn<OrderFactsPort['readPublishedOrderLines']>();
 
 /**
  * The projection policy — primary supplier, extended-cost revenue split and
@@ -80,7 +79,7 @@ describe('SupplierStatsService', () => {
     prisma = makePrisma();
     service = new SupplierStatsService(channelFactTestPorts(prisma as never).recipes, prisma as never, {
       findByIds: async (_organizationId: string, ids: string[]) => ids.flatMap((id) => identities.has(id) ? [identities.get(id)!] : []),
-    } as never);
+    } as never, { readPublishedOrderLines } as unknown as OrderFactsPort);
   });
 
   it('allocates bundle revenue once by extended primary-supplier cost and counts physical units', async () => {
@@ -117,7 +116,7 @@ describe('SupplierStatsService', () => {
     const report = await service.getSalesBySupplier('organization-1');
 
     // Cancelled and returned orders are not supplier sales.
-    expect(readPublishedOrderLines).toHaveBeenCalledWith(prisma, {
+    expect(readPublishedOrderLines).toHaveBeenCalledWith(ownerTransaction(prisma as never), {
       organizationId: 'organization-1',
       excludedStatuses: ['cancelled', 'returned'],
     });

@@ -1,4 +1,4 @@
-import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader, reviewFactsTestReader } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD, PRODUCT_ABC_ABSOLUTE_AD_FREE_PAYLOAD_HASH, productAbcDisplayStatus } from '@kiditem/shared/product-abc';
@@ -50,7 +50,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
       // The panel's rows come from the alerts module, not from this adapter.
       alerts,
       inventoryTransactionalRead,
-      new ProductSourceReadRepositoryAdapter(prisma as never), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content, advertisingLedgerTestReader(prisma as never)
+      new ProductSourceReadRepositoryAdapter(prisma as never), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content, advertisingLedgerTestReader(prisma as never), reviewFactsTestReader()
     ));
     inventory = new SellpiaProductInventoryReader(prisma as never,
       availability,
