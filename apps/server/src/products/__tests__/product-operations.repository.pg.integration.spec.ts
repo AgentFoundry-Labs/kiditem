@@ -70,7 +70,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const dataStatusRepository = new ProductOperationsDataStatusRepositoryAdapter(
       prismaService,
       new MasterProductProfitabilityReadService(sellpia, prismaService, transactionalRead),
-      transactionalRead,
       channelAccounts,
       channelFactTestPorts(prismaService as never).listings,
     );
@@ -515,7 +514,6 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const adapter = new ProductOperationsDataStatusRepositoryAdapter(
       extendedPrisma as unknown as PrismaService,
       originalEvidence,
-      new ProductTransactionalReadRepositoryAdapter(),
       channelAccounts,
       channelFactTestPorts(extendedPrisma as never).listings,
     );
@@ -1797,7 +1795,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const selectedStatus = new ProductDataStatusUseCase(
       new ProductOperationsDataStatusRepositoryAdapter(prisma as PrismaService, {
         load: async (input) => ({ ...await profitability.load(input), actualCutoff: cutoff }),
-      }, new ProductTransactionalReadRepositoryAdapter(), channelAccounts, channelFactTestPorts(prisma as never).listings),
+      }, channelAccounts, channelFactTestPorts(prisma as never).listings),
     );
     const result = await selectedStatus.getStatus(TEST_ORGANIZATION_ID, 7);
 
@@ -1905,6 +1903,38 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       },
       latestAttempt: null,
     });
+  });
+
+  it('기본 "판매중"은 재고와 무관하고, "판매중·재고 있음"은 재고 있는 판매중 상품만이다(KID-333 Q2)', async () => {
+    const inStock = await seedProduct(TEST_ORGANIZATION_ID, { code: 'KI-Q2-STOCK', name: 'In stock', currentStock: 3 });
+    const soldOut = await seedProduct(TEST_ORGANIZATION_ID, { code: 'KI-Q2-ZERO', name: 'Sold out', currentStock: 0 });
+    await seedProduct(TEST_ORGANIZATION_ID, { code: 'KI-Q2-UNLISTED', name: 'Unlisted', currentStock: 9 });
+    const account = await prisma.channelAccount.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'kidkids', name: '키드키즈', status: 'configured' },
+    });
+    for (const product of [inStock, soldOut]) {
+      const listing = await prisma.channelListing.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.id, externalId: `Q2-${product.code}`, status: '판매중' },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, listingId: listing.id, externalOptionId: `Q2-${product.code}-1` },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: product.id, quantity: 1 },
+      });
+    }
+    const list = (activeStatus: 'active' | 'selling_in_stock') => service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1, limit: 50, periodDays: 7, activeStatus,
+    });
+
+    const selling = await list('active');
+    expect(selling.items.map((item) => item.id).sort()).toEqual([inStock.id, soldOut.id].sort());
+    expect(selling.total).toBe(2);
+    expect(selling.summary.sellingInStockCount).toBe(1);
+
+    const withStock = await list('selling_in_stock');
+    expect(withStock.items.map((item) => item.id)).toEqual([inStock.id]);
+    expect(withStock.total).toBe(1);
   });
 
   it('판매중 필터는 Channels 정본 판정을 따른다 — 원본 판매상태가 판매중지로 바뀌면 빠진다', async () => {

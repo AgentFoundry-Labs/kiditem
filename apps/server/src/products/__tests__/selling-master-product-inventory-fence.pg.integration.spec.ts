@@ -1,4 +1,3 @@
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
@@ -10,7 +9,7 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
-import { listSellingMasterProductIds } from '../adapter/out/persistence/selling-master-product.query';
+import { listInStockMasterProductIds } from '../adapter/out/persistence/selling-master-product.query';
 
 describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -77,7 +76,7 @@ describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
     });
 
     await expect(prisma.$transaction((tx) =>
-      listSellingMasterProductIds(tx, TEST_ORGANIZATION_ID, undefined, inventory, channelFactTestPorts(prisma as never).listings)))
+      listInStockMasterProductIds(tx, TEST_ORGANIZATION_ID, [publishedProductId, retainedProductId], inventory)))
       .resolves.toEqual([publishedProductId, retainedProductId].sort());
   });
 });

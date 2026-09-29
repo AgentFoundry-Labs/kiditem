@@ -116,7 +116,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(
         prismaService,
         profitability,
-        new ProductTransactionalReadRepositoryAdapter(),
         channelAccounts,
         channelFactTestPorts(prismaService as never).listings,
       ),

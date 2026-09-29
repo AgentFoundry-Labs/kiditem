@@ -163,6 +163,7 @@ export class ProductQueryUseCase implements ProductQueryPort {
       summary: {
         ...summarizeProducts(
           withMonthly,
+          new Set(raw.sellingInStockMasterProductIds ?? []),
           summarizeChannelProducts(raw.sellingChannelProducts ?? []),
           contributionOverview(contribution),
           dataStatus.displayDataAsOf,
@@ -173,10 +174,15 @@ export class ProductQueryUseCase implements ProductQueryPort {
   }
 
   async getProduct(organizationId: string, masterProductId: string) {
-    const [product, dataStatus] = await Promise.all([
+    // 두 읽기가 모두 끝난 뒤에 실패를 던진다 — 없는 상품이어도 상태 읽기 트랜잭션을 요청 뒤에 남기지 않는다.
+    const [productRead, dataStatusRead] = await Promise.allSettled([
       this.repository.getProduct(organizationId, masterProductId),
       this.dataStatusRepository.read(organizationId, 30),
     ]);
+    if (productRead.status === 'rejected') throw productRead.reason;
+    if (dataStatusRead.status === 'rejected') throw dataStatusRead.reason;
+    const product = productRead.value;
+    const dataStatus = dataStatusRead.value;
     const contribution = await this.loadContribution(
       organizationId,
       dataStatus,
@@ -290,6 +296,7 @@ function noDirectSales(): ProductDepletionProjection {
 
 function summarizeProducts(
   products: MasterProductOperationsListItem[],
+  sellingInStockIds: ReadonlySet<string>,
   channelProductCounts: ProductOperationsChannelProductCount[],
   contributionOverviewValue: ProductAbcContributionOverview | null,
   displayDataAsOf: string | null,
@@ -305,6 +312,7 @@ function summarizeProducts(
     const evaluation = product.abcEvaluation;
     if (!counts.abcFormula && evaluation?.formula) counts.abcFormula = evaluation.formula;
     counts.inventoryStatusCounts[deriveProductInventoryStatus(product)] += 1;
+    if (sellingInStockIds.has(product.id)) counts.sellingInStockCount += 1;
     if (product.contribution?.operatingProfit !== null
       && product.contribution?.operatingProfit !== undefined
       && product.contribution.operatingProfit < 0) {
@@ -325,6 +333,7 @@ function summarizeProducts(
     abcOfficialCutoffDate,
     displayDataAsOf,
     channelProductCounts,
+    sellingInStockCount: 0,
     inventoryStatusCounts: {
       sellable: 0,
       out_of_stock: 0,

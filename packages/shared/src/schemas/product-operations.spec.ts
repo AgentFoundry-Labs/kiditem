@@ -196,6 +196,7 @@ describe('product operations contracts', () => {
       abcFormula: null,
       abcOfficialCutoffDate: '2026-07-31',
       displayDataAsOf: '2026-07-31',
+      sellingInStockCount: 0,
       channelProductCounts: [{
         channelAccountId: '00000000-0000-4000-8000-000000000004',
         channel: 'coupang',
@@ -508,6 +509,7 @@ describe('product operations contracts', () => {
         abcFormula: null,
         abcOfficialCutoffDate: '2026-07-31',
         displayDataAsOf: '2026-07-31',
+        sellingInStockCount: 0,
         channelProductCounts: [{
           channelAccountId: '00000000-0000-4000-8000-000000000004',
           channel: 'coupang',

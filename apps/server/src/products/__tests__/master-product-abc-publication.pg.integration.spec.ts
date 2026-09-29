@@ -197,7 +197,6 @@ function productOperationsDataStatus(prisma: PrismaClient): ProductDataStatusUse
     new ProductOperationsDataStatusRepositoryAdapter(
       prisma as never,
       profitabilityEvidence(prisma),
-      new ProductTransactionalReadRepositoryAdapter(),
       channelFactTestPorts(prisma as never).accounts,
       channelFactTestPorts(prisma as never).listings,
     ),

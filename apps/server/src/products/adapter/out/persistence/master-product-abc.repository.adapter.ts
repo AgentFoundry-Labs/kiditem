@@ -75,7 +75,6 @@ export class MasterProductAbcRepositoryAdapter implements ProductAbcRepositoryPo
         tx,
         organizationId,
         undefined,
-        this.inventoryTransactionalRead,
         this.channelListings,
       ),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -130,7 +129,6 @@ async function publishTx(
       tx,
       input.organizationId,
       undefined,
-      inventoryTransactionalRead,
       channelListings,
     ),
   );

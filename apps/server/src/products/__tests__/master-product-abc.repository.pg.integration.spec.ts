@@ -133,7 +133,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   });
 
   it('does not create history for null-to-grade or grade-to-null changes', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const { productId, listingId, formulaVersionId, sources } = await fixture(prisma);
     await repository.publish(publication({
       formulaVersionId,
       sourceFences: sources,
@@ -141,7 +141,8 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
       candidates: [candidate(productId, sources, 'A')],
     }));
     let state = await repository.getFormulaState(TEST_ORGANIZATION_ID);
-    await prisma.masterProduct.update({ where: { id: productId }, data: { currentStock: 0 } });
+    // 판매를 멈춘 상품은 ABC 대상에서 빠진다(재고와 무관, KID-333 Q2).
+    await prisma.channelListing.update({ where: { id: listingId }, data: { rawJson: { saleStatus: '판매중지' } } });
 
     await expect(repository.publish(publication({
       formulaVersionId,
@@ -163,7 +164,7 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
   // Publication compares, records history, and clears from the retained
   // evaluations alone; the product row has no grade column (KID-90).
   it('publishes grade changes and clears from retained evaluations alone', async () => {
-    const { productId, formulaVersionId, sources } = await fixture(prisma);
+    const { productId, listingId, formulaVersionId, sources } = await fixture(prisma);
     await repository.publish(publication({
       formulaVersionId,
       sourceFences: sources,
@@ -189,11 +190,11 @@ describe('MasterProductAbcRepositoryAdapter (PostgreSQL)', () => {
         select: { oldGrade: true, newGrade: true, publicationRevision: true },
       })).resolves.toEqual([{ oldGrade: 'B', newGrade: 'A', publicationRevision: 2 }]);
 
-      // A product that runs out of stock leaves the target set; its retained
-      // evaluation is the one publication clears.
-      await tx.masterProduct.update({
-        where: { id: productId },
-        data: { currentStock: 0 },
+      // A product that stops selling leaves the target set (stock does not
+      // matter, KID-333 Q2); its retained evaluation is the one publication clears.
+      await tx.channelListing.update({
+        where: { id: listingId },
+        data: { rawJson: { saleStatus: '판매중지' } },
       });
       await expect(inTransaction.publish(publication({
         formulaVersionId,

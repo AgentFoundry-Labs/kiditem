@@ -36,7 +36,7 @@ import {
   type ProductSourceReadPort,
 } from '../../../application/port/in/product-source-read.port';
 import { lockProductSource } from './transaction/product-source-lock';
-import { listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
+import { listInStockMasterProductIds, listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
 import { CHANNEL_LISTING_QUERY_PORT } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import type { ProductSourceChange } from '../../../domain/product-source-change';
 import type {
@@ -187,18 +187,23 @@ implements ProductOperationsRepositoryPort {
     const cutoff = new Date(`${productAbcEvidenceCutoff(new Date())}T00:00:00.000Z`);
     const periodStart = addDays(cutoff, -(query.periodDays - 1));
     const periodEnd = addDays(cutoff, 1);
-    const { sellingMasterProductIds, sellingChannelProducts, rows, inventoryIdentities, adByListing, traffic, adCoverage, orders, orderLines } =
+    const { sellingMasterProductIds, sellingInStockMasterProductIds, sellingChannelProducts, rows, inventoryIdentities, adByListing, traffic, adCoverage, orders, orderLines } =
       await this.prisma.$transaction(async (tx) => {
         const sellingMasterProductIds = await listSellingMasterProductIds(
           tx,
           organizationId,
           undefined,
-          this.inventoryTransactionalRead,
           this.channelListings,
+        );
+        const sellingInStockMasterProductIds = await listInStockMasterProductIds(
+          tx,
+          organizationId,
+          sellingMasterProductIds,
+          this.inventoryTransactionalRead,
         );
         const sellingChannelProducts = await this.listSellingChannelProducts(tx, organizationId);
         const rows = await attachChannelListings(tx, organizationId, await tx.masterProduct.findMany({
-          where: productListWhere(organizationId, query, sellingMasterProductIds),
+          where: productListWhere(organizationId, query, sellingMasterProductIds, sellingInStockMasterProductIds),
           orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
         }));
         const inventoryIdentities = await this.readInventoryIdentitiesInTransaction(
@@ -235,6 +240,7 @@ implements ProductOperationsRepositoryPort {
         const orderLines = await readListingOptionOrderFacts(tx, orderWindow);
         return {
           sellingMasterProductIds,
+          sellingInStockMasterProductIds,
           sellingChannelProducts,
           rows,
           inventoryIdentities,
@@ -293,6 +299,7 @@ implements ProductOperationsRepositoryPort {
       page: query.page,
       limit: query.limit,
       sellingChannelProducts,
+      sellingInStockMasterProductIds,
     };
   }
 
@@ -412,11 +419,13 @@ function productListWhere(
   organizationId: string,
   query: MasterProductOperationsListQuery,
   sellingMasterProductIds: readonly string[],
+  sellingInStockMasterProductIds: readonly string[],
 ): Prisma.MasterProductWhereInput {
   const search = query.query?.trim();
   return {
     organizationId,
     ...(query.activeStatus === 'active' ? { id: { in: [...sellingMasterProductIds] } } : {}),
+    ...(query.activeStatus === 'selling_in_stock' ? { id: { in: [...sellingInStockMasterProductIds] } } : {}),
     ...(query.activeStatus === 'inactive' ? { id: { notIn: [...sellingMasterProductIds] } } : {}),
     ...(search ? {
       OR: [

@@ -114,6 +114,7 @@ const state = vi.hoisted(() => ({
       abcFormula: null,
       abcOfficialCutoffDate: '2026-07-31',
       displayDataAsOf: '2026-07-31',
+      sellingInStockCount: 23,
       channelProductCounts: [{
         channelAccountId: '00000000-0000-4000-8000-000000000004',
         channel: 'coupang',
@@ -195,7 +196,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('heading', { level: 1, name: '상품 운영 센터' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
-    expect(screen.getByText('판매중 재고상품')).toBeInTheDocument();
+    expect(screen.getByText('판매중 상품')).toBeInTheDocument();
     expect(screen.getByText('판매중 채널 등록상품')).toBeInTheDocument();
     const channelCard = screen.getByText('판매중 채널 등록상품').closest('article');
     expect(channelCard).not.toBeNull();
@@ -205,7 +206,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText('채널 미연결')).not.toBeInTheDocument();
     expect(screen.queryByText('알림')).not.toBeInTheDocument();
     expect(screen.queryByText('Sellpia 가져오기 내역')).not.toBeInTheDocument();
-    const catalogCard = screen.getByText('판매중 재고상품').closest('article');
+    const catalogCard = screen.getByText('판매중 상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('A등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('B등급')).toBeInTheDocument();
@@ -365,6 +366,19 @@ describe('<ProductsPageContent>', () => {
     expect(state.setAbcGrade).toHaveBeenCalledWith('unclassified');
   });
 
+  it('판매중 카드는 재고와 무관한 판매중 수이고, 재고 있음 칸이 재고 있는 판매중만 거른다(KID-333 Q2)', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    const catalogCard = screen.getByText('판매중 상품').closest('article');
+    expect(within(catalogCard!).getByText('재고 있음')).toBeInTheDocument();
+    expect(within(catalogCard!).getByText('23')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '재고 있음 상품 보기' }));
+    expect(state.setActiveStatus).toHaveBeenCalledWith('selling_in_stock');
+
+    fireEvent.change(screen.getByRole('combobox', { name: '상품 상태' }), { target: { value: 'selling_in_stock' } });
+    expect(state.setActiveStatus).toHaveBeenLastCalledWith('selling_in_stock');
+  });
+
   it('routes automatic ABC grade summaries without exposing calculation-state filters', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
@@ -438,7 +452,7 @@ describe('<ProductsPageContent>', () => {
 
     render(<ProductsPageContent headingLevel={1} />);
 
-    const catalogCard = screen.getByText('판매중 재고상품').closest('article');
+    const catalogCard = screen.getByText('판매중 상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('126')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText('Coupang Wing')).not.toBeInTheDocument();

@@ -18,7 +18,6 @@ import {
   parseBusinessDate,
   shiftBusinessDateKey,
 } from '../../../../common/kst';
-import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../application/port/in/product-transactional-read.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { readProductAbcPublication } from './read/product-abc-publication.reader';
 import { listSellingMasterProductIds, type SellingListingReader } from './selling-master-product.query';
@@ -39,8 +38,6 @@ implements ProductOperationsDataStatusRepositoryPort {
     private readonly prisma: PrismaService,
     @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
     private readonly evidence: ProfitabilityEvidence,
-    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
-    private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
     @Inject(CHANNEL_ACCOUNT_PORT)
     private readonly channelAccounts: ChannelAccountPort,
     @Inject(CHANNEL_LISTING_QUERY_PORT)
@@ -75,7 +72,6 @@ implements ProductOperationsDataStatusRepositoryPort {
           tx,
           organizationId,
           undefined,
-          this.inventoryTransactionalRead,
           this.channelListings,
         ),
       ]),

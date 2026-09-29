@@ -148,6 +148,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           data={state.overviewData}
           onShowAbcGrade={state.setAbcGrade}
           onShowInventoryFocus={state.setInventoryFocus}
+          onShowActiveStatus={state.setActiveStatus}
         />
       ) : null}
 
@@ -171,6 +172,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         >
           <option value="all">전체 상태</option>
           <option value="active">판매중</option>
+          <option value="selling_in_stock">판매중 · 재고 있음</option>
           <option value="inactive">판매중지</option>
         </select>
         <div

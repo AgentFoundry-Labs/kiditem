@@ -11,12 +11,12 @@ export type SellingListingReader = Pick<ChannelListingFactQueries, 'readSellingL
  * cannot diverge.
  *
  * 판매중은 Channels 정본 판정(`readSellingListings`, KID-333 ②)을 읽는다 — 전 채널, 쓸 수 있는 계정.
+ * 재고와 무관하다. 재고 조건은 상품 허브 거르기에서만 쓴다(`listInStockMasterProductIds`, KID-333 Q2).
  */
 export async function listSellingMasterProductIds(
   transaction: Prisma.TransactionClient,
   organizationId: string,
   candidateIds: readonly string[] | undefined,
-  inventory: ProductTransactionalReadPort,
   listings: SellingListingReader,
 ): Promise<string[]> {
   if (candidateIds && candidateIds.length === 0) return [];
@@ -25,37 +25,21 @@ export async function listSellingMasterProductIds(
     organizationId,
     usableAccountsOnly: true,
   })).filter((listing) => listing.saleState === 'on_sale');
-  const masterProductIdsToRead = [...new Set(selling.flatMap((listing) =>
-    listing.options.flatMap((option) => option.components.map((component) => component.masterProductId))))];
-  const availability = masterProductIdsToRead.length === 0
-    ? []
-    : (await readInventoryAvailabilityThroughPort(
-      transaction,
-      organizationId,
-      masterProductIdsToRead,
-      inventory,
-    )).items;
-  const availabilityBySkuId = new Map(availability.map((item) => [
-    item.masterProductId,
-    item,
-  ]));
-  const masterProductIds = new Set<string>();
-  for (const listing of selling) {
-    for (const option of listing.options) {
-      for (const component of option.components) {
-        const masterProductId = component.masterProductId;
-        const stock = availabilityBySkuId.get(masterProductId);
-        if (
-          stock !== undefined
-          && stock.currentStock > 0
-          && (!candidateIdSet || candidateIdSet.has(masterProductId))
-        ) {
-          masterProductIds.add(masterProductId);
-        }
-      }
-    }
-  }
-  return [...masterProductIds].sort();
+  const masterProductIds = new Set(selling.flatMap((listing) =>
+    listing.options.flatMap((option) => option.components.map((component) => component.masterProductId))));
+  return [...masterProductIds].filter((id) => !candidateIdSet || candidateIdSet.has(id)).sort();
+}
+
+/** 재고 있는(`currentStock > 0`) 상품만 — 상품 허브 `selling_in_stock` 거르기와 카드 칸(KID-333 Q2). */
+export async function listInStockMasterProductIds(
+  transaction: Prisma.TransactionClient,
+  organizationId: string,
+  masterProductIds: readonly string[],
+  inventory: ProductTransactionalReadPort,
+): Promise<string[]> {
+  if (masterProductIds.length === 0) return [];
+  const availability = await readInventoryAvailabilityThroughPort(transaction, organizationId, [...masterProductIds], inventory);
+  return availability.items.filter((item) => item.currentStock > 0).map((item) => item.masterProductId).sort();
 }
 
 async function readInventoryAvailabilityThroughPort(

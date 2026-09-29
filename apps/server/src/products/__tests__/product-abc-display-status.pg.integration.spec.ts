@@ -124,7 +124,6 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       new ProductOperationsDataStatusRepositoryAdapter(
         prismaService,
         evidence,
-        new ProductTransactionalReadRepositoryAdapter(),
         channelAccounts,
         channelFactTestPorts(prismaService as never).listings,
       ),
