@@ -51,61 +51,13 @@
       throw new Error("Unsupported collection session action");
     }
 
-    function handleMessage(msg, sender, sendResponse) {
-      if (!msg || typeof msg !== "object" || Array.isArray(msg)) return false;
-      const senderEnvironment = environmentContext.resolveSender(sender);
-      if (!senderEnvironment) return false;
-      const environmentId = senderEnvironment.environmentId;
-
-      if (msg.action === "ping") {
-        sendResponse({
-          success: true,
-          version: chromeApi.runtime.getManifest().version,
-          capabilities: domains.capabilities(),
-        });
-        return false;
-      }
-
-      const sourceAction = domains.forExternalAction(msg.action);
-      if (sourceAction) {
-        let input;
-        try {
-          input = sourceAction.validate(msg);
-        } catch (error) {
-          sendResponse({
-            success: false,
-            error: error?.message || "Invalid source collection request",
-          });
-          return false;
-        }
-        // Start the handler inside the chain: one that throws before returning
-        // a promise still owes the web app an answer.
-        Promise.resolve()
-          .then(() => sourceAction.handle(input, environmentId))
-          .then(sendResponse)
-          .catch((error) =>
-            sendResponse({
-              success: false,
-              errorCode: typeof error?.code === "string" && error.code.trim()
-                ? error.code.trim().slice(0, 100)
-                : "SOURCE_COLLECTION_REQUEST_FAILED",
-              error: error?.message || "수집 요청을 처리하지 못했습니다.",
-            }),
-          );
-        return true;
-      }
-
-      if (!SESSION_ACTIONS.has(msg.action)) return false;
-
-      handleSessionAction(msg, environmentId)
-        .then(sendResponse)
-        .catch((error) =>
-          sendResponse({
-            success: false,
-            error: error?.message || "Collection session request failed",
-          }),
-        );
-      return true;
+    // 웹앱 메시지는 새 런타임 dispatch 하나가 받는다(KID-366, `extensions/src/core/dispatch.ts`). 세션 액션은 카카오 attempt
+    // 경로(KID-379)에 남은 것이라, 옛 표에 등록해 새 dispatch가 과도기 위임으로 여기로 넘기게 한다(wave9에서 삭제).
+    function sessionActions() {
+      return Object.fromEntries([...SESSION_ACTIONS].map((action) => [action, {
+        validate: (msg) => msg,
+        handle: (msg, environmentId) => handleSessionAction(msg, environmentId),
+      }]));
     }
 
     function handlePort(port) {
@@ -123,11 +75,11 @@
     }
 
     function install() {
-      chromeApi.runtime.onMessageExternal.addListener(handleMessage);
+      domains.register({ externalActions: sessionActions() });
       chromeApi.runtime.onConnectExternal?.addListener(handlePort);
     }
 
-    return Object.freeze({ handleMessage, handlePort, install });
+    return Object.freeze({ handleSessionAction, handlePort, install });
   }
 
   root.KidItemExternalDispatch = Object.freeze({ create, SESSION_ACTIONS });

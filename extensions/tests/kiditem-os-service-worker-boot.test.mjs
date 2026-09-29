@@ -544,9 +544,9 @@ test('Wing tab completion still resolves and cleans up listeners before timeout'
 test('통합 서비스워커가 두 도메인 워커를 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();
 
-  // 도메인 워커 2개(쿠팡·주문) + 통합 dispatch = 외부 리스너 3개. 소싱 수집은 새 런타임의 실행 kind라(KID-360)
-  // 외부 리스너를 따로 두지 않고 KidItemDomains에 operation.start를 건다.
-  assert.equal(fake.externalMessageListeners.length, 3);
+  // 웹앱 메시지는 새 런타임 dispatch 하나가 받는다(KID-366) — 옛 워커는 KidItemDomains 표에만 올리고, 새 dispatch가
+  // 모르는 액션을 그 표로 넘긴다.
+  assert.equal(fake.externalMessageListeners.length, 1);
   assert.ok(context.KidItemDomains);
 });
 
@@ -675,7 +675,8 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
   // 추천 키워드 수집은 operation.start{kind: sourcing.coupang_keyword_suggestion}로만 시작한다(KID-360).
   assert.equal(context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions'), null);
   assert.equal(context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1, undefined);
-  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
+  // operation.start·cancel은 새 런타임 dispatch 자신의 액션이다(KID-366) — 옛 표에 없다.
+  assert.equal(context.KidItemDomains.forExternalAction('operation.start'), null);
 });
 
 test('retired advertising account-day KPI actions, content step and capability are not registered', () => {
@@ -805,7 +806,14 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
   ]) {
     assert.equal(context.KidItemDomains.forExternalAction(retired), null, retired);
   }
-  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
+  assert.equal(context.KidItemDomains.forExternalAction('operation.start'), null);
+});
+
+test('operation.start·cancel은 새 런타임 dispatch가 shared 스키마로 검증해 답한다', async () => {
+  const { fake } = bootServiceWorker();
+  const response = await externalRequest(fake, { action: 'operation.cancel', operationId: 'not-a-uuid' });
+  assert.equal(response.success, false);
+  assert.equal(response.errorCode, 'VALIDATION_FAILED');
 });
 
 // 옛 소싱 워커가 받던 인증 전달(KID-360 이후 쿠팡 워커 하나가 받는다): 보낸 KidItem 환경의 프로필에만 쓴다.

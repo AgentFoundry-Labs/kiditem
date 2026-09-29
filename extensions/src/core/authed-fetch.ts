@@ -23,7 +23,8 @@ export interface ApiDeps {
 }
 
 export interface ApiClient {
-  apiPort(environmentId: EnvironmentId): ApiPort;
+  /** 표에 없는 환경 id는 `VALIDATION_FAILED`로 던진다. */
+  apiPort(environmentId: string): ApiPort;
 }
 
 export function createApiClient(deps: ApiDeps): ApiClient {
@@ -79,6 +80,7 @@ export function createApiClient(deps: ApiDeps): ApiClient {
       const environment = requireEnvironment(environmentId);
       return {
         async fetch(path, init: ApiRequestInit = {}) {
+          const { environmentId: id } = environment;
           let url: string;
           try {
             url = new URL(path, `${environment.apiOrigin}/`).toString();
@@ -86,12 +88,12 @@ export function createApiClient(deps: ApiDeps): ApiClient {
             url = '';
           }
           if (!url || new URL(url).origin !== environment.apiOrigin) {
-            throw new RuntimeError('VALIDATION_FAILED', '서버 주소를 벗어난 요청입니다.', { environmentId });
+            throw new RuntimeError('VALIDATION_FAILED', '서버 주소를 벗어난 요청입니다.', { environmentId: id });
           }
-          let token = await deps.store.getAccessToken(environmentId);
+          let token = await deps.store.getAccessToken(id);
           if (!token) {
             token = await withCallerSignal(resync(environment, null), init.signal);
-            if (!token) throw new RuntimeError('AUTH_REQUIRED', '로그인이 필요합니다. 다시 로그인해 주세요.', { environmentId });
+            if (!token) throw new RuntimeError('AUTH_REQUIRED', '로그인이 필요합니다. 다시 로그인해 주세요.', { environmentId: id });
           }
           const response = await fetchOnce(environment, url, init, token);
           if (response.status !== 401) return response;

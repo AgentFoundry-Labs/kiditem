@@ -184,43 +184,27 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 });
 
-// ═══ 대시보드(외부 웹페이지)에서 메시지 수신 ═══
-chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
-  const senderEnvironment = adsEnvironmentContext.resolveSender(sender);
-  if (!senderEnvironment) {
-    sendResponse({ success: false, error: "Untrusted KidItem web origin" });
-    return false;
-  }
-  const environmentId = senderEnvironment.environmentId;
-  msg = { ...msg, environmentId };
-
-  // 수집 세션 공통 액션(list/get/cancel/openAttentionTab)은 통합
-  // 서비스워커가 producer 로 도메인을 골라 처리한다. 도메인 워커가 각자
-  // 응답하면 세 리스너가 같은 메시지에 경쟁 응답하게 된다.
-
-  // ping 은 통합 서비스워커가 세 도메인의 capabilities 를 합쳐 한 번만 응답한다.
-  // 이 도메인의 capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
-
-  if (msg.action === "setAuthToken") {
-    const token = typeof msg.token === "string" ? msg.token : null;
-    if (!token) {
-      sendResponse({ success: false, error: "token required" });
-      return;
-    }
-    adsEnvironmentContext.setAccessToken(environmentId, token)
-      .then(() => sendResponse({ success: true, environmentId }))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-  if (msg.action === "clearAuthToken") {
-    adsEnvironmentContext.clearAccessToken(environmentId)
-      .then(() => sendResponse({ success: true, environmentId }))
-      .catch((error) => sendResponse({ success: false, error: error.message }));
-    return true;
-  }
-
-});
+// ═══ 대시보드(외부 웹페이지) 메시지 ═══
+// 새 런타임 dispatch가 받아 과도기 위임으로 넘긴다(KID-366) — 환경은 보내는 창 origin으로 정해져 온다.
+const coupangExternalActions = {
+  setAuthToken: {
+    validate(msg) {
+      if (typeof msg?.token !== "string" || !msg.token) throw new Error("token required");
+      return { token: msg.token };
+    },
+    handle: async (input, environmentId) => {
+      await adsEnvironmentContext.setAccessToken(environmentId, input.token);
+      return { success: true, environmentId };
+    },
+  },
+  clearAuthToken: {
+    validate: () => ({}),
+    handle: async (_input, environmentId) => {
+      await adsEnvironmentContext.clearAccessToken(environmentId);
+      return { success: true, environmentId };
+    },
+  },
+};
 
 function buildCoupangSearchUrl(keyword) {
   return `${COUPANG_SEARCH_URL}?component=&q=${encodeURIComponent(keyword)}&channel=user`;
@@ -472,6 +456,7 @@ function sleep(ms) {
 // ── 통합 서비스워커 등록 ──
 // 이 도메인에는 수집 세션 producer가 없다 — 윙 카탈로그·상품은 실행 kind다(KID-365).
 KidItemDomains.register({
+  externalActions: coupangExternalActions,
   capabilities: {
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,

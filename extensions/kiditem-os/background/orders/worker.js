@@ -621,20 +621,13 @@ function createMallSessionDriver() {
   };
 }
 
-chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
-  const rawMessage = msg;
-  const senderEnvironment = ordersEnvironmentContext.resolveSender(sender);
-  if (!senderEnvironment) {
-    sendResponse({ success: false, error: "Untrusted KidItem web origin" });
-    return false;
-  }
-  const environmentId = senderEnvironment.environmentId;
+// 웹앱 메시지는 새 런타임 dispatch가 받고(KID-366, 유일한 onMessageExternal 리스너), 이 워커가 아직 가진 액션만 과도기
+// 위임으로 넘어온다 — 환경은 dispatch가 보내는 창 origin으로 정해 넘기고, 응답할 때까지 서비스워커도 dispatch가 붙든다.
+// 아래 액션은 wave8b(셀피아·배송 목록·송장 업로드 kind)와 wave9(카카오 KID-379)에서 사라진다.
+function handleOrdersExternalMessage(msg, environmentId, sendResponse) {
   msg = { ...msg, environmentId };
-  ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
   const respond = (operation) => {
-    // 응답이 갈 때까지 서비스워커를 살려 둔다. 수집기마다 keepAlive 를 복붙하지
-    // 않아도 이 경로를 지나는 모든 액션이 유휴 종료로부터 보호된다.
-    KidItemWorkerKeepAlive.during(operation)
+    Promise.resolve(operation)
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -880,7 +873,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   return false;
-});
+}
 
 // ── 공통: 몰 미로그인 / 페이지 접근불가 에러 처리 ──
 // 미로그인 상태로 수집하면 백그라운드 탭이 로그인 페이지로 리다이렉트되고, 그 순간 executeScript 는
@@ -3219,10 +3212,38 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
+const ORDERS_EXTERNAL_ACTIONS = [
+  "hostPublicImages",
+  "listMallCategories",
+  "sendOrderFileToSellpia",
+  "collectSellpiaOrderSnapshot",
+  "sellpiaPostTransfer",
+  "sellpiaAutoInvoice",
+  "openCoupangShipmentPage",
+  "clickCoupangShipmentDownloads",
+  "collectCoupangShipmentList",
+  "fetchCoupangShipmentPdfBatch",
+  "clearCoupangCookies",
+  "uploadOnchTracking",
+  "uploadKidkidsTracking",
+  "uploadDomeggookTracking",
+  "closeOrderCollectionTabs",
+  "checkMallLogin",
+  "ensureMallLoggedIn",
+  "testMallLogin",
+  "collectKakaoOrders",
+];
 KidItemDomains.register({
   producerPrefixes: ["orders"],
   // 몰 관리자 목록 가져오기는 실행 kind `channels.mall_admin_listings`다(KID-363·381) — 옛 `collectMallAdminListings`는 없다.
-  externalActions: {},
+  externalActions: Object.fromEntries(ORDERS_EXTERNAL_ACTIONS.map((action) => [action, {
+    validate: (msg) => msg,
+    handle: (msg, environmentId) => new Promise((resolve) => {
+      if (handleOrdersExternalMessage(msg, environmentId, resolve) === false) {
+        resolve({ success: false, error: "Unsupported orders action" });
+      }
+    }),
+  }])),
   capabilities: {
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
