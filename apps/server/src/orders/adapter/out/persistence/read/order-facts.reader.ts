@@ -10,40 +10,31 @@ import {
 import { businessDateKey, datesInclusive, kstBusinessDate } from '../../../../../common/kst';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import type { ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  type DailyOrderFacts,
+  type ListingOptionOrderFacts,
+  type OrderLineFact,
+  type OrderLineWindowFacts,
+  type OrderSourceCoverageFacts,
+  type OrderWindowFacts,
+  type OrderWindowInput,
+  type PublishedOrderLineFact,
+  type RepurchaseOrderFact,
+} from '../../../../application/port/in/facts/order-facts.port';
 
-export const ORDER_FACT_EXCLUDED_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
-
-export interface OrderWindowInput {
-  organizationId: string;
-  from: Date;
-  to: Date;
-  excludedStatuses?: readonly string[];
-}
-
-export interface OrderWindowFacts {
-  revenue: number | null;
-  orderCount: number | null;
-  quantity: number | null;
-  observedAt: Date | null;
-  observedTotals: {
-    revenue: number;
-    orderCount: number;
-    quantity: number;
-  } | null;
-  requestedDates: string[];
-  includedDates: string[];
-  missingDates: string[];
-  sourceCoverage: OrderSourceCoverageFacts[];
-}
-
-export interface OrderSourceCoverageFacts {
-  sourceType: string;
-  channelAccountId: string | null;
-  mallKey: string | null;
-  includedDates: string[];
-  missingDates: string[];
-  observedAt: Date | null;
-}
+export {
+  ORDER_FACT_EXCLUDED_STATUSES,
+  type DailyOrderFacts,
+  type ListingOptionOrderFacts,
+  type OrderLineFact,
+  type OrderLineWindowFacts,
+  type OrderSourceCoverageFacts,
+  type OrderWindowFacts,
+  type OrderWindowInput,
+  type PublishedOrderLineFact,
+  type RepurchaseOrderFact,
+};
 
 type OrderListPayload = Prisma.OrderGetPayload<{
   include: {
@@ -71,54 +62,6 @@ export interface OrderListInput {
 export interface OrderStatusCounts {
   total: number;
   byStatus: Record<string, number>;
-}
-
-export interface DailyOrderFacts {
-  day: string;
-  revenue: number;
-  orderCount: number;
-  quantity: number;
-}
-
-export interface ListingOptionOrderFacts {
-  orderId: string;
-  channelAccountId: string;
-  listingOptionId: string;
-  revenue: number;
-  quantity: number;
-}
-
-export interface OrderLineFact {
-  orderId: string;
-  channelAccountId: string;
-  orderedAt: Date;
-  businessDate: string;
-  shippingPrice: number;
-  lineItemId: string;
-  listingOptionId: string | null;
-  sku: string | null;
-  productName: string;
-  revenue: number;
-  quantity: number;
-}
-
-export interface OrderLineWindowFacts {
-  window: OrderWindowFacts;
-  orders: readonly Readonly<{
-    orderId: string;
-    channelAccountId: string;
-    orderedAt: Date;
-    businessDate: string;
-    shippingPrice: number;
-    lines: readonly OrderLineFact[];
-  }>[];
-}
-
-export interface RepurchaseOrderFact {
-  orderId: string;
-  receiverName: string | null;
-  orderedAt: Date;
-  revenue: number;
 }
 
 type WindowRow = {
@@ -518,13 +461,6 @@ export async function readObservedOrderCount(
 }
 
 /** One line of an order an operation published, without window facts. */
-export interface PublishedOrderLineFact {
-  orderId: string;
-  lineItemId: string;
-  listingOptionId: string | null;
-  revenue: number;
-  quantity: number;
-}
 
 /**
  * Every line of every order an operation published for the
