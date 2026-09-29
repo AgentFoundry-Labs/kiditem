@@ -33,14 +33,14 @@ export type ChannelListingSaleState = (typeof CHANNEL_LISTING_SALE_STATES)[numbe
 /** 게시(판매중) 상태 — 몰·적재 파일·Wing API·사방넷·몰 관리자 목록이 주는 글자를 소문자로 맞춰 비교한다. */
 const ON_SALE_LISTING_STATUSES = new Set([
   'active', 'on_sale', 'partial_on_sale', 'sale', 'selling', 'true', 'approved', 'published',
-  '활성', '판매 중', '판매중', '승인완료', '사방넷:공급중',
+  '활성', '판매 중', '판매중', '승인완료', '사방넷 공급중',
 ]);
 
 const OFF_SALE_LISTING_STATUSES = new Set([
   'inactive', 'off_sale', 'stopped', 'suspended', 'paused', 'soldout', 'sold_out', 'out_of_stock', 'hidden', 'held',
   'discontinued', 'deleted', 'rejected', 'ended',
   '비활성', '판매 중지', '판매중지', '품절', '단종', '승인반려', '판매종료', '미노출', '보류',
-  '사방넷:일시중지', '사방넷:완전품절',
+  '사방넷 일시중지', '사방넷 완전품절',
 ]);
 
 function normalizeStatus(status: string | null | undefined): string | null {
