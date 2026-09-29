@@ -9777,12 +9777,19 @@ var KidItemRuntime = (() => {
      * 직배송 원천(`orders.coupang_directship`)일 때 필수 — 한 실행이 운송유형마다 파일 하나를 낸다(소비 기록·Python 생성기).
      * 몰 주문 원천에는 없어야 한다. owner plan이 원천 kind에 맞춰 검증한다.
      */
-    transport: SellpiaTransferTransportSchema.optional()
+    transport: SellpiaTransferTransportSchema.optional(),
+    /**
+     * 같은 원천(+운송유형)의 성공한 전송이 이미 있으면 서버가 `ORDERS_TRANSFER_ALREADY_SENT`로 거절한다(전송 울타리 = 실행).
+     * 운영자가 재전송 확인 창을 거쳐 일부러 다시 보낼 때만 true — plan에 `resendOf`(앞선 성공 실행 id)가 남는다.
+     */
+    resend: external_exports.boolean().optional()
   }).strict();
   var SellpiaOrderTransferPlanSchema = external_exports.object({
     sourceOperationId: external_exports.string().uuid(),
     shopName: external_exports.string().trim().min(1).max(200),
     transport: SellpiaTransferTransportSchema.nullable(),
+    /** 재전송이면 앞선 성공 전송 실행 id, 아니면 null. */
+    resendOf: external_exports.string().uuid().nullable(),
     fileName: external_exports.string().trim().min(1).max(300),
     /** 서버가 변환 파일에서 읽은 대상 주문번호(판매처주문번호|주문번호|주문코드 머리). 0개면 plan이 거절한다. */
     targetOrderNumbers: external_exports.array(orderNumber).min(1).max(SELLPIA_TRANSFER_TARGETS_MAX)

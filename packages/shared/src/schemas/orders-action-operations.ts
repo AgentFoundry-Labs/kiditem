@@ -68,6 +68,11 @@ export const SellpiaOrderTransferScopeSchema = z.object({
    * 몰 주문 원천에는 없어야 한다. owner plan이 원천 kind에 맞춰 검증한다.
    */
   transport: SellpiaTransferTransportSchema.optional(),
+  /**
+   * 같은 원천(+운송유형)의 성공한 전송이 이미 있으면 서버가 `ORDERS_TRANSFER_ALREADY_SENT`로 거절한다(전송 울타리 = 실행).
+   * 운영자가 재전송 확인 창을 거쳐 일부러 다시 보낼 때만 true — plan에 `resendOf`(앞선 성공 실행 id)가 남는다.
+   */
+  resend: z.boolean().optional(),
 }).strict();
 export type SellpiaOrderTransferScope = z.infer<typeof SellpiaOrderTransferScopeSchema>;
 
@@ -75,6 +80,8 @@ export const SellpiaOrderTransferPlanSchema = z.object({
   sourceOperationId: z.string().uuid(),
   shopName: z.string().trim().min(1).max(200),
   transport: SellpiaTransferTransportSchema.nullable(),
+  /** 재전송이면 앞선 성공 전송 실행 id, 아니면 null. */
+  resendOf: z.string().uuid().nullable(),
   fileName: z.string().trim().min(1).max(300),
   /** 서버가 변환 파일에서 읽은 대상 주문번호(판매처주문번호|주문번호|주문코드 머리). 0개면 plan이 거절한다. */
   targetOrderNumbers: z.array(orderNumber).min(1).max(SELLPIA_TRANSFER_TARGETS_MAX),
