@@ -1,6 +1,5 @@
 import { AD_ACTION_KIND } from '@kiditem/shared/advertising-operations';
 import type { OperationKind } from '@kiditem/shared/operation';
-import { AD_ACTION_LINKED_PHASE } from '../collectors/advertising.ad_action';
 import type { OperationRunner, RunOutcome } from '../core/runner';
 
 /**
@@ -26,7 +25,7 @@ const STOPPING_FAILURES: Readonly<Record<string, string>> = {
 };
 
 export type PreparedRunSummary =
-  /** `linked`: 같은 이름 캠페인이 이미 있어 쓰지 않고 연결했다(`created`와 따로). */
+  /** `linked`: 같은 이름 캠페인이 이미 있어 쓰지 않고 연결했다(result `linkedExisting`, `created`와 따로). */
   | { ok: true; ran: number; created: number; linked: number; uncertain: number; failed: number; messages: string[]; stopped?: string }
   | { ok: false; error: string; errorCode?: string; ran: number };
 
@@ -62,11 +61,11 @@ function failureCode(outcome: RunOutcome): string | null {
 
 function classify(outcome: RunOutcome): { bucket: 'created' | 'linked' | 'uncertain' | 'failed'; message: string | null } {
   if (outcome.kind === 'finished') {
-    const { status, result, progress, errorMessage } = outcome.operation;
+    const { status, result, errorMessage } = outcome.operation;
     if (status === 'succeeded') {
       const message = typeof result?.message === 'string' ? result.message : null;
       if (result?.providerOutcome === 'uncertain') return { bucket: 'uncertain', message };
-      return { bucket: progress?.phase === AD_ACTION_LINKED_PHASE ? 'linked' : 'created', message: null };
+      return { bucket: result?.linkedExisting === true ? 'linked' : 'created', message: null };
     }
     return { bucket: 'failed', message: errorMessage };
   }

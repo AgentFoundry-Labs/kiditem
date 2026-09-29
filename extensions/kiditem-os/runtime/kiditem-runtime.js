@@ -4911,7 +4911,6 @@ var KidItemRuntime = (() => {
   var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
   var CAMPAIGN_PAGE_SIZE = 500;
   var MAX_CAMPAIGN_PAGES = 20;
-  var AD_ACTION_LINKED_PHASE = "linked";
   var PRESSED_PHASE = "pressed";
   var EXISTING_MESSAGE = "\uAC19\uC740 \uC774\uB984\uC758 \uCEA0\uD398\uC778\uC774 \uC774\uBBF8 \uC788\uC5B4 \uC0C8\uB85C \uB9CC\uB4E4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.";
   var adActionCollector = {
@@ -4941,7 +4940,8 @@ var KidItemRuntime = (() => {
         actionType: parsed3.data.actionType,
         providerOutcome: progress4?.phase === PRESSED_PHASE ? "uncertain" : "not_attempted",
         campaignId: null,
-        message: error.message.slice(0, 500) || null
+        message: error.message.slice(0, 500) || null,
+        linkedExisting: false
       };
     }
   };
@@ -4976,14 +4976,16 @@ var KidItemRuntime = (() => {
       observedAt: (/* @__PURE__ */ new Date()).toISOString(),
       message: submission.message?.slice(0, 500) ?? null
     };
-    yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: existing ? AD_ACTION_LINKED_PHASE : "submitted" } };
+    yield { chunkKind: AD_ACTION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { phase: "submitted" } };
     return {
       result: {
         actionId: plan.actionId,
         actionType: plan.actionType,
         providerOutcome: submission.campaignId ? "created" : "uncertain",
         campaignId: submission.campaignId,
-        message: evidence.message
+        message: evidence.message,
+        // 같은 이름 캠페인에 연결만 했다(쓰지 않음) — 팝업이 새로 만든 것과 따로 센다.
+        linkedExisting: existing !== null
       }
     };
   }
@@ -20932,11 +20934,11 @@ var KidItemRuntime = (() => {
   }
   function classify(outcome) {
     if (outcome.kind === "finished") {
-      const { status, result, progress: progress4, errorMessage } = outcome.operation;
+      const { status, result, errorMessage } = outcome.operation;
       if (status === "succeeded") {
         const message = typeof result?.message === "string" ? result.message : null;
         if (result?.providerOutcome === "uncertain") return { bucket: "uncertain", message };
-        return { bucket: progress4?.phase === AD_ACTION_LINKED_PHASE ? "linked" : "created", message: null };
+        return { bucket: result?.linkedExisting === true ? "linked" : "created", message: null };
       }
       return { bucket: "failed", message: errorMessage };
     }

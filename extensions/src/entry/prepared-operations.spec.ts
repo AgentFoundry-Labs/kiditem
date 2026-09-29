@@ -5,11 +5,11 @@ import { RUN_PREPARED_OPERATIONS, installPreparedOperations, runPreparedOperatio
 
 const KIND = 'advertising.ad_action';
 
-function finished(id: string, status: OperationView['status'], result: Record<string, unknown> | null, errorMessage: string | null = null, progress: Record<string, unknown> | null = null): RunOutcome {
+function finished(id: string, status: OperationView['status'], result: Record<string, unknown> | null, errorMessage: string | null = null): RunOutcome {
   return {
     kind: 'finished',
     operation: {
-      id, kind: KIND, status, lockKeys: [`resource:ad-action:${id}`], plan: null, progress, result, window: null,
+      id, kind: KIND, status, lockKeys: [`resource:ad-action:${id}`], plan: null, progress: null, result, window: null,
       errorCode: errorMessage ? 'X' : null, errorMessage, startedAt: '2026-09-29T00:00:00.000Z', finishedAt: '2026-09-29T00:01:00.000Z',
       expiresAt: '2026-09-29T00:10:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null,
     },
@@ -53,8 +53,8 @@ describe('서버 준비 실행 돌리기(팝업 버튼, KID-386)', () => {
 
   it('같은 이름 캠페인이 이미 있어 쓰지 않고 연결한 실행은 created와 따로 센다', async () => {
     const { runner } = fakeRunner([
-      finished('op-1', 'succeeded', { providerOutcome: 'created', campaignId: '777' }, null, { phase: 'linked' }),
-      finished('op-2', 'succeeded', { providerOutcome: 'created', campaignId: '9' }, null, { phase: 'submitted' }),
+      finished('op-1', 'succeeded', { providerOutcome: 'created', campaignId: '777', linkedExisting: true }),
+      finished('op-2', 'succeeded', { providerOutcome: 'created', campaignId: '9', linkedExisting: false }),
     ]);
 
     const summary = await runPreparedOperations(runner, { kinds: [KIND], workerId: 'popup', signal: new AbortController().signal });

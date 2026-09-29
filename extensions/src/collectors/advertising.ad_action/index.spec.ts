@@ -75,7 +75,7 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
     expect(chunks[0].chunkKind).toBe(AD_ACTION_EVIDENCE_CHUNK_KIND);
     expect(AdActionEvidenceSchema.parse(chunks[0].payload[0])).toMatchObject({ campaignId: '88123', campaignName: '봄 신상 캠페인', message: '등록되었습니다' });
     expect(AdActionResultSchema.parse(finish.result)).toEqual({
-      actionId: ACTION, actionType: 'create_campaign', providerOutcome: 'created', campaignId: '88123', message: '등록되었습니다',
+      actionId: ACTION, actionType: 'create_campaign', providerOutcome: 'created', campaignId: '88123', message: '등록되었습니다', linkedExisting: false,
     });
   });
 
@@ -96,9 +96,10 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
     expect(log).not.toContain(expect.stringMatching(/^create/));
     expect(log.at(-1)).toBe('release ok');
     expect(chunks[0].payload[0]).toMatchObject({ campaignId: '777' });
-    // 팝업이 새로 만든 것과 따로 센다(실행 보기의 progress).
-    expect(chunks[0].progress).toEqual({ phase: 'linked' });
-    expect(finish.result).toMatchObject({ providerOutcome: 'created', campaignId: '777', message: '같은 이름의 캠페인이 이미 있어 새로 만들지 않았습니다.' });
+    // 팝업이 새로 만든 것과 따로 센다(result.linkedExisting).
+    expect(AdActionResultSchema.parse(finish.result)).toMatchObject({
+      providerOutcome: 'created', campaignId: '777', linkedExisting: true, message: '같은 이름의 캠페인이 이미 있어 새로 만들지 않았습니다.',
+    });
   });
 
   it('완료를 눌렀는데 번호를 못 읽으면 캠페인 목록을 다시 읽어 이름으로 찾는다', async () => {
@@ -146,7 +147,7 @@ describe('advertising.ad_action — 승인된 캠페인 등록을 광고센터�
     const result = adActionCollector.failureResult!(PLAN, { code: 'ADVERTISING_AD_CENTER_FORM_CHANGED', message: '광고센터 등록 화면이 바뀌었습니다.' }, { progress: { phase: 'filled' } });
 
     expect(AdActionResultSchema.parse(result)).toEqual({
-      actionId: ACTION, actionType: 'create_campaign', providerOutcome: 'not_attempted', campaignId: null, message: '광고센터 등록 화면이 바뀌었습니다.',
+      actionId: ACTION, actionType: 'create_campaign', providerOutcome: 'not_attempted', campaignId: null, message: '광고센터 등록 화면이 바뀌었습니다.', linkedExisting: false,
     });
   });
 
