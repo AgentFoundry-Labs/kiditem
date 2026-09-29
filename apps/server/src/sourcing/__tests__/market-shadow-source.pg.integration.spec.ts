@@ -342,6 +342,55 @@ describe('시장 섀도 = 서버 구동 kind sourcing.market_shadow, KST 하루 
       await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT shadow_resolution_failure`;
     }
   });
+  it('Google 100·Linkfox 50 상한(품목마다 URL 100개×2,000자) 섀도 문서도 품목 단위 청크로 실려 옛 문서 그대로 발행된다', async () => {
+    const url = (index: number) => `https://img.example/${String(index).padStart(4, '0')}/${'a'.repeat(1_975)}`;
+    const urls = Array.from({ length: 100 }, (_, index) => url(index));
+    vi.stubEnv('SOURCING_LINKFOX_SHADOW_ENABLED', '1');
+    vi.stubEnv('SOURCING_LINKFOX_PILOT_ORGANIZATION_IDS', ORG);
+    vi.stubEnv('SOURCING_LINKFOX_ECHOTIK_REGION', 'US');
+    const bigGoogle = {
+      fetchTrending: vi.fn(async () => ({
+        source: 'google-trends-rss' as const,
+        generatedAt: NOW.toISOString(),
+        items: Array.from({ length: 100 }, (_, index) => ({
+          externalId: `gtr_${index}`, source: 'google-trends-rss' as const, title: `신호 ${index}`, rawTitle: `신호 ${index}`,
+          approximateTraffic: 100, approximateTrafficLabel: '100+', publishedAt: NOW.toISOString(), sourceUrl: url(index),
+          newsItems: urls.map((newsUrl) => ({ title: null, url: newsUrl, source: null })), relevanceLabel: null, raw: {},
+        })),
+      })),
+    };
+    const linkfox = {
+      fetchNewProductRank: vi.fn(async () => ({
+        source: 'linkfox-echotik-new-product-rank' as const, generatedAt: NOW.toISOString(), date: '2026-09-07', region: 'US' as const,
+        pageSize: 50, total: 50, costToken: null,
+        products: Array.from({ length: 50 }, (_, index) => ({
+          asin: `B${index}`, title: `상품 ${index}`, region: 'US' as const, price: null, minPrice: null, maxPrice: null, currency: null,
+          totalSaleCnt: null, totalSale30dCnt: null, gmv: null, salesTrendFlagText: null, videoCount: null, liveCount: null,
+          influencerCount: null, commission: null, rating: null, reviewCount: null, availableDate: null, categoryId: null,
+          imageUrls: urls, raw: {},
+        })),
+      })),
+    };
+    const big = new SourcingShadowSignalService(
+      bigGoogle,
+      new MarketShadowSnapshotRepositoryAdapter(prisma as never),
+      new TrendCollectionRepositoryAdapter(prisma as never),
+      sourcingServerOperations(prisma, unusedSalesProductDraftPort).runner,
+      linkfox as never,
+    );
+    const result = await big.collect({ organizationId: ORG, requestedByUserId: USER, idempotencyKey: randomUUID() }, NOW);
+    expect(result).toMatchObject({ state: 'COMPLETE' });
+    expect(await prisma.operationChunk.count()).toBe(0);
+    const payload = result.snapshot!.payload as { result: { sources: Array<{ items?: unknown[]; products?: Array<{ imageUrls: string[] }> }> } };
+    expect(payload.result.sources.map((source) => (source.items ?? source.products)?.length)).toEqual([100, 50]);
+    expect(payload.result.sources[1].products![49].imageUrls).toEqual(urls);
+    const [evidence] = await prisma.sourcingEvidenceObservation.findMany({ where: { organizationId: ORG, operationId: result.attemptId } });
+    // 원본 관측은 공급자 원문(raw 포함) 문서, 스냅숏은 타입 문서다 — 둘 다 품목을 빠짐없이 되모은다.
+    const raw = evidence.payload as typeof payload;
+    expect(raw.result.sources.map((source) => (source.items ?? source.products)?.length)).toEqual([100, 50]);
+    expect(raw.result.sources[1].products![49].imageUrls).toEqual(urls);
+  });
+
   it('reads only scoped COMPLETE evidence and never certifies legacy workspace rows', async () => {
     await prisma.sourcingWorkspaceSnapshot.create({
       data: {

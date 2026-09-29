@@ -141,13 +141,6 @@
       "text": "이 수집 시도는 더 이상 유효하지 않습니다. 다시 시작해 주세요.",
       "retryable": true
     },
-    "ATTEMPT_TERMINAL": {
-      "owner": "common",
-      "kind": "conflict",
-      "httpStatus": 409,
-      "text": "이미 끝난 수집 시도입니다.",
-      "retryable": false
-    },
     "ATTEMPT_PAUSED": {
       "owner": "common",
       "kind": "in_progress",

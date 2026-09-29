@@ -1,10 +1,5 @@
 import { Sourcing1688KeywordAttentionError, Sourcing1688KeywordProviderError } from '../port/out/provider/1688-keyword-search.port';
 import { Sourcing1688BatchUnitResultSchema, type Sourcing1688BatchResult, type Sourcing1688BatchUnitResult } from '@kiditem/shared/sourcing';
-import {
-  SOURCING_1688_IMAGE_COLLECTOR_KEY,
-  SOURCING_1688_KEYWORD_COLLECTOR_KEY,
-  SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
-} from '../port/out/repository/sourcing-1688-search-result.repository.port';
 import type { SourcingSourceAttempt } from './sourcing-server-operation.runner';
 
 export function sourceAlert(source: string, targetKey: string) {
@@ -49,9 +44,8 @@ export function unitResultOf(attempt: SourcingSourceAttempt, sourceKey: '1688.ho
   const image = sourceKey === '1688.image_search';
   const maxResults = image ? 18 : 6;
   const parsed = Sourcing1688BatchUnitResultSchema.safeParse(attempt.unitResult);
+  // 수집기는 kind가 정한다(읽는 쪽이 이 kind의 실행만 넘긴다). 여기서는 원천·범위·plan과 값이 맞는지만 본다.
   if (attempt.state === 'RUNNING' || !parsed.success || attempt.sourceKey !== sourceKey || attempt.scopeKey !== 'default'
-    || attempt.plan.collectorKey !== (image ? SOURCING_1688_IMAGE_COLLECTOR_KEY : SOURCING_1688_KEYWORD_COLLECTOR_KEY)
-    || attempt.plan.collectorVersion !== SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION
     || attempt.plan.maxResults !== maxResults) return null;
   const unit = parsed.data;
   if (unit.keyword !== attempt.plan.keyword || unit.targetId !== (image ? attempt.plan.targetId : null)

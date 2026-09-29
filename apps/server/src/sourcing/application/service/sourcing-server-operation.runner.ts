@@ -288,7 +288,8 @@ export function toAttempt(record: SourcingServerOperationRecord): SourcingSource
     targetKey: String(record.plan.targetKey ?? ''),
     state,
     expiresAt: record.expiresAt,
-    plan: record.plan,
+    // 공개 plan은 원천 plan뿐이다(옛 attempt 모양) — 요청 멱등 키·지문·시작한 사람·알림 자리는 싣지 않는다.
+    plan: isRecord(record.plan.attemptPlan) ? record.plan.attemptPlan : {},
     planChecksum: String(record.plan.planChecksum ?? ''),
     contentChecksum: typeof result.contentChecksum === 'string' ? result.contentChecksum : null,
     acceptedCount: typeof result.acceptedCount === 'number' ? result.acceptedCount : 0,

@@ -90,6 +90,14 @@ class TestHeldOwner extends EchoOwner {
   readonly reconciles = true as const;
 }
 
+/** 서버만 여는 kind(`serverDriven`, KID-389): HTTP 문은 begin·claim을 거절한다. */
+@Injectable()
+@OperationOwner()
+class TestServerOwner extends EchoOwner {
+  readonly kind = 'test.server';
+  readonly serverDriven = true as const;
+}
+
 /** 트랜잭션 `size`개가 도착하거나 `timeoutMs`가 지나면 한꺼번에 푸는 장벽. 처음 한 번만 붙잡는다. */
 function barrier(size: number, timeoutMs = 500) {
   let arrived = 0;
@@ -145,6 +153,7 @@ describe('operation contract HTTP + disposable PG', () => {
         TestEchoOwner,
         TestOtherOwner,
         TestHeldOwner,
+        TestServerOwner,
       ],
     }).compile();
     app = module.createNestApplication({ logger: false });
@@ -221,6 +230,12 @@ describe('operation contract HTTP + disposable PG', () => {
     expect(finalizeCalls[0].window).toEqual({ start: '2026-09-01', end: '2026-09-24' });
     expect(await stagedRows(operation.id)).toBe(0);
     expect(await lockRows(operation.id)).toBe(0);
+  });
+
+  it('HTTP begin은 서버만 여는 kind를 400 VALIDATION_FAILED{server_driven_kind}로 거절하고 실행 행을 만들지 않는다', async () => {
+    const refused = await begin({ kind: 'test.server', scope: {} }).expect(400);
+    expect(refused.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'server_driven_kind' } });
+    expect(await prisma.operation.count()).toBe(0);
   });
 
   it('2. a second begin on a held lockKey is refused with OPERATION_IN_PROGRESS naming the running operation', async () => {

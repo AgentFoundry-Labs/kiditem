@@ -4,6 +4,7 @@ import {
   SourcingShadowSignalService,
 } from '../sourcing-shadow-signal.service';
 import type { SourcingSourceAttempt } from '../sourcing-server-operation.runner';
+import { decodeSourceOutput, encodeSourceOutput } from '../sourcing-server-output.codec';
 import type {
   LinkfoxEchotikShadowPort,
   MarketShadowSignalPort,
@@ -75,8 +76,10 @@ describe('SourcingShadowSignalService', () => {
         return { created: true, attempt, token: 'secret' };
       }),
       read: vi.fn(async () => attempt),
-      complete: vi.fn(async (_organizationId: string, _run: unknown, output: { observations: Array<{ rawPayload: unknown }> }) => {
-        snapshot = row(output.observations[0].rawPayload);
+      complete: vi.fn(async (_organizationId: string, _run: unknown, output: never, head: never) => {
+        // 청크 부호화를 실제로 거쳐 finalize가 받을 문서를 되살린다(품목 단위로 나눈 섀도 문서).
+        const staged = encodeSourceOutput(output, head).map((payload, index) => ({ chunkKind: 'source_output', sequence: index + 1, itemCount: payload.length, payload }));
+        snapshot = row(decodeSourceOutput(staged).output.observations[0].rawPayload);
         attempt = { ...attempt, state: 'COMPLETE' };
         return attempt;
       }),

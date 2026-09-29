@@ -23,6 +23,7 @@ import {
 import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { KiditemError } from '@kiditem/shared/errors';
 import { SourcingServerOperationRunner, toAttempt, type SourcingSourceAttempt } from './sourcing-server-operation.runner';
+import { sourceDocumentRef, type SourceDocumentSplit } from './sourcing-server-output.codec';
 import {
   MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,
   MARKET_SHADOW_SNAPSHOT_SCOPE,
@@ -265,7 +266,7 @@ export class SourcingShadowSignalService {
                 evidenceRevision: 1,
                 schemaVersion: GENERATOR_VERSION,
                 businessDate,
-                document: typedDocument,
+                document: sourceDocumentRef('typed') as unknown as typeof typedDocument,
                 capturedAt: now,
               },
             }],
@@ -292,12 +293,14 @@ export class SourcingShadowSignalService {
                 availableAt: now,
                 revisionAt: null,
                 payloadHash,
-                rawPayload: payload,
+                rawPayload: sourceDocumentRef('raw'),
                 ingestedAt: now,
               },
             ],
         }, {
           contentChecksum: payloadHash,
+          // 문서는 품목 하나씩 청크 원소로 싣고 finalize가 옛 문서 그대로 다시 모은다(청크 원소 상한은 품목 하나에 걸린다).
+          documents: { raw: splitShadowDocument(payload), typed: splitShadowDocument(typedDocument) },
           // The KST business date is UTC midnight, 09:00 KST. Collected before
           // dawn that start is later than the capture, so the stored window is
           // reversed and a reader of its dates sees no covered day (KID-139).
@@ -509,6 +512,21 @@ export class SourcingShadowSignalService {
 }
 
 /** 그날 입장을 이미 쓴 실행(옛 SHADOW_DAILY_LIMIT 응답 그대로 — 실행 id를 싣는다). */
+/** 섀도 문서의 원천별 품목 목록(Google `items`, Linkfox `products`)을 뼈대에서 떼어 품목 단위로 나눈다. */
+function splitShadowDocument(document: unknown): SourceDocumentSplit {
+  const skeleton = structuredClone(document) as { result?: { sources?: Array<Record<string, unknown>> } };
+  const lists: SourceDocumentSplit['lists'] = [];
+  (skeleton.result?.sources ?? []).forEach((source, index) => {
+    for (const key of ['items', 'products']) {
+      const items = source[key];
+      if (!Array.isArray(items)) continue;
+      lists.push({ path: ['result', 'sources', index, key], items });
+      source[key] = [];
+    }
+  });
+  return { skeleton, lists };
+}
+
 function isAdmissionRace(error: unknown): boolean {
   return error instanceof KiditemError && (error.code === 'OPERATION_IN_PROGRESS'
     || (error.code === 'VALIDATION_FAILED' && error.details?.reason === 'idempotency_key_reused'));

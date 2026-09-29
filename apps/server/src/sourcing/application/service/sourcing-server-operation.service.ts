@@ -25,8 +25,9 @@ import {
 import { lockId } from './sourcing-extension-operation.service';
 import { decodeSourceOutput } from './sourcing-server-output.codec';
 
-/** 서버 구동 kind의 plan JSON에 남는 값. 원천 plan(`attemptPlan`)의 칸은 이 위에 펼쳐진다. */
+/** 서버 구동 kind의 plan JSON에 남는 값. 원천 plan은 `attemptPlan` 칸에 그대로 있다. */
 const ServerPlanSchema = z.object({
+  attemptPlan: z.record(z.unknown()),
   sourceKey: z.string().min(1),
   scopeKey: z.string().min(1),
   targetKey: z.string().min(1),
@@ -60,7 +61,8 @@ export class SourcingServerOperationService implements SourcingServerOperationPo
     const { attemptPlan, ...base } = parsed.data;
     await this.assertSourceEnabled(context.organizationId, base.sourceKey);
     return {
-      plan: { ...attemptPlan, ...base, startedBy: context.userId },
+      // 실행 plan: 원천·대상 키·요청 지문·알림 자리(owner·조회용)와 원천 plan(`attemptPlan`). 공개·발행에는 원천 plan만 나간다.
+      plan: { ...base, attemptPlan, startedBy: context.userId },
       // 옛 attempt의 원천·대상 잠금(SOURCE_ATTEMPT_IN_PROGRESS) 자리: 같은 대상의 두 번째 begin은 계약이 겹침으로 거절한다.
       lockKeys: [resourceLockKey('sourcing', lockId(`${base.sourceKey}:${base.scopeKey}:${base.targetKey}`))],
     };
@@ -78,7 +80,7 @@ export class SourcingServerOperationService implements SourcingServerOperationPo
       throw new KiditemConflictError('SOURCING_COLLECTION_INCOMPLETE', { details: { reason: 'rejected_output', kind } });
     }
     if (kind === 'sourcing.scrape_url' && (!head.sourceRecord || head.sourceRecord.organizationId !== context.organizationId
-      || head.sourceRecord.sourceUrl !== context.plan.sourceUrl)) {
+      || head.sourceRecord.sourceUrl !== plan.attemptPlan.sourceUrl)) {
       throw new KiditemInvalidValueError('SOURCING_COLLECTION_INVALID', { details: { reason: 'scrape_candidate_mismatch' } });
     }
     const now = new Date();
@@ -104,7 +106,8 @@ export class SourcingServerOperationService implements SourcingServerOperationPo
       targetKey: plan.targetKey,
       collectorKey: plan.collectorKey,
       collectorVersion: plan.collectorVersion,
-      plan: context.plan,
+      // 발행 행에는 원천 plan만 남긴다(옛 run 발행과 같은 모양 — 요청 지문·사용자 id는 원장에 두지 않는다).
+      plan: plan.attemptPlan,
       windowStartAt: head.windowStartAt,
       windowEndAt: head.windowEndAt ?? now,
       discoveredCount: output.discoveredCount,
